@@ -1,0 +1,22 @@
+{
+  "name": "jobdesk-schemas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Job Search Copilot — canonical Zod schemas (source of truth). JSON Schema is generated.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run",
+    "gen:jsonschema": "tsx scripts/generate-json-schema.ts"
+  },
+  "dependencies": {
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "tsx": "4.19.2",
+    "typescript": "5.6.3",
+    "vitest": "2.1.8",
+    "zod-to-json-schema": "3.23.5"
+  }
+}
