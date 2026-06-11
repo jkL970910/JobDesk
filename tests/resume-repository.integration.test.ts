@@ -197,23 +197,11 @@ async function createApprovedResumeEvidence() {
     usage: {},
     retryCount: 0,
   });
-  const contextBeforeApproval = await getResumeTailoringContext();
-  if (contextBeforeApproval.evidenceItems.length > 0) {
-    return contextBeforeApproval.evidenceItems[0]!.id;
-  }
   const libraryEvidence = await getLatestSqlEvidenceFromRecentLibrary();
   await updateEvidenceItem({
     evidenceId: libraryEvidence.id,
-    action: "approve",
-  });
-  await updateEvidenceItem({
-    evidenceId: libraryEvidence.id,
-    action: "edit",
+    action: "approve_for_resume",
     allowedUsage: ["resume"],
-  });
-  await updateEvidenceItem({
-    evidenceId: libraryEvidence.id,
-    action: "approve",
   });
   const context = await getResumeTailoringContext();
   const eligible = context.evidenceItems.find((item) =>

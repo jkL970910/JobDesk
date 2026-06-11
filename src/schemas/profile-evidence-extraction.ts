@@ -2,25 +2,56 @@ import { z } from "zod";
 
 import { EvidenceItem, ProjectCard } from "./evidence";
 
-const SimpleExtractedField = z.object({
+const SimpleExtractedField = z.preprocess((value) => {
+  if (typeof value === "string") {
+    return { value, source_quote: value, confidence: 0.5 };
+  }
+  return value;
+}, z.object({
   value: z.string(),
   source_quote: z.string(),
   confidence: z.number().min(0).max(1).default(0),
-});
+}));
 
 const NullableSimpleExtractedField = z.preprocess((value) => {
+  if (typeof value === "string" && value.trim()) {
+    return { value, source_quote: value, confidence: 0.5 };
+  }
   if (!value || typeof value !== "object") return value;
   const record = value as Record<string, unknown>;
   if (record.value == null || record.source_quote == null) return null;
   return record;
 }, SimpleExtractedField.nullable());
 
+const LooseSimpleFieldArray = z
+  .preprocess((value) => flattenArrayLike(value), z.array(SimpleExtractedField))
+  .default([]);
+
+function flattenArrayLike(value: unknown): unknown[] {
+  const values = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+      ? Object.values(value)
+      : value == null
+        ? []
+        : [value];
+  return values.flatMap((item) => {
+    if (Array.isArray(item)) return flattenArrayLike(item);
+    if (item && typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      if (record.value != null || record.source_quote != null) return [item];
+      return flattenArrayLike(Object.values(record));
+    }
+    return [item];
+  });
+}
+
 export const SimpleProfile = z.object({
   name: SimpleExtractedField,
   email: NullableSimpleExtractedField.default(null),
   phone: NullableSimpleExtractedField.default(null),
   location: NullableSimpleExtractedField.default(null),
-  links: z.array(SimpleExtractedField).default([]),
+  links: LooseSimpleFieldArray,
   experience: z
     .array(
       z.object({
@@ -28,7 +59,7 @@ export const SimpleProfile = z.object({
         title: SimpleExtractedField,
         start_date: SimpleExtractedField.nullable().default(null),
         end_date: SimpleExtractedField.nullable().default(null),
-        bullets: z.array(SimpleExtractedField).default([]),
+        bullets: LooseSimpleFieldArray,
       }),
     )
     .default([]),
@@ -53,8 +84,8 @@ export const SimpleProfile = z.object({
       ),
     )
     .default([]),
-  skills: z.array(SimpleExtractedField).default([]),
-  certifications: z.array(SimpleExtractedField).default([]),
+  skills: LooseSimpleFieldArray,
+  certifications: LooseSimpleFieldArray,
   missing_fields: z.array(z.string()).default([]),
   low_confidence_fields: z.array(z.string()).default([]),
   invented_field_flags: z.array(z.string()).default([]),

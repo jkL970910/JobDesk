@@ -170,37 +170,51 @@ export async function getRecentTailoredResumes(limit = 5) {
     .orderBy(desc(resumeVersions.updatedAt))
     .limit(limit);
 
-  return Promise.all(
-    rows.map(async (resume) => {
-      const claims = await db
-        .select()
-        .from(generatedClaims)
-        .where(eq(generatedClaims.resumeVersionId, resume.id));
-      return {
-        id: resume.id,
-        jobId: resume.jobId,
-        title: resume.title,
-        resume_markdown: resume.resumeMarkdown,
-        resume_json: resume.resumeJson,
-        missing_evidence_questions: resume.missingEvidenceQuestions,
-        version: resume.version,
-        status: resume.status,
-        updatedAt: resume.updatedAt.toISOString(),
-        claims: claims.map((claim) => ({
-          id: claim.id,
-          claim_text: claim.claimText,
-          section: claim.section,
-          evidence_ids: claim.evidenceIds,
-          source_quotes: claim.sourceQuotes,
-          support_status: claim.supportStatus,
-          claim_status: claim.claimStatus,
-          risk_level: claim.riskLevel,
-          stale_reason: claim.staleReason,
-          last_validated_at: claim.lastValidatedAt?.toISOString() ?? null,
-        })),
-      };
-    }),
-  );
+  return Promise.all(rows.map((resume) => toTailoredResumeDto(db, resume)));
+}
+
+export async function getTailoredResumeById(resumeVersionId: string) {
+  if (!hasDatabaseUrl()) return null;
+  const db = getDb();
+  const [resume] = await db
+    .select()
+    .from(resumeVersions)
+    .where(eq(resumeVersions.id, resumeVersionId))
+    .limit(1);
+  return resume ? toTailoredResumeDto(db, resume) : null;
+}
+
+async function toTailoredResumeDto(
+  db: Pick<DbHandle, "select">,
+  resume: typeof resumeVersions.$inferSelect,
+) {
+  const claims = await db
+    .select()
+    .from(generatedClaims)
+    .where(eq(generatedClaims.resumeVersionId, resume.id));
+  return {
+    id: resume.id,
+    jobId: resume.jobId,
+    title: resume.title,
+    resume_markdown: resume.resumeMarkdown,
+    resume_json: resume.resumeJson,
+    missing_evidence_questions: resume.missingEvidenceQuestions,
+    version: resume.version,
+    status: resume.status,
+    updatedAt: resume.updatedAt.toISOString(),
+    claims: claims.map((claim) => ({
+      id: claim.id,
+      claim_text: claim.claimText,
+      section: claim.section,
+      evidence_ids: claim.evidenceIds,
+      source_quotes: claim.sourceQuotes,
+      support_status: claim.supportStatus,
+      claim_status: claim.claimStatus,
+      risk_level: claim.riskLevel,
+      stale_reason: claim.staleReason,
+      last_validated_at: claim.lastValidatedAt?.toISOString() ?? null,
+    })),
+  };
 }
 
 export async function runFactGuardForResume(resumeVersionId: string) {

@@ -15,7 +15,8 @@
     "ai:smoke:jd": "tsx scripts/smoke-jd-analysis.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "smoke:full": "tsx scripts/smoke-full-workflow.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

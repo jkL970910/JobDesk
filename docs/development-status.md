@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-11
 Baseline commit: ce44458 `Build local MVP workflow baseline`
+Latest implementation commit: `Add workflow smoke export and claim review`
+Production URL: https://jobdesk-tau.vercel.app
 
 This is the living implementation status file. Every future code change should update this file before the related commit when it changes scope, workflow coverage, verification status, known risks, or next-task priority.
 
@@ -17,8 +19,8 @@ Product workflows:
 | 2 | Profile and evidence extraction | Done | Passed | Extracts profile fields, evidence items, project cards, and persists them when `DATABASE_URL` is configured. |
 | 3 | Evidence review for resume use | Done, basic | Passed | Supports approve/reject/edit actions and resume-eligible evidence filtering. Merge/dedupe UX remains later. |
 | 4 | JD analysis | Done | Passed | Extracts role facts, requirements, keywords, legitimacy signals, persistence, reload, reanalysis, and archive. |
-| 5 | Tailored resume generation | Done, MVP | Passed | Uses JD analysis plus approved evidence retrieval, writes resume versions and generated claim ledger. |
-| 6 | Fact Guard revalidation | Done, MVP | Passed | Deterministic coverage and evidence support checks. Resume may remain `unvalidated` when claims need manual review. |
+| 5 | Tailored resume generation | Done, MVP | Passed | Uses JD analysis plus approved evidence retrieval, writes resume versions and generated claim ledger. Markdown/JSON export route is available for persisted resumes. |
+| 6 | Fact Guard revalidation | Done, MVP | Passed | Deterministic coverage and evidence support checks with claim-by-claim review UI. Resume may remain `unvalidated` when claims need manual review. |
 
 Support workflows:
 
@@ -26,7 +28,7 @@ Support workflows:
 |---|----------|--------|-------|
 | S1 | Local dashboard/workbench | Done, MVP | Single-page app with JD analysis, profile/evidence, and tailored resume panels. |
 | S2 | DB persistence and migrations | Done | Drizzle/Postgres migrations are committed. Use migrations for any DB with user data. |
-| S3 | Vercel deployment path | Done, needs redeploy after latest local changes | Previous production URL was verified, but the latest local baseline has not been redeployed after the newest guardrail/schema fixes. |
+| S3 | Vercel deployment path | Done | Latest production deployment and smoke test passed at `https://jobdesk-tau.vercel.app`. |
 
 ## Latest Verified Local Workflow
 
@@ -38,8 +40,9 @@ Result from the latest full local smoke test:
 - Profile evidence extraction: passed, 6 evidence items and 2 project cards.
 - Evidence approval: passed, 4 evidence items approved for resume use.
 - JD analysis: passed, 11 requirements persisted.
-- Tailored resume: passed, 6 generated claims and 6 missing-evidence questions persisted.
-- Fact Guard: passed, coverage gate passed, 3 of 6 claims supported, resume kept `unvalidated` for human review.
+- Tailored resume: passed, 4 generated claims and 5 missing-evidence questions persisted.
+- Fact Guard: passed, coverage gate passed, 3 of 4 claims supported, resume kept `unvalidated` for human review.
+- Resume export: passed locally and in production, Markdown and JSON export endpoints returned downloadable artifacts.
 
 ## Verification Commands
 
@@ -48,10 +51,11 @@ Last verified on 2026-06-11:
 | Command | Status |
 |---------|--------|
 | `npm run typecheck` | Passed |
-| `npm test` | Passed, 39 passed / 4 skipped |
+| `npm test` | Passed, 40 passed / 4 skipped |
 | `npm run test:integration` | Passed, 4 passed |
 | `npm run build` | Passed |
-| Local full workflow smoke | Passed |
+| `npm run smoke:full -- --resume-file <path> --base-url http://127.0.0.1:3030` | Passed |
+| `npm run smoke:full -- --resume-file <path> --base-url https://jobdesk-tau.vercel.app` | Passed |
 
 Integration tests use the configured JobDesk database and write temporary workflow rows.
 
@@ -68,11 +72,11 @@ Integration tests use the configured JobDesk database and write temporary workfl
 | Priority | Task | Status |
 |----------|------|--------|
 | P0 | Keep this status file updated with every implementation step | Active |
-| P0 | Add a reusable local full-workflow smoke script without storing resume content in git | Not started |
-| P0 | Improve claim review UX so `unvalidated` resumes show exactly which claims need attention | Not started |
-| P1 | Add resume export path, likely Markdown first, then PDF/DOCX | Not started |
+| P0 | Add a reusable local full-workflow smoke script without storing resume content in git | Done |
+| P0 | Improve claim review UX so `unvalidated` resumes show exactly which claims need attention | Done, MVP |
+| P1 | Add resume export path, likely Markdown first, then PDF/DOCX | Markdown/JSON done, PDF/DOCX not started |
 | P1 | Add evidence merge/dedupe and de-identification workflow UI | Not started |
-| P1 | Redeploy latest baseline to Vercel and re-run production smoke | Not started |
+| P1 | Redeploy latest baseline to Vercel and re-run production smoke | Done |
 | P2 | Start interview preparation workflow | Not started |
 | P2 | Start daily job recommendation workflow | Not started |
 | P2 | Start email/application tracking workflow | Not started |

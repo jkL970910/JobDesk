@@ -309,13 +309,23 @@ button:disabled {
   padding: 10px 14px;
 }
 
-.secondary-button {
+.secondary-button,
+.secondary-link-button {
   background: #edf1ec;
   border: 1px solid #d6dfd7;
   border-radius: 6px;
   color: var(--accent-strong);
   font-weight: 800;
   padding: 9px 13px;
+}
+
+.secondary-link-button {
+  align-items: center;
+  display: inline-flex;
+  font-size: 0.8rem;
+  min-height: 31px;
+  padding: 6px 9px;
+  text-decoration: none;
 }
 
 .status {
@@ -450,6 +460,82 @@ button:disabled {
   line-height: 1.5;
   margin: 0;
   padding-left: 18px;
+}
+
+.claim-review__header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.claim-review__note {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.claim-review__score {
+  background: rgba(154, 79, 18, 0.12);
+  border-radius: 999px;
+  color: var(--warning);
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  font-weight: 850;
+  padding: 6px 9px;
+}
+
+.claim-review__score[data-ready="true"] {
+  background: rgba(14, 111, 92, 0.12);
+  color: var(--accent-strong);
+}
+
+.claim-review__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.claim-review__metrics span {
+  background: #fbfaf4;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+  padding: 5px 8px;
+}
+
+.claim-card {
+  border: 1px solid var(--line);
+  border-left: 4px solid #b8c2ba;
+  border-radius: 7px;
+  padding: 12px;
+}
+
+.claim-card[data-status="supported"] {
+  border-left-color: var(--accent);
+}
+
+.claim-card[data-status="partially_supported"] {
+  border-left-color: var(--warning);
+}
+
+.claim-card[data-status="unsupported"] {
+  border-left-color: var(--danger);
+}
+
+.claim-card__warning {
+  background: rgba(154, 79, 18, 0.08);
+  border: 1px solid rgba(154, 79, 18, 0.18);
+  border-radius: 6px;
+  color: var(--warning);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin: 10px 0 0;
+  padding: 8px 10px;
 }
 
 @media (max-width: 860px) {

@@ -67,7 +67,16 @@ Run these from the JobDesk folder (where `package.json` is).
    The script loads `.env` automatically. If no key is configured, it fails before
    making a network call.
 
-7. Configure Postgres persistence when a separate JobDesk Neon database is ready:
+7. Run the full local workflow smoke test after the dev server is running:
+   ```
+   npm run dev -- -p 3030
+   npm run smoke:full -- --resume-file /path/to/resume.pdf --base-url http://127.0.0.1:3030
+   ```
+   Expected: PDF/DOCX/TXT/Markdown source parsing, profile/evidence extraction,
+   evidence approval, JD analysis, tailored resume generation, and Fact Guard all
+   return passing status without printing resume source text.
+
+8. Configure Postgres persistence when a separate JobDesk Neon database is ready:
    ```
    DATABASE_URL=postgresql://...
    npm run db:migrate
@@ -80,7 +89,7 @@ Run these from the JobDesk folder (where `package.json` is).
    - `npm run db:migrate` applies committed migrations and is the safe path once the database may contain user data.
    - `npm run db:push` is for disposable local development only; do not use it against a user-data database.
 
-8. Run DB-backed integration tests when you want to verify the workbench paths:
+9. Run DB-backed integration tests when you want to verify the workbench paths:
    ```
    npm run test:integration
    ```

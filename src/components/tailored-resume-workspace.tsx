@@ -13,6 +13,19 @@ type RecentJob = {
   requirementCount: number;
 };
 
+type ResumeClaim = {
+  id: string;
+  claim_text: string;
+  section: string;
+  evidence_ids: string[];
+  source_quotes: string[];
+  risk_level: string;
+  support_status?: string;
+  claim_status?: string;
+  stale_reason?: string | null;
+  last_validated_at?: string | null;
+};
+
 type RecentResume = {
   id: string;
   jobId: string;
@@ -21,18 +34,7 @@ type RecentResume = {
   missing_evidence_questions: string[];
   status: string;
   updatedAt: string;
-  claims: Array<{
-    id: string;
-    claim_text: string;
-    section: string;
-    evidence_ids: string[];
-    source_quotes: string[];
-    risk_level: string;
-    support_status?: string;
-    claim_status?: string;
-    stale_reason?: string | null;
-    last_validated_at?: string | null;
-  }>;
+  claims: ResumeClaim[];
 };
 
 type EvidenceLibrary = {
@@ -92,6 +94,7 @@ export function TailoredResumeWorkspace() {
   const [status, setStatus] = useState("Select a recent job and use approved resume evidence.");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [isFactGuardPending, startFactGuardTransition] = useTransition();
 
   useEffect(() => {
     void loadJobs();
@@ -185,6 +188,52 @@ export function TailoredResumeWorkspace() {
     });
   }
 
+  async function runFactGuard() {
+    if (!latestResume?.id) return;
+    setError(null);
+    startFactGuardTransition(async () => {
+      const response = await fetch(`/api/resumes/${latestResume.id}/fact-guard`, {
+        method: "POST",
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            data?: {
+              supportedCount: number;
+              claimCount: number;
+              resumeStatus: string;
+              coveragePassed: boolean;
+              coverageReason: string | null;
+              claims: ResumeClaim[];
+            };
+            error?: string;
+          }
+        | null;
+      if (!response.ok) {
+        setError(payload?.error ?? "Fact Guard failed.");
+        return;
+      }
+      if (!payload?.data) {
+        setError("Fact Guard did not return a validation report.");
+        return;
+      }
+      const report = payload.data;
+      setStatus(
+        `Fact Guard · ${report.supportedCount}/${report.claimCount} claims supported · ${report.resumeStatus}`,
+      );
+      setLatestResume((current) =>
+        current
+          ? {
+              ...current,
+              status: report.resumeStatus,
+              claims: report.claims,
+            }
+          : current,
+      );
+      setDraft(null);
+      void loadRecentResumes();
+    });
+  }
+
   const selectedJob = jobs.find((job) => job.id === selectedJobId);
   const canGenerateResume =
     Boolean(selectedJobId) &&
@@ -192,9 +241,11 @@ export function TailoredResumeWorkspace() {
     readiness.approvedResumeEvidenceCount > 0;
   const displayResume = draft
     ? {
+        id: latestResume?.id,
         title: draft.title,
         resume_markdown: draft.resume_markdown,
         missing_evidence_questions: draft.missing_evidence_questions,
+        status: latestResume?.status,
         claims: draft.claims.map((claim, index) => ({
           id: `${claim.claim_text}-${index}`,
           claim_text: claim.claim_text,
@@ -205,50 +256,6 @@ export function TailoredResumeWorkspace() {
         })),
       }
     : latestResume;
-
-  async function runFactGuard() {
-    if (!latestResume?.id) return;
-    setError(null);
-    const response = await fetch(`/api/resumes/${latestResume.id}/fact-guard`, {
-      method: "POST",
-    });
-    const payload = (await response.json().catch(() => null)) as
-      | {
-          data?: {
-            supportedCount: number;
-            claimCount: number;
-            resumeStatus: string;
-            coveragePassed: boolean;
-            coverageReason: string | null;
-            claims: RecentResume["claims"];
-          };
-          error?: string;
-        }
-      | null;
-    if (!response.ok) {
-      setError(payload?.error ?? "Fact Guard failed.");
-      return;
-    }
-    if (!payload?.data) {
-      setError("Fact Guard did not return a validation report.");
-      return;
-    }
-    const report = payload.data;
-    setStatus(
-      `Fact Guard · ${report.supportedCount}/${report.claimCount} claims supported · ${report.resumeStatus}`,
-    );
-    setLatestResume((current) =>
-      current
-        ? {
-            ...current,
-            status: report.resumeStatus,
-            claims: report.claims,
-          }
-        : current,
-    );
-    setDraft(null);
-    void loadRecentResumes();
-  }
 
   return (
     <section className="workspace__grid">
@@ -305,11 +312,11 @@ export function TailoredResumeWorkspace() {
           {latestResume ? (
             <button
               className="secondary-button"
-              disabled={isPending}
+              disabled={isPending || isFactGuardPending}
               type="button"
               onClick={() => void runFactGuard()}
             >
-              Run Fact Guard
+              {isFactGuardPending ? "Checking..." : "Run Fact Guard"}
             </button>
           ) : null}
           <span className={error ? "status status--error" : "status"}>
@@ -424,22 +431,12 @@ function ResumeResult({
   resume,
 }: {
   resume: {
+    id?: string;
     title: string;
     resume_markdown: string;
     missing_evidence_questions: string[];
     status?: string;
-    claims: Array<{
-      id: string;
-      claim_text: string;
-      section: string;
-      evidence_ids: string[];
-      source_quotes: string[];
-      risk_level: string;
-      support_status?: string;
-      claim_status?: string;
-      stale_reason?: string | null;
-      last_validated_at?: string | null;
-    }>;
+    claims: ResumeClaim[];
   };
 }) {
   return (
@@ -466,51 +463,102 @@ function ResumeResult({
           >
             Download .md
           </button>
+          {resume.id ? (
+            <>
+              <a
+                className="secondary-link-button"
+                href={`/api/resumes/${resume.id}/export?format=markdown`}
+              >
+                Export Markdown
+              </a>
+              <a
+                className="secondary-link-button"
+                href={`/api/resumes/${resume.id}/export?format=json`}
+              >
+                Export JSON
+              </a>
+            </>
+          ) : null}
         </div>
         <pre className="resume-preview">{resume.resume_markdown}</pre>
       </article>
       {resume.missing_evidence_questions.length > 0 ? (
         <Section title="Missing evidence questions" items={resume.missing_evidence_questions} />
       ) : null}
-      <section className="section-block">
-        <h3>Generated claims</h3>
-        <div className="result-stack result-stack--inner">
-          {resume.claims.slice(0, 8).map((claim) => (
-            <article className="requirement" key={claim.id}>
-              <div className="requirement__top">
-                <p className="requirement__text">{claim.claim_text}</p>
-                <span className="requirement__type">{claim.risk_level}</span>
-              </div>
-              <p className="requirement__quote">Section: {claim.section}</p>
-              <div className="chip-row">
-                {claim.support_status ? (
-                  <span className="chip">{claim.support_status}</span>
-                ) : null}
-                {claim.claim_status && claim.claim_status !== claim.support_status ? (
-                  <span className="chip">{claim.claim_status}</span>
-                ) : null}
-                {claim.evidence_ids.map((id) => (
-                  <span className="chip" key={id}>
-                    evidence {id.slice(0, 8)}
-                  </span>
-                ))}
-              </div>
-              {claim.source_quotes[0] ? (
-                <p className="requirement__quote">Quote: {claim.source_quotes[0]}</p>
-              ) : null}
-              {claim.stale_reason ? (
-                <p className="requirement__quote">Guard: {claim.stale_reason}</p>
-              ) : null}
-              {claim.last_validated_at ? (
-                <p className="requirement__quote">
-                  Last validated: {new Date(claim.last_validated_at).toLocaleString()}
-                </p>
-              ) : null}
-            </article>
-          ))}
-        </div>
-      </section>
+      <ClaimReviewPanel claims={resume.claims} />
     </div>
+  );
+}
+
+function ClaimReviewPanel({ claims }: { claims: ResumeClaim[] }) {
+  const supported = claims.filter((claim) => claim.support_status === "supported").length;
+  const unsupported = claims.filter((claim) => claim.support_status === "unsupported").length;
+  const partial = claims.filter(
+    (claim) => claim.support_status === "partially_supported",
+  ).length;
+  const unvalidated = claims.filter((claim) => !claim.support_status || claim.support_status === "unvalidated").length;
+  const needsReview = unsupported + partial + unvalidated;
+
+  return (
+    <section className="section-block claim-review">
+      <div className="claim-review__header">
+        <div>
+          <h3>Fact Guard claim review</h3>
+          <p className="claim-review__note">
+            Review any non-supported claim before using the tailored resume externally.
+          </p>
+        </div>
+        <div className="claim-review__score" data-ready={needsReview === 0 && claims.length > 0}>
+          {supported}/{claims.length} supported
+        </div>
+      </div>
+      <div className="claim-review__metrics">
+        <span>Supported {supported}</span>
+        <span>Partial {partial}</span>
+        <span>Unsupported {unsupported}</span>
+        <span>Unvalidated {unvalidated}</span>
+      </div>
+      <div className="result-stack result-stack--inner">
+        {claims.slice(0, 12).map((claim) => (
+          <ClaimCard claim={claim} key={claim.id} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ClaimCard({ claim }: { claim: ResumeClaim }) {
+  const status = claim.support_status ?? "unvalidated";
+  return (
+    <article className="claim-card" data-status={status}>
+      <div className="requirement__top">
+        <p className="requirement__text">{claim.claim_text}</p>
+        <span className="requirement__type">{claim.risk_level}</span>
+      </div>
+      <p className="requirement__quote">Section: {claim.section}</p>
+      <div className="chip-row">
+        <span className="chip">{status}</span>
+        {claim.claim_status && claim.claim_status !== status ? (
+          <span className="chip">{claim.claim_status}</span>
+        ) : null}
+        {claim.evidence_ids.map((id) => (
+          <span className="chip" key={id}>
+            evidence {id.slice(0, 8)}
+          </span>
+        ))}
+      </div>
+      {claim.source_quotes[0] ? (
+        <p className="requirement__quote">Quote: {claim.source_quotes[0]}</p>
+      ) : null}
+      {claim.stale_reason ? (
+        <p className="claim-card__warning">Needs review: {claim.stale_reason}</p>
+      ) : null}
+      {claim.last_validated_at ? (
+        <p className="requirement__quote">
+          Last validated: {new Date(claim.last_validated_at).toLocaleString()}
+        </p>
+      ) : null}
+    </article>
   );
 }
 
