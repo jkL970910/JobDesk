@@ -3,8 +3,17 @@ import { z } from "zod";
 import { EvidenceItem, ProjectCard } from "./evidence";
 
 const SimpleExtractedField = z.preprocess((value) => {
-  if (typeof value === "string") {
-    return { value, source_quote: value, confidence: 0.5 };
+  if (typeof value === "string" || typeof value === "number") {
+    const text = String(value).trim();
+    return { value: text, source_quote: text, confidence: 0.5 };
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const fieldValue = toText(record.value ?? record.text ?? record.name);
+    const sourceQuote = toText(record.source_quote ?? record.quote ?? fieldValue);
+    if (fieldValue && sourceQuote) {
+      return { ...record, value: fieldValue, source_quote: sourceQuote };
+    }
   }
   return value;
 }, z.object({
@@ -14,18 +23,60 @@ const SimpleExtractedField = z.preprocess((value) => {
 }));
 
 const NullableSimpleExtractedField = z.preprocess((value) => {
-  if (typeof value === "string" && value.trim()) {
-    return { value, source_quote: value, confidence: 0.5 };
+  if (
+    (typeof value === "string" || typeof value === "number") &&
+    String(value).trim()
+  ) {
+    const text = String(value).trim();
+    return { value: text, source_quote: text, confidence: 0.5 };
   }
   if (!value || typeof value !== "object") return value;
   const record = value as Record<string, unknown>;
-  if (record.value == null || record.source_quote == null) return null;
-  return record;
+  const fieldValue = toText(record.value ?? record.text ?? record.name);
+  const sourceQuote = toText(record.source_quote ?? record.quote ?? fieldValue);
+  if (!fieldValue || !sourceQuote) return null;
+  return { ...record, value: fieldValue, source_quote: sourceQuote };
 }, SimpleExtractedField.nullable());
 
 const LooseSimpleFieldArray = z
   .preprocess((value) => flattenArrayLike(value), z.array(SimpleExtractedField))
   .default([]);
+
+const LooseExperienceItem = z.object({
+  employer: NullableSimpleExtractedField.default(null),
+  title: NullableSimpleExtractedField.default(null),
+  start_date: NullableSimpleExtractedField.default(null),
+  end_date: NullableSimpleExtractedField.default(null),
+  bullets: LooseSimpleFieldArray,
+});
+
+function toText(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string" || typeof value === "number") {
+    const text = String(value).trim();
+    return text || null;
+  }
+  if (Array.isArray(value)) {
+    return value.map(toText).filter(Boolean).join("; ") || null;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return (
+      toText(record.value) ??
+      toText(record.text) ??
+      toText(record.summary) ??
+      toText(record.description) ??
+      JSON.stringify(record)
+    );
+  }
+  return null;
+}
+
+function toStringArray(value: unknown): string[] {
+  return flattenArrayLike(value)
+    .map(toText)
+    .filter((item): item is string => Boolean(item));
+}
 
 function flattenArrayLike(value: unknown): unknown[] {
   const values = Array.isArray(value)
@@ -53,25 +104,33 @@ export const SimpleProfile = z.object({
   location: NullableSimpleExtractedField.default(null),
   links: LooseSimpleFieldArray,
   experience: z
-    .array(
-      z.object({
-        employer: SimpleExtractedField,
-        title: SimpleExtractedField,
-        start_date: SimpleExtractedField.nullable().default(null),
-        end_date: SimpleExtractedField.nullable().default(null),
-        bullets: LooseSimpleFieldArray,
-      }),
+    .preprocess(
+      (value) => flattenArrayLike(value),
+      z.array(LooseExperienceItem),
+    )
+    .transform((items) =>
+      items.filter(
+        (
+          item,
+        ): item is typeof item & {
+          employer: z.infer<typeof SimpleExtractedField>;
+          title: z.infer<typeof SimpleExtractedField>;
+        } => Boolean(item.employer && item.title),
+      ),
     )
     .default([]),
   education: z
-    .array(
-      z.object({
+    .preprocess(
+      (value) => flattenArrayLike(value),
+      z.array(
+        z.object({
         institution: NullableSimpleExtractedField.default(null),
         degree: NullableSimpleExtractedField.default(null),
         field_of_study: NullableSimpleExtractedField.default(null),
         start_date: NullableSimpleExtractedField.default(null),
-        end_date: NullableSimpleExtractedField.default(null),
-      }),
+          end_date: NullableSimpleExtractedField.default(null),
+        }),
+      ),
     )
     .transform((items) =>
       items.filter(
@@ -122,14 +181,26 @@ const LooseProjectDraft = z.preprocess((value) => {
   const record = value as Record<string, unknown>;
   return {
     ...record,
-    title: record.title ?? record.name ?? record.project,
+    title: toText(record.title ?? record.name ?? record.project) ?? "Untitled project",
+    context: toText(record.context),
+    problem: toText(record.problem),
+    role: toText(record.role),
+    actions: toStringArray(record.actions),
+    results: toStringArray(record.results),
+    technologies: toStringArray(record.technologies ?? record.tools),
+    stakeholders: toStringArray(record.stakeholders),
+    public_safe_summary: toText(record.public_safe_summary ?? record.publicSafeSummary),
   };
 }, ProjectDraft);
 
 export const ProfileEvidenceExtraction = z.object({
   profile: SimpleProfile,
-  evidence_items: z.array(LooseEvidenceDraft).default([]),
-  project_cards: z.array(LooseProjectDraft).default([]),
+  evidence_items: z
+    .preprocess((value) => flattenArrayLike(value), z.array(LooseEvidenceDraft))
+    .default([]),
+  project_cards: z
+    .preprocess((value) => flattenArrayLike(value), z.array(LooseProjectDraft))
+    .default([]),
   extraction_notes: z
     .preprocess((value) => {
       const values = Array.isArray(value)

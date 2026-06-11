@@ -10,8 +10,8 @@ Current local baseline:
 
 - 6 product workflows implemented at MVP depth.
 - PDF, DOCX, TXT, and Markdown resume source parsing.
-- Profile/evidence extraction with persistence.
-- Basic evidence review actions for resume eligibility.
+- Profile/evidence extraction from resumes and project notes with persistence.
+- Basic evidence and project-card review actions for resume eligibility.
 - JD analysis with persistence, reload, reanalysis, and archive.
 - Tailored resume generation using approved evidence retrieval.
 - Generated claim ledger and deterministic Fact Guard revalidation.

@@ -13,6 +13,15 @@ const sampleProfileSource = [
   "Education: BSc Statistics, University of Toronto.",
 ].join("\n");
 
+const sampleProjectNote = [
+  "Onboarding activation dashboard project",
+  "Problem: Product teams could not see where new users dropped during onboarding.",
+  "Role: I partnered with product managers and engineers to define activation events, build SQL models, and ship dashboard views for weekly reviews.",
+  "Actions: mapped funnel steps, validated event quality, created dashboard slices by cohort and traffic source, and presented findings to stakeholders.",
+  "Result: teams identified the largest activation drop-off and prioritized follow-up experiments.",
+  "Tools: SQL, dashboarding, product analytics, stakeholder communication.",
+].join("\n");
+
 type ExtractionResponse =
   | {
       data: ProfileEvidenceExtraction;
@@ -34,6 +43,7 @@ type EvidenceLibrary = {
     id: string;
     text: string;
     source_quote: string;
+    source_document_id?: string | null;
     evidence_type: string;
     sensitivity_level: string;
     allowed_usage: string[];
@@ -43,10 +53,16 @@ type EvidenceLibrary = {
   projectCards: Array<{
     id: string;
     title: string;
+    context: string | null;
+    problem: string | null;
     role: string | null;
     actions: string[];
     results: string[];
+    metrics?: Array<{ value: string; source_quote: string }>;
     technologies: string[];
+    stakeholders?: string[];
+    public_safe_summary?: string | null;
+    sensitivity_level?: string;
     status: string;
   }>;
 };
@@ -54,12 +70,15 @@ type EvidenceLibrary = {
 export function ProfileEvidenceWorkspace() {
   const [sourceText, setSourceText] = useState(sampleProfileSource);
   const [sourceTitle, setSourceTitle] = useState("Sample resume notes");
+  const [projectNoteText, setProjectNoteText] = useState(sampleProjectNote);
+  const [projectNoteTitle, setProjectNoteTitle] = useState("Sample project note");
   const [fileStatus, setFileStatus] = useState<string | null>(null);
   const [result, setResult] = useState<ProfileEvidenceExtraction | null>(null);
   const [library, setLibrary] = useState<EvidenceLibrary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("OpenRouter profile/evidence contract call");
   const [isPending, startTransition] = useTransition();
+  const [isProjectPending, startProjectTransition] = useTransition();
 
   useEffect(() => {
     void loadLibrary();
@@ -175,7 +194,42 @@ export function ProfileEvidenceWorkspace() {
     );
   }
 
+  function runProjectEnrichment() {
+    setError(null);
+    startProjectTransition(async () => {
+      try {
+        const response = await fetch("/api/profile-evidence/enrich-project", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sourceText: projectNoteText,
+            sourceTitle: projectNoteTitle.trim() || undefined,
+          }),
+        });
+        const payload = (await response.json()) as ExtractionResponse;
+        if (!response.ok || "error" in payload) {
+          setError(
+            "error" in payload
+              ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
+              : "Project evidence enrichment failed.",
+          );
+          return;
+        }
+        setResult(payload.data);
+        setStatus(`Project enriched · ${formatStatus(payload.meta)}`);
+        void refreshLibraryAfterMutation();
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Project evidence enrichment failed.",
+        );
+      }
+    });
+  }
+
   const sourceIsReady = sourceText.trim().length >= 80;
+  const projectNoteIsReady = projectNoteText.trim().length >= 80;
   const profile = result?.profile;
   const evidenceItems = result?.evidence_items ?? library?.evidenceItems ?? [];
   const projectCards = result?.project_cards ?? library?.projectCards ?? [];
@@ -204,6 +258,32 @@ export function ProfileEvidenceWorkspace() {
         | { error?: string }
         | null;
       setError(payload?.error ?? "Failed to update evidence.");
+      return;
+    }
+    setResult(null);
+    void refreshLibraryAfterMutation();
+  }
+
+  async function updateProject(
+    project: { id?: string; title: string; role: string | null },
+    action: "approve" | "reject" | "edit" | "approve_project_evidence_for_resume",
+  ) {
+    if (!project.id) return;
+    const nextTitle =
+      action === "edit" ? window.prompt("Edit project title", project.title) : null;
+    if (action === "edit" && !nextTitle?.trim()) return;
+    const response = await fetch(`/api/projects/${project.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        action === "edit" ? { action, title: nextTitle } : { action },
+      ),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      setError(payload?.error ?? "Failed to update project card.");
       return;
     }
     setResult(null);
@@ -268,6 +348,42 @@ export function ProfileEvidenceWorkspace() {
             {error ?? status}
           </span>
         </div>
+
+        <section className="section-block section-block--builder">
+          <h3>Project Library Builder</h3>
+          <p className="panel__note">
+            Add project notes, work summaries, or accomplishment drafts to grow
+            the evidence library beyond a single uploaded resume.
+          </p>
+          <div className="source-controls">
+            <label className="source-field">
+              <span>Project source title</span>
+              <input
+                className="source-input"
+                type="text"
+                value={projectNoteTitle}
+                onChange={(event) => setProjectNoteTitle(event.target.value)}
+              />
+            </label>
+          </div>
+          <textarea
+            aria-label="Project note source text"
+            className="jd-input jd-input--compact"
+            value={projectNoteText}
+            onChange={(event) => setProjectNoteText(event.target.value)}
+            spellCheck={false}
+          />
+          <div className="actions">
+            <button
+              className="primary-button"
+              disabled={isProjectPending || !projectNoteIsReady}
+              type="button"
+              onClick={runProjectEnrichment}
+            >
+              {isProjectPending ? "Enriching..." : "Enrich Project Note"}
+            </button>
+          </div>
+        </section>
       </div>
 
       <div className="panel">
@@ -285,7 +401,7 @@ export function ProfileEvidenceWorkspace() {
           items={evidenceItems}
           onUpdate={updateEvidence}
         />
-        <ProjectList projects={projectCards} />
+        <ProjectList projects={projectCards} onUpdate={updateProject} />
       </div>
     </section>
   );
@@ -430,15 +546,26 @@ function EvidenceList({
 }
 
 function ProjectList({
+  onUpdate,
   projects,
 }: {
+  onUpdate: (
+    project: { id?: string; title: string; role: string | null },
+    action: "approve" | "reject" | "edit" | "approve_project_evidence_for_resume",
+  ) => void;
   projects: Array<{
     id?: string;
     title: string;
+    context: string | null;
+    problem: string | null;
     role: string | null;
     actions: string[];
     results: string[];
+    metrics?: Array<{ value: string; source_quote: string }>;
     technologies: string[];
+    stakeholders?: string[];
+    public_safe_summary?: string | null;
+    sensitivity_level?: string;
     status: string;
   }>;
 }) {
@@ -448,10 +575,70 @@ function ProjectList({
       <h3>Project cards</h3>
       {projects.slice(0, 4).map((project) => (
         <article className="requirement" key={project.id ?? project.title}>
-          <p className="requirement__text">{project.title}</p>
+          <div className="requirement__top">
+            <p className="requirement__text">{project.title}</p>
+            <span className="requirement__type">{project.status}</span>
+          </div>
+          {project.context ? (
+            <p className="requirement__quote">Context: {project.context}</p>
+          ) : null}
+          {project.problem ? (
+            <p className="requirement__quote">Problem: {project.problem}</p>
+          ) : null}
           {project.role ? <p className="requirement__quote">Role: {project.role}</p> : null}
+          {project.public_safe_summary ? (
+            <p className="requirement__quote">External-safe: {project.public_safe_summary}</p>
+          ) : null}
+          <div className="chip-row">
+            {project.sensitivity_level ? (
+              <span className="chip">{project.sensitivity_level}</span>
+            ) : null}
+            {project.technologies.map((technology) => (
+              <span className="chip" key={technology}>
+                {technology}
+              </span>
+            ))}
+          </div>
           <SectionList title="Actions" items={project.actions} />
           <SectionList title="Results" items={project.results} />
+          {project.metrics && project.metrics.length > 0 ? (
+            <SectionList
+              title="Metrics"
+              items={project.metrics.map((metric) => metric.value)}
+            />
+          ) : null}
+          {project.id ? (
+            <div className="actions actions--compact">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => onUpdate(project, "approve")}
+              >
+                Approve project
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => onUpdate(project, "edit")}
+              >
+                Edit title
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => onUpdate(project, "approve_project_evidence_for_resume")}
+              >
+                Approve linked evidence
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => onUpdate(project, "reject")}
+              >
+                Reject project
+              </button>
+            </div>
+          ) : null}
         </article>
       ))}
     </section>

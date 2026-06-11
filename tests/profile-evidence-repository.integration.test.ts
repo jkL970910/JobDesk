@@ -38,16 +38,20 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
 
     const library = await getRecentEvidenceLibrary(10);
     expect(library.profile?.displayName).toBe("Jane Doe");
-    const sqlEvidence = library.evidenceItems.find((item) =>
+    if (result.status !== "saved") throw new Error("Expected saved profile evidence.");
+    const insertedEvidence = library.evidenceItems.filter(
+      (item) => item.source_document_id === result.sourceDocumentId,
+    );
+    const sqlEvidence = insertedEvidence.find((item) =>
       item.text.includes("SQL dashboards"),
     );
-    const inferredEvidence = library.evidenceItems.find((item) =>
+    const inferredEvidence = insertedEvidence.find((item) =>
       item.text.includes("Inferred ownership"),
     );
-    const internalEvidence = library.evidenceItems.find((item) =>
+    const internalEvidence = insertedEvidence.find((item) =>
       item.text.includes("Internal-only stakeholder reporting"),
     );
-    const sensitiveEvidence = library.evidenceItems.find((item) =>
+    const sensitiveEvidence = insertedEvidence.find((item) =>
       item.text.includes("Sensitive finance dashboard"),
     );
     expect(sqlEvidence).toBeDefined();
