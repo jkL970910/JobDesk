@@ -5,7 +5,12 @@
  * Skill refs: skills/resume-tailoring, skills/claim-support-judgment.
  */
 import { z } from "zod";
-import { SupportStatus, ClaimStatus, IsoTimestamp } from "./shared.js";
+import { SupportStatus, ClaimStatus, IsoTimestamp } from "./shared";
+
+const nonEmptyStringArray = z
+  .array(z.string().trim().min(1))
+  .default([])
+  .transform((items) => Array.from(new Set(items)));
 
 /** One generated claim (e.g., a resume bullet) and its evidence mapping. */
 export const GeneratedClaim = z.object({
@@ -41,3 +46,21 @@ export const TailoredResume = z.object({
   status: z.enum(["draft", "unvalidated", "validated", "exported"]).default("unvalidated"),
 });
 export type TailoredResume = z.infer<typeof TailoredResume>;
+
+export const GeneratedClaimDraft = z.object({
+  claim_text: z.string().trim().min(1),
+  section: z.string().trim().min(1),
+  evidence_ids: nonEmptyStringArray,
+  source_quotes: nonEmptyStringArray,
+  risk_level: z.enum(["low", "medium", "high"]).default("low"),
+});
+export type GeneratedClaimDraft = z.infer<typeof GeneratedClaimDraft>;
+
+export const TailoredResumeDraft = z.object({
+  title: z.string().trim().min(1).default("Tailored resume draft"),
+  resume_json: z.record(z.unknown()).default({}),
+  resume_markdown: z.string().trim().min(1),
+  claims: z.array(GeneratedClaimDraft).default([]),
+  missing_evidence_questions: nonEmptyStringArray,
+});
+export type TailoredResumeDraft = z.infer<typeof TailoredResumeDraft>;

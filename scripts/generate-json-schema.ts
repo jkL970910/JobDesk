@@ -8,10 +8,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
-import { Profile } from "../src/schemas/profile.js";
-import { EvidenceItem, ProjectCard, StarStory } from "../src/schemas/evidence.js";
-import { JDAnalysis } from "../src/schemas/jd-analysis.js";
-import { TailoredResume, GeneratedClaim } from "../src/schemas/tailored-resume.js";
+import { Profile } from "../src/schemas/profile";
+import { EvidenceItem, ProjectCard, StarStory } from "../src/schemas/evidence";
+import { JDAnalysis } from "../src/schemas/jd-analysis";
+import { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
+import { TailoredResume, GeneratedClaim } from "../src/schemas/tailored-resume";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, "..", "schemas-json");
@@ -23,6 +24,7 @@ const targets = {
   "project.schema.json": ProjectCard,
   "star-story.schema.json": StarStory,
   "jd-analysis.schema.json": JDAnalysis,
+  "profile-evidence-extraction.schema.json": ProfileEvidenceExtraction,
   "tailored-resume.schema.json": TailoredResume,
   "generated-claim.schema.json": GeneratedClaim,
 } as const;

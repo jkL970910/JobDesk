@@ -167,6 +167,7 @@ NG6. Building a public social network or public portfolio site.
 5. Workflow over chat: important outputs are saved as versioned workspace assets, not lost in chat history.
 6. Continuous learning: application outcomes and interview reviews improve future recommendations.
 7. Clear next action: the product should always suggest the next useful step.
+8. Selective application strategy: the product should help users avoid stale, low-fit, or suspicious postings rather than maximize application volume.
 
 ## 8. Product Scope
 
@@ -178,13 +179,13 @@ MVP should include:
 - Structured main resume.
 - Evidence library for projects, achievements, metrics, and STAR stories.
 - Job workspace creation from pasted JD.
-- JD analysis.
+- JD analysis, including role archetype detection and posting-legitimacy assessment.
 - Resume-to-JD matching.
 - Tailored resume generation.
 - Cover letter and application answer generation.
 - HR-style review and fact checking.
 - Interview preparation pack.
-- Manual application tracker.
+- Manual application tracker with canonical application statuses.
 - Basic dashboard.
 
 ### 8.2 Phase 2 Scope
@@ -193,10 +194,12 @@ Phase 2 should include:
 
 - Company and interview research using external search.
 - Browser extension or clipping flow for job descriptions.
+- Job-source scanner with liveness checks for stale, closed, or suspicious postings.
 - Daily job recommendations.
 - Gmail/Outlook integration for application status detection.
 - Follow-up reminders.
 - Interview review and growth profile.
+- Reusable interview story bank using STAR+Reflection patterns.
 - Resume version performance analytics.
 
 ### 8.3 Phase 3 Scope

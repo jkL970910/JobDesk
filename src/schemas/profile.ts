@@ -4,7 +4,7 @@
  * bound to its source quote. Skill ref: skills/profile-extraction.
  */
 import { z } from "zod";
-import { ExtractedField } from "./shared.js";
+import { ExtractedField } from "./shared";
 
 export const EducationItem = z.object({
   institution: ExtractedField,

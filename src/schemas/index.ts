@@ -3,8 +3,9 @@
  * Downstream schemas (interview-prep, company-research, job-recommendation,
  * interview-review, status-suggestion) are added in their phases.
  */
-export * from "./shared.js";
-export * from "./profile.js";
-export * from "./evidence.js";
-export * from "./jd-analysis.js";
-export * from "./tailored-resume.js";
+export * from "./shared";
+export * from "./profile";
+export * from "./evidence";
+export * from "./profile-evidence-extraction";
+export * from "./jd-analysis";
+export * from "./tailored-resume";

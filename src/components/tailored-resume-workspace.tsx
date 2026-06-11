@@ -1,0 +1,550 @@
+"use client";
+
+import { useEffect, useState, useTransition } from "react";
+
+import type { JDAnalysis } from "../schemas/jd-analysis";
+import type { TailoredResumeDraft } from "../schemas/tailored-resume";
+
+type RecentJob = {
+  id: string;
+  title: string;
+  job_facts: JDAnalysis["job_facts"];
+  analyzedAt: string | null;
+  requirementCount: number;
+};
+
+type RecentResume = {
+  id: string;
+  jobId: string;
+  title: string;
+  resume_markdown: string;
+  missing_evidence_questions: string[];
+  status: string;
+  updatedAt: string;
+  claims: Array<{
+    id: string;
+    claim_text: string;
+    section: string;
+    evidence_ids: string[];
+    source_quotes: string[];
+    risk_level: string;
+    support_status?: string;
+    claim_status?: string;
+    stale_reason?: string | null;
+    last_validated_at?: string | null;
+  }>;
+};
+
+type EvidenceLibrary = {
+  profile: { displayName: string | null; updatedAt: string } | null;
+  evidenceItems: Array<{
+    id: string;
+    text: string;
+    allowed_usage: string[];
+    status: string;
+    needs_user_confirmation: boolean;
+  }>;
+};
+
+type ResumeReadiness = {
+  profileName: string | null;
+  profileReady: boolean;
+  approvedResumeEvidenceCount: number;
+  needsReviewEvidenceCount: number;
+  evidenceSamples: string[];
+};
+
+const emptyReadiness: ResumeReadiness = {
+  profileName: null,
+  profileReady: false,
+  approvedResumeEvidenceCount: 0,
+  needsReviewEvidenceCount: 0,
+  evidenceSamples: [],
+};
+
+type TailorResponse =
+  | {
+      data: TailoredResumeDraft;
+      meta: {
+        retryCount: number;
+        evidenceCount: number;
+        persistence?: {
+          status: "saved" | "skipped";
+          reason?: string;
+          resumeVersionId?: string;
+          claimCount?: number;
+        };
+        selectedEvidence?: Array<{
+          id: string;
+          retrieval_score: number;
+          reason_for_selection: string[];
+        }>;
+      };
+    }
+  | { error: string; kind?: string };
+
+export function TailoredResumeWorkspace() {
+  const [jobs, setJobs] = useState<RecentJob[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState<string>("");
+  const [latestResume, setLatestResume] = useState<RecentResume | null>(null);
+  const [readiness, setReadiness] = useState<ResumeReadiness>(emptyReadiness);
+  const [draft, setDraft] = useState<TailoredResumeDraft | null>(null);
+  const [status, setStatus] = useState("Select a recent job and use approved resume evidence.");
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    void loadJobs();
+    void loadRecentResumes();
+    void loadReadiness();
+    const refreshReadiness = () => void loadReadiness();
+    window.addEventListener("jobdesk:evidence-library-updated", refreshReadiness);
+    return () =>
+      window.removeEventListener("jobdesk:evidence-library-updated", refreshReadiness);
+  }, []);
+
+  async function loadJobs() {
+    const response = await fetch("/api/jobs/recent");
+    if (!response.ok) return;
+    const payload = (await response.json()) as { data?: RecentJob[] };
+    const nextJobs = payload.data ?? [];
+    setJobs(nextJobs);
+    setSelectedJobId((current) => current || nextJobs[0]?.id || "");
+  }
+
+  async function loadRecentResumes() {
+    const response = await fetch("/api/resumes/recent");
+    if (!response.ok) return [];
+    const payload = (await response.json()) as { data?: RecentResume[] };
+    const resumes = payload.data ?? [];
+    setLatestResume(resumes[0] ?? null);
+    return resumes;
+  }
+
+  async function loadReadiness() {
+    const response = await fetch("/api/profile-evidence/recent");
+    if (!response.ok) {
+      setReadiness(emptyReadiness);
+      return;
+    }
+    const payload = (await response.json()) as { data?: EvidenceLibrary };
+    const library = payload.data;
+    const items = library?.evidenceItems ?? [];
+    const approvedResumeEvidence = items.filter(
+      (item) =>
+        item.status === "approved" &&
+        item.allowed_usage.includes("resume") &&
+        !item.needs_user_confirmation,
+    );
+    setReadiness({
+      profileName: library?.profile?.displayName ?? null,
+      profileReady: Boolean(library?.profile),
+      approvedResumeEvidenceCount: approvedResumeEvidence.length,
+      needsReviewEvidenceCount: items.length - approvedResumeEvidence.length,
+      evidenceSamples: approvedResumeEvidence.slice(0, 3).map((item) => item.text),
+    });
+  }
+
+  function generateResume() {
+    if (!selectedJobId) return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/resumes/tailor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId: selectedJobId }),
+        });
+        const payload = (await response.json()) as TailorResponse;
+        if (!response.ok || "error" in payload) {
+          setError(
+            "error" in payload
+              ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
+              : "Tailored resume generation failed.",
+          );
+          return;
+        }
+        setDraft(payload.data);
+        setStatus(
+          `Generated · ${payload.meta.evidenceCount} evidence items · ${payload.meta.persistence?.claimCount ?? payload.data.claims.length} claims saved`,
+        );
+        void loadReadiness();
+        const resumes = await loadRecentResumes();
+        const savedResumeId = payload.meta.persistence?.resumeVersionId;
+        const savedResume = savedResumeId
+          ? resumes.find((resume) => resume.id === savedResumeId)
+          : null;
+        if (savedResume) setLatestResume(savedResume);
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Tailored resume generation failed.",
+        );
+      }
+    });
+  }
+
+  const selectedJob = jobs.find((job) => job.id === selectedJobId);
+  const canGenerateResume =
+    Boolean(selectedJobId) &&
+    readiness.profileReady &&
+    readiness.approvedResumeEvidenceCount > 0;
+  const displayResume = draft
+    ? {
+        title: draft.title,
+        resume_markdown: draft.resume_markdown,
+        missing_evidence_questions: draft.missing_evidence_questions,
+        claims: draft.claims.map((claim, index) => ({
+          id: `${claim.claim_text}-${index}`,
+          claim_text: claim.claim_text,
+          section: claim.section,
+          evidence_ids: claim.evidence_ids,
+          source_quotes: claim.source_quotes,
+          risk_level: claim.risk_level,
+        })),
+      }
+    : latestResume;
+
+  async function runFactGuard() {
+    if (!latestResume?.id) return;
+    setError(null);
+    const response = await fetch(`/api/resumes/${latestResume.id}/fact-guard`, {
+      method: "POST",
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          data?: {
+            supportedCount: number;
+            claimCount: number;
+            resumeStatus: string;
+            coveragePassed: boolean;
+            coverageReason: string | null;
+            claims: RecentResume["claims"];
+          };
+          error?: string;
+        }
+      | null;
+    if (!response.ok) {
+      setError(payload?.error ?? "Fact Guard failed.");
+      return;
+    }
+    if (!payload?.data) {
+      setError("Fact Guard did not return a validation report.");
+      return;
+    }
+    const report = payload.data;
+    setStatus(
+      `Fact Guard · ${report.supportedCount}/${report.claimCount} claims supported · ${report.resumeStatus}`,
+    );
+    setLatestResume((current) =>
+      current
+        ? {
+            ...current,
+            status: report.resumeStatus,
+            claims: report.claims,
+          }
+        : current,
+    );
+    setDraft(null);
+    void loadRecentResumes();
+  }
+
+  return (
+    <section className="workspace__grid">
+      <div className="panel">
+        <div className="panel__header">
+          <div>
+            <h2 className="panel__title">Tailored resume input</h2>
+            <p className="panel__note">
+              Generates only from the selected job, latest profile, and evidence
+              that is approved and allowed for resume use.
+            </p>
+          </div>
+        </div>
+        <ResumeReadinessChecklist
+          approvedResumeEvidenceCount={readiness.approvedResumeEvidenceCount}
+          evidenceSamples={readiness.evidenceSamples}
+          hasSelectedJob={Boolean(selectedJobId)}
+          needsReviewEvidenceCount={readiness.needsReviewEvidenceCount}
+          profileName={readiness.profileName}
+          profileReady={readiness.profileReady}
+        />
+        {jobs.length > 0 ? (
+          <div className="recent-jobs" aria-label="Recent jobs for resume tailoring">
+            {jobs.map((job) => (
+              <button
+                className="recent-job"
+                data-selected={job.id === selectedJobId}
+                key={job.id}
+                type="button"
+                onClick={() => setSelectedJobId(job.id)}
+              >
+                <span>{job.title}</span>
+                <small>
+                  {job.requirementCount} requirements
+                  {job.job_facts.company ? ` · ${job.job_facts.company}` : ""}
+                </small>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state empty-state--compact">
+            Analyze a JD before tailoring a resume.
+          </div>
+        )}
+        <div className="actions">
+          <button
+            className="primary-button"
+            disabled={isPending || !canGenerateResume}
+            type="button"
+            onClick={generateResume}
+          >
+            {isPending ? "Generating..." : "Generate Tailored Resume"}
+          </button>
+          {latestResume ? (
+            <button
+              className="secondary-button"
+              disabled={isPending}
+              type="button"
+              onClick={() => void runFactGuard()}
+            >
+              Run Fact Guard
+            </button>
+          ) : null}
+          <span className={error ? "status status--error" : "status"}>
+            {error ?? status}
+          </span>
+        </div>
+        {selectedJob ? (
+          <section className="job-facts">
+            <p className="requirement__text">{selectedJob.title}</p>
+            <p className="requirement__quote">
+              Target role context is pulled from the persisted JD analysis.
+            </p>
+          </section>
+        ) : null}
+      </div>
+
+      <div className="panel">
+        <div className="panel__header">
+          <div>
+            <h2 className="panel__title">Resume draft and claim ledger</h2>
+            <p className="panel__note">
+              Claims remain unvalidated until Fact Guard checks them against the
+              evidence ledger.
+            </p>
+          </div>
+        </div>
+        {displayResume ? (
+          <ResumeResult resume={displayResume} />
+        ) : (
+          <div className="empty-state empty-state--compact">
+            Approve resume-safe evidence, then generate a tailored draft.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ResumeReadinessChecklist({
+  approvedResumeEvidenceCount,
+  evidenceSamples,
+  hasSelectedJob,
+  needsReviewEvidenceCount,
+  profileName,
+  profileReady,
+}: {
+  approvedResumeEvidenceCount: number;
+  evidenceSamples: string[];
+  hasSelectedJob: boolean;
+  needsReviewEvidenceCount: number;
+  profileName: string | null;
+  profileReady: boolean;
+}) {
+  return (
+    <section className="readiness-panel" aria-label="Resume readiness checklist">
+      <ReadinessItem
+        isReady={hasSelectedJob}
+        label="Target JD"
+        readyText="JD analysis selected"
+        todoText="Analyze or select a JD"
+      />
+      <ReadinessItem
+        isReady={profileReady}
+        label="Profile"
+        readyText={profileName ? `Profile loaded: ${profileName}` : "Profile loaded"}
+        todoText="Extract profile from resume notes"
+      />
+      <ReadinessItem
+        isReady={approvedResumeEvidenceCount > 0}
+        label="Resume evidence"
+        readyText={`${approvedResumeEvidenceCount} approved resume-safe item${approvedResumeEvidenceCount === 1 ? "" : "s"}`}
+        todoText={
+          needsReviewEvidenceCount > 0
+            ? `${needsReviewEvidenceCount} item${needsReviewEvidenceCount === 1 ? "" : "s"} need review or resume approval`
+            : "Approve at least one evidence item for resume use"
+        }
+      />
+      {evidenceSamples.length > 0 ? (
+        <ul className="readiness-samples" aria-label="Approved evidence samples">
+          {evidenceSamples.map((sample) => (
+            <li key={sample}>{sample}</li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+function ReadinessItem({
+  isReady,
+  label,
+  readyText,
+  todoText,
+}: {
+  isReady: boolean;
+  label: string;
+  readyText: string;
+  todoText: string;
+}) {
+  return (
+    <div className="readiness-item" data-ready={isReady}>
+      <span className="readiness-item__state">{isReady ? "Ready" : "Needed"}</span>
+      <div>
+        <p className="readiness-item__label">{label}</p>
+        <p className="readiness-item__detail">{isReady ? readyText : todoText}</p>
+      </div>
+    </div>
+  );
+}
+
+function ResumeResult({
+  resume,
+}: {
+  resume: {
+    title: string;
+    resume_markdown: string;
+    missing_evidence_questions: string[];
+    status?: string;
+    claims: Array<{
+      id: string;
+      claim_text: string;
+      section: string;
+      evidence_ids: string[];
+      source_quotes: string[];
+      risk_level: string;
+      support_status?: string;
+      claim_status?: string;
+      stale_reason?: string | null;
+      last_validated_at?: string | null;
+    }>;
+  };
+}) {
+  return (
+    <div className="result-stack">
+      <article className="requirement">
+        <p className="requirement__text">{resume.title}</p>
+        {resume.status ? (
+          <div className="chip-row">
+            <span className="chip">{resume.status}</span>
+          </div>
+        ) : null}
+        <div className="actions actions--compact">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => void copyMarkdown(resume.resume_markdown)}
+          >
+            Copy Markdown
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => downloadMarkdown(resume.title, resume.resume_markdown)}
+          >
+            Download .md
+          </button>
+        </div>
+        <pre className="resume-preview">{resume.resume_markdown}</pre>
+      </article>
+      {resume.missing_evidence_questions.length > 0 ? (
+        <Section title="Missing evidence questions" items={resume.missing_evidence_questions} />
+      ) : null}
+      <section className="section-block">
+        <h3>Generated claims</h3>
+        <div className="result-stack result-stack--inner">
+          {resume.claims.slice(0, 8).map((claim) => (
+            <article className="requirement" key={claim.id}>
+              <div className="requirement__top">
+                <p className="requirement__text">{claim.claim_text}</p>
+                <span className="requirement__type">{claim.risk_level}</span>
+              </div>
+              <p className="requirement__quote">Section: {claim.section}</p>
+              <div className="chip-row">
+                {claim.support_status ? (
+                  <span className="chip">{claim.support_status}</span>
+                ) : null}
+                {claim.claim_status && claim.claim_status !== claim.support_status ? (
+                  <span className="chip">{claim.claim_status}</span>
+                ) : null}
+                {claim.evidence_ids.map((id) => (
+                  <span className="chip" key={id}>
+                    evidence {id.slice(0, 8)}
+                  </span>
+                ))}
+              </div>
+              {claim.source_quotes[0] ? (
+                <p className="requirement__quote">Quote: {claim.source_quotes[0]}</p>
+              ) : null}
+              {claim.stale_reason ? (
+                <p className="requirement__quote">Guard: {claim.stale_reason}</p>
+              ) : null}
+              {claim.last_validated_at ? (
+                <p className="requirement__quote">
+                  Last validated: {new Date(claim.last_validated_at).toLocaleString()}
+                </p>
+              ) : null}
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+async function copyMarkdown(markdown: string) {
+  await navigator.clipboard.writeText(markdown);
+}
+
+function downloadMarkdown(title: string, markdown: string) {
+  const safeTitle = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80);
+  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${safeTitle || "tailored-resume"}.md`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function Section({ title, items }: { title: string; items: string[] }) {
+  if (items.length === 0) return null;
+  return (
+    <section className="section-block">
+      <h3>{title}</h3>
+      <ul>
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}

@@ -91,8 +91,9 @@ Agents and functions are constrained workers. They never decide the whole workfl
 | Client | Web App | Workspace UI, explicit AI actions, approval modals | Yes |
 | App | API Routes | Auth/session, CRUD, upload, workflow triggers, access control | Yes |
 | App | Orchestrator | Workflow state, step ordering, approval pauses, retries, persistence | Yes |
+| App | Application Tracker | Canonical status state machine for evaluated/applied/responded/interview/offer/rejected/discarded/skip | Yes |
 | AI | Agents | Multi-step reasoning + tool use (see Section 4) | Partial |
-| AI | Typed LLM Functions | One-shot structured extraction/parse | Yes |
+| AI | Typed LLM Functions | One-shot structured extraction/parse, JD role archetype, posting legitimacy | Yes |
 | AI | Guardrails | Fact Guard A/B, schema validation, fairness, sensitive-term block | Yes |
 | AI | Provider Abstraction | Model routing, vendor independence, local-mode | Yes |
 | Data | Retrieval | Evidence selection (structured + keyword + vector) | Yes |
@@ -162,7 +163,7 @@ flowchart LR
 | Profile Intake | LLM function | Cheap | No |
 | Evidence Curator | Agent | Strong | No |
 | De-identification | Skill/step in Evidence Curator | Cheap/Strong | Feeds Layer A |
-| JD Analyst | LLM function | Cheap | No |
+| JD Analyst | LLM function | Cheap | No; outputs requirements, role archetype, and posting legitimacy |
 | Resume Tailor | Agent | Strong | No |
 | HR Reviewer | Agent | Strong | No (advisory) |
 | Fact Guard Layer A | Code | None | Yes (hard block) |
@@ -214,6 +215,19 @@ sequenceDiagram
 ```
 
 ---
+
+## 5A. Borrowed Patterns Adopted
+
+JobDesk adopts the useful operating-system patterns from career workflow tools,
+but keeps the source of truth in schemas and database records:
+
+- JD Analysis now produces `role_archetype` and `job_legitimacy`.
+- The tracker uses a shared application-status vocabulary.
+- Job Scout should later add portal scanning and liveness checks before daily
+  recommendations.
+- Interview Prep should later promote reusable STAR+Reflection stories into the
+  evidence library.
+- User-owned data must be separated from system-owned skills, docs, and code.
 
 ## 6. Claim-Evidence Ledger (living provenance)
 

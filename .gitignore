@@ -1,5 +1,11 @@
 node_modules/
+.next/
+.vercel/
 dist/
 schemas-json/
+.env
+.env.*
+!.env.example
 *.log
 .DS_Store
+.vercel

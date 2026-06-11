@@ -1,12 +1,18 @@
 # Job Search Copilot Design Doc
 
-Version: 0.4  
-Status: Revised — skills + schema contracts added  
+Version: 0.5  
+Status: Revised - career-ops pattern adoption added  
 Date: 2026-06-09  
 Related documents: prd.md, build-and-learn.md, skills/, src/schemas/ (see §1A)  
 
 ## Changelog
 
+- v0.5 — Adopted selected career-ops patterns in JobDesk-native form:
+  role archetype detection, posting-legitimacy assessment, canonical application
+  statuses, interview story bank direction, scanner liveness checks, and
+  user/system data ownership boundaries. No new skills are required for this
+  revision; existing JD analysis, company research, job recommendation, and
+  STAR story skills cover the methodology boundary.
 - v0.4 — Project artifacts expanded: added `skills/` (13 versioned SKILL.md packs)
   and `src/schemas/` (canonical Zod data contracts + SETUP.md, JSON Schema
   generated). Updated §1A authority table to include skills and schemas.
@@ -148,6 +154,8 @@ The v0.1 review recommended reducing agent surface area and moving high-risk val
 5. Retrieval scope: use one embedding table scoped by `workspace_id` and `index_type` for MVP. Preserve logical index policies, but defer physically separate vector stores and reranking.
 6. Fairness: HR review and job recommendation workflows must include fairness rubrics and regression tests.
 7. Cost control: every model-based component must declare a model tier and budget.
+8. Job quality filter: JD analysis must include a posting-legitimacy assessment so users can prioritize real, active, high-fit opportunities.
+9. Canonical pipeline vocabulary: application tracking uses shared statuses (`evaluated`, `applied`, `responded`, `interview`, `offer`, `rejected`, `discarded`, `skip`) rather than free-form status text.
 
 ## 5. Suggested Technology Stack
 
@@ -239,6 +247,26 @@ Responsibilities:
 - API request validation.
 - Workflow trigger endpoints.
 - Access control for all user-owned data.
+
+### 6.2A Adopted Career-Ops Patterns
+
+The project adopts several useful patterns from local job-search operating
+systems, but implements them through JobDesk's structured data model rather than
+markdown files as the source of truth.
+
+- Role archetype detection lives in `JDAnalysis.role_archetype` and influences
+  evidence retrieval, resume framing, and interview story selection.
+- Posting legitimacy lives in `JDAnalysis.job_legitimacy` and is an advisory
+  prioritization signal, not an accusation about the employer.
+- Application pipeline state uses a shared enum so dashboards, email
+  classifiers, and future trackers cannot drift.
+- Interview story bank remains in the existing evidence/story model; a separate
+  skill is not needed until the story-bank workflow has dedicated UI and tests.
+- Scanner liveness checks belong to Job Scout / job recommendation workflows and
+  must stay read-only unless the user explicitly approves an action.
+- User-owned data and system-owned instructions must stay separated so future
+  updates cannot overwrite personal profile, evidence, stories, applications, or
+  generated documents.
 
 ### 6.3 Workflow Orchestrator
 

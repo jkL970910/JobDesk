@@ -10,7 +10,7 @@ import {
   AllowedUsage,
   ApprovalStatus,
   GroundedMetric,
-} from "./shared.js";
+} from "./shared";
 
 export const EvidenceItem = z.object({
   id: z.string(),

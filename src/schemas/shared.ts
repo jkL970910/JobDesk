@@ -70,6 +70,40 @@ export const ClaimStatus = z.enum([
 ]);
 export type ClaimStatus = z.infer<typeof ClaimStatus>;
 
+/** Canonical application pipeline states, shared by tracking and dashboards. */
+export const ApplicationStatus = z.enum([
+  "evaluated",
+  "applied",
+  "responded",
+  "interview",
+  "offer",
+  "rejected",
+  "discarded",
+  "skip",
+]);
+export type ApplicationStatus = z.infer<typeof ApplicationStatus>;
+
+/** Job-posting legitimacy assessment tier. */
+export const PostingLegitimacyTier = z.enum([
+  "high_confidence",
+  "proceed_with_caution",
+  "suspicious",
+]);
+export type PostingLegitimacyTier = z.infer<typeof PostingLegitimacyTier>;
+
+/** High-level role archetype used for framing evidence and interview prep. */
+export const RoleArchetype = z.enum([
+  "ai_platform_llmops",
+  "agentic_automation",
+  "technical_ai_pm",
+  "ai_solutions_architect",
+  "ai_forward_deployed",
+  "ai_transformation",
+  "hybrid",
+  "unknown",
+]);
+export type RoleArchetype = z.infer<typeof RoleArchetype>;
+
 /* ------------------------------------------------------------------ */
 /* Core primitives.                                                    */
 /* ------------------------------------------------------------------ */
