@@ -2,8 +2,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { loadDotEnv } from "../src/ai/env";
 import {
+  getEvidenceDedupeCandidates,
   getRecentEvidenceLibrary,
   getResumeTailoringContext,
+  mergeEvidenceItems,
   persistProfileEvidenceExtraction,
   updateEvidenceItem,
 } from "../src/server/profile-evidence-repository";
@@ -145,8 +147,60 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
         item.text.includes("Sensitive finance dashboard"),
       ),
     ).toBe(false);
+
+    const duplicateA = await persistProfileEvidenceExtraction({
+      sourceText: duplicateSourceText,
+      extraction: buildDuplicateExtraction("Built onboarding funnel dashboards with SQL."),
+      provider: "integration-test",
+      model: "test-model",
+      usage: {},
+      retryCount: 0,
+    });
+    const duplicateB = await persistProfileEvidenceExtraction({
+      sourceText: duplicateSourceText,
+      extraction: buildDuplicateExtraction("Built SQL dashboards for onboarding funnel analysis."),
+      provider: "integration-test",
+      model: "test-model",
+      usage: {},
+      retryCount: 0,
+    });
+    if (duplicateA.status !== "saved" || duplicateB.status !== "saved") {
+      throw new Error("Expected duplicate evidence setup to save.");
+    }
+
+    const dedupe = await getEvidenceDedupeCandidates(20);
+    expect(dedupe.status).toBe("ready");
+    if (dedupe.status !== "ready") throw new Error("Expected dedupe candidates.");
+    const candidate = dedupe.candidates.find(
+      (item) =>
+        item.primary.text.includes("onboarding funnel") &&
+        item.duplicate.text.includes("onboarding funnel"),
+    );
+    expect(candidate).toBeDefined();
+    if (!candidate) throw new Error("Expected duplicate candidate.");
+
+    const merge = await mergeEvidenceItems({
+      primaryEvidenceId: candidate.primary.id,
+      duplicateEvidenceId: candidate.duplicate.id,
+    });
+    expect(merge).toMatchObject({
+      status: "merged",
+      primaryEvidenceId: candidate.primary.id,
+      duplicateEvidenceId: candidate.duplicate.id,
+    });
+
+    const afterMerge = await getRecentEvidenceLibrary(50);
+    const duplicateAfterMerge = afterMerge.evidenceItems.find(
+      (item) => item.id === candidate.duplicate.id,
+    );
+    expect(duplicateAfterMerge).toMatchObject({ status: "rejected" });
   });
 });
+
+const duplicateSourceText = [
+  "Jane Doe",
+  "Built SQL dashboards for onboarding funnel analysis.",
+].join("\n");
 
 const sampleSourceText = [
   "Jane Doe",
@@ -295,5 +349,41 @@ function simpleField(
     value,
     source_quote: sourceQuote,
     confidence,
+  };
+}
+
+
+function buildDuplicateExtraction(text: string): ProfileEvidenceExtraction {
+  return {
+    profile: {
+      name: simpleField("Jane Doe", "Jane Doe", 0.95),
+      email: null,
+      phone: null,
+      location: null,
+      links: [],
+      education: [],
+      experience: [],
+      skills: [],
+      certifications: [],
+      missing_fields: [],
+      low_confidence_fields: [],
+      invented_field_flags: [],
+    },
+    evidence_items: [
+      {
+        text,
+        source_quote: "Built SQL dashboards for onboarding funnel analysis.",
+        evidence_type: "extracted",
+        metrics: [],
+        sensitivity_level: "private",
+        allowed_usage: ["resume"],
+        public_safe_summary: null,
+        status: "pending",
+        related_project_id: null,
+        needs_user_confirmation: false,
+      },
+    ],
+    project_cards: [],
+    extraction_notes: [],
   };
 }

@@ -279,6 +279,131 @@ export async function getRecentEvidenceLibrary(limit = 8) {
   };
 }
 
+export type EvidenceDedupeCandidate = {
+  primary: EvidenceDedupeItem;
+  duplicate: EvidenceDedupeItem;
+  score: number;
+  reasons: string[];
+};
+
+export type EvidenceDedupeItem = {
+  id: string;
+  text: string;
+  source_quote: string;
+  status: string;
+  allowed_usage: string[];
+  sensitivity_level: string;
+  evidence_type: string;
+  needs_user_confirmation: boolean;
+  updatedAt: string;
+};
+
+export async function getEvidenceDedupeCandidates(limit = 8) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  const rows = await getDb()
+    .select()
+    .from(evidenceItems)
+    .where(eq(evidenceItems.status, "pending"))
+    .orderBy(desc(evidenceItems.updatedAt))
+    .limit(120);
+  const candidates: EvidenceDedupeCandidate[] = [];
+  for (let leftIndex = 0; leftIndex < rows.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < rows.length; rightIndex += 1) {
+      const left = rows[leftIndex]!;
+      const right = rows[rightIndex]!;
+      const match = scoreEvidenceSimilarity(left.text, right.text);
+      if (match.score < 0.72 && normalizeEvidenceText(left.sourceQuote) !== normalizeEvidenceText(right.sourceQuote)) {
+        continue;
+      }
+      const [primary, duplicate] = chooseDedupePrimary(left, right);
+      candidates.push({
+        primary: toDedupeItem(primary),
+        duplicate: toDedupeItem(duplicate),
+        score: match.score,
+        reasons: match.reasons,
+      });
+    }
+  }
+
+  candidates.sort((left, right) => right.score - left.score);
+  const uniquePairs = new Set<string>();
+  const deduped = candidates.filter((candidate) => {
+    const key = [candidate.primary.id, candidate.duplicate.id].sort().join(":");
+    if (uniquePairs.has(key)) return false;
+    uniquePairs.add(key);
+    return true;
+  });
+
+  return {
+    status: "ready" as const,
+    candidates: deduped.slice(0, limit),
+  };
+}
+
+export async function mergeEvidenceItems(args: {
+  primaryEvidenceId: string;
+  duplicateEvidenceId: string;
+}) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+  if (args.primaryEvidenceId === args.duplicateEvidenceId) {
+    return { status: "invalid" as const, reason: "same_evidence_id" as const };
+  }
+
+  return getDb().transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(evidenceItems)
+      .where(inArray(evidenceItems.id, [args.primaryEvidenceId, args.duplicateEvidenceId]));
+    const primary = rows.find((item) => item.id === args.primaryEvidenceId);
+    const duplicate = rows.find((item) => item.id === args.duplicateEvidenceId);
+    if (!primary || !duplicate) return { status: "not_found" as const };
+    if (primary.status === "rejected" || duplicate.status === "rejected") {
+      return { status: "invalid" as const, reason: "rejected_evidence" as const };
+    }
+
+    const now = new Date();
+    const mergedAllowedUsage = Array.from(
+      new Set([...primary.allowedUsage, ...duplicate.allowedUsage]),
+    );
+    const mergedMetrics = mergeJsonArrays(primary.metrics, duplicate.metrics);
+    const mergedSummary =
+      primary.publicSafeSummary ??
+      duplicate.publicSafeSummary ??
+      null;
+    await tx
+      .update(evidenceItems)
+      .set({
+        allowedUsage: mergedAllowedUsage,
+        metrics: mergedMetrics,
+        publicSafeSummary: mergedSummary,
+        needsUserConfirmation:
+          primary.needsUserConfirmation || duplicate.needsUserConfirmation ? 1 : 0,
+        updatedAt: now,
+      })
+      .where(eq(evidenceItems.id, primary.id));
+    await tx
+      .update(evidenceItems)
+      .set({
+        status: "rejected",
+        updatedAt: now,
+      })
+      .where(eq(evidenceItems.id, duplicate.id));
+
+    await markClaimsStaleForEvidenceIds([primary.id, duplicate.id]);
+    return {
+      status: "merged" as const,
+      primaryEvidenceId: primary.id,
+      duplicateEvidenceId: duplicate.id,
+      mergedAllowedUsage,
+    };
+  });
+}
+
 export async function updateProjectCard(args: {
   projectId: string;
   action: "approve" | "reject" | "edit";
@@ -517,6 +642,106 @@ async function getOrCreateDefaultWorkspace(db: Pick<DbHandle, "select" | "insert
     throw new Error("Failed to create workspace.");
   }
   return created;
+}
+
+function toDedupeItem(item: typeof evidenceItems.$inferSelect): EvidenceDedupeItem {
+  return {
+    id: item.id,
+    text: item.text,
+    source_quote: item.sourceQuote,
+    status: item.status,
+    allowed_usage: item.allowedUsage,
+    sensitivity_level: item.sensitivityLevel,
+    evidence_type: item.evidenceType,
+    needs_user_confirmation: item.needsUserConfirmation === 1,
+    updatedAt: item.updatedAt.toISOString(),
+  };
+}
+
+function chooseDedupePrimary(
+  left: typeof evidenceItems.$inferSelect,
+  right: typeof evidenceItems.$inferSelect,
+): [typeof evidenceItems.$inferSelect, typeof evidenceItems.$inferSelect] {
+  const leftRank = evidencePriority(left);
+  const rightRank = evidencePriority(right);
+  if (leftRank !== rightRank) {
+    return leftRank > rightRank ? [left, right] : [right, left];
+  }
+  return left.updatedAt >= right.updatedAt ? [left, right] : [right, left];
+}
+
+function evidencePriority(item: typeof evidenceItems.$inferSelect) {
+  let score = 0;
+  if (item.status === "approved") score += 4;
+  if (item.allowedUsage.includes("resume")) score += 2;
+  if (!item.needsUserConfirmation) score += 1;
+  if (item.evidenceType !== "inferred") score += 1;
+  return score;
+}
+
+function scoreEvidenceSimilarity(left: string, right: string) {
+  const leftNormalized = normalizeEvidenceText(left);
+  const rightNormalized = normalizeEvidenceText(right);
+  if (!leftNormalized || !rightNormalized) return { score: 0, reasons: [] };
+  if (leftNormalized === rightNormalized) {
+    return { score: 1, reasons: ["exact normalized text match"] };
+  }
+  const leftTokens = new Set(toEvidenceTokens(leftNormalized));
+  const rightTokens = new Set(toEvidenceTokens(rightNormalized));
+  if (leftTokens.size === 0 || rightTokens.size === 0) {
+    return { score: 0, reasons: [] };
+  }
+  const overlap = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  const smaller = Math.min(leftTokens.size, rightTokens.size);
+  const larger = Math.max(leftTokens.size, rightTokens.size);
+  const containment = overlap / smaller;
+  const jaccard = overlap / (leftTokens.size + rightTokens.size - overlap);
+  const score = Math.max(jaccard, containment * 0.86);
+  const reasons = [];
+  if (containment >= 0.84) reasons.push("high token containment");
+  if (jaccard >= 0.72) reasons.push("high token overlap");
+  return { score, reasons: reasons.length > 0 ? reasons : ["similar wording"] };
+}
+
+function normalizeEvidenceText(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9%]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toEvidenceTokens(text: string) {
+  const stopwords = new Set([
+    "and",
+    "for",
+    "from",
+    "the",
+    "to",
+    "with",
+    "into",
+    "that",
+    "this",
+    "was",
+    "were",
+  ]);
+  return text
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !stopwords.has(token));
+}
+
+function mergeJsonArrays(
+  left: Array<Record<string, unknown>>,
+  right: Array<Record<string, unknown>>,
+) {
+  const seen = new Set<string>();
+  return [...left, ...right].filter((item) => {
+    const key = JSON.stringify(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function inferSourceTitle(

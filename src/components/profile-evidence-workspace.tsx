@@ -37,6 +37,25 @@ type ExtractionResponse =
     }
   | { error: string; kind?: string };
 
+type DedupeCandidate = {
+  primary: {
+    id: string;
+    text: string;
+    status: string;
+    allowed_usage: string[];
+    sensitivity_level: string;
+  };
+  duplicate: {
+    id: string;
+    text: string;
+    status: string;
+    allowed_usage: string[];
+    sensitivity_level: string;
+  };
+  score: number;
+  reasons: string[];
+};
+
 type EvidenceLibrary = {
   profile: { displayName: string | null; updatedAt: string } | null;
   evidenceItems: Array<{
@@ -75,6 +94,7 @@ export function ProfileEvidenceWorkspace() {
   const [fileStatus, setFileStatus] = useState<string | null>(null);
   const [result, setResult] = useState<ProfileEvidenceExtraction | null>(null);
   const [library, setLibrary] = useState<EvidenceLibrary | null>(null);
+  const [dedupeCandidates, setDedupeCandidates] = useState<DedupeCandidate[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("OpenRouter profile/evidence contract call");
   const [isPending, startTransition] = useTransition();
@@ -82,6 +102,7 @@ export function ProfileEvidenceWorkspace() {
 
   useEffect(() => {
     void loadLibrary();
+    void loadDedupeCandidates();
   }, []);
 
   async function loadLibrary() {
@@ -91,8 +112,18 @@ export function ProfileEvidenceWorkspace() {
     setLibrary(payload.data ?? null);
   }
 
+  async function loadDedupeCandidates() {
+    const response = await fetch("/api/evidence/dedupe");
+    if (!response.ok) return;
+    const payload = (await response.json()) as {
+      data?: { status: string; candidates?: DedupeCandidate[] };
+    };
+    setDedupeCandidates(payload.data?.candidates ?? []);
+  }
+
   async function refreshLibraryAfterMutation() {
     await loadLibrary();
+    await loadDedupeCandidates();
     window.dispatchEvent(new Event("jobdesk:evidence-library-updated"));
   }
 
@@ -264,6 +295,31 @@ export function ProfileEvidenceWorkspace() {
     void refreshLibraryAfterMutation();
   }
 
+  async function mergeEvidenceCandidate(candidate: DedupeCandidate) {
+    const confirmed = window.confirm(
+      "Merge this duplicate evidence candidate? The duplicate will be rejected and linked claims will be marked stale.",
+    );
+    if (!confirmed) return;
+    const response = await fetch("/api/evidence/dedupe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        primaryEvidenceId: candidate.primary.id,
+        duplicateEvidenceId: candidate.duplicate.id,
+      }),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      setError(payload?.error ?? "Failed to merge evidence.");
+      return;
+    }
+    setResult(null);
+    setStatus("Merged duplicate evidence candidate.");
+    void refreshLibraryAfterMutation();
+  }
+
   async function updateProject(
     project: { id?: string; title: string; role: string | null },
     action: "approve" | "reject" | "edit" | "approve_project_evidence_for_resume",
@@ -397,6 +453,11 @@ export function ProfileEvidenceWorkspace() {
           </div>
         </div>
         {profile ? <ProfileSummary extraction={result} /> : <LibrarySummary library={library} />}
+        <DedupePanel
+          candidates={dedupeCandidates}
+          onMerge={mergeEvidenceCandidate}
+          onRefresh={() => void loadDedupeCandidates()}
+        />
         <EvidenceList
           items={evidenceItems}
           onUpdate={updateEvidence}
@@ -458,6 +519,77 @@ function LibrarySummary({ library }: { library: EvidenceLibrary | null }) {
         {library?.evidenceItems.length ?? 0} recent evidence drafts ·{" "}
         {library?.projectCards.length ?? 0} project cards
       </p>
+    </section>
+  );
+}
+
+function DedupePanel({
+  candidates,
+  onMerge,
+  onRefresh,
+}: {
+  candidates: DedupeCandidate[];
+  onMerge: (candidate: DedupeCandidate) => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <section className="section-block">
+      <div className="requirement__top">
+        <h3>Duplicate evidence review</h3>
+        <button className="secondary-button" type="button" onClick={onRefresh}>
+          Refresh duplicates
+        </button>
+      </div>
+      {candidates.length === 0 ? (
+        <p className="requirement__quote">
+          No duplicate evidence candidates in the recent pending library.
+        </p>
+      ) : (
+        <div className="result-stack result-stack--inner">
+          {candidates.map((candidate) => (
+            <article
+              className="requirement"
+              key={`${candidate.primary.id}-${candidate.duplicate.id}`}
+            >
+              <div className="requirement__top">
+                <p className="requirement__text">
+                  Similarity {Math.round(candidate.score * 100)}%
+                </p>
+                <span className="requirement__type">
+                  {candidate.reasons[0] ?? "similar"}
+                </span>
+              </div>
+              <p className="requirement__quote">
+                Keep: {candidate.primary.text}
+              </p>
+              <p className="requirement__quote">
+                Merge duplicate: {candidate.duplicate.text}
+              </p>
+              <div className="chip-row">
+                {candidate.primary.allowed_usage.map((usage) => (
+                  <span className="chip" key={`primary-${usage}`}>
+                    keep {usage}
+                  </span>
+                ))}
+                {candidate.duplicate.allowed_usage.map((usage) => (
+                  <span className="chip" key={`duplicate-${usage}`}>
+                    duplicate {usage}
+                  </span>
+                ))}
+              </div>
+              <div className="actions actions--compact">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => onMerge(candidate)}
+                >
+                  Merge duplicate
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
