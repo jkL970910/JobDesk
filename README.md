@@ -1,32 +1,31 @@
 # JobDesk
 
-JobDesk is the early foundation for a job-search copilot: product docs,
-versioned skills, canonical Zod schemas, and the first OpenRouter-backed AI
-contract calls.
+JobDesk is an early local-first job-search copilot. The current implementation focuses on the resume grounding spine: parse a resume source, extract profile/evidence, analyze a target JD, generate a tailored resume, and run a conservative Fact Guard over the generated claim ledger.
 
 ## Current Status
 
-Implemented:
+The source of truth for implementation progress is `docs/development-status.md`.
 
-- Minimal Next.js Phase 1.1 app shell with a JD analysis workbench.
-- Grounding-spine Zod schemas under `src/schemas/`.
-- JSON Schema generation from Zod.
-- Skill instruction packs under `skills/`.
-- OpenRouter-compatible structured JSON adapter under `src/ai/`.
-- JD analysis smoke path using real OpenRouter.
-- Drizzle/Postgres persistence for analyzed job descriptions, requirements, and
-  workflow runs.
-- Recent job loading, job detail reload, same-job re-analysis, and soft archive.
-- Structured job facts: company, role title, level, location, responsibilities,
-  and preferred qualifications.
-- Optional DB-backed integration test command for repository/API workbench paths.
-- Profile/evidence extraction MVP from pasted resume or career-note text.
+Current local baseline:
+
+- 6 product workflows implemented at MVP depth.
+- PDF, DOCX, TXT, and Markdown resume source parsing.
+- Profile/evidence extraction with persistence.
+- Basic evidence review actions for resume eligibility.
+- JD analysis with persistence, reload, reanalysis, and archive.
+- Tailored resume generation using approved evidence retrieval.
+- Generated claim ledger and deterministic Fact Guard revalidation.
+- Drizzle/Postgres migrations and DB-backed integration tests.
+- Next.js workbench UI for local testing.
 
 Not implemented yet:
 
-- File upload/PDF parsing, retrieval, export, and broader workflow orchestration.
-- Profile/evidence approval, editing, dedupe, merge, and de-identification UI.
-- Authentication, deployment config, and production workspace isolation.
+- Auth and production workspace isolation.
+- Resume export to PDF/DOCX.
+- Evidence merge/dedupe and full de-identification UX.
+- Interview preparation workflow.
+- Daily job recommendation workflow.
+- Email/application tracking workflow.
 
 ## Setup
 
@@ -38,8 +37,8 @@ cp .env.example .env
 Fill `JOBDESK_OPENROUTER_API_KEY` in `.env` before running real AI calls.
 For the current OpenRouter-compatible route, use
 `JOBDESK_OPENROUTER_TRANSPORT=chat-completions`.
-Fill `DATABASE_URL` with the separate JobDesk Neon Postgres connection string
-when you are ready to persist jobs and workflow runs.
+Fill `DATABASE_URL` with the separate JobDesk Postgres connection string when
+you are ready to persist jobs, evidence, resumes, claims, and workflow runs.
 
 ## Commands
 
@@ -55,11 +54,7 @@ npm run db:migrate
 npm run db:push # disposable local dev only
 ```
 
-Open the local app at `http://localhost:3000` after `npm run dev`.
-
-The smoke command sends a small sample job description to the configured
-OpenRouter-compatible adapter and validates the result with the `JDAnalysis` Zod
-schema.
+Open the local app at `http://localhost:3000` after `npm run dev`, or pass a different port such as `npm run dev -- -p 3030`.
 
 Database changes are persisted as Drizzle SQL migrations under `drizzle/`.
 Use `npm run db:migrate` for any database that may contain user data. Reserve

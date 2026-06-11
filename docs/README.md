@@ -1,6 +1,6 @@
 # Job Search Copilot Docs
 
-Status: Signoff candidate doc set, dated 2026-06-09.
+Status: Signoff candidate product/design doc set plus active implementation status, updated 2026-06-11.
 
 Use this document set for implementation planning:
 
@@ -11,6 +11,7 @@ Use this document set for implementation planning:
 | `architecture.md` | Diagram-first architecture companion | Signoff candidate |
 | `build-and-learn.md` | Component-by-component build plan, schemas, benchmarks, and sequencing | Signoff candidate |
 | `local-model-setup.md` | Local provider setup note for Ollama/LM Studio | Implementation note |
+| `development-status.md` | Living implementation progress, workflow coverage, verification, and next tasks | Active status log |
 
 Source-learning notes are intentionally not included in this project doc set.
 They contain no implementation contract that is required to build the product.

@@ -1,8 +1,8 @@
 # JobDesk Schemas — Local Setup
 
-This sets up the canonical Zod schemas (source of truth) for the grounding-spine
-components (1-6), with type-checking, contract tests, JSON Schema generation, and
-the first real OpenRouter-backed structured AI call.
+This sets up the canonical Zod schemas and local MVP workbench for the grounding-spine
+components (1-6), with type-checking, contract tests, JSON Schema generation,
+OpenRouter-backed structured AI calls, persistence, resume source parsing, and Fact Guard verification.
 
 Decisions baked in (per design review):
 1. **Zod (`.ts`) is the source of truth.** JSON Schema is *generated*, never
@@ -135,12 +135,12 @@ JobDesk/
   npm to your private or custom registry first, then re-run. The pinned versions in
   `package.json` are exact (no `^`) for reproducibility.
 - This is intentionally still a **thin MVP shell**, not the full JobDesk product.
-  It includes one JD analysis workbench, OpenRouter-backed structured output,
-  structured job facts, Profile/Evidence extraction from pasted text,
-  Drizzle/Postgres persistence, recent job reload, same-job re-analysis, soft
-  archive, and DB-backed integration tests. File upload/PDF parsing,
-  profile/evidence approval/editing, export, auth, and full workflow
-  orchestration are still later phases.
+  The current baseline includes JD analysis, resume source parsing for PDF/DOCX/TXT/Markdown,
+  Profile/Evidence extraction, basic evidence approval/editing, tailored resume generation,
+  generated claim ledgers, deterministic Fact Guard revalidation, Drizzle/Postgres persistence,
+  recent job reload, same-job re-analysis, soft archive, and DB-backed integration tests.
+  See `docs/development-status.md` for the current workflow count, verification status, and next tasks.
+  Export, auth, interview prep, daily job recommendations, and email tracking are still later phases.
 - To extend: add a new `src/schemas/<name>.ts`, import shared primitives, export it
   from `index.ts`, and add it to `scripts/generate-json-schema.ts` if you want a
   generated JSON artifact.
