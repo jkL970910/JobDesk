@@ -20,6 +20,7 @@ import {
   retrieveResumeEvidenceForJob,
   type ResumeRetrievalJobContext,
 } from "./retrieval-service";
+import { buildStarStoryCards } from "./star-story-service";
 
 const defaultWorkspaceName = "Personal JobDesk";
 
@@ -299,6 +300,35 @@ export type EvidenceDedupeItem = {
   needs_user_confirmation: boolean;
   updatedAt: string;
 };
+
+export async function getStarStoryBank(limit = 8) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  const db = getDb();
+  const projects = await db
+    .select()
+    .from(projectCards)
+    .orderBy(desc(projectCards.updatedAt))
+    .limit(80);
+  if (projects.length === 0) {
+    return { status: "ready" as const, stories: [] };
+  }
+  const evidence = await db
+    .select()
+    .from(evidenceItems)
+    .where(inArray(evidenceItems.relatedProjectId, projects.map((project) => project.id)));
+
+  return {
+    status: "ready" as const,
+    stories: buildStarStoryCards({
+      projects,
+      evidenceItems: evidence,
+      limit,
+    }),
+  };
+}
 
 export async function getEvidenceDedupeCandidates(limit = 8) {
   if (!hasDatabaseUrl()) {

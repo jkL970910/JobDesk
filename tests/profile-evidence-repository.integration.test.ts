@@ -5,6 +5,7 @@ import {
   getEvidenceDedupeCandidates,
   getRecentEvidenceLibrary,
   getResumeTailoringContext,
+  getStarStoryBank,
   mergeEvidenceItems,
   persistProfileEvidenceExtraction,
   updateEvidenceItem,
@@ -63,6 +64,16 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(library.projectCards.some((project) => project.title === "Onboarding analytics")).toBe(
       true,
     );
+    const starStories = await getStarStoryBank(10);
+    expect(starStories.status).toBe("ready");
+    if (starStories.status !== "ready") throw new Error("Expected STAR story bank.");
+    expect(
+      starStories.stories.some(
+        (story) =>
+          story.title === "Onboarding analytics" &&
+          story.action.some((action) => action.includes("SQL dashboards")),
+      ),
+    ).toBe(true);
 
     if (!sqlEvidence) throw new Error("Expected SQL evidence.");
     const approve = await updateEvidenceItem({

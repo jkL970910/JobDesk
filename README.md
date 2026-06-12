@@ -11,7 +11,7 @@ Current local baseline:
 - 6 product workflows implemented at MVP depth.
 - PDF, DOCX, TXT, and Markdown resume source parsing.
 - Profile/evidence extraction from resumes and project notes with persistence.
-- Basic evidence/project-card review, external-safe de-identification, and duplicate evidence merge for resume eligibility.
+- Basic evidence/project-card review, external-safe de-identification, duplicate evidence merge, and STAR story promotion.
 - JD analysis with persistence, reload, reanalysis, and archive.
 - Tailored resume generation using approved evidence retrieval.
 - Generated claim ledger and deterministic Fact Guard revalidation.
@@ -22,7 +22,6 @@ Not implemented yet:
 
 - Auth and production workspace isolation.
 - Resume export to PDF/DOCX.
-- Evidence merge/dedupe and full de-identification UX.
 - Interview preparation workflow.
 - Daily job recommendation workflow.
 - Email/application tracking workflow.

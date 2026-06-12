@@ -56,6 +56,26 @@ type DedupeCandidate = {
   reasons: string[];
 };
 
+type StarStory = {
+  id: string;
+  project_id: string;
+  title: string;
+  status: string;
+  readiness: "ready" | "needs_review" | "thin";
+  situation: string | null;
+  task: string | null;
+  action: string[];
+  result: string[];
+  metrics: string[];
+  technologies: string[];
+  stakeholders: string[];
+  external_safe_summary: string | null;
+  source_evidence_ids: string[];
+  evidence_count: number;
+  interview_angles: string[];
+  gaps: string[];
+};
+
 type EvidenceLibrary = {
   profile: { displayName: string | null; updatedAt: string } | null;
   evidenceItems: Array<{
@@ -96,6 +116,7 @@ export function ProfileEvidenceWorkspace() {
   const [result, setResult] = useState<ProfileEvidenceExtraction | null>(null);
   const [library, setLibrary] = useState<EvidenceLibrary | null>(null);
   const [dedupeCandidates, setDedupeCandidates] = useState<DedupeCandidate[]>([]);
+  const [starStories, setStarStories] = useState<StarStory[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("OpenRouter profile/evidence contract call");
   const [isPending, startTransition] = useTransition();
@@ -104,6 +125,7 @@ export function ProfileEvidenceWorkspace() {
   useEffect(() => {
     void loadLibrary();
     void loadDedupeCandidates();
+    void loadStarStories();
   }, []);
 
   async function loadLibrary() {
@@ -122,9 +144,19 @@ export function ProfileEvidenceWorkspace() {
     setDedupeCandidates(payload.data?.candidates ?? []);
   }
 
+  async function loadStarStories() {
+    const response = await fetch("/api/profile-evidence/star-stories");
+    if (!response.ok) return;
+    const payload = (await response.json()) as {
+      data?: { status: string; stories?: StarStory[] };
+    };
+    setStarStories(payload.data?.stories ?? []);
+  }
+
   async function refreshLibraryAfterMutation() {
     await loadLibrary();
     await loadDedupeCandidates();
+    await loadStarStories();
     window.dispatchEvent(new Event("jobdesk:evidence-library-updated"));
   }
 
@@ -512,6 +544,10 @@ export function ProfileEvidenceWorkspace() {
           onMerge={mergeEvidenceCandidate}
           onRefresh={() => void loadDedupeCandidates()}
         />
+        <StarStoryPanel
+          stories={starStories}
+          onRefresh={() => void loadStarStories()}
+        />
         <EvidenceList
           items={evidenceItems}
           onUpdate={updateEvidence}
@@ -640,6 +676,74 @@ function DedupePanel({
                   Merge duplicate
                 </button>
               </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function StarStoryPanel({
+  onRefresh,
+  stories,
+}: {
+  onRefresh: () => void;
+  stories: StarStory[];
+}) {
+  return (
+    <section className="section-block">
+      <div className="requirement__top">
+        <h3>STAR story bank</h3>
+        <button className="secondary-button" type="button" onClick={onRefresh}>
+          Refresh stories
+        </button>
+      </div>
+      {stories.length === 0 ? (
+        <p className="requirement__quote">
+          No project cards are ready to promote into STAR stories yet.
+        </p>
+      ) : (
+        <div className="result-stack result-stack--inner">
+          {stories.slice(0, 4).map((story) => (
+            <article className="requirement" key={story.id}>
+              <div className="requirement__top">
+                <p className="requirement__text">{story.title}</p>
+                <span className="requirement__type">{story.readiness}</span>
+              </div>
+              {story.situation ? (
+                <p className="requirement__quote">S: {story.situation}</p>
+              ) : null}
+              {story.task ? (
+                <p className="requirement__quote">T: {story.task}</p>
+              ) : null}
+              {story.action.length > 0 ? (
+                <SectionList title="A" items={story.action.slice(0, 3)} />
+              ) : null}
+              {story.result.length > 0 ? (
+                <SectionList title="R" items={story.result.slice(0, 3)} />
+              ) : null}
+              {story.external_safe_summary ? (
+                <p className="requirement__quote">
+                  External-safe: {story.external_safe_summary}
+                </p>
+              ) : null}
+              <div className="chip-row">
+                <span className="chip">{story.evidence_count} evidence</span>
+                {story.metrics.slice(0, 3).map((metric) => (
+                  <span className="chip" key={metric}>
+                    {metric}
+                  </span>
+                ))}
+                {story.interview_angles.map((angle) => (
+                  <span className="chip" key={angle}>
+                    {angle}
+                  </span>
+                ))}
+              </div>
+              {story.gaps.length > 0 ? (
+                <SectionList title="Gaps" items={story.gaps.slice(0, 3)} />
+              ) : null}
             </article>
           ))}
         </div>
