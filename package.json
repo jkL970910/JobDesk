@@ -10,7 +10,7 @@
     "start": "next start",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest --run",
-    "test:integration": "JOBDESK_RUN_DB_INTEGRATION=true vitest --run tests/*.integration.test.ts",
+    "test:integration": "JOBDESK_RUN_DB_INTEGRATION=true vitest --run --fileParallelism=false tests/*.integration.test.ts",
     "gen:jsonschema": "tsx scripts/generate-json-schema.ts",
     "ai:smoke:jd": "tsx scripts/smoke-jd-analysis.ts",
     "db:generate": "drizzle-kit generate",

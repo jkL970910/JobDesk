@@ -1,6 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 
 import { getDb, hasDatabaseUrl } from "../db/client";
+import { searchPersonalEmbeddings } from "./embedding-service";
 import { evidenceItems } from "../db/schema";
 import {
   AllowedUsage,
@@ -10,6 +11,7 @@ import {
 
 export type EvidenceRetrievalCandidate = {
   id: string;
+  semantic_similarity?: number;
   text: string;
   source_quote: string;
   evidence_type: EvidenceType;
@@ -78,8 +80,24 @@ export async function retrieveResumeEvidenceForJob(
     .orderBy(desc(evidenceItems.updatedAt))
     .limit(100);
 
+  const semanticMatches = job
+    ? await searchPersonalEmbeddings({
+        query: buildEmbeddingQuery(job),
+        indexTypes: ["evidence_index"],
+        limit: 30,
+      }).catch(() => [])
+    : [];
+  const semanticScoreByEvidenceId = new Map(
+    semanticMatches
+      .filter((match) => match.source_entity_type === "evidence")
+      .map((match) => [match.source_entity_id, match.similarity]),
+  );
+
   return rankEvidenceForPolicy({
-    candidates: candidates.map(toRetrievalCandidate),
+    candidates: candidates.map((item) => ({
+      ...toRetrievalCandidate(item),
+      semantic_similarity: semanticScoreByEvidenceId.get(item.id) ?? 0,
+    })),
     job,
     policy: { ...resumePolicy, limit: options.limit ?? resumePolicy.limit },
   });
@@ -141,11 +159,15 @@ function scoreEvidence(
   const matchedTerms = queryTerms.filter((term) => haystack.includes(term));
   const uniqueMatchedTerms = Array.from(new Set(matchedTerms));
   const metricBonus = candidate.metrics.length > 0 ? 2 : 0;
-  const score = uniqueMatchedTerms.length * 10 + metricBonus + 1;
+  const semanticBonus = Math.max(0, candidate.semantic_similarity ?? 0) * 12;
+  const score = uniqueMatchedTerms.length * 10 + semanticBonus + metricBonus + 1;
   const reason =
     uniqueMatchedTerms.length > 0
       ? [`matches job terms: ${uniqueMatchedTerms.slice(0, 5).join(", ")}`]
       : ["eligible resume evidence"];
+  if ((candidate.semantic_similarity ?? 0) > 0.15) {
+    reason.push(`semantic match ${Math.round((candidate.semantic_similarity ?? 0) * 100)}%`);
+  }
   if (metricBonus) reason.push("contains grounded metric");
 
   return {
@@ -153,6 +175,22 @@ function scoreEvidence(
     retrieval_score: score,
     reason_for_selection: reason,
   };
+}
+
+function buildEmbeddingQuery(job: ResumeRetrievalJobContext) {
+  return [
+    ...(job.keywords ?? []),
+    ...(job.role_signals ?? []),
+    ...(job.job_facts?.responsibilities ?? []),
+    ...(job.job_facts?.preferred_qualifications ?? []),
+    job.job_facts?.role_title ?? "",
+    ...(job.requirements ?? []).flatMap((requirement) => [
+      requirement.text,
+      ...(requirement.keywords ?? []),
+    ]),
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function buildQueryTerms(job: ResumeRetrievalJobContext | null | undefined) {

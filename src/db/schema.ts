@@ -73,6 +73,12 @@ export const applicationStatusEnum = pgEnum("application_status", [
   "skip",
 ]);
 
+export const interviewPrepStatusEnum = pgEnum("interview_prep_status", [
+  "draft",
+  "ready",
+  "stale",
+]);
+
 export const workspaces = pgTable(
   "workspaces",
   {
@@ -384,6 +390,86 @@ export const generatedClaims = pgTable(
   }),
 );
 
+export const embeddings = pgTable(
+  "embeddings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    indexType: varchar("index_type", { length: 80 }).notNull(),
+    sourceEntityType: varchar("source_entity_type", { length: 80 }).notNull(),
+    sourceEntityId: uuid("source_entity_id").notNull(),
+    chunkText: text("chunk_text").notNull(),
+    embeddingModel: varchar("embedding_model", { length: 120 }).notNull(),
+    vectorDimensions: integer("vector_dimensions").notNull(),
+    vectorJson: jsonb("vector_json").$type<number[]>().notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workspaceIndexIdx: index("embeddings_workspace_index_idx").on(
+      table.workspaceId,
+      table.indexType,
+    ),
+    sourceIdx: index("embeddings_source_idx").on(
+      table.sourceEntityType,
+      table.sourceEntityId,
+    ),
+  }),
+);
+
+export const interviewPrepPacks = pgTable(
+  "interview_prep_packs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 240 }).notNull(),
+    prepJson: jsonb("prep_json").$type<Record<string, unknown>>().notNull().default({}),
+    behavioralQuestions: jsonb("behavioral_questions")
+      .$type<Array<Record<string, unknown>>>()
+      .notNull()
+      .default([]),
+    technicalReviewTopics: jsonb("technical_review_topics")
+      .$type<Array<Record<string, unknown>>>()
+      .notNull()
+      .default([]),
+    companyResearchPrompts: jsonb("company_research_prompts")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    practicePlan: jsonb("practice_plan").$type<string[]>().notNull().default([]),
+    evidenceGaps: jsonb("evidence_gaps").$type<string[]>().notNull().default([]),
+    status: interviewPrepStatusEnum("status").notNull().default("ready"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workspaceUpdatedIdx: index("interview_prep_packs_workspace_updated_idx").on(
+      table.workspaceId,
+      table.updatedAt,
+    ),
+    jobUpdatedIdx: index("interview_prep_packs_job_updated_idx").on(
+      table.jobId,
+      table.updatedAt,
+    ),
+  }),
+);
+
 export const workflowRuns = pgTable(
   "workflow_runs",
   {
@@ -423,6 +509,8 @@ export const workspaceRelations = relations(workspaces, ({ many }) => ({
   projectCards: many(projectCards),
   resumeVersions: many(resumeVersions),
   generatedClaims: many(generatedClaims),
+  embeddings: many(embeddings),
+  interviewPrepPacks: many(interviewPrepPacks),
   workflowRuns: many(workflowRuns),
 }));
 
@@ -471,3 +559,24 @@ export const generatedClaimRelations = relations(generatedClaims, ({ one }) => (
     references: [resumeVersions.id],
   }),
 }));
+
+export const embeddingRelations = relations(embeddings, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [embeddings.workspaceId],
+    references: [workspaces.id],
+  }),
+}));
+
+export const interviewPrepPackRelations = relations(
+  interviewPrepPacks,
+  ({ one }) => ({
+    workspace: one(workspaces, {
+      fields: [interviewPrepPacks.workspaceId],
+      references: [workspaces.id],
+    }),
+    job: one(jobs, {
+      fields: [interviewPrepPacks.jobId],
+      references: [jobs.id],
+    }),
+  }),
+);

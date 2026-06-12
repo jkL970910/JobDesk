@@ -1,15 +1,15 @@
 # JobDesk Development Status
 
-Last updated: 2026-06-11
+Last updated: 2026-06-12
 Baseline commit: ce44458 `Build local MVP workflow baseline`
-Latest implementation commit: current HEAD `Add STAR story promotion MVP`
+Latest implementation commit: current HEAD `Add interview prep and local embedding RAG MVP`
 Production URL: https://jobdesk-tau.vercel.app
 
 This is the living implementation status file. Every future code change should update this file before the related commit when it changes scope, workflow coverage, verification status, known risks, or next-task priority.
 
 ## Workflow Count
 
-Current implementation covers **6 product workflows** and **3 support workflows**.
+Current implementation covers **7 product workflows** and **4 support workflows**.
 
 Product workflows:
 
@@ -21,14 +21,16 @@ Product workflows:
 | 4 | JD analysis | Done | Passed | Extracts role facts, requirements, keywords, legitimacy signals, persistence, reload, reanalysis, and archive. |
 | 5 | Tailored resume generation | Done, MVP | Passed | Uses JD analysis plus approved evidence retrieval, writes resume versions and generated claim ledger. Markdown/JSON export route is available for persisted resumes. |
 | 6 | Fact Guard revalidation | Done, MVP | Passed | Deterministic coverage and evidence support checks with claim-by-claim review UI. Resume may remain `unvalidated` when claims need manual review. |
+| 7 | Interview preparation | Done, MVP | Passed | Generates persisted prep packs from an analyzed job, STAR story bank, local embedding retrieval context, behavioral questions, technical review topics, research prompts, practice plan, and evidence gaps. |
 
 Support workflows:
 
 | # | Workflow | Status | Notes |
 |---|----------|--------|-------|
-| S1 | Local dashboard/workbench | Done, MVP | Single-page app with JD analysis, profile/evidence, and tailored resume panels. |
-| S2 | DB persistence and migrations | Done | Drizzle/Postgres migrations are committed. Use migrations for any DB with user data. |
-| S3 | Vercel deployment path | Done | Latest production deployment and smoke test passed at `https://jobdesk-tau.vercel.app` after STAR story promotion changes. |
+| S1 | Local dashboard/workbench | Done, MVP | Single-page app with JD analysis, profile/evidence, tailored resume, and interview prep panels. Latest UI refresh improves readability and responsive layout. |
+| S2 | DB persistence and migrations | Done | Drizzle/Postgres migrations are committed. Existing dev DB journal was baselined for 0000-0005, then migration 0006 was applied normally. Use migrations for any DB with user data. |
+| S3 | Vercel deployment path | Done | Latest production deployment and smoke test passed at `https://jobdesk-tau.vercel.app` after STAR story promotion changes. New interview/RAG changes are pending redeploy. |
+| S4 | Local embedding RAG index | Done, MVP | Deterministic local hash-vector embeddings persisted in Postgres JSONB with explicit `/api/retrieval/reindex`. Resume retrieval consumes existing embeddings as a best-effort semantic bonus and falls back to deterministic overlap ranking. |
 
 ## Latest Verified Local Workflow
 
@@ -47,14 +49,18 @@ Result from the latest full local smoke test:
 
 ## Verification Commands
 
-Last verified on 2026-06-11:
+Last verified on 2026-06-12:
 
 | Command | Status |
 |---------|--------|
 | `npm run typecheck` | Passed |
-| `npm test` | Passed, 47 passed / 4 skipped |
+| `npm test` | Passed, 52 passed / 4 skipped |
 | `npm run test:integration` | Passed, 4 passed |
 | `npm run build` | Passed |
+| `npm run db:migrate` | Passed; applied `drizzle/0006_melodic_mentor.sql` after baselining existing dev DB migration journal |
+| Local responsive UI browser audit at `http://localhost:3030` | Passed, desktop and 390px mobile, no horizontal overflow |
+| Local `/api/retrieval/reindex` smoke | Passed, saved 264 chunks |
+| Local `/api/interview-prep/generate` smoke | Passed, saved prep pack with 4 behavioral questions and 1 technical topic |
 | `npm run smoke:full -- --resume-file <path> --base-url http://127.0.0.1:3030` | Passed |
 | `npm run smoke:full -- --resume-file <path> --base-url https://jobdesk-tau.vercel.app` | Passed |
 | Project-note enrichment smoke through `/api/profile-evidence/enrich-project` | Passed locally |
@@ -77,9 +83,11 @@ Integration tests use the configured JobDesk database and write temporary workfl
 - Fact Guard is intentionally conservative. A workflow can pass coverage while the resume remains `unvalidated` until unsupported or partially supported claims are reviewed.
 - OpenRouter-backed workflows can take more than one minute for longer resumes. Current workflow timeouts were raised to support realistic resume extraction and tailoring.
 - Running `next build` while `next dev` is still running can invalidate dev-server chunks in `.next`; restart the dev server after a production build.
-- The current UI is a workbench, not a polished multi-user product surface.
-- Evidence Library Builder MVP is implemented for project-note enrichment, project-card review, duplicate evidence merge, basic external-safe de-identification review, and computed STAR story promotion. Embedding RAG is not complete yet.
-- Authentication, workspace isolation, PDF/DOCX export, interview prep, job recommendation, and email tracking are not implemented yet.
+- The current UI is still a single-user workbench, not a polished multi-user product surface.
+- Evidence Library Builder MVP is implemented for project-note enrichment, project-card review, duplicate evidence merge, basic external-safe de-identification review, computed STAR story promotion, and local embedding index reindexing. The embedding layer is a deterministic local JSONB MVP, not pgvector/ANN or provider embeddings yet.
+- Resume retrieval does not auto-reindex on every tailored-resume request. Run `/api/retrieval/reindex` or generate an interview prep pack to refresh local embeddings.
+- Skills registry is not implemented yet. Current workflows are enforced by typed services, schemas, deterministic orchestration, guardrails, persistence, and tests rather than runtime-loaded skill manifests.
+- Authentication, workspace isolation, PDF/DOCX export, daily job recommendation, and email tracking are not implemented yet.
 
 ## Next Task Queue
 
@@ -89,10 +97,10 @@ Integration tests use the configured JobDesk database and write temporary workfl
 | P0 | Add a reusable local full-workflow smoke script without storing resume content in git | Done |
 | P0 | Improve claim review UX so `unvalidated` resumes show exactly which claims need attention | Done, MVP |
 | P1 | Add resume export path, likely Markdown first, then PDF/DOCX | Markdown/JSON done, PDF/DOCX not started |
-| P1 | Build Evidence Library Builder for project notes, project cards, and richer resume retrieval context | Done, MVP with computed STAR story bank |
+| P1 | Build Evidence Library Builder for project notes, project cards, and richer resume retrieval context | Done, MVP with computed STAR story bank and local embedding index |
 | P1 | Add evidence merge/dedupe and de-identification workflow UI | Done, MVP |
-| P1 | Redeploy latest baseline to Vercel and re-run production smoke | Done after STAR story promotion |
-| P2 | Start interview preparation workflow | Not started |
+| P1 | Redeploy latest baseline to Vercel and re-run production smoke | Pending for interview/RAG/UI changes |
+| P2 | Start interview preparation workflow | Done, MVP |
 | P2 | Start daily job recommendation workflow | Not started |
 | P2 | Start email/application tracking workflow | Not started |
 
