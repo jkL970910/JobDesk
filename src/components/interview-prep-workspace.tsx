@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 
+import { useAccess } from "./access-provider";
+
 import type { JDAnalysis } from "../schemas/jd-analysis";
 import type { InterviewPrepPack } from "../server/interview-prep-service";
 
@@ -19,11 +21,14 @@ type GenerateResponse =
   | { error: string; kind?: string };
 
 export function InterviewPrepWorkspace() {
+  const { fetchJson } = useAccess();
   const [jobs, setJobs] = useState<RecentJob[]>([]);
   const [selectedJobId, setSelectedJobId] = useState("");
   const [latestPack, setLatestPack] = useState<InterviewPrepPack | null>(null);
   const [recentPacks, setRecentPacks] = useState<InterviewPrepPack[]>([]);
-  const [status, setStatus] = useState("Select a job to create an interview prep pack.");
+  const [status, setStatus] = useState(
+    "Select a role workspace to create an interview prep pack.",
+  );
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -33,7 +38,7 @@ export function InterviewPrepWorkspace() {
   }, []);
 
   async function loadJobs() {
-    const response = await fetch("/api/jobs/recent");
+    const response = await fetchJson("/api/jobs/recent");
     if (!response.ok) return;
     const payload = (await response.json()) as { data?: RecentJob[] };
     const nextJobs = payload.data ?? [];
@@ -42,7 +47,7 @@ export function InterviewPrepWorkspace() {
   }
 
   async function loadRecentPacks() {
-    const response = await fetch("/api/interview-prep/recent");
+    const response = await fetchJson("/api/interview-prep/recent");
     if (!response.ok) return;
     const payload = (await response.json()) as { data?: InterviewPrepPack[] };
     const packs = payload.data ?? [];
@@ -54,7 +59,7 @@ export function InterviewPrepWorkspace() {
     if (!selectedJobId) return;
     setError(null);
     startTransition(async () => {
-      const response = await fetch("/api/interview-prep/generate", {
+      const response = await fetchJson("/api/interview-prep/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId: selectedJobId }),
@@ -89,7 +94,7 @@ export function InterviewPrepWorkspace() {
           <div>
             <h2 className="panel__title">Interview prep control</h2>
             <p className="panel__note">
-              Build a focused plan from the selected JD, STAR stories, and indexed evidence.
+              Build a focused plan from the selected JD plus STAR stories in the material library.
             </p>
           </div>
         </div>
@@ -229,7 +234,7 @@ function PrepPackView({ pack }: { pack: InterviewPrepPack }) {
 function EmptyPrepState() {
   return (
     <div className="empty-state empty-state--compact">
-      Create a prep pack after analyzing a JD and building project evidence.
+      Create a prep pack after selecting a role workspace and preparing STAR-ready material.
     </div>
   );
 }

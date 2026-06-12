@@ -1,6 +1,6 @@
 # JobDesk
 
-JobDesk is an early local-first job-search copilot. The current implementation focuses on the resume grounding spine: parse a resume source, extract profile/evidence, analyze a target JD, generate a tailored resume, run a conservative Fact Guard over the generated claim ledger, and prepare interview material from grounded STAR stories.
+JobDesk is an early local-first job-search copilot. The current implementation is split into two workflows: first prepare a reusable material library from resumes and project notes, then apply that library to a target job workspace for JD analysis, tailored resumes, Fact Guard, interview prep, and manual application tracking.
 
 ## Current Status
 
@@ -8,24 +8,26 @@ The source of truth for implementation progress is `docs/development-status.md`.
 
 Current local baseline:
 
-- 7 product workflows implemented at MVP depth.
-- PDF, DOCX, TXT, and Markdown resume source parsing.
-- Profile/evidence extraction from resumes and project notes with persistence.
+- 8 product workflows implemented at MVP depth.
+- Material Library workflow: PDF, DOCX, TXT, and Markdown resume source parsing.
+- Material Library workflow: profile/evidence extraction from resumes and project notes with persistence.
 - Basic evidence/project-card review, external-safe de-identification, duplicate evidence merge, and STAR story promotion.
-- JD analysis with persistence, reload, reanalysis, and archive.
-- Tailored resume generation using approved evidence retrieval, including best-effort local embedding retrieval when an index exists.
+- Job Workspace workflow: JD analysis with persistence, reload, reanalysis, and archive.
+- Job Workspace workflow: tailored resume generation using approved evidence retrieval, including best-effort local embedding retrieval when an index exists.
 - Generated claim ledger and deterministic Fact Guard revalidation.
 - Interview prep packs from analyzed jobs, STAR stories, and indexed evidence.
+- Manual application tracker for analyzed job workspaces.
+- Optional bearer-token access gate for personal deployments.
 - Local deterministic embedding index with a reindex API and Drizzle persistence.
 - Drizzle/Postgres migrations and DB-backed integration tests.
 - Next.js workbench UI for local testing.
 
 Not implemented yet:
 
-- Auth and production workspace isolation.
+- Full auth and production workspace isolation.
 - Resume export to PDF/DOCX.
 - Daily job recommendation workflow.
-- Email/application tracking workflow.
+- Email-assisted tracking workflow.
 
 ## Setup
 
@@ -39,6 +41,7 @@ For the current OpenRouter-compatible route, use
 `JOBDESK_OPENROUTER_TRANSPORT=chat-completions`.
 Fill `DATABASE_URL` with the separate JobDesk Postgres connection string when
 you are ready to persist jobs, evidence, resumes, claims, embeddings, interview prep packs, and workflow runs.
+Set `JOBDESK_ACCESS_TOKEN` for a personal deployment that should block unauthenticated API calls. Leave it empty for local development without an access prompt.
 
 ## Commands
 

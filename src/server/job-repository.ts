@@ -11,6 +11,7 @@ import {
   workflowRuns,
 } from "../db/schema";
 import { JobLegitimacy, type JDAnalysis } from "../schemas/jd-analysis";
+import { ApplicationStatus, type ApplicationStatus as ApplicationStatusValue } from "../schemas/shared";
 import type { JobDeskAiFailureKind } from "../ai/types";
 
 const defaultWorkspaceName = "Personal JobDesk";
@@ -272,6 +273,36 @@ export async function archiveJdAnalysis(jobId: string) {
 
   return job
     ? ({ status: "archived" as const, jobId: job.id })
+    : ({ status: "not_found" as const });
+}
+
+export async function updateApplicationStatus(
+  jobId: string,
+  status: ApplicationStatusValue,
+) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  const parsedStatus = ApplicationStatus.parse(status);
+  const [job] = await getDb()
+    .update(jobs)
+    .set({
+      applicationStatus: parsedStatus,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(jobs.id, jobId), isNull(jobs.archivedAt)))
+    .returning({
+      id: jobs.id,
+      applicationStatus: jobs.applicationStatus,
+    });
+
+  return job
+    ? ({
+        status: "updated" as const,
+        jobId: job.id,
+        applicationStatus: job.applicationStatus,
+      })
     : ({ status: "not_found" as const });
 }
 

@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 
+import { useAccess } from "./access-provider";
+
 import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
 
 const sampleProfileSource = [
@@ -108,6 +110,7 @@ type EvidenceLibrary = {
 };
 
 export function ProfileEvidenceWorkspace() {
+  const { fetchJson } = useAccess();
   const [sourceText, setSourceText] = useState(sampleProfileSource);
   const [sourceTitle, setSourceTitle] = useState("Sample resume notes");
   const [projectNoteText, setProjectNoteText] = useState(sampleProjectNote);
@@ -129,14 +132,14 @@ export function ProfileEvidenceWorkspace() {
   }, []);
 
   async function loadLibrary() {
-    const response = await fetch("/api/profile-evidence/recent");
+    const response = await fetchJson("/api/profile-evidence/recent");
     if (!response.ok) return;
     const payload = (await response.json()) as { data?: EvidenceLibrary };
     setLibrary(payload.data ?? null);
   }
 
   async function loadDedupeCandidates() {
-    const response = await fetch("/api/evidence/dedupe");
+    const response = await fetchJson("/api/evidence/dedupe");
     if (!response.ok) return;
     const payload = (await response.json()) as {
       data?: { status: string; candidates?: DedupeCandidate[] };
@@ -145,7 +148,7 @@ export function ProfileEvidenceWorkspace() {
   }
 
   async function loadStarStories() {
-    const response = await fetch("/api/profile-evidence/star-stories");
+    const response = await fetchJson("/api/profile-evidence/star-stories");
     if (!response.ok) return;
     const payload = (await response.json()) as {
       data?: { status: string; stories?: StarStory[] };
@@ -164,7 +167,7 @@ export function ProfileEvidenceWorkspace() {
     setError(null);
     startTransition(async () => {
       try {
-        const response = await fetch("/api/profile-evidence/extract", {
+        const response = await fetchJson("/api/profile-evidence/extract", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -230,7 +233,7 @@ export function ProfileEvidenceWorkspace() {
     setFileStatus(`Reading ${file.name}...`);
     const formData = new FormData();
     formData.append("file", file);
-    const response = await fetch("/api/profile-evidence/parse-source", {
+    const response = await fetchJson("/api/profile-evidence/parse-source", {
       method: "POST",
       body: formData,
     });
@@ -262,7 +265,7 @@ export function ProfileEvidenceWorkspace() {
     setError(null);
     startProjectTransition(async () => {
       try {
-        const response = await fetch("/api/profile-evidence/enrich-project", {
+        const response = await fetchJson("/api/profile-evidence/enrich-project", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -326,7 +329,7 @@ export function ProfileEvidenceWorkspace() {
         "interview",
       ]),
     );
-    const response = await fetch(`/api/evidence/${item.id}`, {
+    const response = await fetchJson(`/api/evidence/${item.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(
@@ -360,7 +363,7 @@ export function ProfileEvidenceWorkspace() {
       "Merge this duplicate evidence candidate? The duplicate will be rejected and linked claims will be marked stale.",
     );
     if (!confirmed) return;
-    const response = await fetch("/api/evidence/dedupe", {
+    const response = await fetchJson("/api/evidence/dedupe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -406,7 +409,7 @@ export function ProfileEvidenceWorkspace() {
           )
         : null;
     if (action === "mark_external_safe" && !nextSummary?.trim()) return;
-    const response = await fetch(`/api/projects/${project.id}`, {
+    const response = await fetchJson(`/api/projects/${project.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(
@@ -437,10 +440,10 @@ export function ProfileEvidenceWorkspace() {
       <div className="panel">
         <div className="panel__header">
           <div>
-            <h2 className="panel__title">Profile and evidence source</h2>
+            <h2 className="panel__title">Material source</h2>
             <p className="panel__note">
               Paste resume text or import a PDF, DOCX, plain text, or Markdown
-              resume. Extracted evidence can be reviewed and allowed for resumes.
+              resume. This library can be prepared before any target JD exists.
             </p>
           </div>
         </div>
@@ -495,7 +498,7 @@ export function ProfileEvidenceWorkspace() {
           <h3>Project Library Builder</h3>
           <p className="panel__note">
             Add project notes, work summaries, or accomplishment drafts to grow
-            the evidence library beyond a single uploaded resume.
+            the reusable evidence library beyond a single uploaded resume.
           </p>
           <div className="source-controls">
             <label className="source-field">
@@ -534,7 +537,7 @@ export function ProfileEvidenceWorkspace() {
             <h2 className="panel__title">Evidence library draft</h2>
             <p className="panel__note">
               Every retained item must have source provenance before it can power
-              resume tailoring.
+              job-specific resume tailoring or interview preparation.
             </p>
           </div>
         </div>

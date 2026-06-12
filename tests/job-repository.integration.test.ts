@@ -7,6 +7,7 @@ import {
   getRecentJdAnalyses,
   JobRepositoryError,
   persistJdAnalysis,
+  updateApplicationStatus,
 } from "../src/server/job-repository";
 import { GET as getJob, PATCH as patchJob } from "../app/api/jobs/[jobId]/route";
 import type { JDAnalysis } from "../src/schemas/jd-analysis";
@@ -92,6 +93,15 @@ describe.skipIf(!runIntegration)("job repository database integration", () => {
       "TypeScript",
       "structured outputs",
     ]);
+
+    const statusResult = await updateApplicationStatus(firstResult.jobId, "applied");
+    expect(statusResult).toMatchObject({
+      status: "updated",
+      jobId: firstResult.jobId,
+      applicationStatus: "applied",
+    });
+    const statusReloaded = await getJdAnalysisById(firstResult.jobId);
+    expect(statusReloaded?.application_status).toBe("applied");
 
     const recent = await getRecentJdAnalyses(20);
     expect(recent.some((job) => job.id === firstResult.jobId)).toBe(true);

@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 
+import { useAccess } from "./access-provider";
+
 import type { JDAnalysis } from "../schemas/jd-analysis";
 
 const sampleJd = [
@@ -42,6 +44,7 @@ type RecentJob = {
 };
 
 export function JdAnalysisWorkspace() {
+  const { fetchJson } = useAccess();
   const [jdText, setJdText] = useState(sampleJd);
   const [result, setResult] = useState<JDAnalysis | null>(null);
   const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
@@ -56,7 +59,7 @@ export function JdAnalysisWorkspace() {
   }, []);
 
   async function loadRecentJobs() {
-    const response = await fetch("/api/jobs/recent");
+    const response = await fetchJson("/api/jobs/recent");
     if (!response.ok) return;
     const payload = (await response.json()) as { data?: RecentJob[] };
     setRecentJobs(payload.data ?? []);
@@ -66,7 +69,7 @@ export function JdAnalysisWorkspace() {
     setError(null);
     startTransition(async () => {
       try {
-        const response = await fetch("/api/ai/jd-analysis", {
+        const response = await fetchJson("/api/ai/jd-analysis", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -97,7 +100,7 @@ export function JdAnalysisWorkspace() {
 
   async function loadJob(jobId: string) {
     setError(null);
-    const response = await fetch(`/api/jobs/${jobId}`);
+    const response = await fetchJson(`/api/jobs/${jobId}`);
     const payload = (await response.json()) as
       | { data: RecentJob }
       | { error: string; kind?: string };
@@ -116,7 +119,7 @@ export function JdAnalysisWorkspace() {
   async function archiveSelectedJob() {
     if (!selectedJobId) return;
     setError(null);
-    const response = await fetch(`/api/jobs/${selectedJobId}`, {
+    const response = await fetchJson(`/api/jobs/${selectedJobId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "archive" }),
@@ -158,8 +161,8 @@ export function JdAnalysisWorkspace() {
           <div>
             <h2 className="panel__title">Job description</h2>
             <p className="panel__note">
-              The first Phase 0 workflow validates JD extraction before the app
-              grows into profile, evidence, and resume generation.
+              Create or refresh one role workspace. This step is separate from
+              the reusable material library.
             </p>
           </div>
         </div>

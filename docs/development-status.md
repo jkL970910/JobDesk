@@ -2,35 +2,37 @@
 
 Last updated: 2026-06-12
 Baseline commit: ce44458 `Build local MVP workflow baseline`
-Latest implementation commit: current HEAD `Add interview prep and local embedding RAG MVP`
+Latest implementation commit: working tree `core loop completion MVP`
 Production URL: https://jobdesk-tau.vercel.app
 
 This is the living implementation status file. Every future code change should update this file before the related commit when it changes scope, workflow coverage, verification status, known risks, or next-task priority.
 
 ## Workflow Count
 
-Current implementation covers **7 product workflows** and **4 support workflows**.
+Current implementation covers **8 product workflows** and **5 support workflows** across two product lanes: **Material Library** and **Job Workspace**. The Material Library lane does not depend on a JD; the Job Workspace lane depends on a target JD plus approved material-library evidence.
 
 Product workflows:
 
 | # | Workflow | Status | Local test status | Notes |
 |---|----------|--------|-------------------|-------|
-| 1 | Resume source ingestion | Done | Passed | Supports PDF, DOCX, TXT, and Markdown through `/api/profile-evidence/parse-source`. |
-| 2 | Profile and evidence extraction | Done | Passed | Extracts profile fields, evidence items, and project cards from resumes or project notes, then persists them when `DATABASE_URL` is configured. |
-| 3 | Evidence and project review for resume use | Done, basic | Passed | Supports evidence approve/reject/edit, external-safe summary review, sensitive/internal-only resume-use blocking, project card approve/reject/edit, safe project-linked evidence approval, duplicate evidence review/merge, STAR story promotion, and resume-eligible evidence filtering. |
-| 4 | JD analysis | Done | Passed | Extracts role facts, requirements, keywords, legitimacy signals, persistence, reload, reanalysis, and archive. |
-| 5 | Tailored resume generation | Done, MVP | Passed | Uses JD analysis plus approved evidence retrieval, writes resume versions and generated claim ledger. Markdown/JSON export route is available for persisted resumes. |
-| 6 | Fact Guard revalidation | Done, MVP | Passed | Deterministic coverage and evidence support checks with claim-by-claim review UI. Resume may remain `unvalidated` when claims need manual review. |
-| 7 | Interview preparation | Done, MVP | Passed | Generates persisted prep packs from an analyzed job, STAR story bank, local embedding retrieval context, behavioral questions, technical review topics, research prompts, practice plan, and evidence gaps. |
+| 1 | Material Library: resume source ingestion | Done | Passed | Supports PDF, DOCX, TXT, and Markdown through `/api/profile-evidence/parse-source`; no JD required. |
+| 2 | Material Library: profile and evidence extraction | Done | Passed | Extracts profile fields, evidence items, and project cards from resumes or project notes, then persists them when `DATABASE_URL` is configured; no JD required. |
+| 3 | Material Library: evidence and project review for resume use | Done, basic | Passed | Supports evidence approve/reject/edit, external-safe summary review, sensitive/internal-only resume-use blocking, project card approve/reject/edit, safe project-linked evidence approval, duplicate evidence review/merge, STAR story promotion, and resume-eligible evidence filtering. |
+| 4 | Job Workspace: JD analysis | Done | Passed | Extracts role facts, requirements, keywords, legitimacy signals, persistence, reload, reanalysis, and archive. |
+| 5 | Job Workspace: tailored resume generation | Done, MVP | Passed | Uses JD analysis plus approved material-library evidence retrieval, writes resume versions and generated claim ledger. Markdown/JSON export route is available for persisted resumes. |
+| 6 | Job Workspace: Fact Guard revalidation | Done, MVP | Passed | Deterministic coverage and evidence support checks with claim-by-claim review UI. Resume may remain `unvalidated` when claims need manual review. |
+| 7 | Job Workspace: interview preparation | Done, MVP | Passed | Generates persisted prep packs from an analyzed job, STAR story bank, local embedding retrieval context, behavioral questions, technical review topics, research prompts, practice plan, and evidence gaps. |
+| 8 | Job Workspace: manual application tracking | Done, MVP | Passed | Updates analyzed jobs through the canonical application status pipeline without external actions or email automation. |
 
 Support workflows:
 
 | # | Workflow | Status | Notes |
 |---|----------|--------|-------|
-| S1 | Local dashboard/workbench | Done, MVP | Single-page app with JD analysis, profile/evidence, tailored resume, and interview prep panels. Latest UI refresh improves readability and responsive layout. |
+| S1 | Local dashboard/workbench | Done, MVP | Single-page app now separates the Material Library lane from the Job Workspace lane, with JD analysis, tailored resume, interview prep, and tracker panels grouped after material preparation. |
 | S2 | DB persistence and migrations | Done | Drizzle/Postgres migrations are committed. Existing dev DB journal was baselined for 0000-0005, then migration 0006 was applied normally. Use migrations for any DB with user data. |
 | S3 | Vercel deployment path | Done | Latest production deployment and smoke test passed at `https://jobdesk-tau.vercel.app` after STAR story promotion changes. New interview/RAG changes are pending redeploy. |
 | S4 | Local embedding RAG index | Done, MVP | Deterministic local hash-vector embeddings persisted in Postgres JSONB with explicit `/api/retrieval/reindex`. Resume retrieval consumes existing embeddings as a best-effort semantic bonus and falls back to deterministic overlap ranking. |
+| S5 | Personal access gate | Done, MVP | Optional `JOBDESK_ACCESS_TOKEN` protects `/api/*` through middleware and lets the workbench send the token from browser-local storage. |
 
 ## Latest Verified Local Workflow
 
@@ -47,6 +49,11 @@ Result from the latest full local smoke test:
 - Resume export: passed locally and in production, Markdown and JSON export endpoints returned downloadable artifacts.
 - Project-note enrichment: passed locally, 8 evidence items and 1 project card persisted from a project note smoke source.
 
+Workflow boundary check:
+
+- Material Library can be prepared from resume/project sources before any JD exists.
+- Job Workspace steps require a selected/analyzed JD and consume approved Material Library evidence.
+
 ## Verification Commands
 
 Last verified on 2026-06-12:
@@ -54,7 +61,7 @@ Last verified on 2026-06-12:
 | Command | Status |
 |---------|--------|
 | `npm run typecheck` | Passed |
-| `npm test` | Passed, 52 passed / 4 skipped |
+| `npm test` | Passed, 56 passed / 4 skipped |
 | `npm run test:integration` | Passed, 4 passed |
 | `npm run build` | Passed |
 | `npm run db:migrate` | Passed; applied `drizzle/0006_melodic_mentor.sql` after baselining existing dev DB migration journal |
@@ -83,11 +90,12 @@ Integration tests use the configured JobDesk database and write temporary workfl
 - Fact Guard is intentionally conservative. A workflow can pass coverage while the resume remains `unvalidated` until unsupported or partially supported claims are reviewed.
 - OpenRouter-backed workflows can take more than one minute for longer resumes. Current workflow timeouts were raised to support realistic resume extraction and tailoring.
 - Running `next build` while `next dev` is still running can invalidate dev-server chunks in `.next`; restart the dev server after a production build.
-- The current UI is still a single-user workbench, not a polished multi-user product surface.
+- The current UI is still a single-user workbench, not a polished multi-user product surface. `JOBDESK_ACCESS_TOKEN` is a personal access gate, not user accounts, RBAC, or per-user data isolation.
 - Evidence Library Builder MVP is implemented for project-note enrichment, project-card review, duplicate evidence merge, basic external-safe de-identification review, computed STAR story promotion, and local embedding index reindexing. The embedding layer is a deterministic local JSONB MVP, not pgvector/ANN or provider embeddings yet.
 - Resume retrieval does not auto-reindex on every tailored-resume request. Run `/api/retrieval/reindex` or generate an interview prep pack to refresh local embeddings.
+- The current UI separates the two workflows visually, but shared single-page state is still lightweight; a future product shell should give Material Library and Job Workspaces their own routes.
 - Skills registry is not implemented yet. Current workflows are enforced by typed services, schemas, deterministic orchestration, guardrails, persistence, and tests rather than runtime-loaded skill manifests.
-- Authentication, workspace isolation, PDF/DOCX export, daily job recommendation, and email tracking are not implemented yet.
+- Full authentication, workspace isolation, PDF/DOCX export, daily job recommendation, and email-assisted tracking are not implemented yet.
 
 ## Next Task Queue
 
@@ -101,8 +109,9 @@ Integration tests use the configured JobDesk database and write temporary workfl
 | P1 | Add evidence merge/dedupe and de-identification workflow UI | Done, MVP |
 | P1 | Redeploy latest baseline to Vercel and re-run production smoke | Pending for interview/RAG/UI changes |
 | P2 | Start interview preparation workflow | Done, MVP |
+| P2 | Start manual application tracking workflow | Done, MVP |
 | P2 | Start daily job recommendation workflow | Not started |
-| P2 | Start email/application tracking workflow | Not started |
+| P2 | Start email-assisted application tracking workflow | Not started |
 
 ## Update Rule
 

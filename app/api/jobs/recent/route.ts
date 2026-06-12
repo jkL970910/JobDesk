@@ -1,10 +1,19 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
 import { getRecentJdAnalyses } from "../../../../src/server/job-repository";
 
-export async function GET() {
+const querySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(5),
+});
+
+export async function GET(request: Request) {
   try {
-    const jobs = await getRecentJdAnalyses(5);
+    const url = new URL(request.url);
+    const query = querySchema.parse({
+      limit: url.searchParams.get("limit") ?? undefined,
+    });
+    const jobs = await getRecentJdAnalyses(query.limit);
     return NextResponse.json({
       data: jobs,
       meta: {

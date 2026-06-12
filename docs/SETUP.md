@@ -1,16 +1,17 @@
 # JobDesk Schemas — Local Setup
 
-This sets up the canonical Zod schemas and local MVP workbench for the grounding-spine
-components (1-6), with type-checking, contract tests, JSON Schema generation,
-OpenRouter-backed structured AI calls, persistence, resume source parsing, local embedding retrieval, interview prep packs, and Fact Guard verification.
+This sets up the canonical Zod schemas and local MVP workbench for the Material Library
+and Job Workspace flows, with type-checking, contract tests, JSON Schema generation,
+OpenRouter-backed structured AI calls, persistence, resume source parsing, local embedding retrieval, interview prep packs, manual application tracking, optional personal access protection, and Fact Guard verification.
 
 Decisions baked in (per design review):
 1. **Zod (`.ts`) is the source of truth.** JSON Schema is *generated*, never
    hand-edited.
 2. **Shared primitives first** (`src/schemas/shared.ts`) — every schema imports the
    enums/primitives from there so vocabularies cannot drift.
-3. **Grounding-spine scope only** — profile, evidence, project, jd-analysis,
-   tailored-resume, generated-claim. Downstream schemas come in their phases.
+3. **Two workflow lanes** — Material Library owns profile, evidence, project,
+   and STAR material without requiring a JD; Job Workspace owns jd-analysis,
+   tailored-resume, generated-claim, interview prep, and application status.
 4. **Runnable repo** (this folder) so the contracts validate and tests pass.
 
 ## Prerequisites
@@ -58,6 +59,8 @@ Run these from the JobDesk folder (where `package.json` is).
    The default `.env.example` uses the OpenRouter-compatible
    `chat-completions` transport because the current `openrouter.icu` route
    exposes `/v1/chat/completions`.
+   Set `JOBDESK_ACCESS_TOKEN` when running a personal deployment that should
+   reject unauthenticated API calls. Leave it empty for local development.
 
 6. Run the JD analysis smoke test:
    ```
@@ -147,9 +150,9 @@ JobDesk/
   The current baseline includes JD analysis, resume source parsing for PDF/DOCX/TXT/Markdown,
   Profile/Evidence extraction, basic evidence approval/editing, tailored resume generation,
   generated claim ledgers, deterministic Fact Guard revalidation, local embedding indexing,
-  interview prep packs, Drizzle/Postgres persistence, recent job reload, same-job re-analysis,
-  soft archive, and DB-backed integration tests. See `docs/development-status.md` for the current workflow count, verification status, and next tasks.
-  PDF/DOCX export, auth, daily job recommendations, and email tracking are still later phases.
+  interview prep packs, manual application status tracking, optional bearer-token API protection,
+  Drizzle/Postgres persistence, recent job reload, same-job re-analysis, soft archive, and DB-backed integration tests. See `docs/development-status.md` for the current workflow count, verification status, and next tasks.
+  PDF/DOCX export, full auth/workspace isolation, daily job recommendations, and email-assisted tracking are still later phases.
 - To extend: add a new `src/schemas/<name>.ts`, import shared primitives, export it
   from `index.ts`, and add it to `scripts/generate-json-schema.ts` if you want a
   generated JSON artifact.

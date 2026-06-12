@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 
+import { useAccess } from "./access-provider";
+
 import type { JDAnalysis } from "../schemas/jd-analysis";
 import type { TailoredResumeDraft } from "../schemas/tailored-resume";
 
@@ -86,12 +88,15 @@ type TailorResponse =
   | { error: string; kind?: string };
 
 export function TailoredResumeWorkspace() {
+  const { fetchJson } = useAccess();
   const [jobs, setJobs] = useState<RecentJob[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string>("");
   const [latestResume, setLatestResume] = useState<RecentResume | null>(null);
   const [readiness, setReadiness] = useState<ResumeReadiness>(emptyReadiness);
   const [draft, setDraft] = useState<TailoredResumeDraft | null>(null);
-  const [status, setStatus] = useState("Select a recent job and use approved resume evidence.");
+  const [status, setStatus] = useState(
+    "Select a role workspace and approved material-library evidence.",
+  );
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isFactGuardPending, startFactGuardTransition] = useTransition();
@@ -107,7 +112,7 @@ export function TailoredResumeWorkspace() {
   }, []);
 
   async function loadJobs() {
-    const response = await fetch("/api/jobs/recent");
+    const response = await fetchJson("/api/jobs/recent");
     if (!response.ok) return;
     const payload = (await response.json()) as { data?: RecentJob[] };
     const nextJobs = payload.data ?? [];
@@ -116,7 +121,7 @@ export function TailoredResumeWorkspace() {
   }
 
   async function loadRecentResumes() {
-    const response = await fetch("/api/resumes/recent");
+    const response = await fetchJson("/api/resumes/recent");
     if (!response.ok) return [];
     const payload = (await response.json()) as { data?: RecentResume[] };
     const resumes = payload.data ?? [];
@@ -125,7 +130,7 @@ export function TailoredResumeWorkspace() {
   }
 
   async function loadReadiness() {
-    const response = await fetch("/api/profile-evidence/recent");
+    const response = await fetchJson("/api/profile-evidence/recent");
     if (!response.ok) {
       setReadiness(emptyReadiness);
       return;
@@ -153,7 +158,7 @@ export function TailoredResumeWorkspace() {
     setError(null);
     startTransition(async () => {
       try {
-        const response = await fetch("/api/resumes/tailor", {
+        const response = await fetchJson("/api/resumes/tailor", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ jobId: selectedJobId }),
@@ -192,7 +197,7 @@ export function TailoredResumeWorkspace() {
     if (!latestResume?.id) return;
     setError(null);
     startFactGuardTransition(async () => {
-      const response = await fetch(`/api/resumes/${latestResume.id}/fact-guard`, {
+      const response = await fetchJson(`/api/resumes/${latestResume.id}/fact-guard`, {
         method: "POST",
       });
       const payload = (await response.json().catch(() => null)) as
@@ -257,6 +262,25 @@ export function TailoredResumeWorkspace() {
       }
     : latestResume;
 
+  async function exportResume(resumeId: string, format: "markdown" | "json") {
+    const response = await fetchJson(
+      `/api/resumes/${resumeId}/export?format=${format}`,
+    );
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      setError(payload?.error ?? "Resume export failed.");
+      return;
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const fileName =
+      disposition.match(/filename="([^"]+)"/)?.[1] ??
+      `jobdesk-resume.${format === "json" ? "json" : "md"}`;
+    downloadBlob(fileName, blob);
+  }
+
   return (
     <section className="workspace__grid">
       <div className="panel">
@@ -264,8 +288,8 @@ export function TailoredResumeWorkspace() {
           <div>
             <h2 className="panel__title">Tailored resume input</h2>
             <p className="panel__note">
-              Generates only from the selected job, latest profile, and evidence
-              that is approved and allowed for resume use.
+              Requires one analyzed JD plus material-library evidence approved
+              for resume use.
             </p>
           </div>
         </div>
@@ -297,7 +321,7 @@ export function TailoredResumeWorkspace() {
           </div>
         ) : (
           <div className="empty-state empty-state--compact">
-            Analyze a JD before tailoring a resume.
+            Analyze a target JD after preparing reusable evidence.
           </div>
         )}
         <div className="actions">
@@ -327,7 +351,7 @@ export function TailoredResumeWorkspace() {
           <section className="job-facts">
             <p className="requirement__text">{selectedJob.title}</p>
             <p className="requirement__quote">
-              Target role context is pulled from the persisted JD analysis.
+              Target role context comes from the selected job workspace.
             </p>
           </section>
         ) : null}
@@ -339,12 +363,12 @@ export function TailoredResumeWorkspace() {
             <h2 className="panel__title">Resume draft and claim ledger</h2>
             <p className="panel__note">
               Claims remain unvalidated until Fact Guard checks them against the
-              evidence ledger.
+              approved evidence ledger.
             </p>
           </div>
         </div>
         {displayResume ? (
-          <ResumeResult resume={displayResume} />
+          <ResumeResult exportResume={exportResume} resume={displayResume} />
         ) : (
           <div className="empty-state empty-state--compact">
             Approve resume-safe evidence, then generate a tailored draft.
@@ -375,8 +399,8 @@ function ResumeReadinessChecklist({
       <ReadinessItem
         isReady={hasSelectedJob}
         label="Target JD"
-        readyText="JD analysis selected"
-        todoText="Analyze or select a JD"
+        readyText="Role workspace selected"
+        todoText="Analyze or select a target JD"
       />
       <ReadinessItem
         isReady={profileReady}
@@ -428,8 +452,10 @@ function ReadinessItem({
 }
 
 function ResumeResult({
+  exportResume,
   resume,
 }: {
+  exportResume: (resumeId: string, format: "markdown" | "json") => Promise<void>;
   resume: {
     id?: string;
     title: string;
@@ -465,18 +491,20 @@ function ResumeResult({
           </button>
           {resume.id ? (
             <>
-              <a
-                className="secondary-link-button"
-                href={`/api/resumes/${resume.id}/export?format=markdown`}
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void exportResume(resume.id!, "markdown")}
               >
                 Export Markdown
-              </a>
-              <a
-                className="secondary-link-button"
-                href={`/api/resumes/${resume.id}/export?format=json`}
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void exportResume(resume.id!, "json")}
               >
                 Export JSON
-              </a>
+              </button>
             </>
           ) : null}
         </div>
@@ -577,6 +605,17 @@ function downloadMarkdown(title: string, markdown: string) {
   const link = document.createElement("a");
   link.href = url;
   link.download = `${safeTitle || "tailored-resume"}.md`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function downloadBlob(fileName: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
   document.body.appendChild(link);
   link.click();
   link.remove();

@@ -5,6 +5,7 @@ import {
   JobRepositoryError,
   persistJdAnalysis,
   persistJdAnalysisFailure,
+  updateApplicationStatus,
 } from "../src/server/job-repository";
 
 describe("job repository", () => {
@@ -90,6 +91,27 @@ describe("job repository", () => {
     } else {
       process.env.DATABASE_URL = oldDatabaseUrl;
     }
+  });
+
+  it("skips application status updates when DATABASE_URL is not configured", async () => {
+    const oldDatabaseUrl = process.env.DATABASE_URL;
+    delete process.env.DATABASE_URL;
+
+    const result = await updateApplicationStatus(
+      "00000000-0000-4000-8000-000000000000",
+      "applied",
+    );
+
+    if (oldDatabaseUrl == null) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = oldDatabaseUrl;
+    }
+
+    expect(result).toEqual({
+      status: "skipped",
+      reason: "missing_database_url",
+    });
   });
 
   it("uses a typed repository error for missing jobs", () => {

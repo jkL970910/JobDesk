@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 
+import { AccessProvider } from "../src/components/access-provider";
+import { isAccessTokenConfigured } from "../src/server/access-guard";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -14,8 +16,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AccessProvider configured={isAccessTokenConfigured()}>
+          {children}
+        </AccessProvider>
+      </body>
     </html>
   );
 }
-

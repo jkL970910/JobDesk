@@ -89,6 +89,39 @@ textarea:focus-visible {
   padding: 28px;
 }
 
+.access-panel {
+  align-items: center;
+  background: #0f1720;
+  color: #edf4f8;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  justify-content: center;
+  padding: 10px 16px;
+}
+
+.access-panel label {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.access-panel span,
+.access-panel p {
+  font-size: 0.78rem;
+  font-weight: 780;
+  margin: 0;
+}
+
+.access-panel input {
+  background: #172334;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #fff;
+  min-height: 32px;
+  padding: 6px 9px;
+}
+
 .workspace__header {
   margin: 0 auto 18px;
   max-width: 1240px;
@@ -351,6 +384,12 @@ textarea:focus-visible {
   gap: 8px;
   margin-top: 14px;
   padding-top: 14px;
+}
+
+.recent-jobs--compact {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
 }
 
 .recent-job {
@@ -636,6 +675,77 @@ textarea:focus-visible {
   padding: 8px 10px;
 }
 
+.tracker-detail {
+  display: grid;
+  gap: 14px;
+}
+
+.tracker-detail .job-facts strong {
+  font-size: 1rem;
+}
+
+.tracker-detail .job-facts span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.tracker-status-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tracker-status {
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  cursor: pointer;
+  display: grid;
+  gap: 5px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 11px;
+}
+
+.tracker-status[data-selected="true"] {
+  background: var(--accent-soft);
+  border-color: #9ed8d1;
+}
+
+.tracker-status input {
+  grid-row: span 2;
+  margin-top: 2px;
+}
+
+.tracker-status span {
+  font-size: 0.86rem;
+  font-weight: 820;
+}
+
+.tracker-status small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.tracker-counts {
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.tracker-counts span {
+  background: #eef4f6;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 780;
+  padding: 6px 8px;
+}
+
 @keyframes surface-in {
   from {
     opacity: 0;
@@ -715,6 +825,10 @@ textarea:focus-visible {
   .requirement__type {
     max-width: 100%;
     width: fit-content;
+  }
+
+  .tracker-status-grid {
+    grid-template-columns: 1fr;
   }
 
   .status {
