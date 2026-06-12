@@ -118,6 +118,50 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       tailoringContext.evidenceItems.some((item) => item.text.includes("three product teams")),
     ).toBe(false);
 
+    if (!internalEvidence || !sensitiveEvidence) {
+      throw new Error("Expected de-identification guardrail evidence.");
+    }
+    await expect(
+      updateEvidenceItem({
+        evidenceId: internalEvidence.id,
+        action: "approve_for_resume",
+        allowedUsage: ["resume", "internal_only"],
+      }),
+    ).resolves.toMatchObject({
+      status: "invalid",
+      reason: "internal_only_evidence_requires_external_safe_edit",
+    });
+    await expect(
+      updateEvidenceItem({
+        evidenceId: sensitiveEvidence.id,
+        action: "approve_for_resume",
+        allowedUsage: ["resume"],
+      }),
+    ).resolves.toMatchObject({
+      status: "invalid",
+      reason: "sensitive_evidence_requires_deidentification",
+    });
+    await updateEvidenceItem({
+      evidenceId: internalEvidence.id,
+      action: "edit",
+      publicSafeSummary: "Led stakeholder reporting for cross-functional product teams.",
+      sensitivityLevel: "public_safe",
+      allowedUsage: ["resume", "interview"],
+    });
+    await expect(
+      updateEvidenceItem({
+        evidenceId: internalEvidence.id,
+        action: "approve_for_resume",
+        allowedUsage: ["resume", "interview"],
+      }),
+    ).resolves.toMatchObject({
+      status: "saved",
+      evidenceItem: {
+        allowedUsage: ["resume", "interview"],
+        sensitivityLevel: "public_safe",
+      },
+    });
+
     for (const item of [inferredEvidence, internalEvidence, sensitiveEvidence]) {
       if (!item) throw new Error("Expected exclusion test evidence.");
       await updateEvidenceItem({

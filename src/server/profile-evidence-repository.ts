@@ -14,7 +14,8 @@ import {
 } from "../db/schema";
 import type { JobDeskAiFailureKind, JobDeskAiUsage } from "../ai/types";
 import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
-import type { AllowedUsage, FieldTier, SensitivityLevel } from "../schemas/shared";
+import { AllowedUsage } from "../schemas/shared";
+import type { FieldTier, SensitivityLevel } from "../schemas/shared";
 import {
   retrieveResumeEvidenceForJob,
   type ResumeRetrievalJobContext,
@@ -255,6 +256,7 @@ export async function getRecentEvidenceLibrary(limit = 8) {
       evidence_type: item.evidenceType,
       sensitivity_level: item.sensitivityLevel,
       allowed_usage: item.allowedUsage,
+      public_safe_summary: item.publicSafeSummary,
       status: item.status,
       needs_user_confirmation: item.needsUserConfirmation === 1,
       related_project_id: item.relatedProjectId,
@@ -539,6 +541,7 @@ export async function updateEvidenceItem(args: {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
   }
 
+  const db = getDb();
   const patch: Partial<typeof evidenceItems.$inferInsert> = {
     updatedAt: new Date(),
   };
@@ -546,9 +549,31 @@ export async function updateEvidenceItem(args: {
     patch.status = "approved";
     patch.needsUserConfirmation = 0;
   } else if (args.action === "approve_for_resume") {
+    const [existing] = await db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.id, args.evidenceId))
+      .limit(1);
+    if (!existing) return { status: "not_found" as const };
+    const requestedUsage = Array.from(
+      new Set([...(args.allowedUsage ?? existing.allowedUsage), "resume"]),
+    );
+    if (existing.sensitivityLevel === "sensitive") {
+      return {
+        status: "invalid" as const,
+        reason: "sensitive_evidence_requires_deidentification" as const,
+      };
+    }
+    if (requestedUsage.includes("internal_only") || existing.allowedUsage.includes("internal_only")) {
+      return {
+        status: "invalid" as const,
+        reason: "internal_only_evidence_requires_external_safe_edit" as const,
+      };
+    }
     patch.status = "approved";
-    patch.allowedUsage = Array.from(
-      new Set([...(args.allowedUsage ?? []), "resume" as const]),
+    patch.allowedUsage = requestedUsage.filter(
+      (usage): usage is AllowedUsage =>
+        usage !== "internal_only" && AllowedUsage.options.includes(usage as AllowedUsage),
     );
     patch.needsUserConfirmation = 0;
   } else if (args.action === "reject") {
@@ -567,7 +592,7 @@ export async function updateEvidenceItem(args: {
     patch.needsUserConfirmation = 1;
   }
 
-  const [item] = await getDb()
+  const [item] = await db
     .update(evidenceItems)
     .set(patch)
     .where(eq(evidenceItems.id, args.evidenceId))

@@ -11,7 +11,12 @@ export class TailoredResumeGuardrailError extends Error {
 
 export function validateTailoredResumeDraft(args: {
   draft: TailoredResumeDraft;
-  eligibleEvidence: Array<{ id: string; source_quote: string; text: string }>;
+  eligibleEvidence: Array<{
+    id: string;
+    source_quote: string;
+    text: string;
+    public_safe_summary?: string | null;
+  }>;
 }) {
   const eligible = new Map(
     args.eligibleEvidence.map((item) => [item.id, item]),
@@ -46,6 +51,7 @@ export function validateTailoredResumeDraft(args: {
             item &&
             (item.source_quote.includes(quote) ||
               item.text.includes(quote) ||
+              (item.public_safe_summary?.includes(quote) ?? false) ||
               quote.includes(item.source_quote)),
         ),
     );

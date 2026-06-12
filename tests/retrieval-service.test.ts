@@ -40,6 +40,30 @@ describe("retrieval service", () => {
     ).toBe(false);
   });
 
+  it("ranks public-safe summaries as searchable resume evidence", () => {
+    const ranked = rankEvidenceForPolicy({
+      policy: { ...resumePolicy, limit: 2 },
+      job: { keywords: ["stakeholder", "reporting"] },
+      candidates: [
+        candidate({
+          id: "safe-summary",
+          text: "Led Project Falcon work for Client A.",
+          source_quote: "Led Project Falcon work for Client A.",
+          public_safe_summary:
+            "Led stakeholder reporting for cross-functional product teams.",
+        }),
+        candidate({
+          id: "other",
+          text: "Built SQL dashboards.",
+          source_quote: "Built SQL dashboards.",
+        }),
+      ],
+    });
+
+    expect(ranked[0]?.id).toBe("safe-summary");
+    expect(ranked[0]?.reason_for_selection.join(" ")).toContain("stakeholder");
+  });
+
   it("ranks eligible evidence by job term overlap and keeps selection reasons", () => {
     const ranked = rankEvidenceForPolicy({
       policy: { ...resumePolicy, limit: 2 },

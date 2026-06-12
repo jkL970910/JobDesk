@@ -68,6 +68,7 @@ export async function POST(request: Request) {
         id: item.id,
         source_quote: item.source_quote,
         text: item.text,
+        public_safe_summary: item.public_safe_summary,
       })),
     });
     const persistence = await persistTailoredResume({

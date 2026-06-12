@@ -47,6 +47,12 @@ export async function PATCH(
       { status: 404 },
     );
   }
+  if (result.status === "invalid") {
+    return NextResponse.json(
+      { error: result.reason, kind: "invalid_evidence_update" },
+      { status: 409 },
+    );
+  }
 
   return NextResponse.json({ data: result });
 }

@@ -44,6 +44,29 @@ describe("tailored resume guardrails", () => {
     ).toThrow(/not supported by its evidence/);
   });
 
+  it("accepts public-safe summaries as de-identified claim support", () => {
+    expect(() =>
+      validateTailoredResumeDraft({
+        draft: {
+          ...buildDraft({
+            claim_text: "Led stakeholder reporting for cross-functional product teams",
+            source_quotes: ["Led stakeholder reporting for cross-functional product teams"],
+          }),
+          resume_markdown: "- Led stakeholder reporting for cross-functional product teams",
+        },
+        eligibleEvidence: [
+          {
+            ...eligibleEvidence(),
+            source_quote: "Led Project Falcon reporting for Client A",
+            text: "Led Project Falcon reporting for Client A",
+            public_safe_summary:
+              "Led stakeholder reporting for cross-functional product teams",
+          },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
   it("rejects resume drafts without any claims", () => {
     expect(() =>
       validateTailoredResumeDraft({

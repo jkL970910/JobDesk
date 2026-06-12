@@ -66,6 +66,7 @@ type EvidenceLibrary = {
     evidence_type: string;
     sensitivity_level: string;
     allowed_usage: string[];
+    public_safe_summary?: string | null;
     status: string;
     needs_user_confirmation: boolean;
   }>;
@@ -266,22 +267,49 @@ export function ProfileEvidenceWorkspace() {
   const projectCards = result?.project_cards ?? library?.projectCards ?? [];
 
   async function updateEvidence(
-    item: { id?: string; text: string; allowed_usage?: string[] },
-    action: "approve" | "approve_for_resume" | "reject" | "edit",
+    item: {
+      id?: string;
+      text: string;
+      allowed_usage?: string[];
+      public_safe_summary?: string | null;
+    },
+    action: "approve" | "approve_for_resume" | "reject" | "edit" | "mark_external_safe",
   ) {
     if (!item.id) return;
     const nextText =
       action === "edit" ? window.prompt("Edit evidence text", item.text) : null;
     if (action === "edit" && !nextText?.trim()) return;
+    const nextSummary =
+      action === "mark_external_safe"
+        ? window.prompt(
+            "External-safe summary for resume use",
+            item.public_safe_summary ?? item.text,
+          )
+        : null;
+    if (action === "mark_external_safe" && !nextSummary?.trim()) return;
+    const externalAllowedUsage = Array.from(
+      new Set([
+        ...(item.allowed_usage ?? []).filter((usage) => usage !== "internal_only"),
+        "resume",
+        "interview",
+      ]),
+    );
     const response = await fetch(`/api/evidence/${item.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(
         action === "edit"
           ? { action, text: nextText }
-          : action === "approve_for_resume"
-            ? { action, allowedUsage: item.allowed_usage ?? [] }
-            : { action },
+          : action === "mark_external_safe"
+            ? {
+                action: "edit",
+                publicSafeSummary: nextSummary,
+                sensitivityLevel: "public_safe",
+                allowedUsage: externalAllowedUsage,
+              }
+            : action === "approve_for_resume"
+              ? { action, allowedUsage: item.allowed_usage ?? [] }
+              : { action },
       ),
     });
     if (!response.ok) {
@@ -321,18 +349,44 @@ export function ProfileEvidenceWorkspace() {
   }
 
   async function updateProject(
-    project: { id?: string; title: string; role: string | null },
-    action: "approve" | "reject" | "edit" | "approve_project_evidence_for_resume",
+    project: {
+      id?: string;
+      title: string;
+      role: string | null;
+      public_safe_summary?: string | null;
+    },
+    action:
+      | "approve"
+      | "reject"
+      | "edit"
+      | "mark_external_safe"
+      | "approve_project_evidence_for_resume",
   ) {
     if (!project.id) return;
     const nextTitle =
       action === "edit" ? window.prompt("Edit project title", project.title) : null;
     if (action === "edit" && !nextTitle?.trim()) return;
+    const nextSummary =
+      action === "mark_external_safe"
+        ? window.prompt(
+            "External-safe project summary",
+            project.public_safe_summary ?? project.title,
+          )
+        : null;
+    if (action === "mark_external_safe" && !nextSummary?.trim()) return;
     const response = await fetch(`/api/projects/${project.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(
-        action === "edit" ? { action, title: nextTitle } : { action },
+        action === "edit"
+          ? { action, title: nextTitle }
+          : action === "mark_external_safe"
+            ? {
+                action: "edit",
+                publicSafeSummary: nextSummary,
+                sensitivityLevel: "public_safe",
+              }
+            : { action },
       ),
     });
     if (!response.ok) {
@@ -605,12 +659,18 @@ function EvidenceList({
     evidence_type: string;
     sensitivity_level: string;
     allowed_usage?: string[];
+    public_safe_summary?: string | null;
     status: string;
     needs_user_confirmation: boolean;
   }>;
   onUpdate: (
-    item: { id?: string; text: string; allowed_usage?: string[] },
-    action: "approve" | "approve_for_resume" | "reject" | "edit",
+    item: {
+      id?: string;
+      text: string;
+      allowed_usage?: string[];
+      public_safe_summary?: string | null;
+    },
+    action: "approve" | "approve_for_resume" | "reject" | "edit" | "mark_external_safe",
   ) => void;
 }) {
   if (items.length === 0) return null;
@@ -623,6 +683,11 @@ function EvidenceList({
             <span className="requirement__type">{item.evidence_type}</span>
           </div>
           <p className="requirement__quote">Quote: {item.source_quote}</p>
+          {item.public_safe_summary ? (
+            <p className="requirement__quote">
+              External-safe: {item.public_safe_summary}
+            </p>
+          ) : null}
           <div className="chip-row">
             <span className="chip">{item.sensitivity_level}</span>
             <span className="chip">{item.status}</span>
@@ -658,6 +723,13 @@ function EvidenceList({
               >
                 Reject
               </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => onUpdate(item, "mark_external_safe")}
+              >
+                Mark external-safe
+              </button>
               {item.status !== "approved" ||
               item.needs_user_confirmation ||
               !(item.allowed_usage ?? []).includes("resume") ? (
@@ -682,8 +754,18 @@ function ProjectList({
   projects,
 }: {
   onUpdate: (
-    project: { id?: string; title: string; role: string | null },
-    action: "approve" | "reject" | "edit" | "approve_project_evidence_for_resume",
+    project: {
+      id?: string;
+      title: string;
+      role: string | null;
+      public_safe_summary?: string | null;
+    },
+    action:
+      | "approve"
+      | "reject"
+      | "edit"
+      | "mark_external_safe"
+      | "approve_project_evidence_for_resume",
   ) => void;
   projects: Array<{
     id?: string;
@@ -754,6 +836,13 @@ function ProjectList({
                 onClick={() => onUpdate(project, "edit")}
               >
                 Edit title
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => onUpdate(project, "mark_external_safe")}
+              >
+                Mark external-safe
               </button>
               <button
                 className="secondary-button"
