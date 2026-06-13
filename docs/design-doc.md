@@ -7,6 +7,11 @@ Related documents: prd.md, build-and-learn.md, skills/, src/schemas/ (see §1A)
 
 ## Changelog
 
+- v0.6 — Signed off JobDesk Final Project Reference UI v1 from Figma Make as
+  the target product IA and visual reference. Clarified implementation
+  constraints: Figma is a reference, not a source-code import target; current
+  backend contracts and real feature readiness remain authoritative for staged
+  implementation.
 - v0.5 — Adopted selected career-ops patterns in JobDesk-native form:
   role archetype detection, posting-legitimacy assessment, canonical application
   statuses, interview story bank direction, scanner liveness checks, and
@@ -235,6 +240,115 @@ Examples:
 - "Create interview prep pack"
 - "Search public interview material"
 - "Approve email-derived status update"
+
+### 6.1A Signed-Off Product UI Reference
+
+The target product UI and information architecture are signed off as
+**JobDesk Final Project Reference UI v1**:
+
+`https://www.figma.com/make/Si82hetJamO8bUqHOacgv9/Provide-project-documents`
+
+The reference defines the final product shell:
+
+- Dashboard.
+- Profile.
+- Evidence Library.
+- Jobs / Job Workspace.
+- Recommendations.
+- Applications.
+- Interview Prep.
+- Growth Profile.
+- Settings.
+
+Implementation rules:
+
+1. Treat the Figma output as a product and visual reference, not as code to copy
+   wholesale into the Next.js application.
+2. Keep real API contracts, schemas, persistence, and tests authoritative over
+   mock data from the reference.
+3. Preserve the two-lane product model: Material Library is prepared
+   independently from JD analysis; Job Workspaces consume approved material for a
+   specific target role.
+4. Mark future-only surfaces as planned or read-only until corresponding
+   backend workflows exist.
+5. Do not display generated-looking future data as real functionality.
+
+The reference also locks the Profile / Evidence / Resume boundary:
+
+- Profile is a career identity and fact skeleton: contact details, target-role
+  preferences, work-experience frame, education, skills, source documents, and
+  evidence coverage.
+- Profile is not a static resume and should not be the source of truth for
+  achievement bullets.
+- Evidence Library owns achievements, metrics, project cards, responsibilities,
+  source quotes, STAR stories, sensitivity, confidence, allowed usage, and
+  readiness state.
+- Within Evidence Library, Project cards are the main story containers
+  (context, problem, role, actions, results, metrics, stakeholders). Evidence
+  cards are atomic source-backed claims that support project stories, resumes,
+  interviews, and Fact Guard. They should be reviewed together, but not treated
+  as equivalent objects.
+- A resume upload is a source signal, not a complete material library. Resume
+  extraction may create thin project/evidence drafts that require enrichment
+  through guided follow-up, project/design documents, performance reviews, or
+  manual notes before they should be considered strong reusable material.
+- Main Resume is a generated general-purpose artifact under Profile. It can be
+  reviewed, versioned, polished, and exported, but it is not the canonical
+  profile.
+- Tailored Resume is owned by a Job Workspace, generated from a target JD plus
+  approved evidence, and validated through Fact Guard.
+- Resume Versions under Profile is an index and backlink surface. Editing a
+  job-specific resume happens in the owning Job Workspace.
+
+Material Library must support three user entry paths:
+
+1. Resume-first onboarding: upload an existing resume, run resume review,
+   optionally extract profile/evidence/project signals, then enrich thin cards
+   before generating or polishing a Main Resume.
+2. Material-first onboarding: start without a resume by using guided intake,
+   project notes, design docs, performance reviews, or manual sources to build
+   Project cards first, then generate Evidence claims and eventually a Main
+   Resume.
+3. JD-first quick path: analyze a target JD and produce a quick role-specific
+   draft from available material, while surfacing missing evidence gaps as
+   follow-up tasks for the Material Library.
+
+For the MVP, these entry paths are UI routing and guidance over existing
+workflows (`parse-source`, `profile-evidence/extract`,
+`profile-evidence/enrich-project`, JD analysis, resume tailoring). They do not
+require new database schemas by themselves. Add schema only when the product
+needs durable guided-questionnaire sessions, source-type taxonomy, or explicit
+project/evidence readiness fields.
+
+Evidence Library IA should separate source intake from library review:
+
+- Source Intake owns upload, paste, resume/source parsing, resume-signal
+  extraction, project-note enrichment, and future guided questionnaires.
+- Library Review owns existing Project cards, Evidence claims, readiness,
+  possible-overlap cleanup, STAR story review, and approval for resume/interview
+  use.
+- Successful intake can route the user back to Library Review, but importing and
+  reviewing should not be visually mixed in one undifferentiated surface.
+- Library Review should not become one long vertical list. It should expose
+  separate panels for Projects, Unlinked Evidence, Overlap Cleanup, and STAR
+  Stories.
+- Project cards are first-class story containers. Evidence with
+  `related_project_id` should appear as a collapsible sublist inside the owning
+  Project card. Evidence without a project relation remains in Unlinked Evidence
+  until the user adds richer context or a future linking tool assigns it.
+- Unlinked Evidence must support explicit project linking from review UI rather
+  than relying on text similarity. Evidence review should use inline or drawer
+  editing for text, external-safe summary, sensitivity, allowed usage, and
+  project relation.
+- STAR Stories are currently computed from Project cards plus linked evidence.
+  `needs_review` should route the user back to Project enrichment/editing unless
+  a future persistent story-bank schema is introduced.
+- Overlap Cleanup has two separate levels. Project overlaps compare story
+  containers and merge by combining project fields, reparenting linked evidence,
+  and rejecting the duplicate project card. Evidence overlaps compare atomic
+  claims and merge by keeping one evidence item, combining safe metadata, and
+  rejecting the duplicate evidence item. These paths must not share UI wording
+  or merge semantics.
 
 ### 6.2 API Gateway / App Backend
 
@@ -1130,7 +1244,12 @@ Guardrails:
 
 ## 10. Workflow Designs
 
-### 10.1 Resume Import Workflow
+### 10.1 Resume-First Onboarding Workflow
+
+This path starts from an existing resume. The resume should be reviewed as a
+document first, then used as a signal source for thin project/evidence drafts.
+Those drafts should not be treated as complete reusable material until the user
+adds richer project context.
 
 ```mermaid
 sequenceDiagram
@@ -1142,18 +1261,22 @@ sequenceDiagram
   participant DB as Database
 
   U->>UI: Upload resume
-  UI->>OR: Start resume_import workflow
+  UI->>OR: Start resume-first onboarding
   OR->>DOC: Extract text and metadata
   DOC-->>OR: Extracted text
-  OR->>A: Parse profile
-  A-->>OR: Profile JSON + confidence
-  OR->>DB: Save source doc and draft profile
-  OR-->>UI: Show review screen
-  U->>UI: Confirm edits
-  UI->>DB: Save canonical profile
+  OR->>A: Parse profile + resume quality signals
+  A-->>OR: Profile facts + thin project/evidence candidates
+  OR->>DB: Save source doc, draft profile, pending material
+  OR-->>UI: Show resume review and material gaps
+  U->>UI: Add project docs, guided answers, or manual notes
+  UI->>OR: Enrich Material Library
 ```
 
 ### 10.2 Evidence Curation Workflow
+
+This path can start without a resume. Project cards are the primary containers;
+Evidence cards are atomic claims linked to source material and used by resumes,
+interviews, and Fact Guard.
 
 ```mermaid
 sequenceDiagram
@@ -1164,15 +1287,15 @@ sequenceDiagram
   participant D as De-identification (skill/step)
   participant DB as Database
 
-  U->>OR: Curate uploaded project docs
+  U->>OR: Curate project docs or guided answers
   OR->>R: Retrieve relevant document chunks
   R-->>OR: Candidate chunks
-  OR->>A: Extract evidence and projects
-  A-->>OR: Evidence cards
+  OR->>A: Extract project stories and evidence claims
+  A-->>OR: Project cards + Evidence cards
   OR->>D: Generate public-safe variants (model + deterministic blocked-terms)
   D-->>OR: De-identified content + redaction diff
-  OR->>DB: Save as pending evidence
-  OR-->>U: Ask for approval
+  OR->>DB: Save pending projects and evidence
+  OR-->>U: Ask for review and enrichment
 ```
 
 ### 10.3 Tailored Resume Workflow

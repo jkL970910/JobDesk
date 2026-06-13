@@ -113,7 +113,10 @@ export function TailoredResumeWorkspace() {
 
   async function loadJobs() {
     const response = await fetchJson("/api/jobs/recent");
-    if (!response.ok) return;
+    if (!response.ok) {
+      setError(await formatLoadError(response, "Could not load saved jobs."));
+      return;
+    }
     const payload = (await response.json()) as { data?: RecentJob[] };
     const nextJobs = payload.data ?? [];
     setJobs(nextJobs);
@@ -122,7 +125,10 @@ export function TailoredResumeWorkspace() {
 
   async function loadRecentResumes() {
     const response = await fetchJson("/api/resumes/recent");
-    if (!response.ok) return [];
+    if (!response.ok) {
+      setError(await formatLoadError(response, "Could not load resume versions."));
+      return [];
+    }
     const payload = (await response.json()) as { data?: RecentResume[] };
     const resumes = payload.data ?? [];
     setLatestResume(resumes[0] ?? null);
@@ -132,6 +138,7 @@ export function TailoredResumeWorkspace() {
   async function loadReadiness() {
     const response = await fetchJson("/api/profile-evidence/recent");
     if (!response.ok) {
+      setError(await formatLoadError(response, "Could not load material library readiness."));
       setReadiness(emptyReadiness);
       return;
     }
@@ -174,7 +181,7 @@ export function TailoredResumeWorkspace() {
         }
         setDraft(payload.data);
         setStatus(
-          `Generated · ${payload.meta.evidenceCount} evidence items · ${payload.meta.persistence?.claimCount ?? payload.data.claims.length} claims saved`,
+          `Resume drafted · ${payload.meta.evidenceCount} evidence items used · ${payload.meta.persistence?.claimCount ?? payload.data.claims.length} claims to review`,
         );
         void loadReadiness();
         const resumes = await loadRecentResumes();
@@ -214,16 +221,16 @@ export function TailoredResumeWorkspace() {
           }
         | null;
       if (!response.ok) {
-        setError(payload?.error ?? "Fact Guard failed.");
+        setError(payload?.error ?? "Resume review failed.");
         return;
       }
       if (!payload?.data) {
-        setError("Fact Guard did not return a validation report.");
+        setError("Resume review did not return a claim report.");
         return;
       }
       const report = payload.data;
       setStatus(
-        `Fact Guard · ${report.supportedCount}/${report.claimCount} claims supported · ${report.resumeStatus}`,
+        `Review complete · ${report.supportedCount}/${report.claimCount} claims supported · ${report.resumeStatus}`,
       );
       setLatestResume((current) =>
         current
@@ -340,7 +347,7 @@ export function TailoredResumeWorkspace() {
               type="button"
               onClick={() => void runFactGuard()}
             >
-              {isFactGuardPending ? "Checking..." : "Run Fact Guard"}
+              {isFactGuardPending ? "Checking..." : "Review Claims"}
             </button>
           ) : null}
           <span className={error ? "status status--error" : "status"}>
@@ -360,10 +367,9 @@ export function TailoredResumeWorkspace() {
       <div className="panel">
         <div className="panel__header">
           <div>
-            <h2 className="panel__title">Resume draft and claim ledger</h2>
+            <h2 className="panel__title">Resume draft and claim review</h2>
             <p className="panel__note">
-              Claims remain unvalidated until Fact Guard checks them against the
-              approved evidence ledger.
+              Review claim support before using the resume externally.
             </p>
           </div>
         </div>
@@ -498,13 +504,6 @@ function ResumeResult({
               >
                 Export Markdown
               </button>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => void exportResume(resume.id!, "json")}
-              >
-                Export JSON
-              </button>
             </>
           ) : null}
         </div>
@@ -531,9 +530,9 @@ function ClaimReviewPanel({ claims }: { claims: ResumeClaim[] }) {
     <section className="section-block claim-review">
       <div className="claim-review__header">
         <div>
-          <h3>Fact Guard claim review</h3>
+          <h3>Claim support review</h3>
           <p className="claim-review__note">
-            Review any non-supported claim before using the tailored resume externally.
+            Review any unsupported or partial claim before using this resume.
           </p>
         </div>
         <div className="claim-review__score" data-ready={needsReview === 0 && claims.length > 0}>
@@ -571,12 +570,12 @@ function ClaimCard({ claim }: { claim: ResumeClaim }) {
         ) : null}
         {claim.evidence_ids.map((id) => (
           <span className="chip" key={id}>
-            evidence {id.slice(0, 8)}
+            evidence
           </span>
         ))}
       </div>
       {claim.source_quotes[0] ? (
-        <p className="requirement__quote">Quote: {claim.source_quotes[0]}</p>
+        <p className="requirement__quote">Support: {claim.source_quotes[0]}</p>
       ) : null}
       {claim.stale_reason ? (
         <p className="claim-card__warning">Needs review: {claim.stale_reason}</p>
@@ -620,6 +619,16 @@ function downloadBlob(fileName: string, blob: Blob) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+async function formatLoadError(response: Response, fallback: string) {
+  const payload = (await response.json().catch(() => null)) as
+    | { error?: string }
+    | null;
+  if (response.status === 401) {
+    return "Access token required. Enter your token at the top of the page, then try again.";
+  }
+  return payload?.error ?? fallback;
 }
 
 function Section({ title, items }: { title: string; items: string[] }) {

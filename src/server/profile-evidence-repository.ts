@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 
 import { getDb, hasDatabaseUrl } from "../db/client";
 import {
@@ -237,6 +237,7 @@ export async function getRecentEvidenceLibrary(limit = 8) {
   const projects = await db
     .select()
     .from(projectCards)
+    .where(ne(projectCards.status, "rejected"))
     .orderBy(desc(projectCards.updatedAt))
     .limit(limit);
 
@@ -301,6 +302,31 @@ export type EvidenceDedupeItem = {
   updatedAt: string;
 };
 
+export type ProjectDedupeCandidate = {
+  primary: ProjectDedupeItem;
+  duplicate: ProjectDedupeItem;
+  duplicateCount: number;
+  duplicateProjectIds: string[];
+  score: number;
+  reasons: string[];
+  primaryEvidenceCount: number;
+  duplicateEvidenceCount: number;
+};
+
+export type ProjectDedupeItem = {
+  id: string;
+  title: string;
+  context: string | null;
+  problem: string | null;
+  role: string | null;
+  actions: string[];
+  results: string[];
+  technologies: string[];
+  stakeholders: string[];
+  status: string;
+  updatedAt: string;
+};
+
 export async function getStarStoryBank(limit = 8) {
   if (!hasDatabaseUrl()) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
@@ -310,6 +336,7 @@ export async function getStarStoryBank(limit = 8) {
   const projects = await db
     .select()
     .from(projectCards)
+    .where(ne(projectCards.status, "rejected"))
     .orderBy(desc(projectCards.updatedAt))
     .limit(80);
   if (projects.length === 0) {
@@ -347,7 +374,9 @@ export async function getEvidenceDedupeCandidates(limit = 8) {
       const left = rows[leftIndex]!;
       const right = rows[rightIndex]!;
       const match = scoreEvidenceSimilarity(left.text, right.text);
-      if (match.score < 0.72 && normalizeEvidenceText(left.sourceQuote) !== normalizeEvidenceText(right.sourceQuote)) {
+      const sameSourceQuote =
+        normalizeEvidenceText(left.sourceQuote) === normalizeEvidenceText(right.sourceQuote);
+      if (!sameSourceQuote && match.score < 0.86) {
         continue;
       }
       const [primary, duplicate] = chooseDedupePrimary(left, right);
@@ -355,7 +384,7 @@ export async function getEvidenceDedupeCandidates(limit = 8) {
         primary: toDedupeItem(primary),
         duplicate: toDedupeItem(duplicate),
         score: match.score,
-        reasons: match.reasons,
+        reasons: sameSourceQuote ? ["same source quote"] : match.reasons,
       });
     }
   }
@@ -372,6 +401,91 @@ export async function getEvidenceDedupeCandidates(limit = 8) {
   return {
     status: "ready" as const,
     candidates: deduped.slice(0, limit),
+  };
+}
+
+export async function getProjectDedupeCandidates(limit = 8) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(projectCards)
+    .orderBy(desc(projectCards.updatedAt))
+    .limit(120);
+  const activeProjects = rows.filter((project) => project.status !== "rejected");
+  if (activeProjects.length < 2) {
+    return { status: "ready" as const, candidates: [] };
+  }
+  const linkedEvidence = await db
+    .select({
+      id: evidenceItems.id,
+      relatedProjectId: evidenceItems.relatedProjectId,
+    })
+    .from(evidenceItems)
+    .where(inArray(evidenceItems.relatedProjectId, activeProjects.map((project) => project.id)));
+  const evidenceCountByProject = new Map<string, number>();
+  for (const item of linkedEvidence) {
+    if (!item.relatedProjectId) continue;
+    evidenceCountByProject.set(
+      item.relatedProjectId,
+      (evidenceCountByProject.get(item.relatedProjectId) ?? 0) + 1,
+    );
+  }
+
+  const candidates: ProjectDedupeCandidate[] = [];
+  for (let leftIndex = 0; leftIndex < activeProjects.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < activeProjects.length; rightIndex += 1) {
+      const left = activeProjects[leftIndex]!;
+      const right = activeProjects[rightIndex]!;
+      const match = scoreProjectSimilarity(left, right);
+      if (match.score < 0.72) continue;
+      const [primary, duplicate] = chooseProjectDedupePrimary(left, right);
+      candidates.push({
+        primary: toProjectDedupeItem(primary),
+        duplicate: toProjectDedupeItem(duplicate),
+        duplicateCount: 1,
+        duplicateProjectIds: [duplicate.id],
+        score: match.score,
+        reasons: match.reasons,
+        primaryEvidenceCount: evidenceCountByProject.get(primary.id) ?? 0,
+        duplicateEvidenceCount: evidenceCountByProject.get(duplicate.id) ?? 0,
+      });
+    }
+  }
+
+  const exactTitleClusters = buildExactTitleProjectClusters(activeProjects, evidenceCountByProject);
+  const exactClusterProjectIds = new Set(
+    exactTitleClusters.flatMap((candidate) => [
+      candidate.primary.id,
+      ...candidate.duplicateProjectIds,
+    ]),
+  );
+  const pairCandidates = candidates.filter(
+    (candidate) =>
+      !exactClusterProjectIds.has(candidate.primary.id) &&
+      !exactClusterProjectIds.has(candidate.duplicate.id),
+  );
+  const clustered = [...exactTitleClusters, ...pairCandidates].sort((left, right) => {
+    if (right.duplicateCount !== left.duplicateCount) {
+      return right.duplicateCount - left.duplicateCount;
+    }
+    return right.score - left.score;
+  });
+  const usedProjectIds = new Set<string>();
+  const suppressed = clustered.filter((candidate) => {
+    const projectIds = [candidate.primary.id, ...candidate.duplicateProjectIds];
+    if (projectIds.some((projectId) => usedProjectIds.has(projectId))) {
+      return false;
+    }
+    projectIds.forEach((projectId) => usedProjectIds.add(projectId));
+    return true;
+  });
+  return {
+    status: "ready" as const,
+    candidates: suppressed.slice(0, limit),
   };
 }
 
@@ -432,6 +546,119 @@ export async function mergeEvidenceItems(args: {
       primaryEvidenceId: primary.id,
       duplicateEvidenceId: duplicate.id,
       mergedAllowedUsage,
+    };
+  });
+}
+
+export async function mergeProjectCards(args: {
+  primaryProjectId: string;
+  duplicateProjectId?: string;
+  duplicateProjectIds?: string[];
+}) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+  const duplicateIds = Array.from(
+    new Set([...(args.duplicateProjectIds ?? []), ...(args.duplicateProjectId ? [args.duplicateProjectId] : [])]),
+  );
+  if (duplicateIds.length === 0) {
+    return { status: "invalid" as const, reason: "missing_duplicate_project" as const };
+  }
+  if (duplicateIds.includes(args.primaryProjectId)) {
+    return { status: "invalid" as const, reason: "same_project_id" as const };
+  }
+
+  return getDb().transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(projectCards)
+      .where(inArray(projectCards.id, [args.primaryProjectId, ...duplicateIds]));
+    const primary = rows.find((project) => project.id === args.primaryProjectId);
+    const duplicates = duplicateIds
+      .map((id) => rows.find((project) => project.id === id))
+      .filter((project): project is typeof projectCards.$inferSelect => Boolean(project));
+    if (!primary || duplicates.length !== duplicateIds.length) return { status: "not_found" as const };
+    if (duplicates.some((duplicate) => duplicate.workspaceId !== primary.workspaceId)) {
+      return { status: "invalid" as const, reason: "cross_workspace_project_merge" as const };
+    }
+    if (primary.status === "rejected" || duplicates.some((duplicate) => duplicate.status === "rejected")) {
+      return { status: "invalid" as const, reason: "rejected_project" as const };
+    }
+
+    const now = new Date();
+    const mergedMetrics = duplicates.reduce(
+      (metrics, duplicate) => mergeJsonArrays(metrics, duplicate.metrics),
+      primary.metrics,
+    );
+    await tx
+      .update(projectCards)
+      .set({
+        context: primary.context ?? firstProjectValue(duplicates, "context"),
+        problem: primary.problem ?? firstProjectValue(duplicates, "problem"),
+        role: primary.role ?? firstProjectValue(duplicates, "role"),
+        actions: duplicates.reduce(
+          (items, duplicate) => mergeStringArrays(items, duplicate.actions),
+          primary.actions,
+        ),
+        results: duplicates.reduce(
+          (items, duplicate) => mergeStringArrays(items, duplicate.results),
+          primary.results,
+        ),
+        metrics: mergedMetrics,
+        technologies: duplicates.reduce(
+          (items, duplicate) => mergeStringArrays(items, duplicate.technologies),
+          primary.technologies,
+        ),
+        stakeholders: duplicates.reduce(
+          (items, duplicate) => mergeStringArrays(items, duplicate.stakeholders),
+          primary.stakeholders,
+        ),
+        publicSafeSummary: primary.publicSafeSummary ?? firstProjectValue(duplicates, "publicSafeSummary"),
+        status:
+          primary.status === "approved" || duplicates.some((duplicate) => duplicate.status === "approved")
+            ? "approved"
+            : primary.status,
+        sensitivityLevel:
+          primary.sensitivityLevel === "sensitive" ||
+          duplicates.some((duplicate) => duplicate.sensitivityLevel === "sensitive")
+            ? "sensitive"
+            : primary.sensitivityLevel === "private" ||
+                duplicates.some((duplicate) => duplicate.sensitivityLevel === "private")
+              ? "private"
+              : "public_safe",
+        updatedAt: now,
+      })
+      .where(eq(projectCards.id, primary.id));
+
+    const movedEvidence = await tx
+      .update(evidenceItems)
+      .set({
+        relatedProjectId: primary.id,
+        updatedAt: now,
+      })
+      .where(inArray(evidenceItems.relatedProjectId, duplicateIds))
+      .returning({ id: evidenceItems.id });
+
+    await tx
+      .update(projectCards)
+      .set({
+        status: "rejected",
+        updatedAt: now,
+      })
+      .where(inArray(projectCards.id, duplicateIds));
+
+    if (movedEvidence.length > 0) {
+      await markClaimsStaleForEvidenceIds(movedEvidence.map((item) => item.id));
+    }
+
+    return {
+      status: "merged" as const,
+      primaryProjectId: primary.id,
+      duplicateProjectId: duplicateIds[0],
+      duplicateProjectIds: duplicateIds,
+      duplicateProjectCount: duplicateIds.length,
+      movedEvidenceCount: movedEvidence.length,
+      mergedMetricCount: mergedMetrics.length,
     };
   });
 }
@@ -566,6 +793,7 @@ export async function updateEvidenceItem(args: {
   publicSafeSummary?: string | null;
   allowedUsage?: AllowedUsage[];
   sensitivityLevel?: SensitivityLevel;
+  relatedProjectId?: string | null;
 }) {
   if (!hasDatabaseUrl()) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
@@ -575,6 +803,14 @@ export async function updateEvidenceItem(args: {
   const patch: Partial<typeof evidenceItems.$inferInsert> = {
     updatedAt: new Date(),
   };
+  if (args.action === "edit" && args.relatedProjectId) {
+    const validation = await validateEvidenceProjectLink({
+      db,
+      evidenceId: args.evidenceId,
+      relatedProjectId: args.relatedProjectId,
+    });
+    if (validation.status !== "valid") return validation;
+  }
   if (args.action === "approve") {
     patch.status = "approved";
     patch.needsUserConfirmation = 0;
@@ -619,6 +855,9 @@ export async function updateEvidenceItem(args: {
     if (args.sensitivityLevel !== undefined) {
       patch.sensitivityLevel = args.sensitivityLevel;
     }
+    if (args.relatedProjectId !== undefined) {
+      patch.relatedProjectId = args.relatedProjectId;
+    }
     patch.needsUserConfirmation = 1;
   }
 
@@ -634,6 +873,7 @@ export async function updateEvidenceItem(args: {
       publicSafeSummary: evidenceItems.publicSafeSummary,
       allowedUsage: evidenceItems.allowedUsage,
       sensitivityLevel: evidenceItems.sensitivityLevel,
+      relatedProjectId: evidenceItems.relatedProjectId,
     });
 
   if (!item) return { status: "not_found" as const };
@@ -699,6 +939,42 @@ async function getOrCreateDefaultWorkspace(db: Pick<DbHandle, "select" | "insert
   return created;
 }
 
+async function validateEvidenceProjectLink(args: {
+  db: ReturnType<typeof getDb>;
+  evidenceId: string;
+  relatedProjectId: string;
+}) {
+  const [evidence] = await args.db
+    .select({
+      id: evidenceItems.id,
+      workspaceId: evidenceItems.workspaceId,
+    })
+    .from(evidenceItems)
+    .where(eq(evidenceItems.id, args.evidenceId))
+    .limit(1);
+  if (!evidence) return { status: "not_found" as const };
+
+  const [project] = await args.db
+    .select({
+      id: projectCards.id,
+      workspaceId: projectCards.workspaceId,
+      status: projectCards.status,
+    })
+    .from(projectCards)
+    .where(eq(projectCards.id, args.relatedProjectId))
+    .limit(1);
+  if (!project) {
+    return { status: "invalid" as const, reason: "related_project_not_found" as const };
+  }
+  if (project.status === "rejected") {
+    return { status: "invalid" as const, reason: "related_project_rejected" as const };
+  }
+  if (project.workspaceId !== evidence.workspaceId) {
+    return { status: "invalid" as const, reason: "cross_workspace_project_link" as const };
+  }
+  return { status: "valid" as const };
+}
+
 function toDedupeItem(item: typeof evidenceItems.$inferSelect): EvidenceDedupeItem {
   return {
     id: item.id,
@@ -711,6 +987,61 @@ function toDedupeItem(item: typeof evidenceItems.$inferSelect): EvidenceDedupeIt
     needs_user_confirmation: item.needsUserConfirmation === 1,
     updatedAt: item.updatedAt.toISOString(),
   };
+}
+
+function toProjectDedupeItem(item: typeof projectCards.$inferSelect): ProjectDedupeItem {
+  return {
+    id: item.id,
+    title: item.title,
+    context: item.context,
+    problem: item.problem,
+    role: item.role,
+    actions: item.actions,
+    results: item.results,
+    technologies: item.technologies,
+    stakeholders: item.stakeholders,
+    status: item.status,
+    updatedAt: item.updatedAt.toISOString(),
+  };
+}
+
+function buildExactTitleProjectClusters(
+  projects: Array<typeof projectCards.$inferSelect>,
+  evidenceCountByProject: Map<string, number>,
+) {
+  const byTitle = new Map<string, Array<typeof projectCards.$inferSelect>>();
+  for (const project of projects) {
+    const key = normalizeEvidenceText(project.title);
+    if (!key) continue;
+    const existing = byTitle.get(key) ?? [];
+    existing.push(project);
+    byTitle.set(key, existing);
+  }
+
+  const clusters: ProjectDedupeCandidate[] = [];
+  for (const group of byTitle.values()) {
+    if (group.length < 2) continue;
+    const [primary, ...duplicates] = [...group].sort((left, right) => {
+      const priorityDelta = projectPriority(right) - projectPriority(left);
+      if (priorityDelta !== 0) return priorityDelta;
+      return right.updatedAt.getTime() - left.updatedAt.getTime();
+    });
+    if (!primary || duplicates.length === 0) continue;
+    clusters.push({
+      primary: toProjectDedupeItem(primary),
+      duplicate: toProjectDedupeItem(duplicates[0]!),
+      duplicateCount: duplicates.length,
+      duplicateProjectIds: duplicates.map((project) => project.id),
+      score: 1,
+      reasons: ["exact title match"],
+      primaryEvidenceCount: evidenceCountByProject.get(primary.id) ?? 0,
+      duplicateEvidenceCount: duplicates.reduce(
+        (count, project) => count + (evidenceCountByProject.get(project.id) ?? 0),
+        0,
+      ),
+    });
+  }
+  return clusters;
 }
 
 function chooseDedupePrimary(
@@ -732,6 +1063,86 @@ function evidencePriority(item: typeof evidenceItems.$inferSelect) {
   if (!item.needsUserConfirmation) score += 1;
   if (item.evidenceType !== "inferred") score += 1;
   return score;
+}
+
+function chooseProjectDedupePrimary(
+  left: typeof projectCards.$inferSelect,
+  right: typeof projectCards.$inferSelect,
+): [typeof projectCards.$inferSelect, typeof projectCards.$inferSelect] {
+  const leftRank = projectPriority(left);
+  const rightRank = projectPriority(right);
+  if (leftRank !== rightRank) {
+    return leftRank > rightRank ? [left, right] : [right, left];
+  }
+  return left.updatedAt >= right.updatedAt ? [left, right] : [right, left];
+}
+
+function projectPriority(item: typeof projectCards.$inferSelect) {
+  let score = 0;
+  if (item.status === "approved") score += 4;
+  if (item.context) score += 1;
+  if (item.problem) score += 1;
+  if (item.role) score += 1;
+  score += Math.min(3, item.actions.length);
+  score += Math.min(3, item.results.length);
+  score += Math.min(2, item.metrics.length);
+  return score;
+}
+
+function scoreProjectSimilarity(
+  left: typeof projectCards.$inferSelect,
+  right: typeof projectCards.$inferSelect,
+) {
+  const leftTitle = normalizeEvidenceText(left.title);
+  const rightTitle = normalizeEvidenceText(right.title);
+  const titleMatch = scoreEvidenceSimilarity(left.title, right.title);
+  const leftBody = projectComparisonText(left);
+  const rightBody = projectComparisonText(right);
+  const bodyMatch = scoreEvidenceSimilarity(leftBody, rightBody);
+  const leftTech = new Set(left.technologies.map((item) => normalizeEvidenceText(item)).filter(Boolean));
+  const rightTech = new Set(right.technologies.map((item) => normalizeEvidenceText(item)).filter(Boolean));
+  const sharedTechCount = [...leftTech].filter((item) => rightTech.has(item)).length;
+  const techScore =
+    leftTech.size > 0 && rightTech.size > 0
+      ? sharedTechCount / Math.min(leftTech.size, rightTech.size)
+      : 0;
+  const exactTitle = Boolean(leftTitle && leftTitle === rightTitle);
+  const score = Math.max(
+    exactTitle ? 1 : 0,
+    titleMatch.score,
+    bodyMatch.score * 0.92,
+    techScore >= 0.8 && bodyMatch.score >= 0.45 ? 0.74 : 0,
+  );
+  const reasons = [];
+  if (exactTitle) reasons.push("exact title match");
+  else if (titleMatch.score >= 0.72) reasons.push("similar title");
+  if (bodyMatch.score >= 0.72) reasons.push("shared story wording");
+  if (sharedTechCount > 0) reasons.push(`${sharedTechCount} shared technologies`);
+  return {
+    score,
+    reasons: reasons.length > 0 ? reasons : ["similar project story"],
+  };
+}
+
+function projectComparisonText(project: typeof projectCards.$inferSelect) {
+  return [
+    project.title,
+    project.context,
+    project.problem,
+    project.role,
+    ...project.actions,
+    ...project.results,
+    ...project.technologies,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function firstProjectValue(
+  projects: Array<typeof projectCards.$inferSelect>,
+  key: "context" | "problem" | "role" | "publicSafeSummary",
+) {
+  return projects.map((project) => project[key]).find(Boolean) ?? null;
 }
 
 function scoreEvidenceSimilarity(left: string, right: string) {
@@ -795,6 +1206,16 @@ function mergeJsonArrays(
     const key = JSON.stringify(item);
     if (seen.has(key)) return false;
     seen.add(key);
+    return true;
+  });
+}
+
+function mergeStringArrays(left: string[], right: string[]) {
+  const seen = new Set<string>();
+  return [...left, ...right].filter((item) => {
+    const normalized = normalizeEvidenceText(item);
+    if (!normalized || seen.has(normalized)) return false;
+    seen.add(normalized);
     return true;
   });
 }

@@ -1,12 +1,16 @@
+import crypto from "node:crypto";
+
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { loadDotEnv } from "../src/ai/env";
 import {
   getEvidenceDedupeCandidates,
+  getProjectDedupeCandidates,
   getRecentEvidenceLibrary,
   getResumeTailoringContext,
   getStarStoryBank,
   mergeEvidenceItems,
+  mergeProjectCards,
   persistProfileEvidenceExtraction,
   updateEvidenceItem,
 } from "../src/server/profile-evidence-repository";
@@ -61,9 +65,10 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(inferredEvidence).toMatchObject({
       needs_user_confirmation: true,
     });
-    expect(library.projectCards.some((project) => project.title === "Onboarding analytics")).toBe(
-      true,
+    const onboardingProject = library.projectCards.find(
+      (project) => project.title === "Onboarding analytics",
     );
+    expect(onboardingProject).toBeDefined();
     const starStories = await getStarStoryBank(10);
     expect(starStories.status).toBe("ready");
     if (starStories.status !== "ready") throw new Error("Expected STAR story bank.");
@@ -97,6 +102,30 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       status: "saved",
       evidenceItem: {
         text: "Built SQL dashboards for onboarding funnel analysis and activation metrics.",
+        needsUserConfirmation: true,
+      },
+    });
+
+    const invalidProjectLink = await updateEvidenceItem({
+      evidenceId: sqlEvidence.id,
+      action: "edit",
+      relatedProjectId: crypto.randomUUID(),
+    });
+    expect(invalidProjectLink).toMatchObject({
+      status: "invalid",
+      reason: "related_project_not_found",
+    });
+
+    if (!onboardingProject) throw new Error("Expected onboarding project.");
+    const projectLink = await updateEvidenceItem({
+      evidenceId: sqlEvidence.id,
+      action: "edit",
+      relatedProjectId: onboardingProject.id,
+    });
+    expect(projectLink).toMatchObject({
+      status: "saved",
+      evidenceItem: {
+        relatedProjectId: onboardingProject.id,
         needsUserConfirmation: true,
       },
     });
@@ -249,6 +278,73 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       (item) => item.id === candidate.duplicate.id,
     );
     expect(duplicateAfterMerge).toMatchObject({ status: "rejected" });
+
+    const projectA = await persistProfileEvidenceExtraction({
+      sourceText: projectDuplicateSourceText,
+      extraction: buildProjectDuplicateExtraction({
+        action: "Mapped activation funnel events.",
+        evidence: "Mapped onboarding activation funnel events with SQL.",
+        result: "Identified onboarding drop-off.",
+        title: "Activation dashboard",
+      }),
+      provider: "integration-test",
+      model: "test-model",
+      usage: {},
+      retryCount: 0,
+    });
+    const projectB = await persistProfileEvidenceExtraction({
+      sourceText: projectDuplicateSourceText,
+      extraction: buildProjectDuplicateExtraction({
+        action: "Mapped onboarding funnel steps.",
+        evidence: "Mapped onboarding funnel steps and dashboard slices.",
+        result: "Prioritized follow-up activation experiments.",
+        title: "Activation dashboard",
+      }),
+      provider: "integration-test",
+      model: "test-model",
+      usage: {},
+      retryCount: 0,
+    });
+    if (projectA.status !== "saved" || projectB.status !== "saved") {
+      throw new Error("Expected duplicate project setup to save.");
+    }
+
+    const projectDedupe = await getProjectDedupeCandidates(200);
+    expect(projectDedupe.status).toBe("ready");
+    if (projectDedupe.status !== "ready") {
+      throw new Error("Expected project dedupe candidates.");
+    }
+    const projectCandidate = projectDedupe.candidates.find(
+      (item) =>
+        item.primary.title.includes("Activation dashboard") &&
+        item.duplicate.title.includes("Activation dashboard"),
+    );
+    expect(projectCandidate).toBeDefined();
+    if (!projectCandidate) throw new Error("Expected duplicate project candidate.");
+
+    const projectMerge = await mergeProjectCards({
+      primaryProjectId: projectCandidate.primary.id,
+      duplicateProjectIds: projectCandidate.duplicateProjectIds,
+    });
+    expect(projectMerge).toMatchObject({
+      status: "merged",
+      primaryProjectId: projectCandidate.primary.id,
+      duplicateProjectId: projectCandidate.duplicate.id,
+      duplicateProjectCount: projectCandidate.duplicateCount,
+      movedEvidenceCount: projectCandidate.duplicateEvidenceCount,
+    });
+
+    const afterProjectMerge = await getRecentEvidenceLibrary(80);
+    expect(
+      afterProjectMerge.projectCards.some((project) => project.id === projectCandidate.duplicate.id),
+    ).toBe(false);
+    expect(
+      afterProjectMerge.evidenceItems.some(
+        (item) =>
+          item.related_project_id === projectCandidate.primary.id &&
+          item.text.includes("dashboard slices"),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -263,6 +359,13 @@ const sampleSourceText = [
   "Built SQL dashboards for onboarding funnel analysis.",
   "Led experimentation readouts for three product teams.",
   "Partnered with product managers to define activation metrics.",
+].join("\n");
+
+const projectDuplicateSourceText = [
+  "Activation dashboard",
+  "Mapped onboarding activation funnel events with SQL.",
+  "Mapped onboarding funnel steps and dashboard slices.",
+  "Identified onboarding drop-off and prioritized follow-up activation experiments.",
 ].join("\n");
 
 function buildExtraction(): ProfileEvidenceExtraction {
@@ -439,6 +542,61 @@ function buildDuplicateExtraction(text: string): ProfileEvidenceExtraction {
       },
     ],
     project_cards: [],
+    extraction_notes: [],
+  };
+}
+
+function buildProjectDuplicateExtraction(args: {
+  action: string;
+  evidence: string;
+  result: string;
+  title: string;
+}): ProfileEvidenceExtraction {
+  return {
+    profile: {
+      name: simpleField("Jane Doe", "Jane Doe", 0.95),
+      email: null,
+      phone: null,
+      location: null,
+      links: [],
+      education: [],
+      experience: [],
+      skills: [],
+      certifications: [],
+      missing_fields: [],
+      low_confidence_fields: [],
+      invented_field_flags: [],
+    },
+    evidence_items: [
+      {
+        text: args.evidence,
+        source_quote: args.evidence,
+        evidence_type: "extracted",
+        metrics: [],
+        sensitivity_level: "private",
+        allowed_usage: ["resume", "interview"],
+        public_safe_summary: null,
+        status: "pending",
+        related_project_id: args.title,
+        needs_user_confirmation: false,
+      },
+    ],
+    project_cards: [
+      {
+        title: args.title,
+        context: "Onboarding activation dashboard work.",
+        problem: "Teams could not see onboarding drop-off clearly.",
+        role: "Product analyst",
+        actions: [args.action],
+        results: [args.result],
+        metrics: [],
+        technologies: ["SQL", "Dashboard"],
+        stakeholders: ["product teams"],
+        public_safe_summary: null,
+        sensitivity_level: "private",
+        status: "pending",
+      },
+    ],
     extraction_notes: [],
   };
 }

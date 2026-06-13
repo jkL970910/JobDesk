@@ -53,7 +53,10 @@ export function ApplicationTrackerWorkspace() {
 
   async function loadJobs() {
     const response = await fetchJson("/api/jobs/recent?limit=20");
-    if (!response.ok) return;
+    if (!response.ok) {
+      setError(await formatLoadError(response, "Could not load applications."));
+      return;
+    }
     const payload = (await response.json()) as { data?: TrackerJob[] };
     const nextJobs = payload.data ?? [];
     setJobs(nextJobs);
@@ -86,7 +89,7 @@ export function ApplicationTrackerWorkspace() {
         setError(payload?.error ?? "Failed to update application status.");
         return;
       }
-      setMessage(`Status saved: ${status}`);
+      setMessage(`Application status updated to ${statusLabel(status)}.`);
       await loadJobs();
       window.dispatchEvent(new Event("jobdesk:jobs-updated"));
     });
@@ -204,4 +207,14 @@ export function ApplicationTrackerWorkspace() {
 
 function statusLabel(status: ApplicationStatus | undefined) {
   return statusOptions.find((option) => option.value === (status ?? "evaluated"))?.label ?? "Evaluated";
+}
+
+async function formatLoadError(response: Response, fallback: string) {
+  const payload = (await response.json().catch(() => null)) as
+    | { error?: string }
+    | null;
+  if (response.status === 401) {
+    return "Access token required. Enter your token at the top of the page, then try again.";
+  }
+  return payload?.error ?? fallback;
 }

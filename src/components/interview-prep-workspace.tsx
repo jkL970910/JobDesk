@@ -39,7 +39,10 @@ export function InterviewPrepWorkspace() {
 
   async function loadJobs() {
     const response = await fetchJson("/api/jobs/recent");
-    if (!response.ok) return;
+    if (!response.ok) {
+      setError(await formatLoadError(response, "Could not load saved jobs."));
+      return;
+    }
     const payload = (await response.json()) as { data?: RecentJob[] };
     const nextJobs = payload.data ?? [];
     setJobs(nextJobs);
@@ -48,7 +51,10 @@ export function InterviewPrepWorkspace() {
 
   async function loadRecentPacks() {
     const response = await fetchJson("/api/interview-prep/recent");
-    if (!response.ok) return;
+    if (!response.ok) {
+      setError(await formatLoadError(response, "Could not load interview prep packs."));
+      return;
+    }
     const payload = (await response.json()) as { data?: InterviewPrepPack[] };
     const packs = payload.data ?? [];
     setRecentPacks(packs);
@@ -74,12 +80,12 @@ export function InterviewPrepWorkspace() {
         return;
       }
       if (payload.data.status === "skipped") {
-        setError("Database is not configured for interview prep persistence.");
+        setError("Interview prep could not be saved in this environment.");
         return;
       }
       setLatestPack(payload.data.pack);
       setStatus(
-        `Prep pack ready · ${payload.data.pack.behavioral_questions.length} behavioral questions · ${payload.data.pack.technical_review_topics.length} review topics`,
+        `Prep pack ready · ${payload.data.pack.behavioral_questions.length} questions · ${payload.data.pack.technical_review_topics.length} review topics`,
       );
       void loadRecentPacks();
     });
@@ -168,7 +174,7 @@ export function InterviewPrepWorkspace() {
           <div>
             <h2 className="panel__title">Prep pack</h2>
             <p className="panel__note">
-              Behavioral questions stay tied to STAR material and evidence gaps.
+              Practice questions are grounded in your selected role and approved material.
             </p>
           </div>
         </div>
@@ -186,7 +192,7 @@ function PrepPackView({ pack }: { pack: InterviewPrepPack }) {
           <span className="chip">{pack.job_snapshot.role_title ?? "target role"}</span>
           <span className="chip">{pack.job_snapshot.role_archetype}</span>
           <span className="chip">{pack.status}</span>
-          <span className="chip">{pack.retrieved_context.length} retrieved context</span>
+          <span className="chip">{pack.retrieved_context.length} supporting notes</span>
         </div>
       </section>
       <section className="section-block">
@@ -229,6 +235,16 @@ function PrepPackView({ pack }: { pack: InterviewPrepPack }) {
       <SectionList title="Evidence gaps" items={pack.evidence_gaps.slice(0, 6)} />
     </div>
   );
+}
+
+async function formatLoadError(response: Response, fallback: string) {
+  const payload = (await response.json().catch(() => null)) as
+    | { error?: string }
+    | null;
+  if (response.status === 401) {
+    return "Access token required. Enter your token at the top of the page, then try again.";
+  }
+  return payload?.error ?? fallback;
 }
 
 function EmptyPrepState() {

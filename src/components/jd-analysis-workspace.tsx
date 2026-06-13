@@ -50,7 +50,6 @@ export function JdAnalysisWorkspace() {
   const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState<number | null>(null);
   const [persistenceLabel, setPersistenceLabel] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -60,7 +59,10 @@ export function JdAnalysisWorkspace() {
 
   async function loadRecentJobs() {
     const response = await fetchJson("/api/jobs/recent");
-    if (!response.ok) return;
+    if (!response.ok) {
+      setError(await formatLoadError(response, "Could not load saved jobs."));
+      return;
+    }
     const payload = (await response.json()) as { data?: RecentJob[] };
     setRecentJobs(payload.data ?? []);
   }
@@ -89,7 +91,6 @@ export function JdAnalysisWorkspace() {
         }
         setResult(payload.data);
         setSelectedJobId(payload.meta.persistence?.jobId ?? selectedJobId);
-        setRetryCount(payload.meta.retryCount);
         setPersistenceLabel(formatPersistence(payload.meta.persistence));
         void loadRecentJobs();
       } catch (caught) {
@@ -113,7 +114,7 @@ export function JdAnalysisWorkspace() {
       return;
     }
     applyJob(payload.data);
-    setPersistenceLabel("loaded from database");
+    setPersistenceLabel("loaded");
   }
 
   async function archiveSelectedJob() {
@@ -133,7 +134,6 @@ export function JdAnalysisWorkspace() {
     }
     setSelectedJobId(null);
     setResult(null);
-    setRetryCount(null);
     setPersistenceLabel("archived");
     void loadRecentJobs();
   }
@@ -193,9 +193,9 @@ export function JdAnalysisWorkspace() {
           ) : null}
           <span className={error ? "status status--error" : "status"}>
             {error ??
-              (retryCount == null
-                ? "OpenRouter JSON contract call"
-                : `Validated · retries ${retryCount}${persistenceLabel ? ` · ${persistenceLabel}` : ""}`)}
+              (persistenceLabel
+                ? `Analysis ready · ${persistenceLabel}`
+                : "Ready to analyze a job description")}
           </span>
         </div>
         {recentJobs.length > 0 ? (
@@ -224,7 +224,7 @@ export function JdAnalysisWorkspace() {
           <div>
             <h2 className="panel__title">Requirement matrix</h2>
             <p className="panel__note">
-              Every requirement should carry a source quote from the original JD.
+              Requirements are grouped with the exact JD text that supports them.
             </p>
           </div>
         </div>
@@ -240,9 +240,19 @@ function formatPersistence(
     | undefined,
 ) {
   if (!persistence) return null;
-  if (persistence.status === "saved") return "saved to database";
-  if (persistence.reason === "missing_database_url") return "database not configured";
+  if (persistence.status === "saved") return "saved";
+  if (persistence.reason === "missing_database_url") return "draft only";
   return "not saved";
+}
+
+async function formatLoadError(response: Response, fallback: string) {
+  const payload = (await response.json().catch(() => null)) as
+    | { error?: string }
+    | null;
+  if (response.status === 401) {
+    return "Access token required. Enter your token at the top of the page, then try again.";
+  }
+  return payload?.error ?? fallback;
 }
 
 function EmptyState() {
@@ -276,7 +286,7 @@ function ResultView({ result }: { result: JDAnalysis }) {
               {requirement.requirement_type}
             </span>
           </div>
-          <p className="requirement__quote">Quote: {requirement.source_quote}</p>
+          <p className="requirement__quote">From JD: {requirement.source_quote}</p>
           {requirement.keywords.length > 0 ? (
             <div className="chip-row" aria-label="Requirement keywords">
               {requirement.keywords.map((keyword) => (
