@@ -21,6 +21,7 @@ Current local baseline:
 - Optional bearer-token access gate for personal deployments.
 - Local deterministic embedding index with a reindex API and Drizzle persistence.
 - Drizzle/Postgres migrations and DB-backed integration tests.
+- Skills Registry audit metadata for AI/deterministic workflow provenance.
 - Next.js workbench UI for local testing.
 
 Not implemented yet:
@@ -51,6 +52,7 @@ npm run dev
 npm run typecheck
 npm test
 npm run test:integration
+npm run verify:local
 npm run gen:jsonschema
 npm run ai:smoke:jd
 npm run smoke:full -- --resume-file /path/to/resume.pdf --base-url http://127.0.0.1:3030

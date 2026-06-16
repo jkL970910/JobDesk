@@ -1,8 +1,8 @@
 # JobDesk Development Status
 
-Last updated: 2026-06-12
+Last updated: 2026-06-16
 Baseline commit: ce44458 `Build local MVP workflow baseline`
-Latest implementation commit: current HEAD `Align UI shell with material library workflow`
+Latest implementation commit: c74f913 `feat: add skills registry audit metadata`
 Production URL: https://jobdesk-tau.vercel.app
 Final UI reference: Figma Make `Si82hetJamO8bUqHOacgv9` — signed off as **JobDesk Final Project Reference UI v1**
 
@@ -70,9 +70,11 @@ Support workflows:
 |---|----------|--------|-------|
 | S1 | Local dashboard/workbench | Done, MVP | Figma-reference app shell now separates Dashboard, Profile, Evidence Library, Jobs, Applications, Interview Prep, planned Recommendations, planned Growth Profile, and Settings while keeping implemented workflows backed by real APIs. |
 | S2 | DB persistence and migrations | Done | Drizzle/Postgres migrations are committed. Existing dev DB journal was baselined for 0000-0005, then migration 0006 was applied normally. Use migrations for any DB with user data. |
-| S3 | Vercel deployment path | Done | Latest production deployment and smoke test passed at `https://jobdesk-tau.vercel.app` after STAR story promotion changes. New interview/RAG changes are pending redeploy. |
+| S3 | Vercel deployment path | Done | Production deployment path exists at `https://jobdesk-tau.vercel.app`; rerun production smoke after the latest local-only workflow changes before treating production as current. |
 | S4 | Local embedding RAG index | Done, MVP | Deterministic local hash-vector embeddings persisted in Postgres JSONB with explicit `/api/retrieval/reindex`. Resume retrieval consumes existing embeddings as a best-effort semantic bonus and falls back to deterministic overlap ranking. |
 | S5 | Personal access gate | Done, MVP | Optional `JOBDESK_ACCESS_TOKEN` protects `/api/*` through middleware and lets the workbench send the token from browser-local storage. |
+| S6 | Skills Registry audit metadata | Done, MVP | `src/ai/skills-registry.ts` binds live AI/deterministic workflows to runtime skill ids, prompt versions, schema versions, model tiers, and source skill ids. `workflow_runs` persists this metadata, and Resume Review reports now link to workflow runs. Runtime SKILL.md loader / prompt composer is not implemented yet. |
+| S7 | Workflow/system diagnostics | Done, MVP | Settings exposes read-only diagnostics for DB connectivity, AI provider status, current model, registry entry count, latest workflow runs, failed workflow count, and last workflow time without exposing API keys. |
 
 ## Latest Verified Local Workflow
 
@@ -96,15 +98,16 @@ Workflow boundary check:
 
 ## Verification Commands
 
-Last verified on 2026-06-13:
+Last verified on 2026-06-16:
 
 | Command | Status |
 |---------|--------|
 | `npm run typecheck` | Passed |
-| `npm test` | Passed, 60 passed / 4 skipped |
+| `npm test` | Passed, 67 passed / 4 skipped |
 | `npm run test:integration` | Passed, 4 passed |
+| `npm run verify:local` | Added as the standard local baseline command; runs typecheck, unit tests, and DB integration tests |
 | `npm run build` | Passed |
-| `npm run db:migrate` | Passed locally through `drizzle/0008_blue_magik.sql` |
+| `npm run db:migrate` | Passed on the configured JobDesk development database through `drizzle/0010_aromatic_shinobi_shaw.sql` |
 | Local responsive UI browser audit at `http://localhost:3030` | Passed, app shell desktop, Evidence Library navigation, Overlap Cleanup tab, 390px mobile, no horizontal overflow, no browser console errors |
 | Local `/api/retrieval/reindex` smoke | Passed, saved 264 chunks |
 | Local `/api/interview-prep/generate` smoke | Passed, saved prep pack with 4 behavioral questions and 1 technical topic |
@@ -137,7 +140,7 @@ Integration tests use the configured JobDesk database and write temporary workfl
 - Project card edits still use browser prompts for some fields. Evidence edits now use inline card editing; project editing should move to the same inline/drawer pattern before production-level UX signoff.
 - Resume retrieval does not auto-reindex on every tailored-resume request. Run `/api/retrieval/reindex` or generate an interview prep pack to refresh local embeddings.
 - The current UI now uses the signed-off product shell, but shared single-page state is still lightweight; future iterations can move major views to dedicated routes after the IA stabilizes in real use.
-- Full Skills Registry is not implemented yet. Resume Review now binds the `hr-screening-review` skill methodology directly in runtime instructions; other workflows are still enforced by typed services, schemas, deterministic orchestration, guardrails, persistence, and tests rather than runtime-loaded skill manifests.
+- Skills Registry audit metadata MVP is implemented. Runtime workflow calls now carry skill id, skill version, prompt version, schema name/version, model tier, and source skill ids into `workflow_runs`. Remaining gap: runtime SKILL.md loader / prompt composer is not implemented yet; prompt text is still maintained in the workflow-specific `build...Instructions()` functions.
 - Full authentication, workspace isolation, PDF/DOCX export, daily job recommendation, and email-assisted tracking are not implemented yet.
 
 ## Next Task Queue
@@ -147,6 +150,8 @@ Integration tests use the configured JobDesk database and write temporary workfl
 | P0 | Keep this status file updated with every implementation step | Active |
 | P0 | Add a reusable local full-workflow smoke script without storing resume content in git | Done |
 | P0 | Improve claim review UX so `unvalidated` resumes show exactly which claims need attention | Done, MVP |
+| P0 | Add Skills Registry audit metadata and workflow diagnostics | Done, MVP |
+| P0 | Implement runtime SKILL.md loader / prompt composer with frontmatter version checks | Not started |
 | P1 | Add resume export path, likely Markdown first, then PDF/DOCX | Markdown/JSON done, PDF/DOCX not started |
 | P1 | Build Evidence Library Builder for project notes, project cards, and richer resume retrieval context | Done, MVP with computed STAR story bank and local embedding index |
 | P1 | Add evidence/project merge-dedupe and de-identification workflow UI | Done, MVP |

@@ -69,6 +69,38 @@ type RecentJobSummary = {
   requirementCount: number;
 };
 
+type SystemDiagnostics = {
+  db: {
+    configured: boolean;
+    connected: boolean;
+  };
+  ai: {
+    providerEnabled: boolean;
+    apiKeyConfigured: boolean;
+    transport: string;
+    model: string;
+    endpointHost: string;
+    responseStorageEnabled: boolean;
+  };
+  skills: {
+    registryEntries: number;
+    runtimeSkillIds: string[];
+  };
+  workflows: {
+    latest: Array<{
+      id: string;
+      workflowType: string;
+      status: string;
+      skillId: string | null;
+      promptVersion: string | null;
+      model: string | null;
+      finishedAt: string | null;
+    }>;
+    failedCount: number;
+    lastFinishedAt: string | null;
+  };
+};
+
 type InterviewPrepSummary = {
   id?: string;
   status: string;
@@ -1267,6 +1299,32 @@ function PlannedReferenceView({
 }
 
 function SettingsReferenceView() {
+  const [diagnostics, setDiagnostics] = useState<SystemDiagnostics | null>(null);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/system/diagnostics")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Diagnostics request failed.");
+        return response.json() as Promise<{ data: SystemDiagnostics }>;
+      })
+      .then((payload) => {
+        if (!active) return;
+        setDiagnostics(payload.data);
+        setDiagnosticsError(null);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setDiagnosticsError(
+          error instanceof Error ? error.message : "Diagnostics unavailable.",
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
     <section className="settings-panel settings-panel--quiet">
       <p className="panel-kicker">Settings</p>
@@ -1292,6 +1350,110 @@ function SettingsReferenceView() {
           <p>Career data uses this app's separate project database.</p>
         </article>
       </div>
+      <section className="diagnostics-panel" aria-label="System diagnostics">
+        <div className="diagnostics-panel__header">
+          <div>
+            <span>Diagnostics</span>
+            <h3>Workflow baseline checks</h3>
+          </div>
+          <p>
+            Read-only runtime status for DB, provider, skills registry, and recent
+            workflow audit rows.
+          </p>
+        </div>
+        {diagnosticsError ? (
+          <p className="diagnostics-panel__error">{diagnosticsError}</p>
+        ) : null}
+        {!diagnostics && !diagnosticsError ? (
+          <p className="diagnostics-panel__loading">Loading diagnostics...</p>
+        ) : null}
+        {diagnostics ? (
+          <>
+            <div className="diagnostics-grid">
+              <DiagnosticMetric
+                label="DB connected"
+                value={diagnostics.db.connected ? "yes" : "no"}
+                tone={diagnostics.db.connected ? "ready" : "blocked"}
+              />
+              <DiagnosticMetric
+                label="AI provider"
+                value={diagnostics.ai.providerEnabled ? "enabled" : "disabled"}
+                tone={diagnostics.ai.providerEnabled ? "ready" : "muted"}
+              />
+              <DiagnosticMetric label="Current model" value={diagnostics.ai.model} />
+              <DiagnosticMetric
+                label="Registry entries"
+                value={String(diagnostics.skills.registryEntries)}
+              />
+              <DiagnosticMetric
+                label="Failed workflows"
+                value={String(diagnostics.workflows.failedCount)}
+                tone={diagnostics.workflows.failedCount > 0 ? "warning" : "ready"}
+              />
+              <DiagnosticMetric
+                label="Last workflow"
+                value={formatDateTime(diagnostics.workflows.lastFinishedAt)}
+              />
+            </div>
+            <div className="diagnostics-detail">
+              <div>
+                <h4>Provider config</h4>
+                <p>
+                  API key {diagnostics.ai.apiKeyConfigured ? "configured" : "missing"} ·{" "}
+                  {diagnostics.ai.transport} · {diagnostics.ai.endpointHost}
+                </p>
+              </div>
+              <div>
+                <h4>Latest workflow runs</h4>
+                {diagnostics.workflows.latest.length > 0 ? (
+                  <ul>
+                    {diagnostics.workflows.latest.map((run) => (
+                      <li key={run.id}>
+                        <strong>{run.workflowType}</strong>
+                        <span>{run.status}</span>
+                        <small>{run.skillId ?? "no skill"} · {run.promptVersion ?? "no prompt"}</small>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No workflow runs recorded yet.</p>
+                )}
+              </div>
+            </div>
+          </>
+        ) : null}
+      </section>
     </section>
   );
+}
+
+function DiagnosticMetric({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "ready" | "warning" | "blocked" | "muted";
+}) {
+  return (
+    <article className="diagnostic-metric" data-tone={tone}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </article>
+  );
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "none";
+  try {
+    return new Intl.DateTimeFormat("en", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
 }

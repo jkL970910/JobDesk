@@ -151,7 +151,7 @@ JobDesk/
   Profile/Evidence extraction, basic evidence approval/editing, tailored resume generation,
   generated claim ledgers, deterministic Fact Guard revalidation, local embedding indexing,
   interview prep packs, manual application status tracking, optional bearer-token API protection,
-  Drizzle/Postgres persistence, recent job reload, same-job re-analysis, soft archive, and DB-backed integration tests. See `docs/development-status.md` for the current workflow count, verification status, and next tasks.
+  Drizzle/Postgres persistence, recent job reload, same-job re-analysis, soft archive, Skills Registry audit metadata, and DB-backed integration tests. Use `npm run verify:local` for the standard local baseline. See `docs/development-status.md` for the current workflow count, verification status, and next tasks.
   PDF/DOCX export, full auth/workspace isolation, daily job recommendations, and email-assisted tracking are still later phases.
 - To extend: add a new `src/schemas/<name>.ts`, import shared primitives, export it
   from `index.ts`, and add it to `scripts/generate-json-schema.ts` if you want a
