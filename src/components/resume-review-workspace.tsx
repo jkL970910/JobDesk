@@ -57,10 +57,22 @@ type ResumeReviewReport = {
   riskFlags: string[];
 };
 
+type EnrichmentTaskSummary = {
+  id: string;
+  prompt: string;
+  source_type: string;
+  source_label: string;
+  status: "open" | "answered" | "converted" | "dismissed";
+  resume_source_version_id: string | null;
+  resume_review_report_id: string | null;
+};
+
 export function ResumeReviewWorkspace({
   onExtractToEvidence,
+  onOpenEvidenceReview,
 }: {
   onExtractToEvidence: (resumeSourceVersionId: string) => void;
+  onOpenEvidenceReview: (tab?: "enrichment" | "projects" | "unlinked" | "cleanup" | "stories") => void;
 }) {
   const { fetchJson } = useAccess();
   const [resumes, setResumes] = useState<ResumeSourceReviewSummary[]>([]);
@@ -71,6 +83,7 @@ export function ResumeReviewWorkspace({
   const [uploadElapsedSeconds, setUploadElapsedSeconds] = useState(0);
   const [activeOperation, setActiveOperation] = useState<string | null>(null);
   const [duplicateResume, setDuplicateResume] = useState<ResumeSourceReviewSummary | null>(null);
+  const [enrichmentTasks, setEnrichmentTasks] = useState<EnrichmentTaskSummary[]>([]);
   const selectedResume = isUploading
     ? null
     : resumes.find((resume) => resume.id === selectedId) ?? resumes[0] ?? null;
@@ -79,6 +92,7 @@ export function ResumeReviewWorkspace({
 
   useEffect(() => {
     void loadResumes();
+    void loadEnrichmentTasks();
   }, []);
 
   useEffect(() => {
@@ -102,6 +116,15 @@ export function ResumeReviewWorkspace({
     const nextResumes = payload.data?.resumes ?? [];
     setResumes(nextResumes);
     setSelectedId((selectId ?? selectedId) || (nextResumes[0]?.id ?? ""));
+  }
+
+  async function loadEnrichmentTasks() {
+    const response = await fetchJson("/api/enrichment-tasks");
+    if (!response.ok) return;
+    const payload = (await response.json()) as {
+      data?: { status: string; tasks?: EnrichmentTaskSummary[] };
+    };
+    setEnrichmentTasks(payload.data?.tasks ?? []);
   }
 
   async function uploadResume(file: File | null) {
@@ -141,6 +164,7 @@ export function ResumeReviewWorkspace({
         setSelectedId(payload.data.existingResume.id);
         setStatus("This exact resume has already been reviewed.");
         await loadResumes(payload.data.existingResume.id);
+        await loadEnrichmentTasks();
         return;
       }
       if (payload.data.status === "saved" && payload.data.resume) {
@@ -148,6 +172,7 @@ export function ResumeReviewWorkspace({
           `Reviewed ${formatResumeTitle(payload.data.resume.title)}${payload.data.parseWarnings?.length ? ` · ${payload.data.parseWarnings.length} parser note${payload.data.parseWarnings.length === 1 ? "" : "s"}` : ""}`,
         );
         await loadResumes(payload.data.resume.id);
+        await loadEnrichmentTasks();
         return;
       }
       setError(payload.data.reason ?? "Resume review storage is not configured.");
@@ -177,6 +202,7 @@ export function ResumeReviewWorkspace({
       setStatus(`Deleted ${formatResumeTitle(resume.title)} v${resume.version}.`);
       setDuplicateResume(null);
       await loadResumes();
+      await loadEnrichmentTasks();
     } finally {
       setActiveOperation(null);
     }
@@ -213,6 +239,7 @@ export function ResumeReviewWorkspace({
       }
       setStatus(`Review refreshed for ${formatResumeTitle(payload.data.resume.title)}.`);
       await loadResumes(payload.data.resume.id);
+      await loadEnrichmentTasks();
     } finally {
       setActiveOperation(null);
     }
@@ -316,8 +343,12 @@ export function ResumeReviewWorkspace({
             }
             className="primary-button"
             disabled={!selectedReview}
-              type="button"
-              onClick={() => onExtractToEvidence(selectedResume.id)}
+            type="button"
+              onClick={() =>
+                selectedResumeIsExtracted
+                  ? onOpenEvidenceReview("enrichment")
+                  : onExtractToEvidence(selectedResume.id)
+              }
             >
               {selectedReview
                 ? selectedResumeIsExtracted
@@ -378,7 +409,9 @@ export function ResumeReviewWorkspace({
       {selectedResume?.latestReview ? (
         <ResumeReviewReportCard
           onExtract={() => onExtractToEvidence(selectedResume.id)}
+          onOpenEnrichment={() => onOpenEvidenceReview("enrichment")}
           onRetry={() => void rerunReview(selectedResume)}
+          enrichmentTasks={enrichmentTasks}
           retryDisabled={Boolean(activeOperation)}
           retryLabel={reviewActionLabel(selectedResume, activeOperation)}
           resume={selectedResume}
@@ -486,13 +519,17 @@ function formatResumeTitle(title: string) {
 }
 
 function ResumeReviewReportCard({
+  enrichmentTasks,
   onExtract,
+  onOpenEnrichment,
   onRetry,
   resume,
   retryDisabled,
   retryLabel,
 }: {
+  enrichmentTasks: EnrichmentTaskSummary[];
   onExtract: () => void;
+  onOpenEnrichment: () => void;
   onRetry: () => void;
   resume: ResumeSourceReviewSummary;
   retryDisabled: boolean;
@@ -514,6 +551,14 @@ function ResumeReviewReportCard({
   const strengths = asStringList(review.strengths);
   const weaknesses = asStringList(review.weaknesses);
   const missingEvidenceQuestions = asStringList(review.missingEvidenceQuestions);
+  const questionStatuses = mapMissingEvidenceQuestionStatuses({
+    missingEvidenceQuestions,
+    resume,
+    tasks: enrichmentTasks,
+  });
+  const activeQuestionCount = questionStatuses.filter(
+    (item) => item.status === "open" || item.status === "answered",
+  ).length;
   const recommendedActions = asStringList(review.recommendedActions);
   const riskFlags = asStringList(review.riskFlags);
   const selectedDimension =
@@ -608,6 +653,32 @@ function ResumeReviewReportCard({
           </div>
         </section>
       ) : null}
+      {missingEvidenceQuestions.length ? (
+        <section className="review-enrichment-handoff">
+          <div>
+            <p className="panel-kicker">Evidence gap backlog</p>
+            <h3>
+              This review created {activeQuestionCount} active enrichment task
+              {activeQuestionCount === 1 ? "" : "s"}.
+            </h3>
+            <p>
+              Answer these prompts in Evidence Library to turn review gaps into
+              reusable, source-backed evidence candidates.
+            </p>
+          </div>
+          <button className="primary-button" type="button" onClick={onOpenEnrichment}>
+            Answer evidence gaps
+          </button>
+          <div className="review-enrichment-status-list">
+            {questionStatuses.map((item) => (
+              <article key={item.question}>
+                <span data-state={item.status}>{formatEnrichmentTaskStatus(item.status)}</span>
+                <p>{item.question}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
       <ReviewDimensionWorkbench
         dimensions={dimensions}
         missingEvidenceQuestions={missingEvidenceQuestions}
@@ -652,7 +723,7 @@ function ResumeReviewReportCard({
           </p>
         </div>
         <ul className="review-next-steps">
-          <li>Review evidence gaps from this resume.</li>
+          <li>Review evidence gaps from this resume in Needs Enrichment.</li>
           <li>Approve resume-safe claims in Evidence Library.</li>
           <li>Use Source Intake to update extraction when new source material exists.</li>
         </ul>
@@ -767,6 +838,44 @@ function ReviewDimensionWorkbench({
       </article>
     </section>
   );
+}
+
+function mapMissingEvidenceQuestionStatuses({
+  missingEvidenceQuestions,
+  resume,
+  tasks,
+}: {
+  missingEvidenceQuestions: string[];
+  resume: ResumeSourceReviewSummary;
+  tasks: EnrichmentTaskSummary[];
+}) {
+  return missingEvidenceQuestions.map((question) => {
+    const normalized = normalizeReviewText(question);
+    const task = tasks.find((candidate) => {
+      if (candidate.source_type !== "resume_review") return false;
+      const matchesResume =
+        candidate.resume_source_version_id === resume.id ||
+        candidate.resume_review_report_id === resume.latestReview?.id ||
+        normalizeReviewText(candidate.source_label).includes(
+          normalizeReviewText(formatResumeTitle(resume.title)),
+        );
+      return matchesResume && normalizeReviewText(candidate.prompt) === normalized;
+    });
+    return {
+      question,
+      status: task?.status ?? "open",
+      taskId: task?.id ?? null,
+    };
+  });
+}
+
+function formatEnrichmentTaskStatus(
+  status: EnrichmentTaskSummary["status"] | "open",
+) {
+  if (status === "answered") return "answered";
+  if (status === "converted") return "converted";
+  if (status === "dismissed") return "dismissed";
+  return "open";
 }
 
 function ReviewRadar({
@@ -1163,6 +1272,10 @@ function shortDimensionLabel(label: string) {
 
 function slugify(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+function normalizeReviewText(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function isFallbackResume(resume: ResumeSourceReviewSummary) {

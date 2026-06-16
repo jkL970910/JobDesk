@@ -131,6 +131,8 @@ type ResumePrepWorkflowState =
   | "evidence_enriched"
   | "profile_ready";
 
+type MaterialReviewTab = "enrichment" | "projects" | "unlinked" | "cleanup" | "stories";
+
 const navGroups: NavGroup[] = [
   {
     label: "Workspace",
@@ -278,6 +280,8 @@ export default function HomePage() {
     useState<MaterialEntryIntent>("resume");
   const [materialInitialSection, setMaterialInitialSection] =
     useState<"review" | "intake">("review");
+  const [materialReviewTab, setMaterialReviewTab] =
+    useState<MaterialReviewTab>("enrichment");
   const [selectedResumeSourceVersionId, setSelectedResumeSourceVersionId] =
     useState<string | null>(null);
   const activeCopy = pageCopy[activeView];
@@ -293,17 +297,25 @@ export default function HomePage() {
     }
     setMaterialEntryIntent(intent);
     setMaterialInitialSection("intake");
+    setMaterialReviewTab("enrichment");
     setActiveView("evidence");
   }
   function extractResumeToEvidence(resumeSourceVersionId: string) {
     setSelectedResumeSourceVersionId(resumeSourceVersionId);
     setMaterialEntryIntent("resume");
     setMaterialInitialSection("intake");
+    setMaterialReviewTab("enrichment");
+    setActiveView("evidence");
+  }
+  function openEvidenceReview(tab: MaterialReviewTab = "enrichment") {
+    setMaterialInitialSection("review");
+    setMaterialReviewTab(tab);
     setActiveView("evidence");
   }
   function navigateToView(view: View) {
     if (view === "evidence") {
       setMaterialInitialSection("review");
+      setMaterialReviewTab("enrichment");
     }
     setActiveView(view);
   }
@@ -392,13 +404,17 @@ export default function HomePage() {
             <ProfileReferenceView onNavigate={setActiveView} />
           ) : null}
           {activeView === "resumeReview" ? (
-            <ResumeReviewWorkspace onExtractToEvidence={extractResumeToEvidence} />
+            <ResumeReviewWorkspace
+              onExtractToEvidence={extractResumeToEvidence}
+              onOpenEvidenceReview={openEvidenceReview}
+            />
           ) : null}
           {activeView === "evidence" ? (
             <ProfileEvidenceWorkspace
               entryIntent={materialEntryIntent}
               initialSection={materialInitialSection}
               initialResumeSourceVersionId={selectedResumeSourceVersionId}
+              initialReviewTab={materialReviewTab}
             />
           ) : null}
           {activeView === "jobs" ? <JobsWorkspaceView /> : null}

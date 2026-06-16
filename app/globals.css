@@ -1035,6 +1035,7 @@ textarea:focus-visible {
 .review-scan-card,
 .review-finding-board,
 .review-top-fixes,
+.review-enrichment-handoff,
 .review-detail-panel,
 .review-summary-card {
   background: var(--panel-soft);
@@ -1120,6 +1121,66 @@ textarea:focus-visible {
   font-size: 0.84rem;
   line-height: 1.46;
   margin: 6px 0 0;
+}
+
+.review-enrichment-handoff {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.review-enrichment-handoff h3 {
+  color: var(--ink);
+  font-size: 1.02rem;
+  margin: 5px 0 0;
+}
+
+.review-enrichment-handoff p {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.46;
+  margin: 6px 0 0;
+}
+
+.review-enrichment-status-list {
+  display: grid;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
+.review-enrichment-status-list article {
+  align-items: flex-start;
+  background: rgba(255, 255, 255, 0.026);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 96px minmax(0, 1fr);
+  padding: 10px;
+}
+
+.review-enrichment-status-list span {
+  border-radius: 999px;
+  color: var(--warning);
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.review-enrichment-status-list span[data-state="answered"] {
+  color: var(--accent);
+}
+
+.review-enrichment-status-list span[data-state="converted"] {
+  color: var(--success);
+}
+
+.review-enrichment-status-list span[data-state="dismissed"] {
+  color: var(--faint);
+}
+
+.review-enrichment-status-list p {
+  margin: 0;
 }
 
 .review-dimension-workbench {
@@ -2428,6 +2489,33 @@ select:focus {
 .enrichment-task-list {
   display: grid;
   gap: 10px;
+}
+
+.enrichment-task-group {
+  display: grid;
+  gap: 8px;
+}
+
+.enrichment-task-group__header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.enrichment-task-group__header span {
+  color: var(--primary-strong);
+  font-size: 0.75rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.enrichment-task-group__header strong {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 0.76rem;
+  padding: 3px 8px;
 }
 
 .enrichment-task-card {

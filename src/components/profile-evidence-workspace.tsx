@@ -214,6 +214,7 @@ type ProjectCardItem = {
 };
 
 export type MaterialEntryIntent = "resume" | "scratch" | "jd";
+export type MaterialReviewTab = "enrichment" | "projects" | "unlinked" | "cleanup" | "stories";
 
 type ResumeSourceSummary = {
   id: string;
@@ -253,10 +254,12 @@ type EvidenceUpdatePatch = {
 export function ProfileEvidenceWorkspace({
   entryIntent = "resume",
   initialSection = "review",
+  initialReviewTab = "enrichment",
   initialResumeSourceVersionId = null,
 }: {
   entryIntent?: MaterialEntryIntent;
   initialSection?: "review" | "intake";
+  initialReviewTab?: MaterialReviewTab;
   initialResumeSourceVersionId?: string | null;
 }) {
   const { fetchJson } = useAccess();
@@ -264,8 +267,8 @@ export function ProfileEvidenceWorkspace({
   const [selectedEntryIntent, setSelectedEntryIntent] =
     useState<MaterialEntryIntent>(entryIntent);
   const [reviewTab, setReviewTab] = useState<
-    "enrichment" | "projects" | "unlinked" | "cleanup" | "stories"
-  >("enrichment");
+    MaterialReviewTab
+  >(initialReviewTab);
   const [sourceDrafts, setSourceDrafts] = useState<Record<"resume" | "jd", SourceDraft>>({
     jd: { text: "", title: "" },
     resume: { text: "", title: "" },
@@ -319,6 +322,14 @@ export function ProfileEvidenceWorkspace({
   useEffect(() => {
     setSelectedEntryIntent(entryIntent);
   }, [entryIntent]);
+
+  useEffect(() => {
+    setActiveSection(initialSection);
+  }, [initialSection]);
+
+  useEffect(() => {
+    setReviewTab(initialReviewTab);
+  }, [initialReviewTab]);
 
   useEffect(() => {
     if (!isExtracting) {
@@ -1003,7 +1014,7 @@ export function ProfileEvidenceWorkspace({
       payload.action === "answer"
         ? "Saved enrichment answer."
         : payload.action === "convert"
-          ? "Converted answer into a pending evidence candidate."
+          ? "Converted into a pending evidence candidate. Next: review truth, add public-safe wording if needed, then approve for resume."
           : payload.action === "dismiss"
             ? "Dismissed enrichment task."
             : "Reopened enrichment task.";
@@ -1862,6 +1873,7 @@ function EnrichmentTaskQueue({
   const actionableTasks = tasks.filter(
     (task) => task.status === "open" || task.status === "answered",
   );
+  const groupedTasks = groupEnrichmentTasks(actionableTasks);
   const convertedCount = tasks.filter((task) => task.status === "converted").length;
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -1917,76 +1929,84 @@ function EnrichmentTaskQueue({
         </div>
       ) : (
         <div className="enrichment-task-list">
-          {actionableTasks.map((task) => {
-            const answer = answers[task.id] ?? task.user_answer ?? "";
-            const isPending = pendingTaskId === task.id;
-            const message = messages[task.id];
-            return (
-              <article className="enrichment-task-card" key={task.id}>
-                <div className="enrichment-task-card__top">
-                  <div>
-                    <span>{formatEnrichmentTaskType(task.task_type)}</span>
-                    <strong>{task.prompt}</strong>
-                    <p>
-                      Source: {task.source_label} · {formatEnrichmentSourceType(task.source_type)}
-                    </p>
-                  </div>
-                  <em data-state={task.status}>{formatEnrichmentStatus(task.status)}</em>
-                </div>
-                <label className="source-field source-field--textarea">
-                  <span>Your answer</span>
-                  <textarea
-                    className="jd-input jd-input--compact enrichment-task-card__answer"
-                    disabled={isPending}
-                    onChange={(event) =>
-                      setAnswers((current) => ({
-                        ...current,
-                        [task.id]: event.target.value,
-                      }))
-                    }
-                    placeholder="Add concrete numbers, scope, ownership, actions, results, or public-safe wording..."
-                    value={answer}
-                  />
-                </label>
-                <div className="actions actions--compact">
-                  <button
-                    className="secondary-button"
-                    disabled={isPending || answer.trim().length < 12}
-                    type="button"
-                    onClick={() =>
-                      void handleUpdate(task, {
-                        action: "answer",
-                        userAnswer: answer,
-                      })
-                    }
-                  >
-                    Save answer
-                  </button>
-                  <button
-                    className="secondary-button"
-                    disabled={isPending || task.status !== "answered"}
-                    type="button"
-                    onClick={() => void handleUpdate(task, { action: "convert" })}
-                  >
-                    Convert to evidence candidate
-                  </button>
-                  <button
-                    className="ghost-button"
-                    disabled={isPending}
-                    type="button"
-                    onClick={() => void handleUpdate(task, { action: "dismiss" })}
-                  >
-                    Dismiss
-                  </button>
-                  {message ? (
-                    <span className={message.ok ? "status" : "status status--error"}>
-                      {message.text}
-                    </span>
-                  ) : null}
-                </div>
-              </article>
-            );
-          })}
+          {groupedTasks.map((group) => (
+            <section className="enrichment-task-group" key={group.key}>
+              <div className="enrichment-task-group__header">
+                <span>{group.label}</span>
+                <strong>{group.tasks.length}</strong>
+              </div>
+              {group.tasks.map((task) => {
+                const answer = answers[task.id] ?? task.user_answer ?? "";
+                const isPending = pendingTaskId === task.id;
+                const message = messages[task.id];
+                return (
+                  <article className="enrichment-task-card" key={task.id}>
+                    <div className="enrichment-task-card__top">
+                      <div>
+                        <span>{formatEnrichmentTaskType(task.task_type)}</span>
+                        <strong>{task.prompt}</strong>
+                        <p>
+                          Source: {task.source_label} · {formatEnrichmentSourceType(task.source_type)}
+                        </p>
+                      </div>
+                      <em data-state={task.status}>{formatEnrichmentStatus(task.status)}</em>
+                    </div>
+                    <label className="source-field source-field--textarea">
+                      <span>Your answer</span>
+                      <textarea
+                        className="jd-input jd-input--compact enrichment-task-card__answer"
+                        disabled={isPending}
+                        onChange={(event) =>
+                          setAnswers((current) => ({
+                            ...current,
+                            [task.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="Add concrete numbers, scope, ownership, actions, results, or public-safe wording..."
+                        value={answer}
+                      />
+                    </label>
+                    <div className="actions actions--compact">
+                      <button
+                        className="secondary-button"
+                        disabled={isPending || answer.trim().length < 12}
+                        type="button"
+                        onClick={() =>
+                          void handleUpdate(task, {
+                            action: "answer",
+                            userAnswer: answer,
+                          })
+                        }
+                      >
+                        Save answer
+                      </button>
+                      <button
+                        className="secondary-button"
+                        disabled={isPending || task.status !== "answered"}
+                        type="button"
+                        onClick={() => void handleUpdate(task, { action: "convert" })}
+                      >
+                        Convert to evidence candidate
+                      </button>
+                      <button
+                        className="ghost-button"
+                        disabled={isPending}
+                        type="button"
+                        onClick={() => void handleUpdate(task, { action: "dismiss" })}
+                      >
+                        Dismiss
+                      </button>
+                      {message ? (
+                        <span className={message.ok ? "status" : "status status--error"}>
+                          {message.text}
+                        </span>
+                      ) : null}
+                    </div>
+                  </article>
+                );
+              })}
+            </section>
+          ))}
         </div>
       )}
     </section>
@@ -2171,6 +2191,25 @@ function formatEnrichmentStatus(status: EnrichmentTaskItem["status"]) {
   if (status === "converted") return "candidate created";
   if (status === "dismissed") return "dismissed";
   return "open";
+}
+
+function groupEnrichmentTasks(tasks: EnrichmentTaskItem[]) {
+  const order = ["resume_review", "extraction_note", "evidence", "jd_gap", "story_target", "user_input"];
+  const labels: Record<string, string> = {
+    evidence: "From Evidence Card",
+    extraction_note: "From Extraction Notes",
+    jd_gap: "From JD Gap",
+    resume_review: "From Resume Review",
+    story_target: "From Story Target",
+    user_input: "From User Input",
+  };
+  return order
+    .map((key) => ({
+      key,
+      label: labels[key] ?? key,
+      tasks: tasks.filter((task) => task.source_type === key),
+    }))
+    .filter((group) => group.tasks.length > 0);
 }
 
 function getEntryGuidance(intent: MaterialEntryIntent) {
