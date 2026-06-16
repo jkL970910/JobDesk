@@ -22,6 +22,14 @@ export type EnrichmentTaskStatus =
 export type EnrichmentTaskSourceType =
   (typeof enrichmentTaskSourceTypeEnum.enumValues)[number];
 
+export type EnrichmentTaskQueueFilters = {
+  limit?: number;
+  resumeReviewReportId?: string;
+  resumeSourceVersionId?: string;
+  sourceType?: EnrichmentTaskSourceType;
+  statuses?: EnrichmentTaskStatus[];
+};
+
 export type EnrichmentTaskDraft = {
   taskType: EnrichmentTaskType;
   sourceType: EnrichmentTaskSourceType;
@@ -35,7 +43,7 @@ export type EnrichmentTaskDraft = {
   resumeReviewReportId?: string | null;
 };
 
-export async function getEnrichmentTaskQueue(limit = 20) {
+export async function getEnrichmentTaskQueue(filters: EnrichmentTaskQueueFilters | number = {}) {
   if (!hasDatabaseUrl()) {
     return {
       status: "skipped" as const,
@@ -46,17 +54,41 @@ export async function getEnrichmentTaskQueue(limit = 20) {
 
   const db = getDb();
   const workspace = await getOrCreateDefaultWorkspace(db);
+  const normalizedFilters =
+    typeof filters === "number" ? ({ limit: filters } satisfies EnrichmentTaskQueueFilters) : filters;
+  const limit = clampQueueLimit(normalizedFilters.limit);
+  const conditions = [eq(enrichmentTasks.workspaceId, workspace.id)];
+  if (normalizedFilters.sourceType) {
+    conditions.push(eq(enrichmentTasks.sourceType, normalizedFilters.sourceType));
+  }
+  if (normalizedFilters.resumeSourceVersionId) {
+    conditions.push(eq(enrichmentTasks.resumeSourceVersionId, normalizedFilters.resumeSourceVersionId));
+  }
+  if (normalizedFilters.resumeReviewReportId) {
+    conditions.push(eq(enrichmentTasks.resumeReviewReportId, normalizedFilters.resumeReviewReportId));
+  }
+  if (normalizedFilters.statuses?.length) {
+    conditions.push(inArray(enrichmentTasks.status, normalizedFilters.statuses));
+  }
   const rows = await db
     .select()
     .from(enrichmentTasks)
-    .where(eq(enrichmentTasks.workspaceId, workspace.id))
-    .orderBy(desc(enrichmentTasks.updatedAt))
+    .where(and(...conditions))
+    .orderBy(
+      sql`case when ${enrichmentTasks.status} in ('open', 'answered') then 0 else 1 end`,
+      desc(enrichmentTasks.updatedAt),
+    )
     .limit(limit);
 
   return {
     status: "ready" as const,
     tasks: rows.map(toEnrichmentTaskPayload),
   };
+}
+
+function clampQueueLimit(limit?: number) {
+  if (!Number.isFinite(limit)) return 50;
+  return Math.max(1, Math.min(200, Math.floor(limit ?? 50)));
 }
 
 export async function upsertEnrichmentTasks(

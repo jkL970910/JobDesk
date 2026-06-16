@@ -67,6 +67,8 @@ type EnrichmentTaskSummary = {
   resume_review_report_id: string | null;
 };
 
+type ReviewQuestionStatus = EnrichmentTaskSummary["status"] | "not_created";
+
 export function ResumeReviewWorkspace({
   onExtractToEvidence,
   onOpenEvidenceReview,
@@ -92,8 +94,15 @@ export function ResumeReviewWorkspace({
 
   useEffect(() => {
     void loadResumes();
-    void loadEnrichmentTasks();
   }, []);
+
+  useEffect(() => {
+    if (!selectedResume?.id) {
+      setEnrichmentTasks([]);
+      return;
+    }
+    void loadEnrichmentTasks(selectedResume);
+  }, [selectedResume?.id, selectedResume?.latestReview?.id]);
 
   useEffect(() => {
     if (!isUploading) {
@@ -118,8 +127,16 @@ export function ResumeReviewWorkspace({
     setSelectedId((selectId ?? selectedId) || (nextResumes[0]?.id ?? ""));
   }
 
-  async function loadEnrichmentTasks() {
-    const response = await fetchJson("/api/enrichment-tasks");
+  async function loadEnrichmentTasks(resume: ResumeSourceReviewSummary) {
+    const params = new URLSearchParams({
+      limit: "100",
+      resumeSourceVersionId: resume.id,
+      sourceType: "resume_review",
+    });
+    if (resume.latestReview?.id) {
+      params.set("resumeReviewReportId", resume.latestReview.id);
+    }
+    const response = await fetchJson(`/api/enrichment-tasks?${params.toString()}`);
     if (!response.ok) return;
     const payload = (await response.json()) as {
       data?: { status: string; tasks?: EnrichmentTaskSummary[] };
@@ -164,7 +181,7 @@ export function ResumeReviewWorkspace({
         setSelectedId(payload.data.existingResume.id);
         setStatus("This exact resume has already been reviewed.");
         await loadResumes(payload.data.existingResume.id);
-        await loadEnrichmentTasks();
+        await loadEnrichmentTasks(payload.data.existingResume);
         return;
       }
       if (payload.data.status === "saved" && payload.data.resume) {
@@ -172,7 +189,7 @@ export function ResumeReviewWorkspace({
           `Reviewed ${formatResumeTitle(payload.data.resume.title)}${payload.data.parseWarnings?.length ? ` · ${payload.data.parseWarnings.length} parser note${payload.data.parseWarnings.length === 1 ? "" : "s"}` : ""}`,
         );
         await loadResumes(payload.data.resume.id);
-        await loadEnrichmentTasks();
+        await loadEnrichmentTasks(payload.data.resume);
         return;
       }
       setError(payload.data.reason ?? "Resume review storage is not configured.");
@@ -202,7 +219,7 @@ export function ResumeReviewWorkspace({
       setStatus(`Deleted ${formatResumeTitle(resume.title)} v${resume.version}.`);
       setDuplicateResume(null);
       await loadResumes();
-      await loadEnrichmentTasks();
+      setEnrichmentTasks([]);
     } finally {
       setActiveOperation(null);
     }
@@ -239,7 +256,7 @@ export function ResumeReviewWorkspace({
       }
       setStatus(`Review refreshed for ${formatResumeTitle(payload.data.resume.title)}.`);
       await loadResumes(payload.data.resume.id);
-      await loadEnrichmentTasks();
+      await loadEnrichmentTasks(payload.data.resume);
     } finally {
       setActiveOperation(null);
     }
@@ -557,7 +574,7 @@ function ResumeReviewReportCard({
     tasks: enrichmentTasks,
   });
   const activeQuestionCount = questionStatuses.filter(
-    (item) => item.status === "open" || item.status === "answered",
+    (item) => item.taskId && (item.status === "open" || item.status === "answered"),
   ).length;
   const recommendedActions = asStringList(review.recommendedActions);
   const riskFlags = asStringList(review.riskFlags);
@@ -658,8 +675,9 @@ function ResumeReviewReportCard({
           <div>
             <p className="panel-kicker">Evidence gap backlog</p>
             <h3>
-              This review created {activeQuestionCount} active enrichment task
-              {activeQuestionCount === 1 ? "" : "s"}.
+              {activeQuestionCount > 0
+                ? `This review created ${activeQuestionCount} active enrichment task${activeQuestionCount === 1 ? "" : "s"}.`
+                : "This review has evidence gaps ready for enrichment."}
             </h3>
             <p>
               Answer these prompts in Evidence Library to turn review gaps into
@@ -848,7 +866,7 @@ function mapMissingEvidenceQuestionStatuses({
   missingEvidenceQuestions: string[];
   resume: ResumeSourceReviewSummary;
   tasks: EnrichmentTaskSummary[];
-}) {
+}): Array<{ question: string; status: ReviewQuestionStatus; taskId: string | null }> {
   return missingEvidenceQuestions.map((question) => {
     const normalized = normalizeReviewText(question);
     const task = tasks.find((candidate) => {
@@ -863,18 +881,17 @@ function mapMissingEvidenceQuestionStatuses({
     });
     return {
       question,
-      status: task?.status ?? "open",
+      status: task?.status ?? "not_created",
       taskId: task?.id ?? null,
     };
   });
 }
 
-function formatEnrichmentTaskStatus(
-  status: EnrichmentTaskSummary["status"] | "open",
-) {
+function formatEnrichmentTaskStatus(status: ReviewQuestionStatus) {
   if (status === "answered") return "answered";
   if (status === "converted") return "converted";
   if (status === "dismissed") return "dismissed";
+  if (status === "not_created") return "queued";
   return "open";
 }
 

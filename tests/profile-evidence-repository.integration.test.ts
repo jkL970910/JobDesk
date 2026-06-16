@@ -75,6 +75,21 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     );
     expect(metricTask).toBeDefined();
     if (!metricTask) throw new Error("Expected enrichment task.");
+    const filteredExtractionTasks = await getEnrichmentTaskQueue({
+      limit: 20,
+      sourceType: "extraction_note",
+      statuses: ["open", "answered"],
+    });
+    expect(filteredExtractionTasks.status).toBe("ready");
+    if (filteredExtractionTasks.status !== "ready") {
+      throw new Error("Expected filtered enrichment queue.");
+    }
+    expect(filteredExtractionTasks.tasks.length).toBeGreaterThan(0);
+    expect(
+      filteredExtractionTasks.tasks.every(
+        (task) => task.source_type === "extraction_note" && ["open", "answered"].includes(task.status),
+      ),
+    ).toBe(true);
     await upsertEnrichmentTasks(getDb(), {
       workspaceId: result.workspaceId,
       tasks: [

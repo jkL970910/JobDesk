@@ -289,6 +289,8 @@ export function ProfileEvidenceWorkspace({
   );
   const [starStories, setStarStories] = useState<StarStory[]>([]);
   const [enrichmentTasks, setEnrichmentTasks] = useState<EnrichmentTaskItem[]>([]);
+  const [enrichmentTaskQueueStatus, setEnrichmentTaskQueueStatus] =
+    useState<"ready" | "skipped" | "error">("ready");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Add a source to continue.");
   const [lastIntakeSummary, setLastIntakeSummary] = useState<{
@@ -417,11 +419,19 @@ export function ProfileEvidenceWorkspace({
   }
 
   async function loadEnrichmentTasks() {
-    const response = await fetchJson("/api/enrichment-tasks");
-    if (!response.ok) return;
+    const params = new URLSearchParams({
+      limit: "100",
+      status: "open,answered,converted",
+    });
+    const response = await fetchJson(`/api/enrichment-tasks?${params.toString()}`);
+    if (!response.ok) {
+      setEnrichmentTaskQueueStatus("error");
+      return;
+    }
     const payload = (await response.json()) as {
       data?: { status: string; tasks?: EnrichmentTaskItem[] };
     };
+    setEnrichmentTaskQueueStatus(payload.data?.status === "skipped" ? "skipped" : "ready");
     setEnrichmentTasks(payload.data?.tasks ?? []);
   }
 
@@ -1441,6 +1451,7 @@ export function ProfileEvidenceWorkspace({
             <EnrichmentTaskQueue
               onReturnToIntake={() => setActiveSection("intake")}
               onUpdate={updateEnrichmentTask}
+              queueStatus={enrichmentTaskQueueStatus}
               tasks={enrichmentTasks}
             />
           ) : null}
@@ -1857,6 +1868,7 @@ function EvidencePriorityQueue({
 function EnrichmentTaskQueue({
   onReturnToIntake,
   onUpdate,
+  queueStatus,
   tasks,
 }: {
   onReturnToIntake: () => void;
@@ -1868,6 +1880,7 @@ function EnrichmentTaskQueue({
       | { action: "reopen" }
       | { action: "convert" },
   ) => Promise<{ ok: boolean; message: string }>;
+  queueStatus: "ready" | "skipped" | "error";
   tasks: EnrichmentTaskItem[];
 }) {
   const actionableTasks = tasks.filter(
@@ -1917,7 +1930,27 @@ function EnrichmentTaskQueue({
           {actionableTasks.length} active · {convertedCount} converted
         </span>
       </div>
-      {actionableTasks.length === 0 ? (
+      {queueStatus === "skipped" ? (
+        <div className="empty-state-row">
+          <div>
+            <strong>Evidence enrichment storage is not configured.</strong>
+            <p>Connect the JobDesk database to save and review persistent enrichment tasks.</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={onReturnToIntake}>
+            Add source material
+          </button>
+        </div>
+      ) : queueStatus === "error" ? (
+        <div className="empty-state-row">
+          <div>
+            <strong>Could not load enrichment tasks.</strong>
+            <p>Check the local database connection, then reload the workspace.</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={onReturnToIntake}>
+            Add source material
+          </button>
+        </div>
+      ) : actionableTasks.length === 0 ? (
         <div className="empty-state-row">
           <div>
             <strong>No enrichment tasks are open.</strong>
