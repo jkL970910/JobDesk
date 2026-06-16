@@ -1,6 +1,7 @@
 import { JDAnalysis } from "../schemas/jd-analysis";
 import { resolveJobDeskAiConfig } from "./config";
 import { OpenRouterResponsesAdapter } from "./openrouter-adapter";
+import { skillRegistry } from "./skills-registry";
 import type { FetchLike } from "./types";
 
 export async function analyzeJobDescriptionWithAi(params: {
@@ -14,6 +15,7 @@ export async function analyzeJobDescriptionWithAi(params: {
   });
   return adapter.callStructuredJson({
     task: "jd-analysis",
+    skill: skillRegistry.jdAnalysis,
     schema: JDAnalysis,
     instructions: buildJdAnalysisInstructions(),
     input: buildJdAnalysisInput(params.jobId, params.jdText),

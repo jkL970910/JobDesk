@@ -564,6 +564,9 @@ export const resumeReviewReports = pgTable(
     resumeSourceVersionId: uuid("resume_source_version_id")
       .notNull()
       .references(() => resumeSourceVersions.id, { onDelete: "cascade" }),
+    workflowRunId: uuid("workflow_run_id").references(() => workflowRuns.id, {
+      onDelete: "set null",
+    }),
     overallScore: integer("overall_score").notNull(),
     rubricJson: jsonb("rubric_json")
       .$type<Array<Record<string, unknown>>>()
@@ -592,6 +595,9 @@ export const resumeReviewReports = pgTable(
     resumeUpdatedIdx: index("resume_review_reports_resume_updated_idx").on(
       table.resumeSourceVersionId,
       table.updatedAt,
+    ),
+    workflowRunIdx: index("resume_review_reports_workflow_run_idx").on(
+      table.workflowRunId,
     ),
     workspaceUpdatedIdx: index("resume_review_reports_workspace_updated_idx").on(
       table.workspaceId,
@@ -773,6 +779,16 @@ export const workflowRuns = pgTable(
     status: workflowStatusEnum("status").notNull(),
     provider: varchar("provider", { length: 80 }),
     model: varchar("model", { length: 128 }),
+    skillId: varchar("skill_id", { length: 120 }),
+    skillVersion: varchar("skill_version", { length: 40 }),
+    promptVersion: varchar("prompt_version", { length: 120 }),
+    schemaName: varchar("schema_name", { length: 120 }),
+    schemaVersion: varchar("schema_version", { length: 40 }),
+    modelTier: varchar("model_tier", { length: 40 }),
+    skillMetadata: jsonb("skill_metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     totalTokens: integer("total_tokens"),

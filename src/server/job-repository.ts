@@ -12,7 +12,8 @@ import {
 } from "../db/schema";
 import { JobLegitimacy, type JDAnalysis } from "../schemas/jd-analysis";
 import { ApplicationStatus, type ApplicationStatus as ApplicationStatusValue } from "../schemas/shared";
-import type { JobDeskAiFailureKind } from "../ai/types";
+import type { JobDeskAiFailureKind, JobDeskAiSkillBinding } from "../ai/types";
+import { workflowSkillFields } from "./workflow-run-metadata";
 
 const defaultWorkspaceName = "Personal JobDesk";
 type DbHandle = ReturnType<typeof getDb>;
@@ -50,6 +51,7 @@ export async function persistJdAnalysis(args: {
     totalTokens?: number | null;
   };
   retryCount: number;
+  skill: JobDeskAiSkillBinding;
 }): Promise<PersistenceResult> {
   if (!hasDatabaseUrl()) {
     return { status: "skipped", reason: "missing_database_url" };
@@ -161,6 +163,7 @@ export async function persistJdAnalysis(args: {
         status: "succeeded",
         provider: args.provider,
         model: args.model,
+        ...workflowSkillFields(args.skill),
         inputTokens: args.usage.inputTokens ?? null,
         outputTokens: args.usage.outputTokens ?? null,
         totalTokens: args.usage.totalTokens ?? null,
@@ -188,6 +191,7 @@ export async function persistJdAnalysisFailure(args: {
   errorKind: JobDeskAiFailureKind | "unknown";
   errorMessage: string;
   retryCount: number;
+  skill: JobDeskAiSkillBinding;
 }): Promise<PersistenceResult> {
   if (!hasDatabaseUrl()) {
     return { status: "skipped", reason: "missing_database_url" };
@@ -204,6 +208,7 @@ export async function persistJdAnalysisFailure(args: {
       status: "failed",
       provider: args.provider,
       model: args.model,
+      ...workflowSkillFields(args.skill),
       retryCount: args.retryCount,
       errorKind: args.errorKind,
       errorMessage: sanitizeWorkflowError(args.errorMessage),

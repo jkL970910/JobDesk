@@ -1,6 +1,7 @@
 import { TailoredResumeDraft } from "../schemas/tailored-resume";
 import { resolveJobDeskAiConfig } from "./config";
 import { OpenRouterResponsesAdapter } from "./openrouter-adapter";
+import { skillRegistry } from "./skills-registry";
 import type { FetchLike } from "./types";
 
 export type TailoredResumeEvidenceContext = {
@@ -26,6 +27,7 @@ export async function generateTailoredResumeWithAi(params: {
   });
   return adapter.callStructuredJson({
     task: "tailored-resume",
+    skill: skillRegistry.tailoredResume,
     schema: TailoredResumeDraft,
     instructions: buildTailoredResumeInstructions(),
     input: JSON.stringify({

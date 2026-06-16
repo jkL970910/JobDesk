@@ -17,6 +17,8 @@ import {
   updateEvidenceItem,
 } from "../src/server/profile-evidence-repository";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
+import { skillRegistry } from "../src/ai/skills-registry";
+import { expectWorkflowRunMetadata } from "./helpers/workflow-run-assertions";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
 
@@ -37,6 +39,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       model: "test-model",
       usage: { totalTokens: 42 },
       retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
     });
 
     expect(result).toMatchObject({
@@ -44,10 +47,21 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       evidenceCount: 5,
       projectCount: 1,
     });
+    if (result.status !== "saved") throw new Error("Expected saved profile evidence.");
+    await expectWorkflowRunMetadata(result.workflowRunId, {
+      skillId: "profile-evidence-extraction-resume",
+      promptVersion: "profile-evidence-extraction-resume-v1",
+      schemaName: "ProfileEvidenceExtraction",
+      sourceSkillIds: [
+        "profile-extraction",
+        "evidence-extraction",
+        "project-deidentification",
+        "star-story-extraction",
+      ],
+    });
 
     const library = await getRecentEvidenceLibrary(10);
     expect(library.profile?.displayName).toBe("Jane Doe");
-    if (result.status !== "saved") throw new Error("Expected saved profile evidence.");
     const insertedEvidence = library.evidenceItems.filter(
       (item) => item.source_document_id === result.sourceDocumentId,
     );
@@ -241,6 +255,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       model: "test-model",
       usage: {},
       retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
     });
     const duplicateB = await persistProfileEvidenceExtraction({
       sourceText: duplicateSourceText,
@@ -249,6 +264,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       model: "test-model",
       usage: {},
       retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
     });
     if (duplicateA.status !== "saved" || duplicateB.status !== "saved") {
       throw new Error("Expected duplicate evidence setup to save.");
@@ -290,6 +306,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       model: "test-model",
       usage: {},
       retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
     });
     const mergeDuplicateB = await persistProfileEvidenceExtraction({
       sourceText: duplicateSourceText,
@@ -298,6 +315,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       model: "test-model",
       usage: {},
       retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
     });
     if (mergeDuplicateA.status !== "saved" || mergeDuplicateB.status !== "saved") {
       throw new Error("Expected duplicate evidence merge setup to save.");
@@ -343,6 +361,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       model: "test-model",
       usage: {},
       retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
     });
     const projectB = await persistProfileEvidenceExtraction({
       sourceText: projectDuplicateSourceText,
@@ -356,6 +375,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       model: "test-model",
       usage: {},
       retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
     });
     if (projectA.status !== "saved" || projectB.status !== "saved") {
       throw new Error("Expected duplicate project setup to save.");
@@ -410,6 +430,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       model: "test-model",
       usage: {},
       retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
     });
     const mergeProjectB = await persistProfileEvidenceExtraction({
       sourceText: projectDuplicateSourceText,
@@ -423,6 +444,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       model: "test-model",
       usage: {},
       retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
     });
     if (mergeProjectA.status !== "saved" || mergeProjectB.status !== "saved") {
       throw new Error("Expected duplicate project merge setup to save.");
@@ -463,7 +485,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
           item.text.includes("cohort dashboard slices"),
       ),
     ).toBe(true);
-  });
+  }, 20_000);
 });
 
 const duplicateSourceText = [
@@ -536,7 +558,25 @@ function buildExtraction(): ProfileEvidenceExtraction {
     },
     work_experiences: [],
     initiatives: [],
-    portfolio_projects: [],
+    portfolio_projects: [
+      {
+        title: "Onboarding analytics",
+        project_type: "personal_project",
+        external_safe_title: "Onboarding analytics",
+        context: "Onboarding funnel analysis.",
+        problem: null,
+        role: "Senior Product Analyst",
+        actions: ["Built SQL dashboards."],
+        results: [],
+        metrics: [],
+        technologies: ["SQL"],
+        stakeholders: ["product teams"],
+        external_safe_summary: null,
+        sensitivity_level: "private",
+        needs_redaction_review: false,
+        status: "pending",
+      },
+    ],
     evidence_items: [
       {
         text: "Built SQL dashboards for onboarding funnel analysis.",
@@ -548,6 +588,7 @@ function buildExtraction(): ProfileEvidenceExtraction {
         public_safe_summary: null,
         status: "pending",
         related_project_id: null,
+        related_portfolio_project_id: "Onboarding analytics",
         needs_user_confirmation: false,
       },
       {

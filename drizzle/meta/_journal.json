@@ -71,6 +71,13 @@
       "when": 1781376647393,
       "tag": "0009_real_spyke",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1781624764408,
+      "tag": "0010_aromatic_shinobi_shaw",
+      "breakpoints": true
     }
   ]
 }

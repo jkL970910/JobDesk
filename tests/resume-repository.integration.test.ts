@@ -16,6 +16,8 @@ import {
 import type { JDAnalysis } from "../src/schemas/jd-analysis";
 import type { TailoredResumeDraft } from "../src/schemas/tailored-resume";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
+import { skillRegistry } from "../src/ai/skills-registry";
+import { expectWorkflowRunMetadata } from "./helpers/workflow-run-assertions";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
 
@@ -34,10 +36,17 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
       model: "test-model",
       usage: {},
       retryCount: 0,
+      skill: skillRegistry.jdAnalysis,
     });
     if (jobResult.status !== "saved" || !jobResult.jobId) {
       throw new Error("Expected saved job.");
     }
+    await expectWorkflowRunMetadata(jobResult.workflowRunId, {
+      skillId: "jd-analysis",
+      promptVersion: "jd-analysis-v1",
+      schemaName: "JDAnalysis",
+      sourceSkillIds: ["jd-analysis"],
+    });
 
     const evidenceId = await createApprovedResumeEvidence();
     const draft = buildResumeDraft(evidenceId);
@@ -48,6 +57,7 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
       model: "test-model",
       usage: { totalTokens: 99 },
       retryCount: 1,
+      skill: skillRegistry.tailoredResume,
     });
 
     expect(result).toMatchObject({
@@ -57,6 +67,12 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
     if (result.status !== "saved") {
       throw new Error("Expected saved tailored resume.");
     }
+    await expectWorkflowRunMetadata(result.workflowRunId, {
+      skillId: "tailored-resume",
+      promptVersion: "tailored-resume-v1",
+      schemaName: "TailoredResumeDraft",
+      sourceSkillIds: ["resume-tailoring"],
+    });
 
     const recent = await getRecentTailoredResumes(10);
     const saved = recent.find((resume) => resume.id === result.resumeVersionId);
@@ -86,6 +102,13 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
     if (guarded.status !== "validated") {
       throw new Error("Expected validated Fact Guard result.");
     }
+    if (!guarded.workflowRunId) throw new Error("Expected Fact Guard workflow run.");
+    await expectWorkflowRunMetadata(guarded.workflowRunId, {
+      skillId: "fact-guard-v0",
+      promptVersion: "fact-guard-v0",
+      schemaName: "FactGuardClaimReport",
+      sourceSkillIds: ["claim-support-judgment"],
+    });
     expect(guarded.claims).toHaveLength(1);
     expect(guarded.claims[0]).toMatchObject({
       claim_text: "Built SQL dashboards for onboarding funnel analysis.",
@@ -118,10 +141,17 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
       model: "test-model",
       usage: {},
       retryCount: 0,
+      skill: skillRegistry.tailoredResume,
     });
     if (uncoveredResult.status !== "saved") {
       throw new Error("Expected saved uncovered tailored resume.");
     }
+    await expectWorkflowRunMetadata(uncoveredResult.workflowRunId, {
+      skillId: "tailored-resume",
+      promptVersion: "tailored-resume-v1",
+      schemaName: "TailoredResumeDraft",
+      sourceSkillIds: ["resume-tailoring"],
+    });
     const uncoveredGuard = await runFactGuardForResume(
       uncoveredResult.resumeVersionId,
     );
@@ -135,6 +165,15 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
     if (uncoveredGuard.status !== "validated") {
       throw new Error("Expected validated Fact Guard result.");
     }
+    if (!uncoveredGuard.workflowRunId) {
+      throw new Error("Expected uncovered Fact Guard workflow run.");
+    }
+    await expectWorkflowRunMetadata(uncoveredGuard.workflowRunId, {
+      skillId: "fact-guard-v0",
+      promptVersion: "fact-guard-v0",
+      schemaName: "FactGuardClaimReport",
+      sourceSkillIds: ["claim-support-judgment"],
+    });
     expect(uncoveredGuard.claims[0]).toMatchObject({
       support_status: "partially_supported",
       claim_status: "partially_supported",
@@ -196,6 +235,7 @@ async function createApprovedResumeEvidence() {
     model: "test-model",
     usage: {},
     retryCount: 0,
+    skill: skillRegistry.profileEvidenceExtractionResume,
   });
   const libraryEvidence = await getLatestSqlEvidenceFromRecentLibrary();
   await updateEvidenceItem({

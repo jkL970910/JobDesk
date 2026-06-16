@@ -25,6 +25,17 @@ export type JobDeskAiUsage = {
   totalTokens?: number | null;
 };
 
+export type JobDeskAiSkillBinding = {
+  skillId: string;
+  skillVersion: string;
+  promptVersion: string;
+  workflowType: string;
+  schemaName: string;
+  schemaVersion: string;
+  modelTier: "none" | "cheap" | "strong";
+  sourceSkillIds: readonly string[];
+};
+
 export type JobDeskAiConfig = {
   providerEnabled: boolean;
   apiKey: string | null;
@@ -43,6 +54,7 @@ export type FetchLike = (
 export type StructuredJsonRequest<TSchema extends z.ZodTypeAny> = {
   schema: TSchema;
   task: string;
+  skill: JobDeskAiSkillBinding;
   instructions: string;
   input: string;
   maxOutputTokens?: number;
@@ -54,4 +66,5 @@ export type StructuredJsonResult<T> = {
   outputText: string;
   usage: JobDeskAiUsage;
   retryCount: number;
+  skill: JobDeskAiSkillBinding;
 };

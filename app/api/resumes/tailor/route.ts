@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { resolveJobDeskAiConfig } from "../../../../src/ai/config";
 import { JobDeskAiError } from "../../../../src/ai/errors";
+import { skillRegistry } from "../../../../src/ai/skills-registry";
 import { generateTailoredResumeWithAi } from "../../../../src/ai/tailored-resume";
 import { getJdAnalysisById } from "../../../../src/server/job-repository";
 import { getResumeTailoringContext } from "../../../../src/server/profile-evidence-repository";
@@ -78,6 +79,7 @@ export async function POST(request: Request) {
       model: config.model,
       usage: result.usage,
       retryCount: result.retryCount,
+      skill: result.skill,
     });
 
     return NextResponse.json({
@@ -85,6 +87,7 @@ export async function POST(request: Request) {
       meta: {
         usage: result.usage,
         retryCount: result.retryCount,
+        skill: result.skill,
         evidenceCount: context.evidenceItems.length,
         selectedEvidence: context.evidenceItems.map((item) => ({
           id: item.id,
@@ -103,6 +106,7 @@ export async function POST(request: Request) {
         errorKind: error.kind,
         errorMessage: error.message,
         retryCount: error.retryCount,
+        skill: skillRegistry.tailoredResume,
       });
       return NextResponse.json(
         {
@@ -123,6 +127,7 @@ export async function POST(request: Request) {
         errorKind: "contract_invalid",
         errorMessage: error.message,
         retryCount: 0,
+        skill: skillRegistry.tailoredResume,
       });
       return NextResponse.json(
         {
@@ -140,6 +145,7 @@ export async function POST(request: Request) {
       errorKind: "unknown",
       errorMessage: error instanceof Error ? error.message : "Unknown error.",
       retryCount: 0,
+      skill: skillRegistry.tailoredResume,
     });
     return NextResponse.json(
       { error: "Tailored resume generation failed.", kind: "provider_error" },

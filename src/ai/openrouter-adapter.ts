@@ -47,7 +47,7 @@ export class OpenRouterResponsesAdapter {
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
         const result = await this.callOnce(request);
-        return { ...result, retryCount: attempt - 1 };
+        return { ...result, retryCount: attempt - 1, skill: request.skill };
       } catch (error) {
         lastError = error;
         if (attempt === 2) {
@@ -139,6 +139,7 @@ export class OpenRouterResponsesAdapter {
       outputText,
       usage: extractUsage(payload),
       retryCount: 0,
+      skill: request.skill,
     };
   }
 

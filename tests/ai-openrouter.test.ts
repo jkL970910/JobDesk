@@ -8,6 +8,7 @@ import { JobDeskAiError } from "../src/ai/errors";
 import { buildJdAnalysisInstructions } from "../src/ai/jd-analysis";
 import { OpenRouterResponsesAdapter } from "../src/ai/openrouter-adapter";
 import { extractOutputText, parseJsonObject } from "../src/ai/output-parser";
+import { skillRegistry } from "../src/ai/skills-registry";
 import { JDAnalysis } from "../src/schemas/jd-analysis";
 
 describe("OpenRouter endpoint normalization", () => {
@@ -106,6 +107,7 @@ describe("OpenRouterResponsesAdapter", () => {
 
     const result = await adapter.callStructuredJson({
       task: "jd-analysis",
+      skill: skillRegistry.jdAnalysis,
       schema: JDAnalysis,
       instructions: buildJdAnalysisInstructions(),
       input: JSON.stringify({
@@ -142,6 +144,7 @@ describe("OpenRouterResponsesAdapter", () => {
     await expect(
       adapter.callStructuredJson({
         task: "jd-analysis",
+        skill: skillRegistry.jdAnalysis,
         schema: JDAnalysis,
         instructions: "Return JSON.",
         input: "{}",
@@ -196,6 +199,7 @@ describe("OpenRouterResponsesAdapter", () => {
 
     const result = await adapter.callStructuredJson({
       task: "jd-analysis",
+      skill: skillRegistry.jdAnalysis,
       schema: JDAnalysis,
       instructions: "Return JSON.",
       input: "{}",
@@ -225,6 +229,7 @@ describe("OpenRouterResponsesAdapter", () => {
     await expect(
       adapter.callStructuredJson({
         task: "jd-analysis",
+        skill: skillRegistry.jdAnalysis,
         schema: JDAnalysis,
         instructions: "Return JSON.",
         input: "{}",
@@ -285,6 +290,7 @@ describe("OpenRouterResponsesAdapter", () => {
 
     const result = await adapter.callStructuredJson({
       task: "jd-analysis",
+      skill: skillRegistry.jdAnalysis,
       schema: JDAnalysis,
       instructions: "Return JSON.",
       input: "{}",
@@ -292,6 +298,7 @@ describe("OpenRouterResponsesAdapter", () => {
 
     expect(result.data.job_id).toBe("job-chat");
     expect(result.usage.totalTokens).toBe(11);
+    expect(result.skill.skillId).toBe("jd-analysis");
     expect(bodies[0]?.response_format).toEqual({ type: "json_object" });
     expect(Array.isArray(bodies[0]?.messages)).toBe(true);
   });

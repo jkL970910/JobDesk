@@ -4,6 +4,7 @@ import { z } from "zod";
 import { resolveJobDeskAiConfig } from "../../../../src/ai/config";
 import { JobDeskAiError } from "../../../../src/ai/errors";
 import { extractProfileEvidenceWithAi } from "../../../../src/ai/profile-evidence-extraction";
+import { skillRegistry } from "../../../../src/ai/skills-registry";
 import {
   persistProfileEvidenceExtraction,
   persistProfileEvidenceFailure,
@@ -40,6 +41,7 @@ export async function POST(request: Request) {
       model: config.model,
       usage: result.usage,
       retryCount: result.retryCount,
+      skill: result.skill,
     });
     if (persistence.status === "saved" && parsed.data.resumeSourceVersionId) {
       await markResumeSourceExtracted(parsed.data.resumeSourceVersionId);
@@ -49,6 +51,7 @@ export async function POST(request: Request) {
       meta: {
         usage: result.usage,
         retryCount: result.retryCount,
+        skill: result.skill,
         persistence,
       },
     });
@@ -60,6 +63,7 @@ export async function POST(request: Request) {
         errorKind: error.kind,
         errorMessage: error.message,
         retryCount: error.retryCount,
+        skill: skillRegistry.profileEvidenceExtractionResume,
       });
       return NextResponse.json(
         {
@@ -78,6 +82,7 @@ export async function POST(request: Request) {
       errorKind: "unknown",
       errorMessage: error instanceof Error ? error.message : "Unknown error.",
       retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
     });
     return NextResponse.json(
       { error: "Profile evidence extraction failed.", kind: "provider_error" },

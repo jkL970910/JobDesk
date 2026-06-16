@@ -16,7 +16,11 @@ import {
   workspaces,
   workflowRuns,
 } from "../db/schema";
-import type { JobDeskAiFailureKind, JobDeskAiUsage } from "../ai/types";
+import type {
+  JobDeskAiFailureKind,
+  JobDeskAiSkillBinding,
+  JobDeskAiUsage,
+} from "../ai/types";
 import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
 import { AllowedUsage } from "../schemas/shared";
 import type { FieldTier, SensitivityLevel } from "../schemas/shared";
@@ -25,6 +29,7 @@ import {
   type ResumeRetrievalJobContext,
 } from "./retrieval-service";
 import { buildStarStoryCards, type StarStoryTargetInput } from "./star-story-service";
+import { workflowSkillFields } from "./workflow-run-metadata";
 
 const defaultWorkspaceName = "Personal JobDesk";
 
@@ -57,6 +62,7 @@ export async function persistProfileEvidenceExtraction(args: {
   model: string;
   usage: JobDeskAiUsage;
   retryCount: number;
+  skill: JobDeskAiSkillBinding;
 }): Promise<ProfileEvidencePersistenceResult> {
   if (!hasDatabaseUrl()) {
     return { status: "skipped", reason: "missing_database_url" };
@@ -273,6 +279,7 @@ export async function persistProfileEvidenceExtraction(args: {
         status: "succeeded",
         provider: args.provider,
         model: args.model,
+        ...workflowSkillFields(args.skill),
         inputTokens: args.usage.inputTokens ?? null,
         outputTokens: args.usage.outputTokens ?? null,
         totalTokens: args.usage.totalTokens ?? null,
@@ -306,6 +313,7 @@ export async function persistProfileEvidenceFailure(args: {
   errorKind: JobDeskAiFailureKind | "unknown";
   errorMessage: string;
   retryCount: number;
+  skill: JobDeskAiSkillBinding;
 }) {
   if (!hasDatabaseUrl()) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
@@ -322,6 +330,7 @@ export async function persistProfileEvidenceFailure(args: {
       status: "failed",
       provider: args.provider,
       model: args.model,
+      ...workflowSkillFields(args.skill),
       retryCount: args.retryCount,
       errorKind: args.errorKind,
       errorMessage: args.errorMessage.replace(/sk-[A-Za-z0-9_-]+/g, "sk-***"),

@@ -7,6 +7,7 @@ import {
   persistJdAnalysisFailure,
   updateApplicationStatus,
 } from "../src/server/job-repository";
+import { skillRegistry } from "../src/ai/skills-registry";
 
 describe("job repository", () => {
   it("skips persistence when DATABASE_URL is not configured", async () => {
@@ -40,6 +41,7 @@ describe("job repository", () => {
       model: "gpt-5.5",
       usage: {},
       retryCount: 0,
+      skill: skillRegistry.jdAnalysis,
     });
 
     if (oldDatabaseUrl == null) {
@@ -64,6 +66,7 @@ describe("job repository", () => {
       errorKind: "provider_5xx",
       errorMessage: "Provider failed.",
       retryCount: 1,
+      skill: skillRegistry.jdAnalysis,
     });
 
     if (oldDatabaseUrl == null) {

@@ -8,15 +8,39 @@ import {
   resumeSourceVersions,
   sourceDocuments,
   workspaces,
+  workflowRuns,
 } from "../db/schema";
 import { resolveJobDeskAiConfig } from "../ai/config";
 import { JobDeskAiError } from "../ai/errors";
 import { reviewResumeWithAi } from "../ai/resume-review";
+import { skillRegistry } from "../ai/skills-registry";
 import { buildResumeReviewReport, type ResumeReviewReport } from "./resume-review-service";
 import type { ResumeReview } from "../schemas/resume-review";
+import type {
+  JobDeskAiFailureKind,
+  JobDeskAiSkillBinding,
+  JobDeskAiUsage,
+} from "../ai/types";
+import { workflowSkillFields } from "./workflow-run-metadata";
 
 const defaultWorkspaceName = "Personal JobDesk";
 type DbHandle = ReturnType<typeof getDb>;
+
+type ResumeReviewBuildResult = {
+  report: ResumeReviewReport;
+  provider: string;
+  model: string;
+  confidence: number;
+  scopeNote: string;
+  tenSecondScan: string;
+  atsNotes: string[];
+  fairnessCheck: ResumeReview["fairness_check"];
+  providerFailureKind: JobDeskAiFailureKind | null;
+  providerFailureMessage: string | null;
+  retryCount: number;
+  usage: JobDeskAiUsage;
+  skill: JobDeskAiSkillBinding;
+};
 
 export async function getResumeReviewWorkspace(limit = 10) {
   if (!hasDatabaseUrl()) {
@@ -124,11 +148,17 @@ export async function rerunResumeReview(resumeSourceVersionId: string) {
         updatedAt: now,
       })
       .where(eq(resumeReviewReports.resumeSourceVersionId, resume.id));
+    const workflowRunId = await createResumeReviewWorkflowRun(tx, {
+      workspaceId: resume.workspaceId,
+      review,
+      now,
+    });
     const [savedReport] = await tx
       .insert(resumeReviewReports)
       .values({
         workspaceId: resume.workspaceId,
         resumeSourceVersionId: resume.id,
+        workflowRunId,
         overallScore: review.report.overallScore,
         rubricJson: buildReviewRubricPayload(review),
         strengths: review.report.strengths,
@@ -218,11 +248,17 @@ export async function createResumeSourceVersion(args: {
       .returning();
     if (!resume) throw new Error("Failed to save resume source version.");
 
+    const workflowRunId = await createResumeReviewWorkflowRun(tx, {
+      workspaceId: workspace.id,
+      review,
+      now,
+    });
     const [savedReport] = await tx
       .insert(resumeReviewReports)
       .values({
         workspaceId: workspace.id,
         resumeSourceVersionId: resume.id,
+        workflowRunId,
         overallScore: review.report.overallScore,
         rubricJson: buildReviewRubricPayload(review),
         strengths: review.report.strengths,
@@ -313,7 +349,7 @@ async function findResumeByHash(
 async function buildReviewReport(args: {
   sourceTitle: string;
   sourceText: string;
-}) {
+}): Promise<ResumeReviewBuildResult> {
   const config = resolveJobDeskAiConfig();
   try {
     const result = await reviewResumeWithAi(args);
@@ -322,6 +358,8 @@ async function buildReviewReport(args: {
       provider: `openrouter-compatible:${config.transport}`,
       model: config.model,
       retryCount: result.retryCount,
+      usage: result.usage,
+      skill: result.skill,
     });
   } catch (error) {
     const fallback = buildResumeReviewReport(args.sourceText);
@@ -344,6 +382,8 @@ async function buildReviewReport(args: {
       providerFailureMessage:
         error instanceof Error ? error.message : "Unknown provider error.",
       retryCount: error instanceof JobDeskAiError ? error.retryCount : 0,
+      usage: {},
+      skill: skillRegistry.resumeReviewGeneral,
     };
   }
 }
@@ -353,7 +393,9 @@ function fromAiReview(args: {
   provider: string;
   model: string;
   retryCount: number;
-}) {
+  usage: JobDeskAiUsage;
+  skill: JobDeskAiSkillBinding;
+}): ResumeReviewBuildResult {
   const report: ResumeReviewReport = {
     overallScore: args.review.score.overall,
     rubric: args.review.rubric.map((item) => ({
@@ -381,7 +423,44 @@ function fromAiReview(args: {
     providerFailureKind: null,
     providerFailureMessage: null,
     retryCount: args.retryCount,
+    usage: args.usage,
+    skill: args.skill,
   };
+}
+
+async function createResumeReviewWorkflowRun(
+  db: Pick<DbHandle, "insert">,
+  args: {
+    workspaceId: string;
+    review: ResumeReviewBuildResult;
+    now: Date;
+  },
+) {
+  const [workflowRun] = await db
+    .insert(workflowRuns)
+    .values({
+      workspaceId: args.workspaceId,
+      workflowType: args.review.skill.workflowType,
+      status: args.review.providerFailureKind ? "failed" : "succeeded",
+      provider: args.review.provider,
+      model: args.review.model,
+      ...workflowSkillFields(args.review.skill),
+      inputTokens: args.review.usage.inputTokens ?? null,
+      outputTokens: args.review.usage.outputTokens ?? null,
+      totalTokens: args.review.usage.totalTokens ?? null,
+      retryCount: args.review.retryCount,
+      errorKind: args.review.providerFailureKind,
+      errorMessage: args.review.providerFailureMessage
+        ? sanitizeWorkflowError(args.review.providerFailureMessage)
+        : null,
+      startedAt: args.now,
+      finishedAt: args.now,
+    })
+    .returning({ id: workflowRuns.id });
+  if (!workflowRun) {
+    throw new Error("Failed to create resume review workflow run.");
+  }
+  return workflowRun.id;
 }
 
 export async function markResumeSourceExtracted(resumeSourceVersionId: string) {
@@ -472,4 +551,8 @@ function toReviewPayload(report: typeof resumeReviewReports.$inferSelect) {
     createdAt: report.createdAt.toISOString(),
     updatedAt: report.updatedAt.toISOString(),
   };
+}
+
+function sanitizeWorkflowError(message: string) {
+  return message.replace(/sk-[A-Za-z0-9_-]+/g, "sk-***").slice(0, 2000);
 }

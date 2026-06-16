@@ -1,6 +1,7 @@
 import { ResumeReview } from "../schemas/resume-review";
 import { resolveJobDeskAiConfig } from "./config";
 import { OpenRouterResponsesAdapter } from "./openrouter-adapter";
+import { skillRegistry } from "./skills-registry";
 import type { FetchLike } from "./types";
 
 export async function reviewResumeWithAi(params: {
@@ -14,6 +15,7 @@ export async function reviewResumeWithAi(params: {
   });
   return adapter.callStructuredJson({
     task: "general-resume-review",
+    skill: skillRegistry.resumeReviewGeneral,
     schema: ResumeReview,
     instructions: buildResumeReviewInstructions(),
     input: JSON.stringify({

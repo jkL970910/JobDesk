@@ -1,6 +1,7 @@
 import { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
 import { resolveJobDeskAiConfig } from "./config";
 import { OpenRouterResponsesAdapter } from "./openrouter-adapter";
+import { getProfileEvidenceSkillForSource } from "./skills-registry";
 import type { FetchLike } from "./types";
 
 export async function extractProfileEvidenceWithAi(params: {
@@ -13,13 +14,15 @@ export async function extractProfileEvidenceWithAi(params: {
     config: resolveJobDeskAiConfig(),
     fetchFn: params.fetchFn,
   });
+  const sourceKind = params.sourceKind ?? "resume";
   return adapter.callStructuredJson({
     task: "profile-evidence-extraction",
+    skill: getProfileEvidenceSkillForSource(sourceKind),
     schema: ProfileEvidenceExtraction,
-    instructions: buildProfileEvidenceInstructions(params.sourceKind ?? "resume"),
+    instructions: buildProfileEvidenceInstructions(sourceKind),
     input: JSON.stringify({
       source_id: params.sourceId,
-      source_kind: params.sourceKind ?? "resume",
+      source_kind: sourceKind,
       source_text: params.sourceText,
     }),
     maxOutputTokens: 2400,

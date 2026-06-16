@@ -7,6 +7,8 @@ import { searchPersonalEmbeddings, syncPersonalEmbeddings } from "./embedding-se
 import { getJdAnalysisById } from "./job-repository";
 import { getStarStoryBank } from "./profile-evidence-repository";
 import type { StarStoryCard } from "./star-story-service";
+import { skillRegistry } from "../ai/skills-registry";
+import { workflowSkillFields } from "./workflow-run-metadata";
 
 export type InterviewPrepPack = {
   id?: string;
@@ -186,6 +188,7 @@ async function persistInterviewPrepPack(pack: InterviewPrepPack) {
     status: "succeeded",
     provider: "deterministic",
     model: "jobdesk-interview-prep-v1",
+    ...workflowSkillFields(skillRegistry.interviewPrepV1),
     retryCount: 0,
     startedAt: now,
     finishedAt: now,

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { JobDeskAiError } from "../../../../src/ai/errors";
 import { analyzeJobDescriptionWithAi } from "../../../../src/ai/jd-analysis";
 import { resolveJobDeskAiConfig } from "../../../../src/ai/config";
+import { skillRegistry } from "../../../../src/ai/skills-registry";
 import {
   assertActiveJdAnalysis,
   JobRepositoryError,
@@ -46,12 +47,14 @@ export async function POST(request: Request) {
       model: config.model,
       usage: result.usage,
       retryCount: result.retryCount,
+      skill: result.skill,
     });
     return NextResponse.json({
       data: result.data,
       meta: {
         usage: result.usage,
         retryCount: result.retryCount,
+        skill: result.skill,
         persistence,
       },
     });
@@ -73,6 +76,7 @@ export async function POST(request: Request) {
         errorKind: error.kind,
         errorMessage: error.message,
         retryCount: error.retryCount,
+        skill: skillRegistry.jdAnalysis,
       });
       return NextResponse.json(
         {
@@ -90,6 +94,7 @@ export async function POST(request: Request) {
       errorKind: "unknown",
       errorMessage: error instanceof Error ? error.message : "Unknown error.",
       retryCount: 0,
+      skill: skillRegistry.jdAnalysis,
     });
     return NextResponse.json(
       {

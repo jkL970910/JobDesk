@@ -11,6 +11,8 @@ import {
 } from "../src/server/job-repository";
 import { GET as getJob, PATCH as patchJob } from "../app/api/jobs/[jobId]/route";
 import type { JDAnalysis } from "../src/schemas/jd-analysis";
+import { skillRegistry } from "../src/ai/skills-registry";
+import { expectWorkflowRunMetadata } from "./helpers/workflow-run-assertions";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
 
@@ -36,11 +38,18 @@ describe.skipIf(!runIntegration)("job repository database integration", () => {
       model: "test-model",
       usage: { totalTokens: 10 },
       retryCount: 0,
+      skill: skillRegistry.jdAnalysis,
     });
     expect(firstResult.status).toBe("saved");
     if (firstResult.status !== "saved" || !firstResult.jobId) {
       throw new Error("Expected saved job.");
     }
+    await expectWorkflowRunMetadata(firstResult.workflowRunId, {
+      skillId: "jd-analysis",
+      promptVersion: "jd-analysis-v1",
+      schemaName: "JDAnalysis",
+      sourceSkillIds: ["jd-analysis"],
+    });
 
     const loaded = await getJdAnalysisById(firstResult.jobId);
     expect(loaded?.title).toBe("Integration QA Engineer");
@@ -72,10 +81,20 @@ describe.skipIf(!runIntegration)("job repository database integration", () => {
       model: "test-model",
       usage: { totalTokens: 20 },
       retryCount: 1,
+      skill: skillRegistry.jdAnalysis,
     });
     expect(secondResult).toMatchObject({
       status: "saved",
       jobId: firstResult.jobId,
+    });
+    if (secondResult.status !== "saved") {
+      throw new Error("Expected saved reanalysis.");
+    }
+    await expectWorkflowRunMetadata(secondResult.workflowRunId, {
+      skillId: "jd-analysis",
+      promptVersion: "jd-analysis-v1",
+      schemaName: "JDAnalysis",
+      sourceSkillIds: ["jd-analysis"],
     });
 
     const reloaded = await getJdAnalysisById(firstResult.jobId);
@@ -151,10 +170,17 @@ describe.skipIf(!runIntegration)("job repository database integration", () => {
       model: "test-model",
       usage: {},
       retryCount: 0,
+      skill: skillRegistry.jdAnalysis,
     });
     if (result.status !== "saved" || !result.jobId) {
       throw new Error("Expected saved job.");
     }
+    await expectWorkflowRunMetadata(result.workflowRunId, {
+      skillId: "jd-analysis",
+      promptVersion: "jd-analysis-v1",
+      schemaName: "JDAnalysis",
+      sourceSkillIds: ["jd-analysis"],
+    });
     await archiveJdAnalysis(result.jobId);
 
     await expect(
@@ -165,6 +191,7 @@ describe.skipIf(!runIntegration)("job repository database integration", () => {
         model: "test-model",
         usage: {},
         retryCount: 0,
+        skill: skillRegistry.jdAnalysis,
       }),
     ).rejects.toMatchObject({ kind: "job_not_found" });
   });

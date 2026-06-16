@@ -8,9 +8,15 @@ import {
   workspaces,
   workflowRuns,
 } from "../db/schema";
-import type { JobDeskAiFailureKind, JobDeskAiUsage } from "../ai/types";
+import type {
+  JobDeskAiFailureKind,
+  JobDeskAiSkillBinding,
+  JobDeskAiUsage,
+} from "../ai/types";
 import type { TailoredResumeDraft } from "../schemas/tailored-resume";
 import { claimsMatch, validateBulletClaimCoverage } from "./tailored-resume-guardrails";
+import { workflowSkillFields } from "./workflow-run-metadata";
+import { skillRegistry } from "../ai/skills-registry";
 
 const defaultWorkspaceName = "Personal JobDesk";
 type DbHandle = ReturnType<typeof getDb>;
@@ -48,6 +54,7 @@ export async function persistTailoredResume(args: {
   model: string;
   usage: JobDeskAiUsage;
   retryCount: number;
+  skill: JobDeskAiSkillBinding;
 }): Promise<TailoredResumePersistenceResult> {
   if (!hasDatabaseUrl()) {
     return { status: "skipped", reason: "missing_database_url" };
@@ -102,6 +109,7 @@ export async function persistTailoredResume(args: {
         status: "succeeded",
         provider: args.provider,
         model: args.model,
+        ...workflowSkillFields(args.skill),
         inputTokens: args.usage.inputTokens ?? null,
         outputTokens: args.usage.outputTokens ?? null,
         totalTokens: args.usage.totalTokens ?? null,
@@ -131,6 +139,7 @@ export async function persistTailoredResumeFailure(args: {
   errorKind: JobDeskAiFailureKind | "unknown";
   errorMessage: string;
   retryCount: number;
+  skill: JobDeskAiSkillBinding;
 }) {
   if (!hasDatabaseUrl()) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
@@ -148,6 +157,7 @@ export async function persistTailoredResumeFailure(args: {
       status: "failed",
       provider: args.provider,
       model: args.model,
+      ...workflowSkillFields(args.skill),
       retryCount: args.retryCount,
       errorKind: args.errorKind,
       errorMessage: sanitizeWorkflowError(args.errorMessage),
@@ -300,6 +310,7 @@ export async function runFactGuardForResume(resumeVersionId: string) {
         status: "succeeded",
         provider: "deterministic",
         model: "fact-guard-v0",
+        ...workflowSkillFields(skillRegistry.factGuardV0),
         retryCount: 0,
         startedAt: now,
         finishedAt: now,
