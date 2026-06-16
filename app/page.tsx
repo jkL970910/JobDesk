@@ -62,6 +62,22 @@ type ResumeReviewSummary = {
   latestReview: { overallScore: number } | null;
 };
 
+type MainResumeSummary = {
+  id: string;
+  title: string;
+  resume_markdown: string;
+  missing_evidence_questions: string[];
+  status: string;
+  updatedAt: string;
+  claims: Array<{
+    id: string;
+    claim_text: string;
+    support_status: string;
+    claim_status: string;
+    risk_level: string;
+  }>;
+};
+
 type RecentJobSummary = {
   id: string;
   title: string;
@@ -953,9 +969,12 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
   const { fetchJson } = useAccess();
   const [library, setLibrary] = useState<EvidenceLibrarySummary | null>(null);
   const [resumes, setResumes] = useState<ResumeReviewSummary[]>([]);
+  const [mainResumes, setMainResumes] = useState<MainResumeSummary[]>([]);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
     "loading",
   );
+  const [mainResumeStatus, setMainResumeStatus] = useState<string | null>(null);
+  const [isGeneratingMainResume, setIsGeneratingMainResume] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -963,14 +982,17 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
     async function loadProfileSurface() {
       setLoadState("loading");
       try {
-        const [libraryResult, resumesResult] = await Promise.allSettled([
+        const [libraryResult, resumesResult, mainResumesResult] = await Promise.allSettled([
           fetchJson("/api/profile-evidence/recent"),
           fetchJson("/api/resume-review"),
+          fetchJson("/api/main-resume"),
         ]);
         if (cancelled) return;
         const hasLibrary = libraryResult.status === "fulfilled" && libraryResult.value.ok;
         const hasResumes = resumesResult.status === "fulfilled" && resumesResult.value.ok;
-        if (!hasLibrary && !hasResumes) {
+        const hasMainResumes =
+          mainResumesResult.status === "fulfilled" && mainResumesResult.value.ok;
+        if (!hasLibrary && !hasResumes && !hasMainResumes) {
           setLoadState("error");
           return;
         }
@@ -980,9 +1002,15 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
         const resumePayload = hasResumes
           ? ((await resumesResult.value.json()) as { data?: { resumes?: ResumeReviewSummary[] } })
           : null;
+        const mainResumePayload = hasMainResumes
+          ? ((await mainResumesResult.value.json()) as {
+              data?: { resumes?: MainResumeSummary[] };
+            })
+          : null;
         if (cancelled) return;
         if (libraryPayload) setLibrary(libraryPayload.data ?? null);
         if (resumePayload) setResumes(resumePayload.data?.resumes ?? []);
+        if (mainResumePayload) setMainResumes(mainResumePayload.data?.resumes ?? []);
         setLoadState("ready");
       } catch {
         if (!cancelled) setLoadState("error");
@@ -1030,6 +1058,52 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
     library?.profile?.displayName ??
     (hasExtractedMaterial ? "Profile facts not promoted yet" : "Profile extraction pending");
   const extractionStatus = formatResumePrepState(resumePrepState);
+  const latestMainResume = mainResumes[0] ?? null;
+  const mainResumeReady = resumeEligibleEvidence > 0;
+
+  async function generateMainResume() {
+    setIsGeneratingMainResume(true);
+    setMainResumeStatus("Generating main resume from resume-safe evidence...");
+    try {
+      const response = await fetchJson("/api/main-resume", {
+        method: "POST",
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            data?: unknown;
+            meta?: { persistence?: { status: string }; factGuard?: { status?: string } | null };
+            error?: string;
+            kind?: string;
+          }
+        | null;
+      if (!response.ok) {
+        setMainResumeStatus(
+          payload?.error
+            ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
+            : "Main resume generation failed.",
+        );
+        return;
+      }
+      const mainResumeResponse = await fetchJson("/api/main-resume");
+      if (mainResumeResponse.ok) {
+        const mainResumePayload = (await mainResumeResponse.json()) as {
+          data?: { resumes?: MainResumeSummary[] };
+        };
+        setMainResumes(mainResumePayload.data?.resumes ?? []);
+      }
+      setMainResumeStatus(
+        payload?.meta?.factGuard?.status === "validated"
+          ? "Main resume generated and Fact Guard completed."
+          : "Main resume generated. Review claim support before export.",
+      );
+    } catch (error) {
+      setMainResumeStatus(
+        error instanceof Error ? error.message : "Main resume generation failed.",
+      );
+    } finally {
+      setIsGeneratingMainResume(false);
+    }
+  }
 
   if (loadState === "loading") {
     return (
@@ -1156,6 +1230,61 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
             ? "Open Resume Review"
             : "Open Evidence Library"}
         </button>
+      </section>
+
+      <section className="main-resume-builder">
+        <div className="main-resume-builder__header">
+          <div>
+            <p className="panel-kicker">Main Resume Builder</p>
+            <h3>Generate a reusable general resume from canonical evidence.</h3>
+            <p>
+              Uses profile facts plus resume-safe evidence. This is independent of
+              any JD-tailored resume and includes a generated claim ledger for Fact Guard.
+            </p>
+          </div>
+          <button
+            className="primary-button"
+            disabled={!mainResumeReady || isGeneratingMainResume}
+            type="button"
+            onClick={() => void generateMainResume()}
+          >
+            {isGeneratingMainResume ? "Generating..." : "Generate main resume"}
+          </button>
+        </div>
+        <div className="main-resume-builder__metrics">
+          <article>
+            <span>Resume-safe evidence</span>
+            <strong>{resumeEligibleEvidence}</strong>
+            <p>{mainResumeReady ? "Ready for main resume generation." : "Approve resume-safe evidence first."}</p>
+          </article>
+          <article>
+            <span>Latest main resume</span>
+            <strong>{latestMainResume ? latestMainResume.status : "None"}</strong>
+            <p>{latestMainResume ? formatDateTime(latestMainResume.updatedAt) : "No generated main resume yet."}</p>
+          </article>
+          <article>
+            <span>Claim ledger</span>
+            <strong>{latestMainResume?.claims.length ?? 0}</strong>
+            <p>{latestMainResume ? "Claims map bullets to evidence." : "Generated with the first main resume."}</p>
+          </article>
+        </div>
+        {mainResumeStatus ? <p className="status">{mainResumeStatus}</p> : null}
+        {latestMainResume ? (
+          <details className="main-resume-builder__preview">
+            <summary>{latestMainResume.title}</summary>
+            <pre>{latestMainResume.resume_markdown}</pre>
+            {latestMainResume.missing_evidence_questions.length > 0 ? (
+              <div>
+                <strong>Missing evidence questions</strong>
+                <ul>
+                  {latestMainResume.missing_evidence_questions.map((question) => (
+                    <li key={question}>{question}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </details>
+        ) : null}
       </section>
     </div>
   );

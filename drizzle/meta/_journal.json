@@ -78,6 +78,13 @@
       "when": 1781624764408,
       "tag": "0010_aromatic_shinobi_shaw",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1781633516369,
+      "tag": "0011_slim_imperial_guard",
+      "breakpoints": true
     }
   ]
 }

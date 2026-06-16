@@ -119,6 +119,25 @@ type EvidenceCardItem = {
   public_safe_summary?: string | null;
   status: string;
   needs_user_confirmation: boolean;
+  enrichment_task_count?: number;
+  updatedAt?: string;
+};
+
+type EnrichmentTaskItem = {
+  id: string;
+  task_type: string;
+  status: "open" | "answered" | "converted" | "dismissed";
+  source_type: string;
+  source_label: string;
+  prompt: string;
+  user_answer: string | null;
+  evidence_item_id: string | null;
+  work_experience_id: string | null;
+  initiative_id: string | null;
+  portfolio_project_id: string | null;
+  resume_source_version_id: string | null;
+  resume_review_report_id: string | null;
+  updatedAt: string;
 };
 
 type WorkExperienceItem = {
@@ -244,9 +263,9 @@ export function ProfileEvidenceWorkspace({
   const [activeSection, setActiveSection] = useState<"review" | "intake">(initialSection);
   const [selectedEntryIntent, setSelectedEntryIntent] =
     useState<MaterialEntryIntent>(entryIntent);
-  const [reviewTab, setReviewTab] = useState<"projects" | "unlinked" | "cleanup" | "stories">(
-    "projects",
-  );
+  const [reviewTab, setReviewTab] = useState<
+    "enrichment" | "projects" | "unlinked" | "cleanup" | "stories"
+  >("enrichment");
   const [sourceDrafts, setSourceDrafts] = useState<Record<"resume" | "jd", SourceDraft>>({
     jd: { text: "", title: "" },
     resume: { text: "", title: "" },
@@ -266,6 +285,7 @@ export function ProfileEvidenceWorkspace({
     [],
   );
   const [starStories, setStarStories] = useState<StarStory[]>([]);
+  const [enrichmentTasks, setEnrichmentTasks] = useState<EnrichmentTaskItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Add a source to continue.");
   const [lastIntakeSummary, setLastIntakeSummary] = useState<{
@@ -286,6 +306,7 @@ export function ProfileEvidenceWorkspace({
     void loadDedupeCandidates();
     void loadStoryDedupeCandidates();
     void loadStarStories();
+    void loadEnrichmentTasks();
     void loadResumeSources();
   }, []);
 
@@ -384,6 +405,15 @@ export function ProfileEvidenceWorkspace({
     setStarStories(payload.data?.stories ?? []);
   }
 
+  async function loadEnrichmentTasks() {
+    const response = await fetchJson("/api/enrichment-tasks");
+    if (!response.ok) return;
+    const payload = (await response.json()) as {
+      data?: { status: string; tasks?: EnrichmentTaskItem[] };
+    };
+    setEnrichmentTasks(payload.data?.tasks ?? []);
+  }
+
   async function loadResumeSources() {
     const response = await fetchJson("/api/resume-review");
     if (!response.ok) return;
@@ -445,6 +475,7 @@ export function ProfileEvidenceWorkspace({
     await loadDedupeCandidates();
     await loadStoryDedupeCandidates();
     await loadStarStories();
+    await loadEnrichmentTasks();
     window.dispatchEvent(new Event("jobdesk:evidence-library-updated"));
   }
 
@@ -816,7 +847,23 @@ export function ProfileEvidenceWorkspace({
     success: Boolean(lastIntakeSummary && lastIntakeSummary.type === "project"),
   });
   const profile = result?.profile;
-  const evidenceItems = result?.evidence_items ?? library?.evidenceItems ?? [];
+  const rawEvidenceItems = result?.evidence_items ?? library?.evidenceItems ?? [];
+  const enrichmentTaskCountByEvidenceId = new Map<string, number>();
+  for (const task of enrichmentTasks) {
+    if (!task.evidence_item_id || (task.status !== "open" && task.status !== "answered")) {
+      continue;
+    }
+    enrichmentTaskCountByEvidenceId.set(
+      task.evidence_item_id,
+      (enrichmentTaskCountByEvidenceId.get(task.evidence_item_id) ?? 0) + 1,
+    );
+  }
+  const evidenceItems = rawEvidenceItems.map((item) => ({
+    ...item,
+    enrichment_task_count: "id" in item && item.id
+      ? enrichmentTaskCountByEvidenceId.get(item.id) ?? 0
+      : 0,
+  }));
   const workExperiences = result?.work_experiences ?? library?.workExperiences ?? [];
   const initiatives = result?.initiatives ?? library?.initiatives ?? [];
   const portfolioProjects = result?.portfolio_projects ?? library?.portfolioProjects ?? [];
@@ -926,6 +973,40 @@ export function ProfileEvidenceWorkspace({
     setResult(null);
     await refreshLibraryAfterMutation();
     const message = formatEvidenceActionMessage(action);
+    setStatus(message);
+    return { ok: true, message };
+  }
+
+  async function updateEnrichmentTask(
+    taskId: string,
+    payload:
+      | { action: "answer"; userAnswer: string }
+      | { action: "dismiss" }
+      | { action: "reopen" }
+      | { action: "convert" },
+  ): Promise<{ ok: boolean; message: string }> {
+    const response = await fetchJson(`/api/enrichment-tasks/${taskId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = (await response.json().catch(() => null)) as
+      | { data?: { status: string }; error?: string }
+      | null;
+    if (!response.ok) {
+      const message = body?.error ?? "Failed to update enrichment task.";
+      setError(message);
+      return { ok: false, message };
+    }
+    await refreshLibraryAfterMutation();
+    const message =
+      payload.action === "answer"
+        ? "Saved enrichment answer."
+        : payload.action === "convert"
+          ? "Converted answer into a pending evidence candidate."
+          : payload.action === "dismiss"
+            ? "Dismissed enrichment task."
+            : "Reopened enrichment task.";
     setStatus(message);
     return { ok: true, message };
   }
@@ -1294,16 +1375,28 @@ export function ProfileEvidenceWorkspace({
             />
           ) : null}
           <EvidencePriorityQueue
+            onOpenEnrichment={() => setReviewTab("enrichment")}
             onOpenCleanup={() => setReviewTab("cleanup")}
             onOpenClaims={() => setReviewTab("unlinked")}
             onOpenStories={() => setReviewTab("stories")}
             onOpenStoryTargets={() => setReviewTab("projects")}
             onReturnToIntake={() => setActiveSection("intake")}
+            enrichmentTaskCount={
+              enrichmentTasks.filter((task) => task.status === "open" || task.status === "answered")
+                .length
+            }
             summary={libraryReadiness}
           />
           {profile ? <ProfileSummary extraction={result} /> : <LibrarySummary library={library} />}
           <LibraryReadinessSummary summary={libraryReadiness} />
           <div className="review-switcher" role="tablist" aria-label="Library Review panels">
+            <button
+              data-active={reviewTab === "enrichment"}
+              type="button"
+              onClick={() => setReviewTab("enrichment")}
+            >
+              Needs Enrichment ({enrichmentTasks.filter((task) => task.status === "open" || task.status === "answered").length})
+            </button>
             <button
               data-active={reviewTab === "projects"}
               type="button"
@@ -1333,6 +1426,13 @@ export function ProfileEvidenceWorkspace({
               STAR Stories ({starStories.length})
             </button>
           </div>
+          {reviewTab === "enrichment" ? (
+            <EnrichmentTaskQueue
+              onReturnToIntake={() => setActiveSection("intake")}
+              onUpdate={updateEnrichmentTask}
+              tasks={enrichmentTasks}
+            />
+          ) : null}
           {reviewTab === "projects" ? (
             <StoryMaterialList
               evidenceItems={evidenceItems}
@@ -1652,6 +1752,8 @@ function LibraryReadinessSummary({
 }
 
 function EvidencePriorityQueue({
+  enrichmentTaskCount,
+  onOpenEnrichment,
   onOpenClaims,
   onOpenCleanup,
   onOpenStories,
@@ -1659,6 +1761,8 @@ function EvidencePriorityQueue({
   onReturnToIntake,
   summary,
 }: {
+  enrichmentTaskCount: number;
+  onOpenEnrichment: () => void;
   onOpenClaims: () => void;
   onOpenCleanup: () => void;
   onOpenStories: () => void;
@@ -1668,11 +1772,19 @@ function EvidencePriorityQueue({
 }) {
   const queue = [
     {
+      action: enrichmentTaskCount > 0 ? onOpenEnrichment : onReturnToIntake,
+      button: enrichmentTaskCount > 0 ? "Answer enrichment tasks" : "Add source material",
+      count: enrichmentTaskCount,
+      detail: "Answer missing metric, scope, ownership, technical-depth, and impact prompts to strengthen reusable evidence.",
+      label: "1. Needs enrichment",
+      state: enrichmentTaskCount > 0 ? "active" : "empty",
+    },
+    {
       action: summary.evidenceNeedingReview > 0 ? onOpenClaims : onReturnToIntake,
       button: summary.evidenceNeedingReview > 0 ? "Review claims" : "Add source material",
       count: summary.evidenceNeedingReview,
       detail: "Claims must be approved before they are safe for resume generation.",
-      label: "1. Claims awaiting review",
+      label: "2. Claims awaiting review",
       state: summary.evidenceNeedingReview > 0 ? "active" : "empty",
     },
     {
@@ -1680,7 +1792,7 @@ function EvidencePriorityQueue({
       button: summary.projectsNeedingContext > 0 ? "Enrich thin projects" : "Add project/source docs",
       count: summary.projectsNeedingContext,
       detail: "Thin story targets need problem, role, actions, results, metrics, and external-safe context.",
-      label: "2. Thin projects needing context",
+      label: "3. Thin projects needing context",
       state: summary.projectsNeedingContext > 0 ? "active" : "empty",
     },
     {
@@ -1688,7 +1800,7 @@ function EvidencePriorityQueue({
       button: summary.cleanupCount > 0 ? "Resolve overlaps" : "No cleanup needed",
       count: summary.cleanupCount,
       detail: "Possible duplicate claims or story targets should be resolved before reuse.",
-      label: "3. Duplicate cleanup",
+      label: "4. Duplicate cleanup",
       state: summary.cleanupCount > 0 ? "active" : "empty",
     },
     {
@@ -1696,7 +1808,7 @@ function EvidencePriorityQueue({
       button: summary.storyReadyProjects > 0 ? "Review STAR stories" : "Prepare stories first",
       count: summary.storyReadyProjects,
       detail: `${summary.storyReadyProjects} STAR stories ready · ${summary.storyTargetCount} story targets available.`,
-      label: "4. STAR stories ready",
+      label: "5. STAR stories ready",
       state: summary.storyReadyProjects > 0 ? "active" : "empty",
     },
   ];
@@ -1727,6 +1839,156 @@ function EvidencePriorityQueue({
           </button>
         ))}
       </div>
+    </section>
+  );
+}
+
+function EnrichmentTaskQueue({
+  onReturnToIntake,
+  onUpdate,
+  tasks,
+}: {
+  onReturnToIntake: () => void;
+  onUpdate: (
+    taskId: string,
+    payload:
+      | { action: "answer"; userAnswer: string }
+      | { action: "dismiss" }
+      | { action: "reopen" }
+      | { action: "convert" },
+  ) => Promise<{ ok: boolean; message: string }>;
+  tasks: EnrichmentTaskItem[];
+}) {
+  const actionableTasks = tasks.filter(
+    (task) => task.status === "open" || task.status === "answered",
+  );
+  const convertedCount = tasks.filter((task) => task.status === "converted").length;
+  const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [messages, setMessages] = useState<Record<string, { ok: boolean; text: string }>>({});
+
+  async function handleUpdate(
+    task: EnrichmentTaskItem,
+    payload:
+      | { action: "answer"; userAnswer: string }
+      | { action: "dismiss" }
+      | { action: "reopen" }
+      | { action: "convert" },
+  ) {
+    setPendingTaskId(task.id);
+    try {
+      const result = await onUpdate(task.id, payload);
+      setMessages((current) => ({
+        ...current,
+        [task.id]: { ok: result.ok, text: result.message },
+      }));
+      if (result.ok && payload.action === "answer") {
+        setAnswers((current) => ({ ...current, [task.id]: "" }));
+      }
+    } finally {
+      setPendingTaskId(null);
+    }
+  }
+
+  return (
+    <section className="section-block enrichment-queue">
+      <div className="section-block__top">
+        <div>
+          <h3>Needs Enrichment</h3>
+          <p>
+            These prompts come from resume review findings and extraction notes. Answer
+            them to create stronger pending evidence candidates, then approve only the
+            claims that are accurate and reusable.
+          </p>
+        </div>
+        <span>
+          {actionableTasks.length} active · {convertedCount} converted
+        </span>
+      </div>
+      {actionableTasks.length === 0 ? (
+        <div className="empty-state-row">
+          <div>
+            <strong>No enrichment tasks are open.</strong>
+            <p>Add source material or rerun Resume Review to surface new gaps.</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={onReturnToIntake}>
+            Add source material
+          </button>
+        </div>
+      ) : (
+        <div className="enrichment-task-list">
+          {actionableTasks.map((task) => {
+            const answer = answers[task.id] ?? task.user_answer ?? "";
+            const isPending = pendingTaskId === task.id;
+            const message = messages[task.id];
+            return (
+              <article className="enrichment-task-card" key={task.id}>
+                <div className="enrichment-task-card__top">
+                  <div>
+                    <span>{formatEnrichmentTaskType(task.task_type)}</span>
+                    <strong>{task.prompt}</strong>
+                    <p>
+                      Source: {task.source_label} · {formatEnrichmentSourceType(task.source_type)}
+                    </p>
+                  </div>
+                  <em data-state={task.status}>{formatEnrichmentStatus(task.status)}</em>
+                </div>
+                <label className="source-field source-field--textarea">
+                  <span>Your answer</span>
+                  <textarea
+                    className="jd-input jd-input--compact enrichment-task-card__answer"
+                    disabled={isPending}
+                    onChange={(event) =>
+                      setAnswers((current) => ({
+                        ...current,
+                        [task.id]: event.target.value,
+                      }))
+                    }
+                    placeholder="Add concrete numbers, scope, ownership, actions, results, or public-safe wording..."
+                    value={answer}
+                  />
+                </label>
+                <div className="actions actions--compact">
+                  <button
+                    className="secondary-button"
+                    disabled={isPending || answer.trim().length < 12}
+                    type="button"
+                    onClick={() =>
+                      void handleUpdate(task, {
+                        action: "answer",
+                        userAnswer: answer,
+                      })
+                    }
+                  >
+                    Save answer
+                  </button>
+                  <button
+                    className="secondary-button"
+                    disabled={isPending || task.status !== "answered"}
+                    type="button"
+                    onClick={() => void handleUpdate(task, { action: "convert" })}
+                  >
+                    Convert to evidence candidate
+                  </button>
+                  <button
+                    className="ghost-button"
+                    disabled={isPending}
+                    type="button"
+                    onClick={() => void handleUpdate(task, { action: "dismiss" })}
+                  >
+                    Dismiss
+                  </button>
+                  {message ? (
+                    <span className={message.ok ? "status" : "status status--error"}>
+                      {message.text}
+                    </span>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
@@ -1876,6 +2138,39 @@ function formatEvidenceActionMessage(
     return "Evidence updated. Existing generated claims that used edited text may need revalidation.";
   }
   return "External-safe summary saved and resume/interview use enabled.";
+}
+
+function formatEnrichmentTaskType(type: string) {
+  const labels: Record<string, string> = {
+    impact: "Impact",
+    metric: "Metric",
+    ownership: "Ownership",
+    public_safe_wording: "Public-safe wording",
+    scope: "Scope",
+    stakeholder: "Stakeholder",
+    star: "STAR detail",
+    technical_depth: "Technical depth",
+  };
+  return labels[type] ?? type;
+}
+
+function formatEnrichmentSourceType(type: string) {
+  const labels: Record<string, string> = {
+    evidence: "evidence card",
+    extraction_note: "extraction note",
+    jd_gap: "JD gap",
+    resume_review: "resume review",
+    story_target: "story target",
+    user_input: "user input",
+  };
+  return labels[type] ?? type;
+}
+
+function formatEnrichmentStatus(status: EnrichmentTaskItem["status"]) {
+  if (status === "answered") return "answer saved";
+  if (status === "converted") return "candidate created";
+  if (status === "dismissed") return "dismissed";
+  return "open";
 }
 
 function getEntryGuidance(intent: MaterialEntryIntent) {
@@ -2044,6 +2339,92 @@ function formatReusableUsage(item: EvidenceCardItem) {
 function formatEvidenceSource(item: EvidenceCardItem) {
   if (item.source_document_id) return "Source document";
   return "Extracted source";
+}
+
+function formatEvidenceLinkedTarget(
+  item: EvidenceCardItem,
+  linkTargets?: EvidenceLinkTargets,
+  legacyProjects: ProjectCardItem[] = [],
+) {
+  if (item.related_initiative_id) {
+    const initiative = linkTargets?.initiatives.find(
+      (target) => target.id === item.related_initiative_id,
+    );
+    return initiative
+      ? initiative.external_safe_title ?? initiative.internal_title
+      : "initiative";
+  }
+  if (item.related_portfolio_project_id) {
+    const project = linkTargets?.portfolioProjects.find(
+      (target) => target.id === item.related_portfolio_project_id,
+    );
+    return project ? project.external_safe_title ?? project.title : "portfolio project";
+  }
+  if (item.related_work_experience_id) {
+    const experience = linkTargets?.workExperiences.find(
+      (target) => target.id === item.related_work_experience_id,
+    );
+    return experience
+      ? `${experience.employer} · ${experience.role_title}`
+      : "work experience";
+  }
+  if (item.related_project_id) {
+    const project = legacyProjects.find((target) => target.id === item.related_project_id);
+    return project ? project.title : "legacy project";
+  }
+  return "general profile";
+}
+
+function formatEvidenceAssetStatus(item: EvidenceCardItem) {
+  if (
+    item.status === "approved" &&
+    !item.needs_user_confirmation &&
+    (item.allowed_usage ?? []).includes("resume")
+  ) {
+    return "User-confirmed · resume-safe";
+  }
+  if (item.status === "approved" && !item.needs_user_confirmation) {
+    return "User-confirmed";
+  }
+  if (item.status === "rejected") return "Rejected";
+  return "Extracted candidate";
+}
+
+function formatEvidenceMissingInfo(item: EvidenceCardItem) {
+  const missing = [];
+  if (item.status !== "approved" || item.needs_user_confirmation) {
+    missing.push("user confirmation");
+  }
+  if (!(item.allowed_usage ?? []).includes("resume")) {
+    missing.push("resume usage");
+  }
+  if (item.sensitivity_level !== "public_safe" && !item.public_safe_summary) {
+    missing.push("public-safe wording");
+  }
+  if (
+    !item.related_work_experience_id &&
+    !item.related_initiative_id &&
+    !item.related_portfolio_project_id &&
+    !item.related_project_id
+  ) {
+    missing.push("story link");
+  }
+  if ((item.enrichment_task_count ?? 0) > 0) {
+    missing.push(
+      `${item.enrichment_task_count} enrichment task${item.enrichment_task_count === 1 ? "" : "s"}`,
+    );
+  }
+  return missing.length ? missing.join(", ") : "none";
+}
+
+function formatRelativeDate(value?: string | null) {
+  if (!value) return "unknown";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  return date.toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "short",
+  });
 }
 
 function formatSourceQuotePreview(quote: string) {
@@ -2617,18 +2998,7 @@ function EvidenceList({
 }: {
   description?: string;
   emptyMessage?: string;
-  items: Array<{
-    id?: string;
-    text: string;
-    source_quote: string;
-    related_project_id?: string | null;
-    evidence_type: string;
-    sensitivity_level: string;
-    allowed_usage?: string[];
-    public_safe_summary?: string | null;
-    status: string;
-    needs_user_confirmation: boolean;
-  }>;
+  items: EvidenceCardItem[];
   onUpdate: (
     item: EvidenceCardItem,
     action: EvidenceUpdateAction,
@@ -2882,6 +3252,8 @@ function EvidenceCard({
 }) {
   const readiness = getEvidenceReadiness(item);
   const blocker = getEvidenceBlocker(item);
+  const linkedTarget = formatEvidenceLinkedTarget(item, linkTargets, projects);
+  const missingInfo = formatEvidenceMissingInfo(item);
   const [isEditing, setIsEditing] = useState(false);
   const [draftText, setDraftText] = useState(item.text);
   const [draftSummary, setDraftSummary] = useState(item.public_safe_summary ?? "");
@@ -2941,6 +3313,8 @@ function EvidenceCard({
         <p className="requirement__quote">Status: {item.status}</p>
         <p className="requirement__quote">Reusable in: {formatReusableUsage(item)}</p>
         <p className="requirement__quote">Source: {formatEvidenceSource(item)}</p>
+        <p className="requirement__quote">Linked to: {linkedTarget}</p>
+        <p className="requirement__quote">Missing info: {missingInfo}</p>
         <p className="requirement__quote">Quote: {item.source_quote}</p>
         {item.public_safe_summary ? (
           <p className="requirement__quote">External-safe: {item.public_safe_summary}</p>
@@ -2982,9 +3356,12 @@ function EvidenceCard({
         </button>
       </div>
       <div className="evidence-row__meta">
-        <span>Status: {item.status}</span>
+        <span>Status: {formatEvidenceAssetStatus(item)}</span>
         <small>Reusable in: {formatReusableUsage(item)}</small>
         <small>Source: {formatEvidenceSource(item)}</small>
+        <small>Linked to: {linkedTarget}</small>
+        <small>Missing info: {missingInfo}</small>
+        <small>Updated: {formatRelativeDate(item.updatedAt)}</small>
         <small>{blocker.reason}</small>
         {(item.allowed_usage ?? []).map((usage) => (
           <small key={usage}>
@@ -3002,6 +3379,10 @@ function EvidenceCard({
         <summary>View evidence detail</summary>
         <p>Source: {formatEvidenceSource(item)}</p>
         <p>Reusable in: {formatReusableUsage(item)}</p>
+        <p>Status: {formatEvidenceAssetStatus(item)}</p>
+        <p>Linked to: {linkedTarget}</p>
+        <p>Missing info: {missingInfo}</p>
+        <p>Last updated: {formatRelativeDate(item.updatedAt)}</p>
         <p>Quote: {formatSourceQuotePreview(item.source_quote)}</p>
         {item.public_safe_summary ? <p>External-safe: {item.public_safe_summary}</p> : null}
         {item.id ? (

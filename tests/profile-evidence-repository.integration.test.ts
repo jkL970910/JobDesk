@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { loadDotEnv } from "../src/ai/env";
+import { getEnrichmentTaskQueue } from "../src/server/enrichment-task-repository";
 import {
   getEvidenceDedupeCandidates,
   getProjectDedupeCandidates,
@@ -59,6 +60,16 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
         "star-story-extraction",
       ],
     });
+    const enrichmentQueue = await getEnrichmentTaskQueue(20);
+    expect(enrichmentQueue.status).toBe("ready");
+    if (enrichmentQueue.status !== "ready") {
+      throw new Error("Expected enrichment queue.");
+    }
+    expect(
+      enrichmentQueue.tasks.some((task) =>
+        task.prompt.includes("Add a concrete activation metric"),
+      ),
+    ).toBe(true);
 
     const library = await getRecentEvidenceLibrary(10);
     expect(library.profile?.displayName).toBe("Jane Doe");
@@ -656,7 +667,7 @@ function buildExtraction(): ProfileEvidenceExtraction {
         status: "pending",
       },
     ],
-    extraction_notes: [],
+    extraction_notes: ["Add a concrete activation metric for the onboarding analytics story."],
   };
 }
 

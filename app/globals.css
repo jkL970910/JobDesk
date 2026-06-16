@@ -1653,6 +1653,103 @@ textarea:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.main-resume-builder {
+  background:
+    linear-gradient(135deg, rgba(49, 208, 170, 0.09), rgba(111, 124, 255, 0.06)),
+    rgba(255, 255, 255, 0.024);
+  border: 1px solid rgba(49, 208, 170, 0.18);
+  border-radius: 14px;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.main-resume-builder__header {
+  align-items: center;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.main-resume-builder__header h3 {
+  color: var(--ink);
+  font-size: 1.05rem;
+  margin: 0 0 6px;
+}
+
+.main-resume-builder__header p {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.main-resume-builder__metrics {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.main-resume-builder__metrics article {
+  background: rgba(8, 12, 20, 0.34);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+}
+
+.main-resume-builder__metrics span {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.main-resume-builder__metrics strong {
+  color: var(--ink);
+  font-size: 1.15rem;
+}
+
+.main-resume-builder__metrics p {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.38;
+  margin: 0;
+}
+
+.main-resume-builder__preview {
+  background: rgba(8, 12, 20, 0.38);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.main-resume-builder__preview summary {
+  color: var(--primary-strong);
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 840;
+}
+
+.main-resume-builder__preview pre {
+  color: var(--ink-soft);
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 12px 0 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.main-resume-builder__preview strong {
+  color: var(--ink);
+  display: block;
+  margin-top: 12px;
+}
+
 .settings-panel--quiet {
   background: rgba(255, 255, 255, 0.018);
   box-shadow: none;
@@ -2286,7 +2383,7 @@ select:focus {
 .evidence-priority-queue__items {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .evidence-priority-queue__items button {
@@ -2322,6 +2419,100 @@ select:focus {
   color: var(--muted);
   font-size: 0.74rem;
   line-height: 1.35;
+}
+
+.enrichment-queue {
+  background: rgba(255, 255, 255, 0.022);
+}
+
+.enrichment-task-list {
+  display: grid;
+  gap: 10px;
+}
+
+.enrichment-task-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.enrichment-task-card__top {
+  align-items: flex-start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.enrichment-task-card__top span {
+  color: var(--primary-strong);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.enrichment-task-card__top strong {
+  color: var(--ink);
+  display: block;
+  font-size: 0.95rem;
+  line-height: 1.35;
+  margin-top: 4px;
+}
+
+.enrichment-task-card__top p {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  margin: 5px 0 0;
+}
+
+.enrichment-task-card__top em {
+  background: rgba(245, 177, 85, 0.12);
+  border: 1px solid rgba(245, 177, 85, 0.25);
+  border-radius: 999px;
+  color: var(--warning);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 800;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.enrichment-task-card__top em[data-state="answered"] {
+  background: rgba(49, 208, 170, 0.1);
+  border-color: rgba(49, 208, 170, 0.22);
+  color: var(--success);
+}
+
+.enrichment-task-card__answer {
+  min-height: 108px;
+}
+
+.empty-state-row {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.empty-state-row strong {
+  color: var(--ink);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.empty-state-row p {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin: 0;
 }
 
 .source-path-handoff {
@@ -3019,7 +3210,7 @@ select:focus {
   border-radius: 10px;
   display: grid;
   gap: 6px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   margin: 14px 0;
   padding: 6px;
 }

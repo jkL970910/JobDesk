@@ -22,6 +22,10 @@ import type {
   JobDeskAiUsage,
 } from "../ai/types";
 import { workflowSkillFields } from "./workflow-run-metadata";
+import {
+  buildResumeReviewEnrichmentTasks,
+  upsertEnrichmentTasks,
+} from "./enrichment-task-repository";
 
 const defaultWorkspaceName = "Personal JobDesk";
 type DbHandle = ReturnType<typeof getDb>;
@@ -171,6 +175,18 @@ export async function rerunResumeReview(resumeSourceVersionId: string) {
         updatedAt: now,
       })
       .returning();
+    if (savedReport) {
+      await upsertEnrichmentTasks(tx, {
+        workspaceId: resume.workspaceId,
+        now,
+        tasks: buildResumeReviewEnrichmentTasks({
+          resumeTitle: resume.title,
+          resumeSourceVersionId: resume.id,
+          resumeReviewReportId: savedReport.id,
+          missingEvidenceQuestions: review.report.missingEvidenceQuestions,
+        }),
+      });
+    }
     await tx
       .update(resumeSourceVersions)
       .set({
@@ -271,6 +287,18 @@ export async function createResumeSourceVersion(args: {
         updatedAt: now,
       })
       .returning();
+    if (savedReport) {
+      await upsertEnrichmentTasks(tx, {
+        workspaceId: workspace.id,
+        now,
+        tasks: buildResumeReviewEnrichmentTasks({
+          resumeTitle: resume.title,
+          resumeSourceVersionId: resume.id,
+          resumeReviewReportId: savedReport.id,
+          missingEvidenceQuestions: review.report.missingEvidenceQuestions,
+        }),
+      });
+    }
 
     await tx
       .update(resumeSourceVersions)

@@ -100,6 +100,30 @@ export const resumeReviewStatusEnum = pgEnum("resume_review_status", [
   "ready",
   "stale",
 ]);
+export const enrichmentTaskTypeEnum = pgEnum("enrichment_task_type", [
+  "metric",
+  "scope",
+  "ownership",
+  "technical_depth",
+  "stakeholder",
+  "impact",
+  "star",
+  "public_safe_wording",
+]);
+export const enrichmentTaskStatusEnum = pgEnum("enrichment_task_status", [
+  "open",
+  "answered",
+  "converted",
+  "dismissed",
+]);
+export const enrichmentTaskSourceTypeEnum = pgEnum("enrichment_task_source_type", [
+  "resume_review",
+  "extraction_note",
+  "evidence",
+  "story_target",
+  "jd_gap",
+  "user_input",
+]);
 export const portfolioProjectTypeEnum = pgEnum("portfolio_project_type", [
   "personal_project",
   "academic_project",
@@ -647,6 +671,46 @@ export const resumeVersions = pgTable(
   }),
 );
 
+export const mainResumeVersions = pgTable(
+  "main_resume_versions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    workflowRunId: uuid("workflow_run_id").references(() => workflowRuns.id, {
+      onDelete: "set null",
+    }),
+    title: varchar("title", { length: 240 }).notNull(),
+    resumeJson: jsonb("resume_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    resumeMarkdown: text("resume_markdown").notNull(),
+    missingEvidenceQuestions: jsonb("missing_evidence_questions")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    version: integer("version").notNull().default(1),
+    status: resumeStatusEnum("status").notNull().default("unvalidated"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workspaceUpdatedIdx: index("main_resume_versions_workspace_updated_idx").on(
+      table.workspaceId,
+      table.updatedAt,
+    ),
+    workflowRunIdx: index("main_resume_versions_workflow_run_idx").on(
+      table.workflowRunId,
+    ),
+  }),
+);
+
 export const generatedClaims = pgTable(
   "generated_claims",
   {
@@ -661,6 +725,10 @@ export const generatedClaims = pgTable(
     ),
     resumeVersionId: uuid("resume_version_id").references(
       () => resumeVersions.id,
+      { onDelete: "cascade" },
+    ),
+    mainResumeVersionId: uuid("main_resume_version_id").references(
+      () => mainResumeVersions.id,
       { onDelete: "cascade" },
     ),
     claimText: text("claim_text").notNull(),
@@ -680,9 +748,70 @@ export const generatedClaims = pgTable(
   },
   (table) => ({
     resumeIdx: index("generated_claims_resume_idx").on(table.resumeVersionId),
+    mainResumeIdx: index("generated_claims_main_resume_idx").on(
+      table.mainResumeVersionId,
+    ),
     workspaceCreatedIdx: index("generated_claims_workspace_created_idx").on(
       table.workspaceId,
       table.createdAt,
+    ),
+  }),
+);
+
+export const enrichmentTasks = pgTable(
+  "enrichment_tasks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskType: enrichmentTaskTypeEnum("task_type").notNull(),
+    status: enrichmentTaskStatusEnum("status").notNull().default("open"),
+    sourceType: enrichmentTaskSourceTypeEnum("source_type").notNull(),
+    sourceLabel: varchar("source_label", { length: 240 }).notNull(),
+    prompt: text("prompt").notNull(),
+    userAnswer: text("user_answer"),
+    dedupeKey: varchar("dedupe_key", { length: 320 }).notNull(),
+    evidenceItemId: uuid("evidence_item_id").references(() => evidenceItems.id, {
+      onDelete: "set null",
+    }),
+    workExperienceId: uuid("work_experience_id").references(() => workExperiences.id, {
+      onDelete: "set null",
+    }),
+    initiativeId: uuid("initiative_id").references(() => initiatives.id, {
+      onDelete: "set null",
+    }),
+    portfolioProjectId: uuid("portfolio_project_id").references(
+      () => portfolioProjects.id,
+      { onDelete: "set null" },
+    ),
+    resumeSourceVersionId: uuid("resume_source_version_id").references(
+      () => resumeSourceVersions.id,
+      { onDelete: "set null" },
+    ),
+    resumeReviewReportId: uuid("resume_review_report_id").references(
+      () => resumeReviewReports.id,
+      { onDelete: "set null" },
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    convertedAt: timestamp("converted_at", { withTimezone: true }),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+  },
+  (table) => ({
+    workspaceStatusIdx: index("enrichment_tasks_workspace_status_idx").on(
+      table.workspaceId,
+      table.status,
+      table.updatedAt,
+    ),
+    uniqueDedupeIdx: uniqueIndex("enrichment_tasks_workspace_dedupe_idx").on(
+      table.workspaceId,
+      table.dedupeKey,
     ),
   }),
 );
@@ -818,7 +947,9 @@ export const workspaceRelations = relations(workspaces, ({ many }) => ({
   resumeSourceVersions: many(resumeSourceVersions),
   resumeReviewReports: many(resumeReviewReports),
   resumeVersions: many(resumeVersions),
+  mainResumeVersions: many(mainResumeVersions),
   generatedClaims: many(generatedClaims),
+  enrichmentTasks: many(enrichmentTasks),
   embeddings: many(embeddings),
   interviewPrepPacks: many(interviewPrepPacks),
   workflowRuns: many(workflowRuns),
@@ -848,7 +979,7 @@ export const resumeSourceVersionRelations = relations(
 
 export const resumeReviewReportRelations = relations(
   resumeReviewReports,
-  ({ one }) => ({
+  ({ many, one }) => ({
     workspace: one(workspaces, {
       fields: [resumeReviewReports.workspaceId],
       references: [workspaces.id],
@@ -857,6 +988,7 @@ export const resumeReviewReportRelations = relations(
       fields: [resumeReviewReports.resumeSourceVersionId],
       references: [resumeSourceVersions.id],
     }),
+    enrichmentTasks: many(enrichmentTasks),
   }),
 );
 
@@ -888,6 +1020,21 @@ export const resumeVersionRelations = relations(resumeVersions, ({ many, one }) 
   claims: many(generatedClaims),
 }));
 
+export const mainResumeVersionRelations = relations(
+  mainResumeVersions,
+  ({ many, one }) => ({
+    workspace: one(workspaces, {
+      fields: [mainResumeVersions.workspaceId],
+      references: [workspaces.id],
+    }),
+    workflowRun: one(workflowRuns, {
+      fields: [mainResumeVersions.workflowRunId],
+      references: [workflowRuns.id],
+    }),
+    claims: many(generatedClaims),
+  }),
+);
+
 export const generatedClaimRelations = relations(generatedClaims, ({ one }) => ({
   workspace: one(workspaces, {
     fields: [generatedClaims.workspaceId],
@@ -896,6 +1043,41 @@ export const generatedClaimRelations = relations(generatedClaims, ({ one }) => (
   resumeVersion: one(resumeVersions, {
     fields: [generatedClaims.resumeVersionId],
     references: [resumeVersions.id],
+  }),
+  mainResumeVersion: one(mainResumeVersions, {
+    fields: [generatedClaims.mainResumeVersionId],
+    references: [mainResumeVersions.id],
+  }),
+}));
+
+export const enrichmentTaskRelations = relations(enrichmentTasks, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [enrichmentTasks.workspaceId],
+    references: [workspaces.id],
+  }),
+  evidenceItem: one(evidenceItems, {
+    fields: [enrichmentTasks.evidenceItemId],
+    references: [evidenceItems.id],
+  }),
+  workExperience: one(workExperiences, {
+    fields: [enrichmentTasks.workExperienceId],
+    references: [workExperiences.id],
+  }),
+  initiative: one(initiatives, {
+    fields: [enrichmentTasks.initiativeId],
+    references: [initiatives.id],
+  }),
+  portfolioProject: one(portfolioProjects, {
+    fields: [enrichmentTasks.portfolioProjectId],
+    references: [portfolioProjects.id],
+  }),
+  resumeSourceVersion: one(resumeSourceVersions, {
+    fields: [enrichmentTasks.resumeSourceVersionId],
+    references: [resumeSourceVersions.id],
+  }),
+  resumeReviewReport: one(resumeReviewReports, {
+    fields: [enrichmentTasks.resumeReviewReportId],
+    references: [resumeReviewReports.id],
   }),
 }));
 

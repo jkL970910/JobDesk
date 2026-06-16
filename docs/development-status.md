@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-16
 Baseline commit: ce44458 `Build local MVP workflow baseline`
-Latest implementation commit: c74f913 `feat: add skills registry audit metadata`
+Latest implementation commit: 6bb36ad `chore: stabilize workflow baseline diagnostics`
 Production URL: https://jobdesk-tau.vercel.app
 Final UI reference: Figma Make `Si82hetJamO8bUqHOacgv9` — signed off as **JobDesk Final Project Reference UI v1**
 
@@ -10,7 +10,7 @@ This is the living implementation status file. Every future code change should u
 
 ## Workflow Count
 
-Current implementation covers **9 product workflows** and **5 support workflows** across three product lanes: **Resume Review**, **Material Library**, and **Job Workspace**. Resume Review stores and scores general resume source versions before extraction. The Material Library lane does not depend on a JD; the Job Workspace lane depends on a target JD plus approved material-library evidence. Material Library now exposes three intended entry paths: reviewed-resume onboarding, material-first/profile-from-scratch onboarding, and JD-first quick path with evidence-gap follow-up.
+Current implementation covers **10 product workflows** and **5 support workflows** across three product lanes: **Resume Review**, **Material Library**, and **Job Workspace**. Resume Review stores and scores general resume source versions before extraction. The Material Library lane does not depend on a JD; the Job Workspace lane depends on a target JD plus approved material-library evidence. Material Library now exposes three intended entry paths: reviewed-resume onboarding, material-first/profile-from-scratch onboarding, and JD-first quick path with evidence-gap follow-up.
 
 ## UI Reference Contract
 
@@ -57,12 +57,13 @@ Product workflows:
 | 1 | Resume Review: general resume versioning and scoring | Done, MVP | Passed | Supports PDF, DOCX, TXT, and Markdown upload through `/api/resume-review`; stores resume source versions, detects exact duplicate uploads by content hash, runs an LLM-first general resume review using the `hr-screening-review` skill adapted for no-JD scope, falls back to a local rubric when the provider is unavailable, and hands off selected versions to Evidence Library extraction. |
 | 2 | Material Library: reviewed resume source ingestion | Done | Passed | Source Intake can reuse stored resume versions from Resume Review as provenance sources for reusable evidence candidates, or route a new resume through review/versioning before extraction; no JD required. |
 | 3 | Material Library: profile and evidence extraction | Done | Passed | Extracts profile fields, work experiences, work initiatives, portfolio projects, and evidence items from reviewed resumes or project notes, then persists them when `DATABASE_URL` is configured. Extracted material is intended to become canonical reusable Evidence Library material after user review/enrichment, not remain owned by the source resume version. Legacy `project_cards` is retained only for older data compatibility. |
-| 4 | Material Library: story and evidence review for resume use | Done, basic | Passed | Library Review is split into Experience & Stories, Unlinked Evidence, Overlap Cleanup, and STAR Stories panels instead of one long review list. New evidence can link to Work Experiences, Initiatives, Portfolio Projects, or legacy Project cards. Employer-internal work is modeled as initiatives with internal and external-safe wording rather than as portfolio projects. Overlap Cleanup still supports legacy project/evidence overlap review; initiative/portfolio overlap cleanup is a follow-up. Supports evidence approve/reject/inline edit, external-safe summary review, allowed-usage editing, sensitive/internal-only resume-use blocking, story target display, STAR story review, and resume-eligible evidence filtering. |
+| 4 | Material Library: story and evidence review for resume use | Done, MVP | Passed | Library Review is split into Needs Enrichment, Experience & Stories, Unlinked Evidence, Overlap Cleanup, and STAR Stories panels instead of one long review list. New evidence can link to Work Experiences, Initiatives, Portfolio Projects, or legacy Project cards. Employer-internal work is modeled as initiatives with internal and external-safe wording rather than as portfolio projects. Evidence cards now show Source, Reusable in, Status, Linked to, Missing info, and Last updated metadata so users can see provenance and reusable-asset readiness. Overlap Cleanup still supports legacy project/evidence overlap review; initiative/portfolio overlap cleanup is a follow-up. Supports evidence approve/reject/inline edit, external-safe summary review, allowed-usage editing, sensitive/internal-only resume-use blocking, story target display, STAR story review, and resume-eligible evidence filtering. |
 | 5 | Job Workspace: JD analysis | Done | Passed | Extracts role facts, requirements, keywords, legitimacy signals, persistence, reload, reanalysis, and archive. |
 | 6 | Job Workspace: tailored resume generation | Done, MVP | Passed | Uses JD analysis plus approved material-library evidence retrieval, writes resume versions and generated claim ledger. Markdown/JSON export route is available for persisted resumes. |
 | 7 | Job Workspace: Fact Guard revalidation | Done, MVP | Passed | Deterministic coverage and evidence support checks with claim-by-claim review UI. Resume may remain `unvalidated` when claims need manual review. |
 | 8 | Job Workspace: interview preparation | Done, MVP | Passed | Generates persisted prep packs from an analyzed job, STAR story bank, local embedding retrieval context, behavioral questions, technical review topics, research prompts, practice plan, and evidence gaps. |
 | 9 | Job Workspace: manual application tracking | Done, MVP | Passed | Updates analyzed jobs through the canonical application status pipeline without external actions or email automation. |
+| 10 | Profile: Main Resume Builder | Done, MVP | Passed | Generates a general-purpose main resume under Profile from canonical profile facts plus resume-safe evidence, writes `main_resume_versions`, stores generated claim ledger entries, runs deterministic Fact Guard, and keeps JD-tailored resumes separate under Job Workspace. |
 
 Support workflows:
 
@@ -105,9 +106,9 @@ Last verified on 2026-06-16:
 | `npm run typecheck` | Passed |
 | `npm test` | Passed, 67 passed / 4 skipped |
 | `npm run test:integration` | Passed, 4 passed |
-| `npm run verify:local` | Added as the standard local baseline command; runs typecheck, unit tests, and DB integration tests |
+| `npm run verify:local` | Passed; runs typecheck, unit tests, and DB integration tests |
 | `npm run build` | Passed |
-| `npm run db:migrate` | Passed on the configured JobDesk development database through `drizzle/0010_aromatic_shinobi_shaw.sql` |
+| `npm run db:migrate` | Passed on the configured JobDesk development database through `drizzle/0011_slim_imperial_guard.sql` |
 | Local responsive UI browser audit at `http://localhost:3030` | Passed, app shell desktop, Evidence Library navigation, Overlap Cleanup tab, 390px mobile, no horizontal overflow, no browser console errors |
 | Local `/api/retrieval/reindex` smoke | Passed, saved 264 chunks |
 | Local `/api/interview-prep/generate` smoke | Passed, saved prep pack with 4 behavioral questions and 1 technical topic |
@@ -136,7 +137,7 @@ Integration tests use the configured JobDesk database and write temporary workfl
 - Running `next build` while `next dev` is still running can invalidate dev-server chunks in `.next`; restart the dev server after a production build.
 - The current UI is still a single-user workbench, not a polished multi-user product surface. `JOBDESK_ACCESS_TOKEN` is a personal access gate, not user accounts, RBAC, or per-user data isolation.
 - Evidence Library Builder MVP is implemented for project-note enrichment, project-card review, inline evidence edit/linking with related-project validation, project-level overlap merge or keep-separate review, evidence-level overlap merge or keep-separate review, basic external-safe de-identification review, computed STAR story promotion, and local embedding index reindexing. The embedding layer is a deterministic local JSONB MVP, not pgvector/ANN or provider embeddings yet.
-- Resume extraction can generate thin project/evidence cards because resumes rarely contain full project context. This is expected. The current UI surfaces readiness and offers project-level enrichment handoff from Project cards and STAR stories; a deeper guided-questionnaire flow is still future work.
+- Resume extraction can generate thin project/evidence cards because resumes rarely contain full project context. This is expected. The current UI surfaces readiness and creates persistent enrichment tasks from Resume Review missing-evidence questions and extraction notes. Project-level Source Intake handoff remains available from story cards and STAR stories.
 - Project card edits still use browser prompts for some fields. Evidence edits now use inline card editing; project editing should move to the same inline/drawer pattern before production-level UX signoff.
 - Resume retrieval does not auto-reindex on every tailored-resume request. Run `/api/retrieval/reindex` or generate an interview prep pack to refresh local embeddings.
 - The current UI now uses the signed-off product shell, but shared single-page state is still lightweight; future iterations can move major views to dedicated routes after the IA stabilizes in real use.
@@ -156,7 +157,8 @@ Integration tests use the configured JobDesk database and write temporary workfl
 | P1 | Build Evidence Library Builder for project notes, project cards, and richer resume retrieval context | Done, MVP with computed STAR story bank and local embedding index |
 | P1 | Add evidence/project merge-dedupe and de-identification workflow UI | Done, MVP |
 | P1 | Replace prompt-based card edits with inline or drawer editing for project/evidence review | Evidence inline edit done; project inline/drawer edit pending |
-| P1 | Add guided project enrichment questionnaire for thin resume-derived cards | Project-level Source Intake handoff done; full questionnaire not started |
+| P1 | Add guided evidence enrichment questionnaire for thin resume-derived cards | Done, MVP via persistent enrichment tasks, answer capture, and conversion into pending evidence candidates |
+| P1 | Add Profile Main Resume Builder | Done, MVP with main resume versions, claim ledger, and Fact Guard |
 | P1 | Redeploy latest baseline to Vercel and re-run production smoke | Pending for latest UI reference refactor |
 | P2 | Start interview preparation workflow | Done, MVP |
 | P2 | Start manual application tracking workflow | Done, MVP |

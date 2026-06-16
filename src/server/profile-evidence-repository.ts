@@ -30,6 +30,10 @@ import {
 } from "./retrieval-service";
 import { buildStarStoryCards, type StarStoryTargetInput } from "./star-story-service";
 import { workflowSkillFields } from "./workflow-run-metadata";
+import {
+  buildExtractionNoteEnrichmentTasks,
+  upsertEnrichmentTasks,
+} from "./enrichment-task-repository";
 
 const defaultWorkspaceName = "Personal JobDesk";
 
@@ -291,6 +295,15 @@ export async function persistProfileEvidenceExtraction(args: {
     if (!workflowRun) {
       throw new Error("Failed to create workflow run.");
     }
+
+    await upsertEnrichmentTasks(tx, {
+      workspaceId: workspace.id,
+      now,
+      tasks: buildExtractionNoteEnrichmentTasks({
+        sourceTitle: title,
+        notes: args.extraction.extraction_notes,
+      }),
+    });
 
     return {
       status: "saved",

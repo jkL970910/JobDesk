@@ -4,6 +4,7 @@ import { getDb, hasDatabaseUrl } from "../db/client";
 import {
   evidenceItems,
   generatedClaims,
+  mainResumeVersions,
   resumeVersions,
   workspaces,
   workflowRuns,
@@ -14,6 +15,7 @@ import type {
   JobDeskAiUsage,
 } from "../ai/types";
 import type { TailoredResumeDraft } from "../schemas/tailored-resume";
+import type { MainResumeDraft } from "../schemas/main-resume";
 import { claimsMatch, validateBulletClaimCoverage } from "./tailored-resume-guardrails";
 import { workflowSkillFields } from "./workflow-run-metadata";
 import { skillRegistry } from "../ai/skills-registry";
@@ -39,6 +41,19 @@ export type TailoredResumePersistenceResult =
       status: "saved";
       workspaceId: string;
       resumeVersionId: string;
+      workflowRunId: string;
+      claimCount: number;
+    }
+  | {
+      status: "skipped";
+      reason: "missing_database_url";
+    };
+
+export type MainResumePersistenceResult =
+  | {
+      status: "saved";
+      workspaceId: string;
+      mainResumeVersionId: string;
       workflowRunId: string;
       claimCount: number;
     }
@@ -132,6 +147,87 @@ export async function persistTailoredResume(args: {
   });
 }
 
+export async function persistMainResume(args: {
+  draft: MainResumeDraft;
+  provider: string;
+  model: string;
+  usage: JobDeskAiUsage;
+  retryCount: number;
+  skill: JobDeskAiSkillBinding;
+}): Promise<MainResumePersistenceResult> {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped", reason: "missing_database_url" };
+  }
+
+  return getDb().transaction(async (tx) => {
+    const workspace = await getOrCreateDefaultWorkspace(tx);
+    const now = new Date();
+    const [workflowRun] = await tx
+      .insert(workflowRuns)
+      .values({
+        workspaceId: workspace.id,
+        workflowType: args.skill.workflowType,
+        status: "succeeded",
+        provider: args.provider,
+        model: args.model,
+        ...workflowSkillFields(args.skill),
+        inputTokens: args.usage.inputTokens ?? null,
+        outputTokens: args.usage.outputTokens ?? null,
+        totalTokens: args.usage.totalTokens ?? null,
+        retryCount: args.retryCount,
+        startedAt: now,
+        finishedAt: now,
+      })
+      .returning({ id: workflowRuns.id });
+    if (!workflowRun) {
+      throw new Error("Failed to create main resume workflow run.");
+    }
+
+    const [mainResume] = await tx
+      .insert(mainResumeVersions)
+      .values({
+        workspaceId: workspace.id,
+        workflowRunId: workflowRun.id,
+        title: args.draft.title,
+        resumeJson: args.draft.resume_json,
+        resumeMarkdown: args.draft.resume_markdown,
+        missingEvidenceQuestions: args.draft.missing_evidence_questions,
+        status: "unvalidated",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: mainResumeVersions.id });
+    if (!mainResume) {
+      throw new Error("Failed to create main resume version.");
+    }
+
+    if (args.draft.claims.length > 0) {
+      await tx.insert(generatedClaims).values(
+        args.draft.claims.map((claim) => ({
+          workspaceId: workspace.id,
+          mainResumeVersionId: mainResume.id,
+          claimText: claim.claim_text,
+          section: claim.section,
+          evidenceIds: claim.evidence_ids,
+          sourceQuotes: claim.source_quotes,
+          supportStatus: "unvalidated" as const,
+          claimStatus: "unvalidated" as const,
+          riskLevel: claim.risk_level,
+          createdAt: now,
+        })),
+      );
+    }
+
+    return {
+      status: "saved",
+      workspaceId: workspace.id,
+      mainResumeVersionId: mainResume.id,
+      workflowRunId: workflowRun.id,
+      claimCount: args.draft.claims.length,
+    };
+  });
+}
+
 export async function persistTailoredResumeFailure(args: {
   jobId?: string | null;
   provider: string;
@@ -181,6 +277,50 @@ export async function getRecentTailoredResumes(limit = 5) {
     .limit(limit);
 
   return Promise.all(rows.map((resume) => toTailoredResumeDto(db, resume)));
+}
+
+export async function getRecentMainResumes(limit = 5) {
+  if (!hasDatabaseUrl()) return [];
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(mainResumeVersions)
+    .orderBy(desc(mainResumeVersions.updatedAt))
+    .limit(limit);
+
+  return Promise.all(rows.map((resume) => toMainResumeDto(db, resume)));
+}
+
+async function toMainResumeDto(
+  db: Pick<DbHandle, "select">,
+  resume: typeof mainResumeVersions.$inferSelect,
+) {
+  const claims = await db
+    .select()
+    .from(generatedClaims)
+    .where(eq(generatedClaims.mainResumeVersionId, resume.id));
+  return {
+    id: resume.id,
+    title: resume.title,
+    resume_markdown: resume.resumeMarkdown,
+    resume_json: resume.resumeJson,
+    missing_evidence_questions: resume.missingEvidenceQuestions,
+    version: resume.version,
+    status: resume.status,
+    updatedAt: resume.updatedAt.toISOString(),
+    claims: claims.map((claim) => ({
+      id: claim.id,
+      claim_text: claim.claimText,
+      section: claim.section,
+      evidence_ids: claim.evidenceIds,
+      source_quotes: claim.sourceQuotes,
+      support_status: claim.supportStatus,
+      claim_status: claim.claimStatus,
+      risk_level: claim.riskLevel,
+      stale_reason: claim.staleReason,
+      last_validated_at: claim.lastValidatedAt?.toISOString() ?? null,
+    })),
+  };
 }
 
 export async function getTailoredResumeById(resumeVersionId: string) {
@@ -325,6 +465,114 @@ export async function runFactGuardForResume(resumeVersionId: string) {
     return {
       status: "validated" as const,
       resumeVersionId,
+      workflowRunId: workflowRun?.id ?? null,
+      claimCount: claims.length,
+      supportedCount,
+      resumeStatus: allSupported ? "validated" : "unvalidated",
+      coveragePassed: coverage.passed,
+      coverageReason: coverage.reason,
+      claims: guardedClaims.map(toFactGuardClaimReport),
+    };
+  });
+}
+
+export async function runFactGuardForMainResume(mainResumeVersionId: string) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  return getDb().transaction(async (tx) => {
+    const [resume] = await tx
+      .select()
+      .from(mainResumeVersions)
+      .where(eq(mainResumeVersions.id, mainResumeVersionId))
+      .limit(1);
+    if (!resume) {
+      return { status: "not_found" as const };
+    }
+
+    const claims = await tx
+      .select()
+      .from(generatedClaims)
+      .where(eq(generatedClaims.mainResumeVersionId, mainResumeVersionId));
+    const evidenceIds = Array.from(
+      new Set(claims.flatMap((claim) => claim.evidenceIds)),
+    );
+    const evidence =
+      evidenceIds.length > 0
+        ? await tx
+            .select()
+            .from(evidenceItems)
+            .where(inArray(evidenceItems.id, evidenceIds))
+        : [];
+    const evidenceById = new Map(evidence.map((item) => [item.id, item]));
+    const now = new Date();
+    let supportedCount = 0;
+
+    for (const claim of claims) {
+      const verdict = evaluateClaimSupport(claim, evidenceById);
+      if (verdict.supportStatus === "supported") supportedCount += 1;
+      await tx
+        .update(generatedClaims)
+        .set({
+          supportStatus: verdict.supportStatus,
+          claimStatus: verdict.claimStatus,
+          staleReason: verdict.staleReason,
+          lastValidatedAt: now,
+        })
+        .where(eq(generatedClaims.id, claim.id));
+    }
+
+    const coverage = validateBulletClaimCoverage({
+      resumeMarkdown: resume.resumeMarkdown,
+      claims: claims.map((claim) => claim.claimText),
+    });
+    if (!coverage.passed && claims.length > 0) {
+      supportedCount = 0;
+      await tx
+        .update(generatedClaims)
+        .set({
+          supportStatus: "partially_supported",
+          claimStatus: "partially_supported",
+          staleReason: coverage.reason,
+          lastValidatedAt: now,
+        })
+        .where(eq(generatedClaims.mainResumeVersionId, mainResumeVersionId));
+    }
+
+    const allSupported =
+      claims.length > 0 && supportedCount === claims.length && coverage.passed;
+    await tx
+      .update(mainResumeVersions)
+      .set({
+        status: allSupported ? "validated" : "unvalidated",
+        updatedAt: now,
+      })
+      .where(eq(mainResumeVersions.id, mainResumeVersionId));
+
+    const [workflowRun] = await tx
+      .insert(workflowRuns)
+      .values({
+        workspaceId: resume.workspaceId,
+        workflowType: "fact-guard",
+        status: "succeeded",
+        provider: "deterministic",
+        model: "fact-guard-v0",
+        ...workflowSkillFields(skillRegistry.factGuardV0),
+        retryCount: 0,
+        startedAt: now,
+        finishedAt: now,
+      })
+      .returning({ id: workflowRuns.id });
+
+    const guardedClaims = await tx
+      .select()
+      .from(generatedClaims)
+      .where(eq(generatedClaims.mainResumeVersionId, mainResumeVersionId));
+
+    return {
+      status: "validated" as const,
+      mainResumeVersionId,
       workflowRunId: workflowRun?.id ?? null,
       claimCount: claims.length,
       supportedCount,

@@ -9,8 +9,11 @@ import {
   updateEvidenceItem,
 } from "../src/server/profile-evidence-repository";
 import {
+  getRecentMainResumes,
   getRecentTailoredResumes,
+  persistMainResume,
   persistTailoredResume,
+  runFactGuardForMainResume,
   runFactGuardForResume,
 } from "../src/server/resume-repository";
 import type { JDAnalysis } from "../src/schemas/jd-analysis";
@@ -190,6 +193,51 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
     expect(uncoveredResume?.claims[0]?.stale_reason).toContain(
       "resume bullet is not mapped",
     );
+
+    const mainResumeResult = await persistMainResume({
+      draft: {
+        ...buildResumeDraft(evidenceId),
+        title: "General integration resume",
+      },
+      provider: "integration-test",
+      model: "test-model",
+      usage: { totalTokens: 77 },
+      retryCount: 0,
+      skill: skillRegistry.mainResume,
+    });
+    expect(mainResumeResult).toMatchObject({
+      status: "saved",
+      claimCount: 1,
+    });
+    if (mainResumeResult.status !== "saved") {
+      throw new Error("Expected saved main resume.");
+    }
+    await expectWorkflowRunMetadata(mainResumeResult.workflowRunId, {
+      skillId: "main-resume",
+      promptVersion: "main-resume-v1",
+      schemaName: "MainResumeDraft",
+      sourceSkillIds: ["resume-tailoring", "claim-support-judgment"],
+    });
+    const recentMainResumes = await getRecentMainResumes(10);
+    const mainResume = recentMainResumes.find(
+      (resume) => resume.id === mainResumeResult.mainResumeVersionId,
+    );
+    expect(mainResume).toMatchObject({
+      title: "General integration resume",
+      status: "unvalidated",
+    });
+    expect(mainResume?.claims[0]).toMatchObject({
+      claim_text: "Built SQL dashboards for onboarding funnel analysis.",
+      evidence_ids: [evidenceId],
+    });
+    const mainGuard = await runFactGuardForMainResume(
+      mainResumeResult.mainResumeVersionId,
+    );
+    expect(mainGuard).toMatchObject({
+      status: "validated",
+      supportedCount: 1,
+      resumeStatus: "validated",
+    });
   });
 });
 
