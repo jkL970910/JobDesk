@@ -11,6 +11,7 @@ export async function expectWorkflowRunMetadata(
     promptVersion: string;
     schemaName: string;
     sourceSkillIds: string[];
+    workflowType?: string;
   },
 ) {
   const [run] = await getDb()
@@ -22,6 +23,7 @@ export async function expectWorkflowRunMetadata(
     skillId: expected.skillId,
     promptVersion: expected.promptVersion,
     schemaName: expected.schemaName,
+    ...(expected.workflowType ? { workflowType: expected.workflowType } : {}),
   });
   expect(run?.skillMetadata).toMatchObject({
     sourceSkillIds: expected.sourceSkillIds,

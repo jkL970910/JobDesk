@@ -1800,7 +1800,7 @@ textarea:focus-visible {
 }
 
 .diagnostics-panel__header {
-  align-items: end;
+  align-items: flex-end;
   display: flex;
   gap: 16px;
   justify-content: space-between;

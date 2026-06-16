@@ -249,7 +249,7 @@ export async function persistTailoredResumeFailure(args: {
     .values({
       workspaceId: workspace.id,
       jobId: args.jobId ?? null,
-      workflowType: "tailored-resume",
+      workflowType: args.skill.workflowType,
       status: "failed",
       provider: args.provider,
       model: args.model,

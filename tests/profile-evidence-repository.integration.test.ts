@@ -3,7 +3,12 @@ import crypto from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { loadDotEnv } from "../src/ai/env";
-import { getEnrichmentTaskQueue } from "../src/server/enrichment-task-repository";
+import {
+  getEnrichmentTaskQueue,
+  updateEnrichmentTask,
+  upsertEnrichmentTasks,
+} from "../src/server/enrichment-task-repository";
+import { getDb } from "../src/db/client";
 import {
   getEvidenceDedupeCandidates,
   getProjectDedupeCandidates,
@@ -65,11 +70,60 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     if (enrichmentQueue.status !== "ready") {
       throw new Error("Expected enrichment queue.");
     }
+    const metricTask = enrichmentQueue.tasks.find((task) =>
+      task.prompt.includes("Add a concrete activation metric"),
+    );
+    expect(metricTask).toBeDefined();
+    if (!metricTask) throw new Error("Expected enrichment task.");
+    await upsertEnrichmentTasks(getDb(), {
+      workspaceId: result.workspaceId,
+      tasks: [
+        {
+          taskType: "metric",
+          sourceType: "extraction_note",
+          sourceLabel: "Different source",
+          prompt: metricTask.prompt,
+        },
+      ],
+    });
+    const afterDifferentSource = await getEnrichmentTaskQueue(50);
+    expect(afterDifferentSource.status).toBe("ready");
+    if (afterDifferentSource.status !== "ready") {
+      throw new Error("Expected enrichment queue after different source.");
+    }
     expect(
-      enrichmentQueue.tasks.some((task) =>
-        task.prompt.includes("Add a concrete activation metric"),
-      ),
-    ).toBe(true);
+      afterDifferentSource.tasks.filter((task) => task.prompt === metricTask.prompt).length,
+    ).toBeGreaterThanOrEqual(2);
+    await updateEnrichmentTask({
+      taskId: metricTask.id,
+      action: "answer",
+      userAnswer: "Improved activation by 12% across three onboarding cohorts.",
+    });
+    const converted = await updateEnrichmentTask({
+      taskId: metricTask.id,
+      action: "convert",
+    });
+    expect(converted.status).toBe("saved");
+    await upsertEnrichmentTasks(getDb(), {
+      workspaceId: result.workspaceId,
+      tasks: [
+        {
+          taskType: "metric",
+          sourceType: "extraction_note",
+          sourceLabel: metricTask.source_label,
+          prompt: metricTask.prompt,
+        },
+      ],
+    });
+    const afterTerminalUpsert = await getEnrichmentTaskQueue(50);
+    expect(afterTerminalUpsert.status).toBe("ready");
+    if (afterTerminalUpsert.status !== "ready") {
+      throw new Error("Expected enrichment queue after terminal upsert.");
+    }
+    const terminalTask = afterTerminalUpsert.tasks.find((task) => task.id === metricTask.id);
+    expect(terminalTask).toMatchObject({
+      status: "converted",
+    });
 
     const library = await getRecentEvidenceLibrary(10);
     expect(library.profile?.displayName).toBe("Jane Doe");

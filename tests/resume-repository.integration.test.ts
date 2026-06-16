@@ -12,6 +12,7 @@ import {
   getRecentMainResumes,
   getRecentTailoredResumes,
   persistMainResume,
+  persistTailoredResumeFailure,
   persistTailoredResume,
   runFactGuardForMainResume,
   runFactGuardForResume,
@@ -216,6 +217,25 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
       skillId: "main-resume",
       promptVersion: "main-resume-v1",
       schemaName: "MainResumeDraft",
+      workflowType: "main-resume",
+      sourceSkillIds: ["resume-tailoring", "claim-support-judgment"],
+    });
+    const mainFailure = await persistTailoredResumeFailure({
+      provider: "integration-test",
+      model: "test-model",
+      errorKind: "provider_error",
+      errorMessage: "main resume provider failure",
+      retryCount: 0,
+      skill: skillRegistry.mainResume,
+    });
+    if (mainFailure.status !== "saved") {
+      throw new Error("Expected saved main resume failure workflow run.");
+    }
+    await expectWorkflowRunMetadata(mainFailure.workflowRunId, {
+      skillId: "main-resume",
+      promptVersion: "main-resume-v1",
+      schemaName: "MainResumeDraft",
+      workflowType: "main-resume",
       sourceSkillIds: ["resume-tailoring", "claim-support-judgment"],
     });
     const recentMainResumes = await getRecentMainResumes(10);

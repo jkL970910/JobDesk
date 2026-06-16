@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { getDb, hasDatabaseUrl } from "../db/client";
 import {
@@ -97,12 +97,12 @@ export async function upsertEnrichmentTasks(
       .onConflictDoUpdate({
         target: [enrichmentTasks.workspaceId, enrichmentTasks.dedupeKey],
         set: {
-          status: "open",
           sourceLabel: task.sourceLabel,
           prompt: task.prompt,
-          updatedAt: now,
-          dismissedAt: null,
+          updatedAt: sql`case when ${enrichmentTasks.status} in ('open', 'answered') then ${now} else ${enrichmentTasks.updatedAt} end`,
         },
+        targetWhere: undefined,
+        setWhere: sql`${enrichmentTasks.status} in ('open', 'answered')`,
       })
       .returning();
     if (row) inserted.push(row);
@@ -302,6 +302,7 @@ function buildEnrichmentDedupeKey(task: EnrichmentTaskDraft) {
   const basis = [
     task.sourceType,
     task.resumeReviewReportId ?? "",
+    normalizeText(task.sourceLabel),
     task.resumeSourceVersionId ?? "",
     task.evidenceItemId ?? "",
     task.workExperienceId ?? "",
