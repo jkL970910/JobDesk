@@ -11,7 +11,7 @@ import {
   type enrichmentTaskStatusEnum,
   type enrichmentTaskTypeEnum,
 } from "../db/schema";
-import { getOrCreateDefaultWorkspace } from "./workspace-repository";
+import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 
 type DbHandle = ReturnType<typeof getDb>;
 
@@ -180,11 +180,12 @@ export async function updateEnrichmentTask(args: {
   }
 
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const now = new Date();
   const [existing] = await db
     .select()
     .from(enrichmentTasks)
-    .where(eq(enrichmentTasks.id, args.taskId))
+    .where(and(eq(enrichmentTasks.workspaceId, workspace.id), eq(enrichmentTasks.id, args.taskId)))
     .limit(1);
   if (!existing) return { status: "not_found" as const };
 
@@ -213,7 +214,7 @@ export async function updateEnrichmentTask(args: {
   const [updated] = await db
     .update(enrichmentTasks)
     .set(patch)
-    .where(eq(enrichmentTasks.id, args.taskId))
+    .where(and(eq(enrichmentTasks.workspaceId, workspace.id), eq(enrichmentTasks.id, args.taskId)))
     .returning();
   return updated
     ? ({ status: "saved" as const, task: toEnrichmentTaskPayload(updated) })
@@ -286,7 +287,7 @@ async function convertEnrichmentTaskToEvidenceCandidate(
         updatedAt: args.now,
         convertedAt: args.now,
       })
-      .where(eq(enrichmentTasks.id, args.task.id))
+      .where(and(eq(enrichmentTasks.workspaceId, args.task.workspaceId), eq(enrichmentTasks.id, args.task.id)))
       .returning();
     if (!updated) throw new Error("Failed to mark enrichment task converted.");
 
@@ -300,13 +301,16 @@ async function convertEnrichmentTaskToEvidenceCandidate(
 
 export async function getOpenEnrichmentTaskCountsByEvidenceIds(evidenceIds: string[]) {
   if (!hasDatabaseUrl() || evidenceIds.length === 0) return new Map<string, number>();
-  const rows = await getDb()
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const rows = await db
     .select({
       evidenceItemId: enrichmentTasks.evidenceItemId,
     })
     .from(enrichmentTasks)
     .where(
       and(
+        eq(enrichmentTasks.workspaceId, workspace.id),
         inArray(enrichmentTasks.evidenceItemId, evidenceIds),
         inArray(enrichmentTasks.status, ["open", "answered"]),
       ),

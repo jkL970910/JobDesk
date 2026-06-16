@@ -1,9 +1,10 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { getDb, hasDatabaseUrl } from "../db/client";
 import {
   evidenceItems,
   generatedClaims,
+  jobs,
   mainResumeVersions,
   resumeVersions,
   workflowRuns,
@@ -18,7 +19,7 @@ import type { MainResumeDraft } from "../schemas/main-resume";
 import { claimsMatch, validateBulletClaimCoverage } from "./tailored-resume-guardrails";
 import { workflowSkillFields } from "./workflow-run-metadata";
 import { skillRegistry } from "../ai/skills-registry";
-import { getOrCreateDefaultWorkspace } from "./workspace-repository";
+import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 
 type DbHandle = ReturnType<typeof getDb>;
 
@@ -76,6 +77,14 @@ export async function persistTailoredResume(args: {
 
   return getDb().transaction(async (tx) => {
     const workspace = await getOrCreateDefaultWorkspace(tx);
+    const [job] = await tx
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(and(eq(jobs.workspaceId, workspace.id), eq(jobs.id, args.jobId)))
+      .limit(1);
+    if (!job) {
+      throw new Error("Target job was not found in the current workspace.");
+    }
     const now = new Date();
     const [resumeVersion] = await tx
       .insert(resumeVersions)
@@ -242,12 +251,21 @@ export async function persistTailoredResumeFailure(args: {
 
   const db = getDb();
   const workspace = await getOrCreateDefaultWorkspace(db);
+  let scopedJobId = args.jobId ?? null;
+  if (scopedJobId) {
+    const [job] = await db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(and(eq(jobs.workspaceId, workspace.id), eq(jobs.id, scopedJobId)))
+      .limit(1);
+    scopedJobId = job?.id ?? null;
+  }
   const now = new Date();
   const [workflowRun] = await db
     .insert(workflowRuns)
     .values({
       workspaceId: workspace.id,
-      jobId: args.jobId ?? null,
+      jobId: scopedJobId,
       workflowType: args.skill.workflowType,
       status: "failed",
       provider: args.provider,
@@ -269,9 +287,11 @@ export async function persistTailoredResumeFailure(args: {
 export async function getRecentTailoredResumes(limit = 5) {
   if (!hasDatabaseUrl()) return [];
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const rows = await db
     .select()
     .from(resumeVersions)
+    .where(eq(resumeVersions.workspaceId, workspace.id))
     .orderBy(desc(resumeVersions.updatedAt))
     .limit(limit);
 
@@ -281,9 +301,11 @@ export async function getRecentTailoredResumes(limit = 5) {
 export async function getRecentMainResumes(limit = 5) {
   if (!hasDatabaseUrl()) return [];
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const rows = await db
     .select()
     .from(mainResumeVersions)
+    .where(eq(mainResumeVersions.workspaceId, workspace.id))
     .orderBy(desc(mainResumeVersions.updatedAt))
     .limit(limit);
 
@@ -297,7 +319,12 @@ async function toMainResumeDto(
   const claims = await db
     .select()
     .from(generatedClaims)
-    .where(eq(generatedClaims.mainResumeVersionId, resume.id));
+    .where(
+      and(
+        eq(generatedClaims.workspaceId, resume.workspaceId),
+        eq(generatedClaims.mainResumeVersionId, resume.id),
+      ),
+    );
   return {
     id: resume.id,
     title: resume.title,
@@ -325,10 +352,11 @@ async function toMainResumeDto(
 export async function getTailoredResumeById(resumeVersionId: string) {
   if (!hasDatabaseUrl()) return null;
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const [resume] = await db
     .select()
     .from(resumeVersions)
-    .where(eq(resumeVersions.id, resumeVersionId))
+    .where(and(eq(resumeVersions.workspaceId, workspace.id), eq(resumeVersions.id, resumeVersionId)))
     .limit(1);
   return resume ? toTailoredResumeDto(db, resume) : null;
 }
@@ -340,7 +368,12 @@ async function toTailoredResumeDto(
   const claims = await db
     .select()
     .from(generatedClaims)
-    .where(eq(generatedClaims.resumeVersionId, resume.id));
+    .where(
+      and(
+        eq(generatedClaims.workspaceId, resume.workspaceId),
+        eq(generatedClaims.resumeVersionId, resume.id),
+      ),
+    );
   return {
     id: resume.id,
     jobId: resume.jobId,
@@ -372,10 +405,11 @@ export async function runFactGuardForResume(resumeVersionId: string) {
   }
 
   return getDb().transaction(async (tx) => {
+    const workspace = await getCurrentWorkspace(tx);
     const [resume] = await tx
       .select()
       .from(resumeVersions)
-      .where(eq(resumeVersions.id, resumeVersionId))
+      .where(and(eq(resumeVersions.workspaceId, workspace.id), eq(resumeVersions.id, resumeVersionId)))
       .limit(1);
     if (!resume) {
       return { status: "not_found" as const };
@@ -384,7 +418,12 @@ export async function runFactGuardForResume(resumeVersionId: string) {
     const claims = await tx
       .select()
       .from(generatedClaims)
-      .where(eq(generatedClaims.resumeVersionId, resumeVersionId));
+      .where(
+        and(
+          eq(generatedClaims.workspaceId, workspace.id),
+          eq(generatedClaims.resumeVersionId, resumeVersionId),
+        ),
+      );
     const evidenceIds = Array.from(
       new Set(claims.flatMap((claim) => claim.evidenceIds)),
     );
@@ -393,7 +432,7 @@ export async function runFactGuardForResume(resumeVersionId: string) {
         ? await tx
             .select()
             .from(evidenceItems)
-            .where(inArray(evidenceItems.id, evidenceIds))
+            .where(and(eq(evidenceItems.workspaceId, workspace.id), inArray(evidenceItems.id, evidenceIds)))
         : [];
     const evidenceById = new Map(evidence.map((item) => [item.id, item]));
     const now = new Date();
@@ -410,7 +449,7 @@ export async function runFactGuardForResume(resumeVersionId: string) {
           staleReason: verdict.staleReason,
           lastValidatedAt: now,
         })
-        .where(eq(generatedClaims.id, claim.id));
+        .where(and(eq(generatedClaims.workspaceId, workspace.id), eq(generatedClaims.id, claim.id)));
     }
 
     const coverage = validateBulletClaimCoverage({
@@ -427,7 +466,12 @@ export async function runFactGuardForResume(resumeVersionId: string) {
           staleReason: coverage.reason,
           lastValidatedAt: now,
         })
-        .where(eq(generatedClaims.resumeVersionId, resumeVersionId));
+        .where(
+          and(
+            eq(generatedClaims.workspaceId, workspace.id),
+            eq(generatedClaims.resumeVersionId, resumeVersionId),
+          ),
+        );
     }
 
     const allSupported =
@@ -438,7 +482,7 @@ export async function runFactGuardForResume(resumeVersionId: string) {
         status: allSupported ? "validated" : "unvalidated",
         updatedAt: now,
       })
-      .where(eq(resumeVersions.id, resumeVersionId));
+      .where(and(eq(resumeVersions.workspaceId, workspace.id), eq(resumeVersions.id, resumeVersionId)));
 
     const [workflowRun] = await tx
       .insert(workflowRuns)
@@ -459,7 +503,12 @@ export async function runFactGuardForResume(resumeVersionId: string) {
     const guardedClaims = await tx
       .select()
       .from(generatedClaims)
-      .where(eq(generatedClaims.resumeVersionId, resumeVersionId));
+      .where(
+        and(
+          eq(generatedClaims.workspaceId, workspace.id),
+          eq(generatedClaims.resumeVersionId, resumeVersionId),
+        ),
+      );
 
     return {
       status: "validated" as const,
@@ -481,10 +530,11 @@ export async function runFactGuardForMainResume(mainResumeVersionId: string) {
   }
 
   return getDb().transaction(async (tx) => {
+    const workspace = await getCurrentWorkspace(tx);
     const [resume] = await tx
       .select()
       .from(mainResumeVersions)
-      .where(eq(mainResumeVersions.id, mainResumeVersionId))
+      .where(and(eq(mainResumeVersions.workspaceId, workspace.id), eq(mainResumeVersions.id, mainResumeVersionId)))
       .limit(1);
     if (!resume) {
       return { status: "not_found" as const };
@@ -493,7 +543,12 @@ export async function runFactGuardForMainResume(mainResumeVersionId: string) {
     const claims = await tx
       .select()
       .from(generatedClaims)
-      .where(eq(generatedClaims.mainResumeVersionId, mainResumeVersionId));
+      .where(
+        and(
+          eq(generatedClaims.workspaceId, workspace.id),
+          eq(generatedClaims.mainResumeVersionId, mainResumeVersionId),
+        ),
+      );
     const evidenceIds = Array.from(
       new Set(claims.flatMap((claim) => claim.evidenceIds)),
     );
@@ -502,7 +557,7 @@ export async function runFactGuardForMainResume(mainResumeVersionId: string) {
         ? await tx
             .select()
             .from(evidenceItems)
-            .where(inArray(evidenceItems.id, evidenceIds))
+            .where(and(eq(evidenceItems.workspaceId, workspace.id), inArray(evidenceItems.id, evidenceIds)))
         : [];
     const evidenceById = new Map(evidence.map((item) => [item.id, item]));
     const now = new Date();
@@ -519,7 +574,7 @@ export async function runFactGuardForMainResume(mainResumeVersionId: string) {
           staleReason: verdict.staleReason,
           lastValidatedAt: now,
         })
-        .where(eq(generatedClaims.id, claim.id));
+        .where(and(eq(generatedClaims.workspaceId, workspace.id), eq(generatedClaims.id, claim.id)));
     }
 
     const coverage = validateBulletClaimCoverage({
@@ -536,7 +591,12 @@ export async function runFactGuardForMainResume(mainResumeVersionId: string) {
           staleReason: coverage.reason,
           lastValidatedAt: now,
         })
-        .where(eq(generatedClaims.mainResumeVersionId, mainResumeVersionId));
+        .where(
+          and(
+            eq(generatedClaims.workspaceId, workspace.id),
+            eq(generatedClaims.mainResumeVersionId, mainResumeVersionId),
+          ),
+        );
     }
 
     const allSupported =
@@ -547,7 +607,12 @@ export async function runFactGuardForMainResume(mainResumeVersionId: string) {
         status: allSupported ? "validated" : "unvalidated",
         updatedAt: now,
       })
-      .where(eq(mainResumeVersions.id, mainResumeVersionId));
+      .where(
+        and(
+          eq(mainResumeVersions.workspaceId, workspace.id),
+          eq(mainResumeVersions.id, mainResumeVersionId),
+        ),
+      );
 
     const [workflowRun] = await tx
       .insert(workflowRuns)
@@ -567,7 +632,12 @@ export async function runFactGuardForMainResume(mainResumeVersionId: string) {
     const guardedClaims = await tx
       .select()
       .from(generatedClaims)
-      .where(eq(generatedClaims.mainResumeVersionId, mainResumeVersionId));
+      .where(
+        and(
+          eq(generatedClaims.workspaceId, workspace.id),
+          eq(generatedClaims.mainResumeVersionId, mainResumeVersionId),
+        ),
+      );
 
     return {
       status: "validated" as const,

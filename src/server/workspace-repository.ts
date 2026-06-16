@@ -30,3 +30,7 @@ export async function getOrCreateDefaultWorkspace(
   }
   return created;
 }
+
+export async function getCurrentWorkspace(db: Pick<DbHandle, "select" | "insert">) {
+  return getOrCreateDefaultWorkspace(db);
+}

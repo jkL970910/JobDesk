@@ -13,6 +13,7 @@ import { GET as getJob, PATCH as patchJob } from "../app/api/jobs/[jobId]/route"
 import type { JDAnalysis } from "../src/schemas/jd-analysis";
 import { skillRegistry } from "../src/ai/skills-registry";
 import { expectWorkflowRunMetadata } from "./helpers/workflow-run-assertions";
+import { registerUser, runWithAuthContext } from "../src/server/auth-service";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
 
@@ -194,6 +195,49 @@ describe.skipIf(!runIntegration)("job repository database integration", () => {
         skill: skillRegistry.jdAnalysis,
       }),
     ).rejects.toMatchObject({ kind: "job_not_found" });
+  });
+
+  it("isolates raw job ids by authenticated workspace", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const owner = await registerUser({
+      email: `job-owner-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    const other = await registerUser({
+      email: `job-other-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created" || other.status !== "created") {
+      throw new Error("Expected test users to be created.");
+    }
+
+    const saved = await runWithAuthContext(owner.user.id, () =>
+      persistJdAnalysis({
+        analysis: buildAnalysis("Workspace Scoped Role", ["ownership guard"]),
+        provider: "integration-test",
+        model: "test-model",
+        usage: {},
+        retryCount: 0,
+        skill: skillRegistry.jdAnalysis,
+      }),
+    );
+    if (saved.status !== "saved" || !saved.jobId) {
+      throw new Error("Expected owner job to save.");
+    }
+    const ownerJobId = saved.jobId;
+
+    await expect(
+      runWithAuthContext(other.user.id, () => getJdAnalysisById(ownerJobId)),
+    ).resolves.toBeNull();
+    await expect(
+      runWithAuthContext(other.user.id, () => updateApplicationStatus(ownerJobId, "applied")),
+    ).resolves.toMatchObject({ status: "not_found" });
+    await expect(
+      runWithAuthContext(other.user.id, () => archiveJdAnalysis(ownerJobId)),
+    ).resolves.toMatchObject({ status: "not_found" });
+    await expect(
+      runWithAuthContext(owner.user.id, () => getJdAnalysisById(ownerJobId)),
+    ).resolves.toMatchObject({ id: ownerJobId });
   });
 });
 

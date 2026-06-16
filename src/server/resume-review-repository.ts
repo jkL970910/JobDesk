@@ -25,7 +25,7 @@ import {
   buildResumeReviewEnrichmentTasks,
   upsertEnrichmentTasks,
 } from "./enrichment-task-repository";
-import { getOrCreateDefaultWorkspace } from "./workspace-repository";
+import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 
 type DbHandle = ReturnType<typeof getDb>;
 
@@ -55,16 +55,18 @@ export async function getResumeReviewWorkspace(limit = 10) {
   }
 
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const resumes = await db
     .select()
     .from(resumeSourceVersions)
+    .where(eq(resumeSourceVersions.workspaceId, workspace.id))
     .orderBy(desc(resumeSourceVersions.updatedAt))
     .limit(limit);
   const reports = resumes.length
     ? await db
         .select()
         .from(resumeReviewReports)
-        .where(eq(resumeReviewReports.status, "ready"))
+        .where(and(eq(resumeReviewReports.workspaceId, workspace.id), eq(resumeReviewReports.status, "ready")))
         .orderBy(desc(resumeReviewReports.updatedAt))
         .limit(limit * 3)
     : [];
@@ -87,10 +89,12 @@ export async function getResumeSourceVersion(resumeSourceVersionId: string) {
   if (!hasDatabaseUrl()) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
   }
-  const [resume] = await getDb()
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [resume] = await db
     .select()
     .from(resumeSourceVersions)
-    .where(eq(resumeSourceVersions.id, resumeSourceVersionId))
+    .where(and(eq(resumeSourceVersions.workspaceId, workspace.id), eq(resumeSourceVersions.id, resumeSourceVersionId)))
     .limit(1);
   if (!resume) return { status: "not_found" as const };
   return {
@@ -104,20 +108,21 @@ export async function deleteResumeSourceVersion(resumeSourceVersionId: string) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
   }
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const [resume] = await db
     .select()
     .from(resumeSourceVersions)
-    .where(eq(resumeSourceVersions.id, resumeSourceVersionId))
+    .where(and(eq(resumeSourceVersions.workspaceId, workspace.id), eq(resumeSourceVersions.id, resumeSourceVersionId)))
     .limit(1);
   if (!resume) return { status: "not_found" as const };
 
   await db.transaction(async (tx) => {
     await tx
       .delete(resumeSourceVersions)
-      .where(eq(resumeSourceVersions.id, resumeSourceVersionId));
+      .where(and(eq(resumeSourceVersions.workspaceId, workspace.id), eq(resumeSourceVersions.id, resumeSourceVersionId)));
     await tx
       .delete(sourceDocuments)
-      .where(eq(sourceDocuments.id, resume.sourceDocumentId));
+      .where(and(eq(sourceDocuments.workspaceId, workspace.id), eq(sourceDocuments.id, resume.sourceDocumentId)));
   });
 
   return {
@@ -131,10 +136,11 @@ export async function rerunResumeReview(resumeSourceVersionId: string) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
   }
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const [resume] = await db
     .select()
     .from(resumeSourceVersions)
-    .where(eq(resumeSourceVersions.id, resumeSourceVersionId))
+    .where(and(eq(resumeSourceVersions.workspaceId, workspace.id), eq(resumeSourceVersions.id, resumeSourceVersionId)))
     .limit(1);
   if (!resume) return { status: "not_found" as const };
 
@@ -150,7 +156,12 @@ export async function rerunResumeReview(resumeSourceVersionId: string) {
         status: "stale",
         updatedAt: now,
       })
-      .where(eq(resumeReviewReports.resumeSourceVersionId, resume.id));
+      .where(
+        and(
+          eq(resumeReviewReports.workspaceId, workspace.id),
+          eq(resumeReviewReports.resumeSourceVersionId, resume.id),
+        ),
+      );
     const workflowRunId = await createResumeReviewWorkflowRun(tx, {
       workspaceId: resume.workspaceId,
       review,
@@ -193,7 +204,7 @@ export async function rerunResumeReview(resumeSourceVersionId: string) {
         lastReviewedAt: now,
         updatedAt: now,
       })
-      .where(eq(resumeSourceVersions.id, resume.id));
+      .where(and(eq(resumeSourceVersions.workspaceId, workspace.id), eq(resumeSourceVersions.id, resume.id)));
     return {
       status: "saved" as const,
       resume: toResumeSummary(
@@ -232,7 +243,7 @@ export async function createResumeSourceVersion(args: {
 
   return getDb().transaction(async (tx) => {
     const now = new Date();
-    const version = await inferNextResumeVersion(tx);
+    const version = await inferNextResumeVersion(tx, workspace.id);
     const [sourceDocument] = await tx
       .insert(sourceDocuments)
       .values({
@@ -306,7 +317,7 @@ export async function createResumeSourceVersion(args: {
         lastReviewedAt: now,
         updatedAt: now,
       })
-      .where(eq(resumeSourceVersions.id, resume.id));
+      .where(and(eq(resumeSourceVersions.workspaceId, workspace.id), eq(resumeSourceVersions.id, resume.id)));
 
     return {
       status: "saved" as const,
@@ -494,15 +505,22 @@ export async function markResumeSourceExtracted(resumeSourceVersionId: string) {
   if (!hasDatabaseUrl()) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
   }
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const now = new Date();
-  const [resume] = await getDb()
+  const [resume] = await db
     .update(resumeSourceVersions)
     .set({
       status: "extracted",
       extractedAt: now,
       updatedAt: now,
     })
-    .where(eq(resumeSourceVersions.id, resumeSourceVersionId))
+    .where(
+      and(
+        eq(resumeSourceVersions.workspaceId, workspace.id),
+        eq(resumeSourceVersions.id, resumeSourceVersionId),
+      ),
+    )
     .returning();
   return resume
     ? ({ status: "saved" as const, resume: toResumeSourcePayload(resume) })
@@ -511,10 +529,12 @@ export async function markResumeSourceExtracted(resumeSourceVersionId: string) {
 
 async function inferNextResumeVersion(
   db: Pick<DbHandle, "select">,
+  workspaceId: string,
 ) {
   const [latest] = await db
     .select({ version: resumeSourceVersions.version })
     .from(resumeSourceVersions)
+    .where(eq(resumeSourceVersions.workspaceId, workspaceId))
     .orderBy(desc(resumeSourceVersions.version))
     .limit(1);
   return (latest?.version ?? 0) + 1;

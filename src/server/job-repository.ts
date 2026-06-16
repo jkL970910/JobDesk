@@ -13,7 +13,7 @@ import { JobLegitimacy, type JDAnalysis } from "../schemas/jd-analysis";
 import { ApplicationStatus, type ApplicationStatus as ApplicationStatusValue } from "../schemas/shared";
 import type { JobDeskAiFailureKind, JobDeskAiSkillBinding } from "../ai/types";
 import { workflowSkillFields } from "./workflow-run-metadata";
-import { getOrCreateDefaultWorkspace } from "./workspace-repository";
+import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 
 type DbHandle = ReturnType<typeof getDb>;
 
@@ -67,7 +67,7 @@ export async function persistJdAnalysis(args: {
       .update(args.analysis.original_jd_text)
       .digest("hex");
     const existingJob = args.targetJobId
-      ? await getActiveJobById(tx, args.targetJobId)
+      ? await getActiveJobById(tx, args.targetJobId, workspace.id)
       : null;
     if (args.targetJobId && !existingJob) {
       throw new JobRepositoryError("Target job was not found or has been archived.", {
@@ -229,10 +229,11 @@ export async function persistJdAnalysisFailure(args: {
 export async function getRecentJdAnalyses(limit = 5) {
   if (!hasDatabaseUrl()) return [];
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const rows = await db
     .select()
     .from(jobs)
-    .where(isNull(jobs.archivedAt))
+    .where(and(eq(jobs.workspaceId, workspace.id), isNull(jobs.archivedAt)))
     .orderBy(desc(jobs.updatedAt))
     .limit(limit);
 
@@ -242,10 +243,11 @@ export async function getRecentJdAnalyses(limit = 5) {
 export async function getJdAnalysisById(jobId: string) {
   if (!hasDatabaseUrl()) return null;
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const [job] = await db
     .select()
     .from(jobs)
-    .where(and(eq(jobs.id, jobId), isNull(jobs.archivedAt)))
+    .where(and(eq(jobs.workspaceId, workspace.id), eq(jobs.id, jobId), isNull(jobs.archivedAt)))
     .limit(1);
   if (!job) return null;
   return hydrateJdAnalysis(db, job);
@@ -266,13 +268,15 @@ export async function archiveJdAnalysis(jobId: string) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
   }
 
-  const [job] = await getDb()
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [job] = await db
     .update(jobs)
     .set({
       archivedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(and(eq(jobs.id, jobId), isNull(jobs.archivedAt)))
+    .where(and(eq(jobs.workspaceId, workspace.id), eq(jobs.id, jobId), isNull(jobs.archivedAt)))
     .returning({ id: jobs.id });
 
   return job
@@ -289,13 +293,15 @@ export async function updateApplicationStatus(
   }
 
   const parsedStatus = ApplicationStatus.parse(status);
-  const [job] = await getDb()
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [job] = await db
     .update(jobs)
     .set({
       applicationStatus: parsedStatus,
       updatedAt: new Date(),
     })
-    .where(and(eq(jobs.id, jobId), isNull(jobs.archivedAt)))
+    .where(and(eq(jobs.workspaceId, workspace.id), eq(jobs.id, jobId), isNull(jobs.archivedAt)))
     .returning({
       id: jobs.id,
       applicationStatus: jobs.applicationStatus,
@@ -337,11 +343,15 @@ async function createSourceDocument(
   return sourceDocument.id;
 }
 
-async function getActiveJobById(db: Pick<DbHandle, "select">, jobId: string) {
+async function getActiveJobById(
+  db: Pick<DbHandle, "select">,
+  jobId: string,
+  workspaceId: string,
+) {
   const [job] = await db
     .select()
     .from(jobs)
-    .where(and(eq(jobs.id, jobId), isNull(jobs.archivedAt)))
+    .where(and(eq(jobs.workspaceId, workspaceId), eq(jobs.id, jobId), isNull(jobs.archivedAt)))
     .limit(1);
   return job ?? null;
 }

@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { getDb, hasDatabaseUrl } from "../db/client";
 import { interviewPrepPacks, jobs, workflowRuns } from "../db/schema";
@@ -9,6 +9,7 @@ import { getStarStoryBank } from "./profile-evidence-repository";
 import type { StarStoryCard } from "./star-story-service";
 import { skillRegistry } from "../ai/skills-registry";
 import { workflowSkillFields } from "./workflow-run-metadata";
+import { getCurrentWorkspace } from "./workspace-repository";
 
 export type InterviewPrepPack = {
   id?: string;
@@ -91,9 +92,12 @@ export async function generateInterviewPrepPack(jobId: string) {
 
 export async function getRecentInterviewPrepPacks(limit = 5) {
   if (!hasDatabaseUrl()) return [];
-  const rows = await getDb()
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const rows = await db
     .select()
     .from(interviewPrepPacks)
+    .where(eq(interviewPrepPacks.workspaceId, workspace.id))
     .orderBy(desc(interviewPrepPacks.updatedAt))
     .limit(limit);
   return rows.map((row) => ({
@@ -155,10 +159,11 @@ export function buildInterviewPrepPack(args: {
 
 async function persistInterviewPrepPack(pack: InterviewPrepPack) {
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const [job] = await db
     .select({ workspaceId: jobs.workspaceId })
     .from(jobs)
-    .where(eq(jobs.id, pack.job_id))
+    .where(and(eq(jobs.workspaceId, workspace.id), eq(jobs.id, pack.job_id)))
     .limit(1);
   if (!job) return { status: "not_found" as const };
 

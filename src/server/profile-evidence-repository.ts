@@ -33,7 +33,7 @@ import {
   buildExtractionNoteEnrichmentTasks,
   upsertEnrichmentTasks,
 } from "./enrichment-task-repository";
-import { getOrCreateDefaultWorkspace } from "./workspace-repository";
+import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 
 export type ProfileEvidencePersistenceResult =
   | {
@@ -367,38 +367,41 @@ export async function getRecentEvidenceLibrary(limit = 8) {
   }
 
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const [profile] = await db
     .select()
     .from(profiles)
+    .where(eq(profiles.workspaceId, workspace.id))
     .orderBy(desc(profiles.updatedAt))
     .limit(1);
   const evidence = await db
     .select()
     .from(evidenceItems)
+    .where(eq(evidenceItems.workspaceId, workspace.id))
     .orderBy(desc(evidenceItems.updatedAt))
     .limit(limit);
   const experiences = await db
     .select()
     .from(workExperiences)
-    .where(ne(workExperiences.status, "rejected"))
+    .where(and(eq(workExperiences.workspaceId, workspace.id), ne(workExperiences.status, "rejected")))
     .orderBy(desc(workExperiences.updatedAt))
     .limit(limit);
   const initiativeRows = await db
     .select()
     .from(initiatives)
-    .where(ne(initiatives.status, "rejected"))
+    .where(and(eq(initiatives.workspaceId, workspace.id), ne(initiatives.status, "rejected")))
     .orderBy(desc(initiatives.updatedAt))
     .limit(limit);
   const portfolioProjectRows = await db
     .select()
     .from(portfolioProjects)
-    .where(ne(portfolioProjects.status, "rejected"))
+    .where(and(eq(portfolioProjects.workspaceId, workspace.id), ne(portfolioProjects.status, "rejected")))
     .orderBy(desc(portfolioProjects.updatedAt))
     .limit(limit);
   const projects = await db
     .select()
     .from(projectCards)
-    .where(ne(projectCards.status, "rejected"))
+    .where(and(eq(projectCards.workspaceId, workspace.id), ne(projectCards.status, "rejected")))
     .orderBy(desc(projectCards.updatedAt))
     .limit(limit);
 
@@ -568,16 +571,17 @@ export async function getStarStoryBank(limit = 8) {
   }
 
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const initiativeRows = await db
     .select()
     .from(initiatives)
-    .where(ne(initiatives.status, "rejected"))
+    .where(and(eq(initiatives.workspaceId, workspace.id), ne(initiatives.status, "rejected")))
     .orderBy(desc(initiatives.updatedAt))
     .limit(80);
   const portfolioProjectRows = await db
     .select()
     .from(portfolioProjects)
-    .where(ne(portfolioProjects.status, "rejected"))
+    .where(and(eq(portfolioProjects.workspaceId, workspace.id), ne(portfolioProjects.status, "rejected")))
     .orderBy(desc(portfolioProjects.updatedAt))
     .limit(80);
   const storyTargets: StarStoryTargetInput[] = [
@@ -623,7 +627,7 @@ export async function getStarStoryBank(limit = 8) {
     const legacyProjects = await db
       .select()
       .from(projectCards)
-      .where(ne(projectCards.status, "rejected"))
+      .where(and(eq(projectCards.workspaceId, workspace.id), ne(projectCards.status, "rejected")))
       .orderBy(desc(projectCards.updatedAt))
       .limit(80);
     if (legacyProjects.length === 0) {
@@ -632,7 +636,12 @@ export async function getStarStoryBank(limit = 8) {
     const legacyEvidence = await db
       .select()
       .from(evidenceItems)
-      .where(inArray(evidenceItems.relatedProjectId, legacyProjects.map((project) => project.id)));
+      .where(
+        and(
+          eq(evidenceItems.workspaceId, workspace.id),
+          inArray(evidenceItems.relatedProjectId, legacyProjects.map((project) => project.id)),
+        ),
+      );
     return {
       status: "ready" as const,
       stories: buildStarStoryCards({
@@ -666,14 +675,24 @@ export async function getStarStoryBank(limit = 8) {
       ? await db
           .select()
           .from(evidenceItems)
-          .where(inArray(evidenceItems.relatedInitiativeId, initiativeIds))
+          .where(
+            and(
+              eq(evidenceItems.workspaceId, workspace.id),
+              inArray(evidenceItems.relatedInitiativeId, initiativeIds),
+            ),
+          )
       : [];
   const portfolioEvidence =
     portfolioProjectIds.length > 0
       ? await db
           .select()
           .from(evidenceItems)
-          .where(inArray(evidenceItems.relatedPortfolioProjectId, portfolioProjectIds))
+          .where(
+            and(
+              eq(evidenceItems.workspaceId, workspace.id),
+              inArray(evidenceItems.relatedPortfolioProjectId, portfolioProjectIds),
+            ),
+          )
       : [];
   const linkedEvidence = [...initiativeEvidence, ...portfolioEvidence];
 
@@ -697,10 +716,11 @@ export async function getEvidenceDedupeCandidates(limit = 8) {
   }
 
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const rows = await db
     .select()
     .from(evidenceItems)
-    .where(eq(evidenceItems.status, "pending"))
+    .where(and(eq(evidenceItems.workspaceId, workspace.id), eq(evidenceItems.status, "pending")))
     .orderBy(desc(evidenceItems.updatedAt))
     .limit(120);
   const ignoredPairs = await getIgnoredOverlapPairs({
@@ -752,9 +772,11 @@ export async function getProjectDedupeCandidates(limit = 8) {
   }
 
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const rows = await db
     .select()
     .from(projectCards)
+    .where(eq(projectCards.workspaceId, workspace.id))
     .orderBy(desc(projectCards.updatedAt))
     .limit(120);
   const activeProjects = rows.filter((project) => project.status !== "rejected");
@@ -772,7 +794,12 @@ export async function getProjectDedupeCandidates(limit = 8) {
       relatedProjectId: evidenceItems.relatedProjectId,
     })
     .from(evidenceItems)
-    .where(inArray(evidenceItems.relatedProjectId, activeProjects.map((project) => project.id)));
+    .where(
+      and(
+        eq(evidenceItems.workspaceId, workspace.id),
+        inArray(evidenceItems.relatedProjectId, activeProjects.map((project) => project.id)),
+      ),
+    );
   const evidenceCountByProject = new Map<string, number>();
   for (const item of linkedEvidence) {
     if (!item.relatedProjectId) continue;
@@ -848,14 +875,17 @@ export async function getStoryDedupeCandidates(limit = 8) {
   }
 
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const initiativeRows = await db
     .select()
     .from(initiatives)
+    .where(eq(initiatives.workspaceId, workspace.id))
     .orderBy(desc(initiatives.updatedAt))
     .limit(120);
   const portfolioProjectRows = await db
     .select()
     .from(portfolioProjects)
+    .where(eq(portfolioProjects.workspaceId, workspace.id))
     .orderBy(desc(portfolioProjects.updatedAt))
     .limit(120);
   const activeStories = [
@@ -1020,10 +1050,16 @@ export async function mergeEvidenceItems(args: {
   }
 
   return getDb().transaction(async (tx) => {
+    const workspace = await getCurrentWorkspace(tx);
     const rows = await tx
       .select()
       .from(evidenceItems)
-      .where(inArray(evidenceItems.id, [args.primaryEvidenceId, args.duplicateEvidenceId]));
+      .where(
+        and(
+          eq(evidenceItems.workspaceId, workspace.id),
+          inArray(evidenceItems.id, [args.primaryEvidenceId, args.duplicateEvidenceId]),
+        ),
+      );
     const primary = rows.find((item) => item.id === args.primaryEvidenceId);
     const duplicate = rows.find((item) => item.id === args.duplicateEvidenceId);
     if (!primary || !duplicate) return { status: "not_found" as const };
@@ -1050,14 +1086,14 @@ export async function mergeEvidenceItems(args: {
           primary.needsUserConfirmation || duplicate.needsUserConfirmation ? 1 : 0,
         updatedAt: now,
       })
-      .where(eq(evidenceItems.id, primary.id));
+      .where(and(eq(evidenceItems.workspaceId, workspace.id), eq(evidenceItems.id, primary.id)));
     await tx
       .update(evidenceItems)
       .set({
         status: "rejected",
         updatedAt: now,
       })
-      .where(eq(evidenceItems.id, duplicate.id));
+      .where(and(eq(evidenceItems.workspaceId, workspace.id), eq(evidenceItems.id, duplicate.id)));
 
     await markClaimsStaleForEvidenceIds([primary.id, duplicate.id]);
     return {
@@ -1088,10 +1124,16 @@ export async function mergeProjectCards(args: {
   }
 
   return getDb().transaction(async (tx) => {
+    const workspace = await getCurrentWorkspace(tx);
     const rows = await tx
       .select()
       .from(projectCards)
-      .where(inArray(projectCards.id, [args.primaryProjectId, ...duplicateIds]));
+      .where(
+        and(
+          eq(projectCards.workspaceId, workspace.id),
+          inArray(projectCards.id, [args.primaryProjectId, ...duplicateIds]),
+        ),
+      );
     const primary = rows.find((project) => project.id === args.primaryProjectId);
     const duplicates = duplicateIds
       .map((id) => rows.find((project) => project.id === id))
@@ -1147,7 +1189,7 @@ export async function mergeProjectCards(args: {
               : "public_safe",
         updatedAt: now,
       })
-      .where(eq(projectCards.id, primary.id));
+      .where(and(eq(projectCards.workspaceId, workspace.id), eq(projectCards.id, primary.id)));
 
     const movedEvidence = await tx
       .update(evidenceItems)
@@ -1155,7 +1197,12 @@ export async function mergeProjectCards(args: {
         relatedProjectId: primary.id,
         updatedAt: now,
       })
-      .where(inArray(evidenceItems.relatedProjectId, duplicateIds))
+      .where(
+        and(
+          eq(evidenceItems.workspaceId, workspace.id),
+          inArray(evidenceItems.relatedProjectId, duplicateIds),
+        ),
+      )
       .returning({ id: evidenceItems.id });
 
     await tx
@@ -1164,7 +1211,7 @@ export async function mergeProjectCards(args: {
         status: "rejected",
         updatedAt: now,
       })
-      .where(inArray(projectCards.id, duplicateIds));
+      .where(and(eq(projectCards.workspaceId, workspace.id), inArray(projectCards.id, duplicateIds)));
 
     if (movedEvidence.length > 0) {
       await markClaimsStaleForEvidenceIds(movedEvidence.map((item) => item.id));
@@ -1216,10 +1263,12 @@ export async function updateProjectCard(args: {
     }
   }
 
-  const [project] = await getDb()
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [project] = await db
     .update(projectCards)
     .set(patch)
-    .where(eq(projectCards.id, args.projectId))
+    .where(and(eq(projectCards.workspaceId, workspace.id), eq(projectCards.id, args.projectId)))
     .returning({
       id: projectCards.id,
       title: projectCards.title,
@@ -1242,10 +1291,17 @@ export async function approveProjectEvidenceForResume(projectId: string) {
   }
 
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [project] = await db
+    .select({ id: projectCards.id })
+    .from(projectCards)
+    .where(and(eq(projectCards.workspaceId, workspace.id), eq(projectCards.id, projectId)))
+    .limit(1);
+  if (!project) return { status: "not_found" as const };
   const linkedEvidence = await db
     .select()
     .from(evidenceItems)
-    .where(eq(evidenceItems.relatedProjectId, projectId));
+    .where(and(eq(evidenceItems.workspaceId, workspace.id), eq(evidenceItems.relatedProjectId, projectId)));
   const eligibleEvidence = linkedEvidence.filter(
     (item) =>
       item.sensitivityLevel !== "sensitive" &&
@@ -1269,7 +1325,12 @@ export async function approveProjectEvidenceForResume(projectId: string) {
       allowedUsage: ["resume", "interview"],
       updatedAt: new Date(),
     })
-    .where(inArray(evidenceItems.id, eligibleEvidence.map((item) => item.id)))
+    .where(
+      and(
+        eq(evidenceItems.workspaceId, workspace.id),
+        inArray(evidenceItems.id, eligibleEvidence.map((item) => item.id)),
+      ),
+    )
     .returning({ id: evidenceItems.id });
 
   return {
@@ -1287,21 +1348,31 @@ export async function markClaimsStaleForEvidenceIds(evidenceIds: string[]) {
       reason: "missing_database_url_or_ids" as const,
     };
   }
-  const rows = await getDb().select().from(generatedClaims);
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const rows = await db
+    .select()
+    .from(generatedClaims)
+    .where(eq(generatedClaims.workspaceId, workspace.id));
   const impacted = rows.filter((claim) =>
     claim.evidenceIds.some((id) => evidenceIds.includes(id)),
   );
   if (impacted.length === 0) {
     return { status: "saved" as const, staleCount: 0 };
   }
-  await getDb()
+  await db
     .update(generatedClaims)
     .set({
       claimStatus: "stale",
       staleReason: "Linked evidence was edited or reclassified.",
       lastValidatedAt: null,
     })
-    .where(inArray(generatedClaims.id, impacted.map((claim) => claim.id)));
+    .where(
+      and(
+        eq(generatedClaims.workspaceId, workspace.id),
+        inArray(generatedClaims.id, impacted.map((claim) => claim.id)),
+      ),
+    );
   return { status: "saved" as const, staleCount: impacted.length };
 }
 
@@ -1322,6 +1393,7 @@ export async function updateEvidenceItem(args: {
   }
 
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const patch: Partial<typeof evidenceItems.$inferInsert> = {
     updatedAt: new Date(),
   };
@@ -1330,6 +1402,7 @@ export async function updateEvidenceItem(args: {
       db,
       evidenceId: args.evidenceId,
       relatedProjectId: args.relatedProjectId,
+      workspaceId: workspace.id,
     });
     if (validation.status !== "valid") return validation;
   }
@@ -1337,6 +1410,7 @@ export async function updateEvidenceItem(args: {
     const targetValidation = await validateEvidenceStoryLinks({
       db,
       evidenceId: args.evidenceId,
+      workspaceId: workspace.id,
       relatedWorkExperienceId: args.relatedWorkExperienceId,
       relatedInitiativeId: args.relatedInitiativeId,
       relatedPortfolioProjectId: args.relatedPortfolioProjectId,
@@ -1350,7 +1424,7 @@ export async function updateEvidenceItem(args: {
     const [existing] = await db
       .select()
       .from(evidenceItems)
-      .where(eq(evidenceItems.id, args.evidenceId))
+      .where(and(eq(evidenceItems.workspaceId, workspace.id), eq(evidenceItems.id, args.evidenceId)))
       .limit(1);
     if (!existing) return { status: "not_found" as const };
     const requestedUsage = Array.from(
@@ -1405,7 +1479,7 @@ export async function updateEvidenceItem(args: {
   const [item] = await db
     .update(evidenceItems)
     .set(patch)
-    .where(eq(evidenceItems.id, args.evidenceId))
+    .where(and(eq(evidenceItems.workspaceId, workspace.id), eq(evidenceItems.id, args.evidenceId)))
     .returning({
       id: evidenceItems.id,
       text: evidenceItems.text,
@@ -1445,9 +1519,11 @@ export async function getResumeTailoringContext(
   }
 
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const [profile] = await db
     .select()
     .from(profiles)
+    .where(eq(profiles.workspaceId, workspace.id))
     .orderBy(desc(profiles.updatedAt))
     .limit(1);
   const evidence = await retrieveResumeEvidenceForJob(job, { limit: 12 });
@@ -1503,6 +1579,7 @@ async function keepOverlapSeparate(args: {
     return { status: "invalid" as const, reason: "same_entity_id" as const };
   }
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const table = getOverlapEntityTable(args.entityType);
   const rows = await db
     .select({
@@ -1511,7 +1588,12 @@ async function keepOverlapSeparate(args: {
       status: table.status,
     })
     .from(table)
-    .where(inArray(table.id, [args.leftEntityId, args.rightEntityId]));
+    .where(
+      and(
+        eq(table.workspaceId, workspace.id),
+        inArray(table.id, [args.leftEntityId, args.rightEntityId]),
+      ),
+    );
   const left = rows.find((row) => row.id === args.leftEntityId);
   const right = rows.find((row) => row.id === args.rightEntityId);
   if (!left || !right) return { status: "not_found" as const };
@@ -1574,6 +1656,7 @@ async function validateEvidenceProjectLink(args: {
   db: ReturnType<typeof getDb>;
   evidenceId: string;
   relatedProjectId: string;
+  workspaceId: string;
 }) {
   const [evidence] = await args.db
     .select({
@@ -1581,7 +1664,7 @@ async function validateEvidenceProjectLink(args: {
       workspaceId: evidenceItems.workspaceId,
     })
     .from(evidenceItems)
-    .where(eq(evidenceItems.id, args.evidenceId))
+    .where(and(eq(evidenceItems.workspaceId, args.workspaceId), eq(evidenceItems.id, args.evidenceId)))
     .limit(1);
   if (!evidence) return { status: "not_found" as const };
 
@@ -1592,7 +1675,7 @@ async function validateEvidenceProjectLink(args: {
       status: projectCards.status,
     })
     .from(projectCards)
-    .where(eq(projectCards.id, args.relatedProjectId))
+    .where(and(eq(projectCards.workspaceId, args.workspaceId), eq(projectCards.id, args.relatedProjectId)))
     .limit(1);
   if (!project) {
     return { status: "invalid" as const, reason: "related_project_not_found" as const };
@@ -1609,6 +1692,7 @@ async function validateEvidenceProjectLink(args: {
 async function validateEvidenceStoryLinks(args: {
   db: ReturnType<typeof getDb>;
   evidenceId: string;
+  workspaceId: string;
   relatedWorkExperienceId?: string | null;
   relatedInitiativeId?: string | null;
   relatedPortfolioProjectId?: string | null;
@@ -1626,7 +1710,7 @@ async function validateEvidenceStoryLinks(args: {
       workspaceId: evidenceItems.workspaceId,
     })
     .from(evidenceItems)
-    .where(eq(evidenceItems.id, args.evidenceId))
+    .where(and(eq(evidenceItems.workspaceId, args.workspaceId), eq(evidenceItems.id, args.evidenceId)))
     .limit(1);
   if (!evidence) return { status: "not_found" as const };
 
@@ -1636,6 +1720,7 @@ async function validateEvidenceStoryLinks(args: {
       evidenceWorkspaceId: evidence.workspaceId,
       id: args.relatedWorkExperienceId,
       table: workExperiences,
+      workspaceId: args.workspaceId,
       notFoundReason: "related_work_experience_not_found",
       rejectedReason: "related_work_experience_rejected",
       crossWorkspaceReason: "cross_workspace_work_experience_link",
@@ -1648,6 +1733,7 @@ async function validateEvidenceStoryLinks(args: {
       evidenceWorkspaceId: evidence.workspaceId,
       id: args.relatedInitiativeId,
       table: initiatives,
+      workspaceId: args.workspaceId,
       notFoundReason: "related_initiative_not_found",
       rejectedReason: "related_initiative_rejected",
       crossWorkspaceReason: "cross_workspace_initiative_link",
@@ -1660,6 +1746,7 @@ async function validateEvidenceStoryLinks(args: {
       evidenceWorkspaceId: evidence.workspaceId,
       id: args.relatedPortfolioProjectId,
       table: portfolioProjects,
+      workspaceId: args.workspaceId,
       notFoundReason: "related_portfolio_project_not_found",
       rejectedReason: "related_portfolio_project_rejected",
       crossWorkspaceReason: "cross_workspace_portfolio_project_link",
@@ -1674,6 +1761,7 @@ async function validateTargetRow(args: {
   evidenceWorkspaceId: string;
   id: string;
   table: typeof workExperiences | typeof initiatives | typeof portfolioProjects;
+  workspaceId: string;
   notFoundReason: string;
   rejectedReason: string;
   crossWorkspaceReason: string;
@@ -1685,7 +1773,7 @@ async function validateTargetRow(args: {
       status: args.table.status,
     })
     .from(args.table)
-    .where(eq(args.table.id, args.id))
+    .where(and(eq(args.table.workspaceId, args.workspaceId), eq(args.table.id, args.id)))
     .limit(1);
   if (!target) return { status: "invalid" as const, reason: args.notFoundReason };
   if (target.status === "rejected") {
@@ -1800,7 +1888,12 @@ async function getEvidenceCountByStoryTarget(
             relatedInitiativeId: evidenceItems.relatedInitiativeId,
           })
           .from(evidenceItems)
-          .where(inArray(evidenceItems.relatedInitiativeId, initiativeIds))
+          .where(
+            and(
+              eq(evidenceItems.workspaceId, stories[0]!.workspaceId),
+              inArray(evidenceItems.relatedInitiativeId, initiativeIds),
+            ),
+          )
       : [];
   for (const item of initiativeEvidence) {
     if (!item.relatedInitiativeId) continue;
@@ -1813,7 +1906,12 @@ async function getEvidenceCountByStoryTarget(
             relatedPortfolioProjectId: evidenceItems.relatedPortfolioProjectId,
           })
           .from(evidenceItems)
-          .where(inArray(evidenceItems.relatedPortfolioProjectId, portfolioProjectIds))
+          .where(
+            and(
+              eq(evidenceItems.workspaceId, stories[0]!.workspaceId),
+              inArray(evidenceItems.relatedPortfolioProjectId, portfolioProjectIds),
+            ),
+          )
       : [];
   for (const item of portfolioEvidence) {
     if (!item.relatedPortfolioProjectId) continue;
