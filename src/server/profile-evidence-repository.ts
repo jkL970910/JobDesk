@@ -6,9 +6,13 @@ import { getDb, hasDatabaseUrl } from "../db/client";
 import {
   evidenceItems,
   generatedClaims,
+  initiatives,
+  overlapReviewDecisions,
+  portfolioProjects,
   profiles,
   projectCards,
   sourceDocuments,
+  workExperiences,
   workspaces,
   workflowRuns,
 } from "../db/schema";
@@ -20,7 +24,7 @@ import {
   retrieveResumeEvidenceForJob,
   type ResumeRetrievalJobContext,
 } from "./retrieval-service";
-import { buildStarStoryCards } from "./star-story-service";
+import { buildStarStoryCards, type StarStoryTargetInput } from "./star-story-service";
 
 const defaultWorkspaceName = "Personal JobDesk";
 
@@ -32,6 +36,9 @@ export type ProfileEvidencePersistenceResult =
       sourceDocumentId: string;
       evidenceCount: number;
       projectCount: number;
+      workExperienceCount: number;
+      initiativeCount: number;
+      portfolioProjectCount: number;
       workflowRunId: string;
     }
   | {
@@ -95,6 +102,107 @@ export async function persistProfileEvidenceExtraction(args: {
       throw new Error("Failed to create profile.");
     }
 
+    const workExperienceDrafts = mergeWorkExperienceDrafts(
+      args.extraction.work_experiences,
+      profileExperiencesToWorkExperienceDrafts(args.extraction.profile.experience),
+    );
+    const workExperienceIdByDraftId = new Map<string, string>();
+    for (const experience of workExperienceDrafts) {
+      const [created] = await tx
+        .insert(workExperiences)
+        .values({
+          workspaceId: workspace.id,
+          sourceDocumentId: sourceDocument.id,
+          employer: experience.employer,
+          roleTitle: experience.role_title,
+          team: experience.team,
+          location: experience.location,
+          startDate: experience.start_date,
+          endDate: experience.end_date,
+          summary: experience.summary,
+          status: experience.status,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: workExperiences.id });
+      if (created) {
+        workExperienceIdByDraftId.set(buildWorkExperienceDraftKey(experience), created.id);
+        workExperienceIdByDraftId.set(experience.employer, created.id);
+        workExperienceIdByDraftId.set(experience.role_title, created.id);
+      }
+    }
+
+    const initiativeIdByDraftId = new Map<string, string>();
+    for (const initiative of args.extraction.initiatives) {
+      const workExperienceId = initiative.work_experience_ref
+        ? workExperienceIdByDraftId.get(initiative.work_experience_ref) ?? null
+        : null;
+      const [created] = await tx
+        .insert(initiatives)
+        .values({
+          workspaceId: workspace.id,
+          workExperienceId,
+          sourceDocumentId: sourceDocument.id,
+          internalTitle: initiative.internal_title,
+          externalSafeTitle: initiative.external_safe_title,
+          context: initiative.context,
+          problem: initiative.problem,
+          role: initiative.role,
+          actions: initiative.actions,
+          results: initiative.results,
+          metrics: initiative.metrics as Array<Record<string, unknown>>,
+          technologies: initiative.technologies,
+          stakeholders: initiative.stakeholders,
+          externalSafeSummary: initiative.external_safe_summary,
+          sensitivityLevel: initiative.sensitivity_level,
+          needsRedactionReview: initiative.needs_redaction_review ? 1 : 0,
+          status: initiative.status,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: initiatives.id });
+      if (created) {
+        initiativeIdByDraftId.set(initiative.internal_title, created.id);
+        if (initiative.external_safe_title) {
+          initiativeIdByDraftId.set(initiative.external_safe_title, created.id);
+        }
+      }
+    }
+
+    const portfolioProjectIdByDraftId = new Map<string, string>();
+    for (const project of args.extraction.portfolio_projects) {
+      const [created] = await tx
+        .insert(portfolioProjects)
+        .values({
+          workspaceId: workspace.id,
+          sourceDocumentId: sourceDocument.id,
+          projectType: project.project_type,
+          title: project.title,
+          externalSafeTitle: project.external_safe_title,
+          context: project.context,
+          problem: project.problem,
+          role: project.role,
+          actions: project.actions,
+          results: project.results,
+          metrics: project.metrics as Array<Record<string, unknown>>,
+          technologies: project.technologies,
+          stakeholders: project.stakeholders,
+          externalSafeSummary: project.external_safe_summary,
+          sensitivityLevel: project.sensitivity_level,
+          needsRedactionReview: project.needs_redaction_review ? 1 : 0,
+          status: project.status,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: portfolioProjects.id });
+      if (created) {
+        portfolioProjectIdByDraftId.set(project.title, created.id);
+        if (project.external_safe_title) {
+          portfolioProjectIdByDraftId.set(project.external_safe_title, created.id);
+        }
+      }
+    }
+
     const projectIdByDraftId = new Map<string, string>();
     for (const project of args.extraction.project_cards) {
       const [created] = await tx
@@ -140,6 +248,15 @@ export async function persistProfileEvidenceExtraction(args: {
             relatedProjectId: item.related_project_id
               ? projectIdByDraftId.get(item.related_project_id) ?? null
               : null,
+            relatedWorkExperienceId: item.related_work_experience_id
+              ? workExperienceIdByDraftId.get(item.related_work_experience_id) ?? null
+              : null,
+            relatedInitiativeId: item.related_initiative_id
+              ? initiativeIdByDraftId.get(item.related_initiative_id) ?? null
+              : null,
+            relatedPortfolioProjectId: item.related_portfolio_project_id
+              ? portfolioProjectIdByDraftId.get(item.related_portfolio_project_id) ?? null
+              : null,
             needsUserConfirmation: guardrail.needsUserConfirmation ? 1 : 0,
             createdAt: now,
             updatedAt: now,
@@ -175,6 +292,9 @@ export async function persistProfileEvidenceExtraction(args: {
       sourceDocumentId: sourceDocument.id,
       evidenceCount: args.extraction.evidence_items.length,
       projectCount: args.extraction.project_cards.length,
+      workExperienceCount: workExperienceDrafts.length,
+      initiativeCount: args.extraction.initiatives.length,
+      portfolioProjectCount: args.extraction.portfolio_projects.length,
       workflowRunId: workflowRun.id,
     };
   });
@@ -219,6 +339,9 @@ export async function getRecentEvidenceLibrary(limit = 8) {
     return {
       profile: null,
       evidenceItems: [],
+      workExperiences: [],
+      initiatives: [],
+      portfolioProjects: [],
       projectCards: [],
     };
   }
@@ -233,6 +356,24 @@ export async function getRecentEvidenceLibrary(limit = 8) {
     .select()
     .from(evidenceItems)
     .orderBy(desc(evidenceItems.updatedAt))
+    .limit(limit);
+  const experiences = await db
+    .select()
+    .from(workExperiences)
+    .where(ne(workExperiences.status, "rejected"))
+    .orderBy(desc(workExperiences.updatedAt))
+    .limit(limit);
+  const initiativeRows = await db
+    .select()
+    .from(initiatives)
+    .where(ne(initiatives.status, "rejected"))
+    .orderBy(desc(initiatives.updatedAt))
+    .limit(limit);
+  const portfolioProjectRows = await db
+    .select()
+    .from(portfolioProjects)
+    .where(ne(portfolioProjects.status, "rejected"))
+    .orderBy(desc(portfolioProjects.updatedAt))
     .limit(limit);
   const projects = await db
     .select()
@@ -262,7 +403,60 @@ export async function getRecentEvidenceLibrary(limit = 8) {
       status: item.status,
       needs_user_confirmation: item.needsUserConfirmation === 1,
       related_project_id: item.relatedProjectId,
+      related_work_experience_id: item.relatedWorkExperienceId,
+      related_initiative_id: item.relatedInitiativeId,
+      related_portfolio_project_id: item.relatedPortfolioProjectId,
       updatedAt: item.updatedAt.toISOString(),
+    })),
+    workExperiences: experiences.map((experience) => ({
+      id: experience.id,
+      employer: experience.employer,
+      role_title: experience.roleTitle,
+      team: experience.team,
+      location: experience.location,
+      start_date: experience.startDate,
+      end_date: experience.endDate,
+      summary: experience.summary,
+      status: experience.status,
+      updatedAt: experience.updatedAt.toISOString(),
+    })),
+    initiatives: initiativeRows.map((initiative) => ({
+      id: initiative.id,
+      work_experience_id: initiative.workExperienceId,
+      internal_title: initiative.internalTitle,
+      external_safe_title: initiative.externalSafeTitle,
+      context: initiative.context,
+      problem: initiative.problem,
+      role: initiative.role,
+      actions: initiative.actions,
+      results: initiative.results,
+      metrics: initiative.metrics,
+      technologies: initiative.technologies,
+      stakeholders: initiative.stakeholders,
+      external_safe_summary: initiative.externalSafeSummary,
+      sensitivity_level: initiative.sensitivityLevel,
+      needs_redaction_review: initiative.needsRedactionReview === 1,
+      status: initiative.status,
+      updatedAt: initiative.updatedAt.toISOString(),
+    })),
+    portfolioProjects: portfolioProjectRows.map((project) => ({
+      id: project.id,
+      project_type: project.projectType,
+      title: project.title,
+      external_safe_title: project.externalSafeTitle,
+      context: project.context,
+      problem: project.problem,
+      role: project.role,
+      actions: project.actions,
+      results: project.results,
+      metrics: project.metrics,
+      technologies: project.technologies,
+      stakeholders: project.stakeholders,
+      external_safe_summary: project.externalSafeSummary,
+      sensitivity_level: project.sensitivityLevel,
+      needs_redaction_review: project.needsRedactionReview === 1,
+      status: project.status,
+      updatedAt: project.updatedAt.toISOString(),
     })),
     projectCards: projects.map((project) => ({
       id: project.id,
@@ -327,31 +521,151 @@ export type ProjectDedupeItem = {
   updatedAt: string;
 };
 
+export type StoryTargetType = "initiative" | "portfolio_project";
+
+export type StoryDedupeCandidate = {
+  primary: StoryDedupeItem;
+  duplicate: StoryDedupeItem;
+  duplicateCount: number;
+  duplicateStoryIds: string[];
+  score: number;
+  reasons: string[];
+  primaryEvidenceCount: number;
+  duplicateEvidenceCount: number;
+};
+
+export type StoryDedupeItem = ProjectDedupeItem & {
+  storyType: StoryTargetType;
+  internalTitle: string | null;
+  externalSafeTitle: string | null;
+  sensitivityLevel: string;
+  needsRedactionReview: boolean;
+};
+
 export async function getStarStoryBank(limit = 8) {
   if (!hasDatabaseUrl()) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
   }
 
   const db = getDb();
-  const projects = await db
+  const initiativeRows = await db
     .select()
-    .from(projectCards)
-    .where(ne(projectCards.status, "rejected"))
-    .orderBy(desc(projectCards.updatedAt))
+    .from(initiatives)
+    .where(ne(initiatives.status, "rejected"))
+    .orderBy(desc(initiatives.updatedAt))
     .limit(80);
-  if (projects.length === 0) {
+  const portfolioProjectRows = await db
+    .select()
+    .from(portfolioProjects)
+    .where(ne(portfolioProjects.status, "rejected"))
+    .orderBy(desc(portfolioProjects.updatedAt))
+    .limit(80);
+  const storyTargets: StarStoryTargetInput[] = [
+    ...initiativeRows.map((initiative) => ({
+      id: initiative.id,
+      type: "initiative" as const,
+      title: initiative.externalSafeTitle ?? initiative.internalTitle,
+      internalTitle: initiative.internalTitle,
+      context: initiative.context,
+      problem: initiative.problem,
+      role: initiative.role,
+      actions: initiative.actions,
+      results: initiative.results,
+      metrics: initiative.metrics,
+      technologies: initiative.technologies,
+      stakeholders: initiative.stakeholders,
+      publicSafeSummary: initiative.externalSafeSummary,
+      sensitivityLevel: initiative.sensitivityLevel,
+      status: initiative.status,
+      updatedAt: initiative.updatedAt,
+    })),
+    ...portfolioProjectRows.map((project) => ({
+      id: project.id,
+      type: "portfolio_project" as const,
+      title: project.externalSafeTitle ?? project.title,
+      internalTitle: project.title,
+      context: project.context,
+      problem: project.problem,
+      role: project.role,
+      actions: project.actions,
+      results: project.results,
+      metrics: project.metrics,
+      technologies: project.technologies,
+      stakeholders: project.stakeholders,
+      publicSafeSummary: project.externalSafeSummary,
+      sensitivityLevel: project.sensitivityLevel,
+      status: project.status,
+      updatedAt: project.updatedAt,
+    })),
+  ];
+
+  if (storyTargets.length === 0) {
+    const legacyProjects = await db
+      .select()
+      .from(projectCards)
+      .where(ne(projectCards.status, "rejected"))
+      .orderBy(desc(projectCards.updatedAt))
+      .limit(80);
+    if (legacyProjects.length === 0) {
+      return { status: "ready" as const, stories: [] };
+    }
+    const legacyEvidence = await db
+      .select()
+      .from(evidenceItems)
+      .where(inArray(evidenceItems.relatedProjectId, legacyProjects.map((project) => project.id)));
+    return {
+      status: "ready" as const,
+      stories: buildStarStoryCards({
+        storyTargets: legacyProjects.map((project) => ({
+          id: project.id,
+          type: "legacy_project" as const,
+          title: project.title,
+          context: project.context,
+          problem: project.problem,
+          role: project.role,
+          actions: project.actions,
+          results: project.results,
+          metrics: project.metrics,
+          technologies: project.technologies,
+          stakeholders: project.stakeholders,
+          publicSafeSummary: project.publicSafeSummary,
+          sensitivityLevel: project.sensitivityLevel,
+          status: project.status,
+          updatedAt: project.updatedAt,
+        })),
+        evidenceItems: legacyEvidence,
+        limit,
+      }),
+    };
+  }
+
+  const initiativeIds = initiativeRows.map((initiative) => initiative.id);
+  const portfolioProjectIds = portfolioProjectRows.map((project) => project.id);
+  const initiativeEvidence =
+    initiativeIds.length > 0
+      ? await db
+          .select()
+          .from(evidenceItems)
+          .where(inArray(evidenceItems.relatedInitiativeId, initiativeIds))
+      : [];
+  const portfolioEvidence =
+    portfolioProjectIds.length > 0
+      ? await db
+          .select()
+          .from(evidenceItems)
+          .where(inArray(evidenceItems.relatedPortfolioProjectId, portfolioProjectIds))
+      : [];
+  const linkedEvidence = [...initiativeEvidence, ...portfolioEvidence];
+
+  if (storyTargets.length === 0) {
     return { status: "ready" as const, stories: [] };
   }
-  const evidence = await db
-    .select()
-    .from(evidenceItems)
-    .where(inArray(evidenceItems.relatedProjectId, projects.map((project) => project.id)));
 
   return {
     status: "ready" as const,
     stories: buildStarStoryCards({
-      projects,
-      evidenceItems: evidence,
+      storyTargets,
+      evidenceItems: linkedEvidence,
       limit,
     }),
   };
@@ -362,17 +676,25 @@ export async function getEvidenceDedupeCandidates(limit = 8) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
   }
 
-  const rows = await getDb()
+  const db = getDb();
+  const rows = await db
     .select()
     .from(evidenceItems)
     .where(eq(evidenceItems.status, "pending"))
     .orderBy(desc(evidenceItems.updatedAt))
     .limit(120);
+  const ignoredPairs = await getIgnoredOverlapPairs({
+    db,
+    entityType: "evidence",
+    workspaceIds: Array.from(new Set(rows.map((row) => row.workspaceId))),
+  });
   const candidates: EvidenceDedupeCandidate[] = [];
   for (let leftIndex = 0; leftIndex < rows.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < rows.length; rightIndex += 1) {
       const left = rows[leftIndex]!;
       const right = rows[rightIndex]!;
+      if (left.workspaceId !== right.workspaceId) continue;
+      if (ignoredPairs.has(buildOverlapPairKey(left.id, right.id))) continue;
       const match = scoreEvidenceSimilarity(left.text, right.text);
       const sameSourceQuote =
         normalizeEvidenceText(left.sourceQuote) === normalizeEvidenceText(right.sourceQuote);
@@ -419,6 +741,11 @@ export async function getProjectDedupeCandidates(limit = 8) {
   if (activeProjects.length < 2) {
     return { status: "ready" as const, candidates: [] };
   }
+  const ignoredPairs = await getIgnoredOverlapPairs({
+    db,
+    entityType: "project",
+    workspaceIds: Array.from(new Set(activeProjects.map((project) => project.workspaceId))),
+  });
   const linkedEvidence = await db
     .select({
       id: evidenceItems.id,
@@ -440,6 +767,8 @@ export async function getProjectDedupeCandidates(limit = 8) {
     for (let rightIndex = leftIndex + 1; rightIndex < activeProjects.length; rightIndex += 1) {
       const left = activeProjects[leftIndex]!;
       const right = activeProjects[rightIndex]!;
+      if (left.workspaceId !== right.workspaceId) continue;
+      if (ignoredPairs.has(buildOverlapPairKey(left.id, right.id))) continue;
       const match = scoreProjectSimilarity(left, right);
       if (match.score < 0.72) continue;
       const [primary, duplicate] = chooseProjectDedupePrimary(left, right);
@@ -456,7 +785,11 @@ export async function getProjectDedupeCandidates(limit = 8) {
     }
   }
 
-  const exactTitleClusters = buildExactTitleProjectClusters(activeProjects, evidenceCountByProject);
+  const exactTitleClusters = buildExactTitleProjectClusters(
+    activeProjects,
+    evidenceCountByProject,
+    ignoredPairs,
+  );
   const exactClusterProjectIds = new Set(
     exactTitleClusters.flatMap((candidate) => [
       candidate.primary.id,
@@ -486,6 +819,172 @@ export async function getProjectDedupeCandidates(limit = 8) {
   return {
     status: "ready" as const,
     candidates: suppressed.slice(0, limit),
+  };
+}
+
+export async function getStoryDedupeCandidates(limit = 8) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  const db = getDb();
+  const initiativeRows = await db
+    .select()
+    .from(initiatives)
+    .orderBy(desc(initiatives.updatedAt))
+    .limit(120);
+  const portfolioProjectRows = await db
+    .select()
+    .from(portfolioProjects)
+    .orderBy(desc(portfolioProjects.updatedAt))
+    .limit(120);
+  const activeStories = [
+    ...initiativeRows
+      .filter((story) => story.status !== "rejected")
+      .map(toInitiativeDedupeItem),
+    ...portfolioProjectRows
+      .filter((story) => story.status !== "rejected")
+      .map(toPortfolioProjectDedupeItem),
+  ];
+  if (activeStories.length < 2) {
+    return { status: "ready" as const, candidates: [] };
+  }
+  const ignoredPairsByType = new Map<StoryTargetType, Set<string>>();
+  for (const storyType of ["initiative", "portfolio_project"] as const) {
+    const storyIds = activeStories
+      .filter((story) => story.storyType === storyType)
+      .map((story) => story.id);
+    if (storyIds.length < 2) {
+      ignoredPairsByType.set(storyType, new Set());
+      continue;
+    }
+    ignoredPairsByType.set(
+      storyType,
+      await getIgnoredOverlapPairs({
+        db,
+        entityType: storyType,
+        workspaceIds: Array.from(
+          new Set(
+            activeStories
+              .filter((story) => story.storyType === storyType)
+              .map((story) => story.workspaceId),
+          ),
+        ),
+      }),
+    );
+  }
+
+  const evidenceCountByStory = await getEvidenceCountByStoryTarget(db, activeStories);
+  const candidates: StoryDedupeCandidate[] = [];
+  for (let leftIndex = 0; leftIndex < activeStories.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < activeStories.length; rightIndex += 1) {
+      const left = activeStories[leftIndex]!;
+      const right = activeStories[rightIndex]!;
+      if (left.workspaceId !== right.workspaceId) continue;
+      if (left.storyType !== right.storyType) continue;
+      if (
+        ignoredPairsByType
+          .get(left.storyType)
+          ?.has(buildOverlapPairKey(left.id, right.id))
+      ) {
+        continue;
+      }
+      const match = scoreStorySimilarity(left, right);
+      if (match.score < 0.72) continue;
+      const [primary, duplicate] = chooseStoryDedupePrimary(left, right);
+      candidates.push({
+        primary: stripStoryWorkspace(primary),
+        duplicate: stripStoryWorkspace(duplicate),
+        duplicateCount: 1,
+        duplicateStoryIds: [duplicate.id],
+        score: match.score,
+        reasons: match.reasons,
+        primaryEvidenceCount: evidenceCountByStory.get(primary.id) ?? 0,
+        duplicateEvidenceCount: evidenceCountByStory.get(duplicate.id) ?? 0,
+      });
+    }
+  }
+
+  candidates.sort((left, right) => right.score - left.score);
+  const usedStoryIds = new Set<string>();
+  return {
+    status: "ready" as const,
+    candidates: candidates
+      .filter((candidate) => {
+        const storyIds = [candidate.primary.id, ...candidate.duplicateStoryIds];
+        if (storyIds.some((storyId) => usedStoryIds.has(storyId))) return false;
+        storyIds.forEach((storyId) => usedStoryIds.add(storyId));
+        return true;
+      })
+      .slice(0, limit),
+  };
+}
+
+export async function keepEvidenceOverlapSeparate(args: {
+  primaryEvidenceId: string;
+  duplicateEvidenceId: string;
+}) {
+  return keepOverlapSeparate({
+    entityType: "evidence",
+    leftEntityId: args.primaryEvidenceId,
+    rightEntityId: args.duplicateEvidenceId,
+  });
+}
+
+export async function keepProjectOverlapSeparate(args: {
+  primaryProjectId: string;
+  duplicateProjectIds?: string[];
+  duplicateProjectId?: string;
+}) {
+  const duplicateIds = Array.from(
+    new Set([...(args.duplicateProjectIds ?? []), ...(args.duplicateProjectId ? [args.duplicateProjectId] : [])]),
+  );
+  if (duplicateIds.length === 0) {
+    return { status: "invalid" as const, reason: "missing_duplicate_project" as const };
+  }
+  const results = [];
+  for (const duplicateId of duplicateIds) {
+    const result = await keepOverlapSeparate({
+      entityType: "project",
+      leftEntityId: args.primaryProjectId,
+      rightEntityId: duplicateId,
+    });
+    if (result.status !== "saved") return result;
+    results.push(result);
+  }
+  return {
+    status: "saved" as const,
+    entityType: "project" as const,
+    ignoredPairCount: results.length,
+  };
+}
+
+export async function keepStoryOverlapSeparate(args: {
+  storyType: StoryTargetType;
+  primaryStoryId: string;
+  duplicateStoryIds?: string[];
+  duplicateStoryId?: string;
+}) {
+  const duplicateIds = Array.from(
+    new Set([...(args.duplicateStoryIds ?? []), ...(args.duplicateStoryId ? [args.duplicateStoryId] : [])]),
+  );
+  if (duplicateIds.length === 0) {
+    return { status: "invalid" as const, reason: "missing_duplicate_story" as const };
+  }
+  const results = [];
+  for (const duplicateId of duplicateIds) {
+    const result = await keepOverlapSeparate({
+      entityType: args.storyType,
+      leftEntityId: args.primaryStoryId,
+      rightEntityId: duplicateId,
+    });
+    if (result.status !== "saved") return result;
+    results.push(result);
+  }
+  return {
+    status: "saved" as const,
+    entityType: args.storyType,
+    ignoredPairCount: results.length,
   };
 }
 
@@ -794,6 +1293,9 @@ export async function updateEvidenceItem(args: {
   allowedUsage?: AllowedUsage[];
   sensitivityLevel?: SensitivityLevel;
   relatedProjectId?: string | null;
+  relatedWorkExperienceId?: string | null;
+  relatedInitiativeId?: string | null;
+  relatedPortfolioProjectId?: string | null;
 }) {
   if (!hasDatabaseUrl()) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
@@ -810,6 +1312,16 @@ export async function updateEvidenceItem(args: {
       relatedProjectId: args.relatedProjectId,
     });
     if (validation.status !== "valid") return validation;
+  }
+  if (args.action === "edit") {
+    const targetValidation = await validateEvidenceStoryLinks({
+      db,
+      evidenceId: args.evidenceId,
+      relatedWorkExperienceId: args.relatedWorkExperienceId,
+      relatedInitiativeId: args.relatedInitiativeId,
+      relatedPortfolioProjectId: args.relatedPortfolioProjectId,
+    });
+    if (targetValidation.status !== "valid") return targetValidation;
   }
   if (args.action === "approve") {
     patch.status = "approved";
@@ -855,7 +1367,16 @@ export async function updateEvidenceItem(args: {
     if (args.sensitivityLevel !== undefined) {
       patch.sensitivityLevel = args.sensitivityLevel;
     }
-    if (args.relatedProjectId !== undefined) {
+    const storyTargetWasProvided =
+      args.relatedWorkExperienceId !== undefined ||
+      args.relatedInitiativeId !== undefined ||
+      args.relatedPortfolioProjectId !== undefined;
+    if (storyTargetWasProvided) {
+      patch.relatedWorkExperienceId = args.relatedWorkExperienceId ?? null;
+      patch.relatedInitiativeId = args.relatedInitiativeId ?? null;
+      patch.relatedPortfolioProjectId = args.relatedPortfolioProjectId ?? null;
+      patch.relatedProjectId = args.relatedProjectId ?? null;
+    } else if (args.relatedProjectId !== undefined) {
       patch.relatedProjectId = args.relatedProjectId;
     }
     patch.needsUserConfirmation = 1;
@@ -874,6 +1395,9 @@ export async function updateEvidenceItem(args: {
       allowedUsage: evidenceItems.allowedUsage,
       sensitivityLevel: evidenceItems.sensitivityLevel,
       relatedProjectId: evidenceItems.relatedProjectId,
+      relatedWorkExperienceId: evidenceItems.relatedWorkExperienceId,
+      relatedInitiativeId: evidenceItems.relatedInitiativeId,
+      relatedPortfolioProjectId: evidenceItems.relatedPortfolioProjectId,
     });
 
   if (!item) return { status: "not_found" as const };
@@ -939,6 +1463,111 @@ async function getOrCreateDefaultWorkspace(db: Pick<DbHandle, "select" | "insert
   return created;
 }
 
+async function getIgnoredOverlapPairs(args: {
+  db: ReturnType<typeof getDb>;
+  entityType: "evidence" | "project" | StoryTargetType;
+  workspaceIds: string[];
+}) {
+  if (args.workspaceIds.length === 0) return new Set<string>();
+  const decisions = await args.db
+    .select({
+      leftEntityId: overlapReviewDecisions.leftEntityId,
+      rightEntityId: overlapReviewDecisions.rightEntityId,
+    })
+    .from(overlapReviewDecisions)
+    .where(
+      and(
+        eq(overlapReviewDecisions.entityType, args.entityType),
+        eq(overlapReviewDecisions.decision, "keep_separate"),
+        inArray(overlapReviewDecisions.workspaceId, args.workspaceIds),
+      ),
+    );
+  return new Set(
+    decisions.map((decision) =>
+      buildOverlapPairKey(decision.leftEntityId, decision.rightEntityId),
+    ),
+  );
+}
+
+async function keepOverlapSeparate(args: {
+  entityType: "evidence" | "project" | StoryTargetType;
+  leftEntityId: string;
+  rightEntityId: string;
+}) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+  if (args.leftEntityId === args.rightEntityId) {
+    return { status: "invalid" as const, reason: "same_entity_id" as const };
+  }
+  const db = getDb();
+  const table = getOverlapEntityTable(args.entityType);
+  const rows = await db
+    .select({
+      id: table.id,
+      workspaceId: table.workspaceId,
+      status: table.status,
+    })
+    .from(table)
+    .where(inArray(table.id, [args.leftEntityId, args.rightEntityId]));
+  const left = rows.find((row) => row.id === args.leftEntityId);
+  const right = rows.find((row) => row.id === args.rightEntityId);
+  if (!left || !right) return { status: "not_found" as const };
+  if (left.workspaceId !== right.workspaceId) {
+    return { status: "invalid" as const, reason: "cross_workspace_overlap" as const };
+  }
+  if (left.status === "rejected" || right.status === "rejected") {
+    return { status: "invalid" as const, reason: "rejected_overlap_entity" as const };
+  }
+
+  const [leftEntityId, rightEntityId] = sortOverlapPair(args.leftEntityId, args.rightEntityId);
+  const now = new Date();
+  await db
+    .insert(overlapReviewDecisions)
+    .values({
+      workspaceId: left.workspaceId,
+      entityType: args.entityType,
+      leftEntityId,
+      rightEntityId,
+      decision: "keep_separate",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        overlapReviewDecisions.workspaceId,
+        overlapReviewDecisions.entityType,
+        overlapReviewDecisions.leftEntityId,
+        overlapReviewDecisions.rightEntityId,
+      ],
+      set: {
+        decision: "keep_separate",
+        updatedAt: now,
+      },
+    });
+  return {
+    status: "saved" as const,
+    entityType: args.entityType,
+    leftEntityId,
+    rightEntityId,
+  };
+}
+
+function getOverlapEntityTable(entityType: "evidence" | "project" | StoryTargetType) {
+  if (entityType === "evidence") return evidenceItems;
+  if (entityType === "initiative") return initiatives;
+  if (entityType === "portfolio_project") return portfolioProjects;
+  return projectCards;
+}
+
+function sortOverlapPair(leftId: string, rightId: string) {
+  return [leftId, rightId].sort() as [string, string];
+}
+
+function buildOverlapPairKey(leftId: string, rightId: string) {
+  return sortOverlapPair(leftId, rightId).join(":");
+}
+
 async function validateEvidenceProjectLink(args: {
   db: ReturnType<typeof getDb>;
   evidenceId: string;
@@ -975,6 +1604,97 @@ async function validateEvidenceProjectLink(args: {
   return { status: "valid" as const };
 }
 
+async function validateEvidenceStoryLinks(args: {
+  db: ReturnType<typeof getDb>;
+  evidenceId: string;
+  relatedWorkExperienceId?: string | null;
+  relatedInitiativeId?: string | null;
+  relatedPortfolioProjectId?: string | null;
+}) {
+  const targetIds = [
+    args.relatedWorkExperienceId,
+    args.relatedInitiativeId,
+    args.relatedPortfolioProjectId,
+  ].filter(Boolean);
+  if (targetIds.length === 0) return { status: "valid" as const };
+
+  const [evidence] = await args.db
+    .select({
+      id: evidenceItems.id,
+      workspaceId: evidenceItems.workspaceId,
+    })
+    .from(evidenceItems)
+    .where(eq(evidenceItems.id, args.evidenceId))
+    .limit(1);
+  if (!evidence) return { status: "not_found" as const };
+
+  if (args.relatedWorkExperienceId) {
+    const result = await validateTargetRow({
+      db: args.db,
+      evidenceWorkspaceId: evidence.workspaceId,
+      id: args.relatedWorkExperienceId,
+      table: workExperiences,
+      notFoundReason: "related_work_experience_not_found",
+      rejectedReason: "related_work_experience_rejected",
+      crossWorkspaceReason: "cross_workspace_work_experience_link",
+    });
+    if (result.status !== "valid") return result;
+  }
+  if (args.relatedInitiativeId) {
+    const result = await validateTargetRow({
+      db: args.db,
+      evidenceWorkspaceId: evidence.workspaceId,
+      id: args.relatedInitiativeId,
+      table: initiatives,
+      notFoundReason: "related_initiative_not_found",
+      rejectedReason: "related_initiative_rejected",
+      crossWorkspaceReason: "cross_workspace_initiative_link",
+    });
+    if (result.status !== "valid") return result;
+  }
+  if (args.relatedPortfolioProjectId) {
+    const result = await validateTargetRow({
+      db: args.db,
+      evidenceWorkspaceId: evidence.workspaceId,
+      id: args.relatedPortfolioProjectId,
+      table: portfolioProjects,
+      notFoundReason: "related_portfolio_project_not_found",
+      rejectedReason: "related_portfolio_project_rejected",
+      crossWorkspaceReason: "cross_workspace_portfolio_project_link",
+    });
+    if (result.status !== "valid") return result;
+  }
+  return { status: "valid" as const };
+}
+
+async function validateTargetRow(args: {
+  db: ReturnType<typeof getDb>;
+  evidenceWorkspaceId: string;
+  id: string;
+  table: typeof workExperiences | typeof initiatives | typeof portfolioProjects;
+  notFoundReason: string;
+  rejectedReason: string;
+  crossWorkspaceReason: string;
+}) {
+  const [target] = await args.db
+    .select({
+      id: args.table.id,
+      workspaceId: args.table.workspaceId,
+      status: args.table.status,
+    })
+    .from(args.table)
+    .where(eq(args.table.id, args.id))
+    .limit(1);
+  if (!target) return { status: "invalid" as const, reason: args.notFoundReason };
+  if (target.status === "rejected") {
+    return { status: "invalid" as const, reason: args.rejectedReason };
+  }
+  if (target.workspaceId !== args.evidenceWorkspaceId) {
+    return { status: "invalid" as const, reason: args.crossWorkspaceReason };
+  }
+  return { status: "valid" as const };
+}
+
 function toDedupeItem(item: typeof evidenceItems.$inferSelect): EvidenceDedupeItem {
   return {
     id: item.id,
@@ -1005,9 +1725,108 @@ function toProjectDedupeItem(item: typeof projectCards.$inferSelect): ProjectDed
   };
 }
 
+type StoryDedupeItemWithWorkspace = StoryDedupeItem & {
+  workspaceId: string;
+};
+
+function toInitiativeDedupeItem(item: typeof initiatives.$inferSelect): StoryDedupeItemWithWorkspace {
+  return {
+    id: item.id,
+    workspaceId: item.workspaceId,
+    storyType: "initiative",
+    title: item.externalSafeTitle ?? item.internalTitle,
+    internalTitle: item.internalTitle,
+    externalSafeTitle: item.externalSafeTitle,
+    context: item.context,
+    problem: item.problem,
+    role: item.role,
+    actions: item.actions,
+    results: item.results,
+    technologies: item.technologies,
+    stakeholders: item.stakeholders,
+    sensitivityLevel: item.sensitivityLevel,
+    needsRedactionReview: item.needsRedactionReview === 1,
+    status: item.status,
+    updatedAt: item.updatedAt.toISOString(),
+  };
+}
+
+function toPortfolioProjectDedupeItem(
+  item: typeof portfolioProjects.$inferSelect,
+): StoryDedupeItemWithWorkspace {
+  return {
+    id: item.id,
+    workspaceId: item.workspaceId,
+    storyType: "portfolio_project",
+    title: item.externalSafeTitle ?? item.title,
+    internalTitle: item.title,
+    externalSafeTitle: item.externalSafeTitle,
+    context: item.context,
+    problem: item.problem,
+    role: item.role,
+    actions: item.actions,
+    results: item.results,
+    technologies: item.technologies,
+    stakeholders: item.stakeholders,
+    sensitivityLevel: item.sensitivityLevel,
+    needsRedactionReview: item.needsRedactionReview === 1,
+    status: item.status,
+    updatedAt: item.updatedAt.toISOString(),
+  };
+}
+
+function stripStoryWorkspace(item: StoryDedupeItemWithWorkspace): StoryDedupeItem {
+  const { workspaceId: _workspaceId, ...story } = item;
+  return story;
+}
+
+async function getEvidenceCountByStoryTarget(
+  db: ReturnType<typeof getDb>,
+  stories: StoryDedupeItemWithWorkspace[],
+) {
+  const initiativeIds = stories
+    .filter((story) => story.storyType === "initiative")
+    .map((story) => story.id);
+  const portfolioProjectIds = stories
+    .filter((story) => story.storyType === "portfolio_project")
+    .map((story) => story.id);
+  const counts = new Map<string, number>();
+  const initiativeEvidence =
+    initiativeIds.length > 0
+      ? await db
+          .select({
+            relatedInitiativeId: evidenceItems.relatedInitiativeId,
+          })
+          .from(evidenceItems)
+          .where(inArray(evidenceItems.relatedInitiativeId, initiativeIds))
+      : [];
+  for (const item of initiativeEvidence) {
+    if (!item.relatedInitiativeId) continue;
+    counts.set(item.relatedInitiativeId, (counts.get(item.relatedInitiativeId) ?? 0) + 1);
+  }
+  const portfolioEvidence =
+    portfolioProjectIds.length > 0
+      ? await db
+          .select({
+            relatedPortfolioProjectId: evidenceItems.relatedPortfolioProjectId,
+          })
+          .from(evidenceItems)
+          .where(inArray(evidenceItems.relatedPortfolioProjectId, portfolioProjectIds))
+      : [];
+  for (const item of portfolioEvidence) {
+    if (!item.relatedPortfolioProjectId) continue;
+    counts.set(
+      item.relatedPortfolioProjectId,
+      (counts.get(item.relatedPortfolioProjectId) ?? 0) + 1,
+    );
+  }
+  return counts;
+}
+
 function buildExactTitleProjectClusters(
   projects: Array<typeof projectCards.$inferSelect>,
   evidenceCountByProject: Map<string, number>,
+  ignoredPairs = new Set<string>(),
 ) {
   const byTitle = new Map<string, Array<typeof projectCards.$inferSelect>>();
   for (const project of projects) {
@@ -1021,11 +1840,15 @@ function buildExactTitleProjectClusters(
   const clusters: ProjectDedupeCandidate[] = [];
   for (const group of byTitle.values()) {
     if (group.length < 2) continue;
-    const [primary, ...duplicates] = [...group].sort((left, right) => {
+    const [primaryCandidate, ...duplicateCandidates] = [...group].sort((left, right) => {
       const priorityDelta = projectPriority(right) - projectPriority(left);
       if (priorityDelta !== 0) return priorityDelta;
       return right.updatedAt.getTime() - left.updatedAt.getTime();
     });
+    const primary = primaryCandidate;
+    const duplicates = duplicateCandidates.filter(
+      (duplicate) => primary && !ignoredPairs.has(buildOverlapPairKey(primary.id, duplicate.id)),
+    );
     if (!primary || duplicates.length === 0) continue;
     clusters.push({
       primary: toProjectDedupeItem(primary),
@@ -1087,6 +1910,88 @@ function projectPriority(item: typeof projectCards.$inferSelect) {
   score += Math.min(3, item.results.length);
   score += Math.min(2, item.metrics.length);
   return score;
+}
+
+function chooseStoryDedupePrimary(
+  left: StoryDedupeItemWithWorkspace,
+  right: StoryDedupeItemWithWorkspace,
+): [StoryDedupeItemWithWorkspace, StoryDedupeItemWithWorkspace] {
+  const leftRank = storyPriority(left);
+  const rightRank = storyPriority(right);
+  if (leftRank !== rightRank) {
+    return leftRank > rightRank ? [left, right] : [right, left];
+  }
+  return left.updatedAt >= right.updatedAt ? [left, right] : [right, left];
+}
+
+function storyPriority(item: StoryDedupeItemWithWorkspace) {
+  let score = 0;
+  if (item.status === "approved") score += 4;
+  if (item.context) score += 1;
+  if (item.problem) score += 1;
+  if (item.role) score += 1;
+  if (item.externalSafeTitle) score += 1;
+  if (!item.needsRedactionReview) score += 1;
+  score += Math.min(3, item.actions.length);
+  score += Math.min(3, item.results.length);
+  return score;
+}
+
+function scoreStorySimilarity(
+  left: StoryDedupeItemWithWorkspace,
+  right: StoryDedupeItemWithWorkspace,
+) {
+  const leftTitle = normalizeEvidenceText(left.title);
+  const rightTitle = normalizeEvidenceText(right.title);
+  const titleMatch = scoreEvidenceSimilarity(left.title, right.title);
+  const internalTitleMatch =
+    left.internalTitle && right.internalTitle
+      ? scoreEvidenceSimilarity(left.internalTitle, right.internalTitle)
+      : { score: 0, reasons: [] };
+  const leftBody = storyComparisonText(left);
+  const rightBody = storyComparisonText(right);
+  const bodyMatch = scoreEvidenceSimilarity(leftBody, rightBody);
+  const leftTech = new Set(left.technologies.map((item) => normalizeEvidenceText(item)).filter(Boolean));
+  const rightTech = new Set(right.technologies.map((item) => normalizeEvidenceText(item)).filter(Boolean));
+  const sharedTechCount = [...leftTech].filter((item) => rightTech.has(item)).length;
+  const techScore =
+    leftTech.size > 0 && rightTech.size > 0
+      ? sharedTechCount / Math.min(leftTech.size, rightTech.size)
+      : 0;
+  const exactTitle = Boolean(leftTitle && leftTitle === rightTitle);
+  const score = Math.max(
+    exactTitle ? 1 : 0,
+    titleMatch.score,
+    internalTitleMatch.score,
+    bodyMatch.score * 0.92,
+    techScore >= 0.8 && bodyMatch.score >= 0.45 ? 0.74 : 0,
+  );
+  const reasons = [];
+  if (exactTitle) reasons.push("exact external-safe title match");
+  else if (titleMatch.score >= 0.72 || internalTitleMatch.score >= 0.72) {
+    reasons.push("similar story title");
+  }
+  if (bodyMatch.score >= 0.72) reasons.push("shared story wording");
+  if (sharedTechCount > 0) reasons.push(`${sharedTechCount} shared technologies`);
+  return {
+    score,
+    reasons: reasons.length > 0 ? reasons : ["similar story target"],
+  };
+}
+
+function storyComparisonText(story: StoryDedupeItemWithWorkspace) {
+  return [
+    story.title,
+    story.internalTitle,
+    story.context,
+    story.problem,
+    story.role,
+    ...story.actions,
+    ...story.results,
+    ...story.technologies,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function scoreProjectSimilarity(
@@ -1232,6 +2137,62 @@ function inferSourceTitle(
       .map((line) => line.trim())
       .find(Boolean) ?? "Profile source"
   ).slice(0, 240);
+}
+
+function buildWorkExperienceDraftKey(
+  experience: ProfileEvidenceExtraction["work_experiences"][number],
+) {
+  return [experience.employer, experience.role_title].filter(Boolean).join(" · ");
+}
+
+function profileExperiencesToWorkExperienceDrafts(
+  experiences: ProfileEvidenceExtraction["profile"]["experience"],
+): ProfileEvidenceExtraction["work_experiences"] {
+  return experiences.map((experience) => ({
+    employer: experience.employer.value,
+    role_title: experience.title.value,
+    team: null,
+    location: null,
+    start_date: experience.start_date?.value ?? null,
+    end_date: experience.end_date?.value ?? null,
+    summary:
+      experience.bullets
+        .map((bullet) => bullet.value.trim())
+        .filter(Boolean)
+        .slice(0, 3)
+        .join(" ") || null,
+    status: "pending",
+  }));
+}
+
+function mergeWorkExperienceDrafts(
+  primary: ProfileEvidenceExtraction["work_experiences"],
+  fallback: ProfileEvidenceExtraction["work_experiences"],
+): ProfileEvidenceExtraction["work_experiences"] {
+  const byKey = new Map<string, ProfileEvidenceExtraction["work_experiences"][number]>();
+  for (const experience of [...fallback, ...primary]) {
+    const key = normalizeEvidenceText(buildWorkExperienceDraftKey(experience));
+    if (!key) continue;
+    const existing = byKey.get(key);
+    byKey.set(key, existing ? mergeWorkExperienceDraft(existing, experience) : experience);
+  }
+  return Array.from(byKey.values());
+}
+
+function mergeWorkExperienceDraft(
+  fallback: ProfileEvidenceExtraction["work_experiences"][number],
+  primary: ProfileEvidenceExtraction["work_experiences"][number],
+): ProfileEvidenceExtraction["work_experiences"][number] {
+  return {
+    ...fallback,
+    ...primary,
+    team: primary.team ?? fallback.team,
+    location: primary.location ?? fallback.location,
+    start_date: primary.start_date ?? fallback.start_date,
+    end_date: primary.end_date ?? fallback.end_date,
+    summary: primary.summary ?? fallback.summary,
+    status: primary.status ?? fallback.status,
+  };
 }
 
 function toCanonicalProfile(profile: ProfileEvidenceExtraction["profile"]) {

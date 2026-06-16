@@ -280,18 +280,35 @@ The reference also locks the Profile / Evidence / Resume boundary:
   evidence coverage.
 - Profile is not a static resume and should not be the source of truth for
   achievement bullets.
-- Evidence Library owns achievements, metrics, project cards, responsibilities,
-  source quotes, STAR stories, sensitivity, confidence, allowed usage, and
-  readiness state.
-- Within Evidence Library, Project cards are the main story containers
-  (context, problem, role, actions, results, metrics, stakeholders). Evidence
-  cards are atomic source-backed claims that support project stories, resumes,
-  interviews, and Fact Guard. They should be reviewed together, but not treated
-  as equivalent objects.
+- Evidence Library owns work experiences, employer-internal initiatives,
+  portfolio projects, achievements, metrics, responsibilities, source quotes,
+  STAR stories, sensitivity, confidence, allowed usage, and readiness state.
+- Within Evidence Library, Work Experiences are employer/role containers.
+  Initiatives are internal work stories under a work experience and may need
+  redaction/external-safe wording. Portfolio Projects are non-employer personal,
+  academic, open-source, freelance, or hackathon projects. Evidence cards are
+  atomic source-backed claims that support these story targets, resumes,
+  interviews, and Fact Guard.
 - A resume upload is a source signal, not a complete material library. Resume
   extraction may create thin project/evidence drafts that require enrichment
   through guided follow-up, project/design documents, performance reviews, or
   manual notes before they should be considered strong reusable material.
+- Evidence Library is the canonical reusable asset library. Resume versions,
+  source documents, project notes, and future JD gap notes are provenance inputs,
+  not owners of the resulting material. The intended lifecycle is:
+  `source/resume version -> extraction candidates -> user enrich/approve/de-identify
+  -> canonical Evidence Library -> future resumes, cover letters, interview prep,
+  and Fact Guard`.
+- Canonical Evidence and Story assets must remain reusable across future resume
+  versions and job workspaces. Deleting or rerunning a Resume Review should not
+  silently delete already-canonicalized Evidence Library assets; it should only
+  affect the stored resume source/review unless the user explicitly deletes
+  library material.
+- For MVP, canonical evidence should at least expose provenance and reuse
+  signals in the UI: source label/type, resume/source origin when available,
+  confirmation/readiness status, public-safe summary state, and allowed usage.
+  A fuller `extraction_candidates` / `source_spans` model is a later lifecycle
+  hardening step, not a prerequisite for establishing the product boundary.
 - Main Resume is a generated general-purpose artifact under Profile. It can be
   reviewed, versioned, polished, and exported, but it is not the canonical
   profile.
@@ -303,52 +320,67 @@ The reference also locks the Profile / Evidence / Resume boundary:
 Material Library must support three user entry paths:
 
 1. Resume-first onboarding: upload an existing resume, run resume review,
-   optionally extract profile/evidence/project signals, then enrich thin cards
+   optionally extract profile/evidence/story signals, then enrich thin cards
    before generating or polishing a Main Resume.
 2. Material-first onboarding: start without a resume by using guided intake,
    project notes, design docs, performance reviews, or manual sources to build
-   Project cards first, then generate Evidence claims and eventually a Main
+   story targets first, then generate Evidence claims and eventually a Main
    Resume.
 3. JD-first quick path: analyze a target JD and produce a quick role-specific
    draft from available material, while surfacing missing evidence gaps as
    follow-up tasks for the Material Library.
 
-For the MVP, these entry paths are UI routing and guidance over existing
-workflows (`parse-source`, `profile-evidence/extract`,
-`profile-evidence/enrich-project`, JD analysis, resume tailoring). They do not
-require new database schemas by themselves. Add schema only when the product
-needs durable guided-questionnaire sessions, source-type taxonomy, or explicit
-project/evidence readiness fields.
+For the MVP, the core material model is explicit rather than overloading
+Project cards: `work_experiences`, `initiatives`, `portfolio_projects`, and
+`evidence_items`. Legacy `project_cards` may remain for older data and
+transition compatibility, but new extraction should prefer the explicit model.
+
+Resume-first intake should start in Resume Review, not directly inside Evidence
+Library. Resume Review owns general resume upload, source-version storage,
+duplicate upload detection, overall resume scoring, strengths/weaknesses, and
+the user's decision to extract reviewed resume signals into the Material Library.
+General resume scoring is JD-independent; tailored resume JD-match scoring stays
+inside the owning Job Workspace.
 
 Evidence Library IA should separate source intake from library review:
 
-- Source Intake owns upload, paste, resume/source parsing, resume-signal
-  extraction, project-note enrichment, and future guided questionnaires.
-- Library Review owns existing Project cards, Evidence claims, readiness,
+- Source Intake owns reviewed-resume signal extraction, paste/project-note
+  enrichment, and future guided questionnaires. It can reuse stored resume
+  versions from Resume Review or route new resume uploads through that review
+  gate before extraction.
+- The reviewed-resume path should be labeled as extraction from a reviewed
+  source, not as a parallel resume-upload product. A reviewed resume version is
+  only a source for reusable evidence candidates and does not replace the Resume
+  Review report.
+- Library Review owns existing Work Experiences, Initiatives, Portfolio
+  Projects, Evidence claims, readiness,
   possible-overlap cleanup, STAR story review, and approval for resume/interview
   use.
 - Successful intake can route the user back to Library Review, but importing and
   reviewing should not be visually mixed in one undifferentiated surface.
 - Library Review should not become one long vertical list. It should expose
-  separate panels for Projects, Unlinked Evidence, Overlap Cleanup, and STAR
-  Stories.
-- Project cards are first-class story containers. Evidence with
-  `related_project_id` should appear as a collapsible sublist inside the owning
-  Project card. Evidence without a project relation remains in Unlinked Evidence
-  until the user adds richer context or a future linking tool assigns it.
-- Unlinked Evidence must support explicit project linking from review UI rather
+  separate panels for Experience & Stories, Unlinked Evidence, Overlap Cleanup,
+  and STAR Stories.
+- Work Experience, Initiative, and Portfolio Project are first-class story
+  targets. Evidence with `related_work_experience_id`, `related_initiative_id`,
+  or `related_portfolio_project_id` should appear under the owning target.
+  Legacy `related_project_id` remains only for older project-card data.
+- Unlinked Evidence must support explicit story-target linking from review UI rather
   than relying on text similarity. Evidence review should use inline or drawer
   editing for text, external-safe summary, sensitivity, allowed usage, and
-  project relation.
-- STAR Stories are currently computed from Project cards plus linked evidence.
-  `needs_review` should route the user back to Project enrichment/editing unless
+- story relation.
+- STAR Stories should be computed from Initiatives and Portfolio Projects plus
+  linked evidence. Legacy project-card STAR computation remains transitional.
+  `needs_review` should route the user back to story enrichment/editing unless
   a future persistent story-bank schema is introduced.
 - Overlap Cleanup has two separate levels. Project overlaps compare story
   containers and merge by combining project fields, reparenting linked evidence,
   and rejecting the duplicate project card. Evidence overlaps compare atomic
   claims and merge by keeping one evidence item, combining safe metadata, and
-  rejecting the duplicate evidence item. These paths must not share UI wording
-  or merge semantics.
+  rejecting the duplicate evidence item. Both levels also support a persistent
+  keep-separate decision for related-but-not-duplicate pairs so the same overlap
+  does not keep returning to the cleanup queue. These paths must not share UI
+  wording or merge semantics.
 
 ### 6.2 API Gateway / App Backend
 

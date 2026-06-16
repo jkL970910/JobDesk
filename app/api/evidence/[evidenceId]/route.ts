@@ -22,6 +22,9 @@ const requestSchema = z.discriminatedUnion("action", [
     allowedUsage: z.array(AllowedUsage).optional(),
     sensitivityLevel: SensitivityLevel.optional(),
     relatedProjectId: z.string().uuid().nullable().optional(),
+    relatedWorkExperienceId: z.string().uuid().nullable().optional(),
+    relatedInitiativeId: z.string().uuid().nullable().optional(),
+    relatedPortfolioProjectId: z.string().uuid().nullable().optional(),
   }),
 ]);
 

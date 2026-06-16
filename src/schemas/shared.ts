@@ -49,6 +49,17 @@ export type FieldTier = z.infer<typeof FieldTier>;
 export const ApprovalStatus = z.enum(["pending", "approved", "rejected"]);
 export type ApprovalStatus = z.infer<typeof ApprovalStatus>;
 
+/** Non-employer project classification. Work initiatives are modeled separately. */
+export const PortfolioProjectType = z.enum([
+  "personal_project",
+  "academic_project",
+  "open_source",
+  "freelance",
+  "hackathon",
+  "general_project",
+]);
+export type PortfolioProjectType = z.infer<typeof PortfolioProjectType>;
+
 /** Semantic support verdict (Fact Guard Layer B). */
 export const SupportStatus = z.enum([
   "unvalidated",

@@ -3,13 +3,22 @@ import crypto from "node:crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { getDb, hasDatabaseUrl } from "../db/client";
-import { embeddings, evidenceItems, projectCards, workspaces } from "../db/schema";
+import {
+  embeddings,
+  evidenceItems,
+  initiatives,
+  portfolioProjects,
+  projectCards,
+  workspaces,
+} from "../db/schema";
 
 export const localEmbeddingModel = "jobdesk-local-hash-v1";
 const dimensions = 128;
 
 export type EmbeddingIndexType =
   | "evidence_index"
+  | "initiative_index"
+  | "portfolio_project_index"
   | "project_index"
   | "star_story_index";
 
@@ -57,7 +66,19 @@ export async function syncPersonalEmbeddings() {
     .where(eq(evidenceItems.workspaceId, workspace.id))
     .orderBy(desc(evidenceItems.updatedAt))
     .limit(200);
-  const projects = await db
+  const initiativeRows = await db
+    .select()
+    .from(initiatives)
+    .where(eq(initiatives.workspaceId, workspace.id))
+    .orderBy(desc(initiatives.updatedAt))
+    .limit(120);
+  const portfolioProjectRows = await db
+    .select()
+    .from(portfolioProjects)
+    .where(eq(portfolioProjects.workspaceId, workspace.id))
+    .orderBy(desc(portfolioProjects.updatedAt))
+    .limit(120);
+  const legacyProjects = await db
     .select()
     .from(projectCards)
     .where(eq(projectCards.workspaceId, workspace.id))
@@ -85,9 +106,74 @@ export async function syncPersonalEmbeddings() {
           allowed_usage: item.allowedUsage,
           status: item.status,
           related_project_id: item.relatedProjectId,
+          related_work_experience_id: item.relatedWorkExperienceId,
+          related_initiative_id: item.relatedInitiativeId,
+          related_portfolio_project_id: item.relatedPortfolioProjectId,
         },
       })),
-    ...projects
+    ...initiativeRows
+      .filter((initiative) => initiative.status !== "rejected")
+      .map((initiative) => ({
+        workspaceId: workspace.id,
+        indexType: "initiative_index" as const,
+        sourceEntityType: "initiative",
+        sourceEntityId: initiative.id,
+        chunkText: [
+          initiative.externalSafeTitle,
+          initiative.internalTitle,
+          initiative.externalSafeSummary,
+          initiative.context,
+          initiative.problem,
+          initiative.role,
+          initiative.actions.join(" "),
+          initiative.results.join(" "),
+          initiative.metrics.map((metric) => Object.values(metric).join(" ")).join(" "),
+          initiative.technologies.join(" "),
+          initiative.stakeholders.join(" "),
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        metadata: {
+          sensitivity_level: initiative.sensitivityLevel,
+          status: initiative.status,
+          title: initiative.externalSafeTitle ?? initiative.internalTitle,
+          internal_title: initiative.internalTitle,
+          needs_redaction_review: initiative.needsRedactionReview === 1,
+          work_experience_id: initiative.workExperienceId,
+        },
+      })),
+    ...portfolioProjectRows
+      .filter((project) => project.status !== "rejected")
+      .map((project) => ({
+        workspaceId: workspace.id,
+        indexType: "portfolio_project_index" as const,
+        sourceEntityType: "portfolio_project",
+        sourceEntityId: project.id,
+        chunkText: [
+          project.externalSafeTitle,
+          project.title,
+          project.externalSafeSummary,
+          project.context,
+          project.problem,
+          project.role,
+          project.actions.join(" "),
+          project.results.join(" "),
+          project.metrics.map((metric) => Object.values(metric).join(" ")).join(" "),
+          project.technologies.join(" "),
+          project.stakeholders.join(" "),
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        metadata: {
+          sensitivity_level: project.sensitivityLevel,
+          status: project.status,
+          title: project.externalSafeTitle ?? project.title,
+          internal_title: project.title,
+          project_type: project.projectType,
+          needs_redaction_review: project.needsRedactionReview === 1,
+        },
+      })),
+    ...legacyProjects
       .filter((project) => project.status !== "rejected")
       .map((project) => ({
         workspaceId: workspace.id,
@@ -115,6 +201,10 @@ export async function syncPersonalEmbeddings() {
         },
       })),
   ];
+
+  await db
+    .delete(embeddings)
+    .where(eq(embeddings.workspaceId, workspace.id));
 
   for (const chunk of chunks) {
     const vector = embedTextLocal(chunk.chunkText);
@@ -153,7 +243,9 @@ export async function syncPersonalEmbeddings() {
     status: "saved" as const,
     indexedCount: chunks.length,
     evidenceCount: evidence.length,
-    projectCount: projects.length,
+    initiativeCount: initiativeRows.length,
+    portfolioProjectCount: portfolioProjectRows.length,
+    legacyProjectCount: legacyProjects.length,
     model: localEmbeddingModel,
   };
 }

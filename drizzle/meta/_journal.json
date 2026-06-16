@@ -50,6 +50,27 @@
       "when": 1781224453508,
       "tag": "0006_melodic_mentor",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781320327097,
+      "tag": "0007_premium_havok",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1781323818370,
+      "tag": "0008_blue_magik",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1781376647393,
+      "tag": "0009_real_spyke",
+      "breakpoints": true
     }
   ]
 }

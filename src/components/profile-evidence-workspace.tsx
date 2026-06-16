@@ -6,24 +6,6 @@ import { useAccess } from "./access-provider";
 
 import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
 
-const sampleProfileSource = [
-  "Jane Doe",
-  "Senior Product Analyst at Acme Finance, 2019 - Present",
-  "Built SQL dashboards for onboarding funnel analysis and partnered with product managers to define activation metrics.",
-  "Led experimentation readouts for three product teams and improved weekly stakeholder reporting.",
-  "Skills: SQL, product analytics, experimentation, dashboard development, stakeholder communication.",
-  "Education: BSc Statistics, University of Toronto.",
-].join("\n");
-
-const sampleProjectNote = [
-  "Onboarding activation dashboard project",
-  "Problem: Product teams could not see where new users dropped during onboarding.",
-  "Role: I partnered with product managers and engineers to define activation events, build SQL models, and ship dashboard views for weekly reviews.",
-  "Actions: mapped funnel steps, validated event quality, created dashboard slices by cohort and traffic source, and presented findings to stakeholders.",
-  "Result: teams identified the largest activation drop-off and prioritized follow-up experiments.",
-  "Tools: SQL, dashboarding, product analytics, stakeholder communication.",
-].join("\n");
-
 type ExtractionResponse =
   | {
       data: ProfileEvidenceExtraction;
@@ -34,6 +16,9 @@ type ExtractionResponse =
           reason?: string;
           evidenceCount?: number;
           projectCount?: number;
+          initiativeCount?: number;
+          portfolioProjectCount?: number;
+          workExperienceCount?: number;
         };
       };
     }
@@ -58,20 +43,23 @@ type DedupeCandidate = {
   reasons: string[];
 };
 
-type ProjectDedupeCandidate = {
-  primary: ProjectDedupeItem;
-  duplicate: ProjectDedupeItem;
+type StoryDedupeCandidate = {
+  primary: StoryDedupeItem;
+  duplicate: StoryDedupeItem;
   duplicateCount: number;
-  duplicateProjectIds: string[];
+  duplicateStoryIds: string[];
   score: number;
   reasons: string[];
   primaryEvidenceCount: number;
   duplicateEvidenceCount: number;
 };
 
-type ProjectDedupeItem = {
+type StoryDedupeItem = {
   id: string;
+  storyType: "initiative" | "portfolio_project";
   title: string;
+  internalTitle: string | null;
+  externalSafeTitle: string | null;
   context: string | null;
   problem: string | null;
   role: string | null;
@@ -79,19 +67,18 @@ type ProjectDedupeItem = {
   results: string[];
   technologies: string[];
   stakeholders: string[];
+  sensitivityLevel: string;
+  needsRedactionReview: boolean;
   status: string;
-};
-
-type ProjectMergeResult = {
-  duplicateProjectCount: number;
-  movedEvidenceCount: number;
-  mergedMetricCount: number;
 };
 
 type StarStory = {
   id: string;
   project_id: string;
+  story_target_id: string;
+  story_target_type: "initiative" | "portfolio_project" | "legacy_project";
   title: string;
+  internal_title?: string | null;
   status: string;
   readiness: "ready" | "needs_review" | "thin";
   situation: string | null;
@@ -111,6 +98,9 @@ type StarStory = {
 type EvidenceLibrary = {
   profile: { displayName: string | null; updatedAt: string } | null;
   evidenceItems: EvidenceCardItem[];
+  workExperiences: WorkExperienceItem[];
+  initiatives: InitiativeItem[];
+  portfolioProjects: PortfolioProjectItem[];
   projectCards: ProjectCardItem[];
 };
 
@@ -120,12 +110,72 @@ type EvidenceCardItem = {
   source_quote: string;
   source_document_id?: string | null;
   related_project_id?: string | null;
+  related_work_experience_id?: string | null;
+  related_initiative_id?: string | null;
+  related_portfolio_project_id?: string | null;
   evidence_type: string;
   sensitivity_level: string;
   allowed_usage?: string[];
   public_safe_summary?: string | null;
   status: string;
   needs_user_confirmation: boolean;
+};
+
+type WorkExperienceItem = {
+  id?: string;
+  employer: string;
+  role_title: string;
+  team?: string | null;
+  location?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  summary?: string | null;
+  status: string;
+};
+
+type InitiativeItem = {
+  id?: string;
+  work_experience_id?: string | null;
+  internal_title: string;
+  external_safe_title?: string | null;
+  context: string | null;
+  problem: string | null;
+  role: string | null;
+  actions: string[];
+  results: string[];
+  metrics?: Array<{ value: string; source_quote: string }>;
+  technologies: string[];
+  stakeholders?: string[];
+  external_safe_summary?: string | null;
+  sensitivity_level?: string;
+  needs_redaction_review?: boolean;
+  status: string;
+};
+
+type PortfolioProjectItem = {
+  id?: string;
+  project_type: string;
+  title: string;
+  external_safe_title?: string | null;
+  context: string | null;
+  problem: string | null;
+  role: string | null;
+  actions: string[];
+  results: string[];
+  metrics?: Array<{ value: string; source_quote: string }>;
+  technologies: string[];
+  stakeholders?: string[];
+  external_safe_summary?: string | null;
+  sensitivity_level?: string;
+  needs_redaction_review?: boolean;
+  status: string;
+};
+
+type EvidenceLinkTargets = {
+  initiatives: InitiativeItem[];
+  portfolioProjects: PortfolioProjectItem[];
+  projects: ProjectCardItem[];
+  workExperiences: WorkExperienceItem[];
 };
 
 type ProjectCardItem = {
@@ -146,6 +196,23 @@ type ProjectCardItem = {
 
 export type MaterialEntryIntent = "resume" | "scratch" | "jd";
 
+type ResumeSourceSummary = {
+  id: string;
+  title: string;
+  version: number;
+  status: string;
+  updatedAt: string;
+  latestReview: {
+    overallScore: number;
+    weaknesses: string[];
+  } | null;
+};
+
+type SourceDraft = {
+  text: string;
+  title: string;
+};
+
 type EvidenceUpdateAction =
   | "approve"
   | "approve_for_resume"
@@ -159,37 +226,53 @@ type EvidenceUpdatePatch = {
   allowedUsage?: string[];
   sensitivityLevel?: string;
   relatedProjectId?: string | null;
+  relatedWorkExperienceId?: string | null;
+  relatedInitiativeId?: string | null;
+  relatedPortfolioProjectId?: string | null;
 };
 
 export function ProfileEvidenceWorkspace({
   entryIntent = "resume",
   initialSection = "review",
+  initialResumeSourceVersionId = null,
 }: {
   entryIntent?: MaterialEntryIntent;
   initialSection?: "review" | "intake";
+  initialResumeSourceVersionId?: string | null;
 }) {
   const { fetchJson } = useAccess();
   const [activeSection, setActiveSection] = useState<"review" | "intake">(initialSection);
+  const [selectedEntryIntent, setSelectedEntryIntent] =
+    useState<MaterialEntryIntent>(entryIntent);
   const [reviewTab, setReviewTab] = useState<"projects" | "unlinked" | "cleanup" | "stories">(
     "projects",
   );
-  const [sourceText, setSourceText] = useState(sampleProfileSource);
-  const [sourceTitle, setSourceTitle] = useState("Sample resume notes");
-  const [projectNoteText, setProjectNoteText] = useState(sampleProjectNote);
-  const [projectNoteTitle, setProjectNoteTitle] = useState("Sample project note");
+  const [sourceDrafts, setSourceDrafts] = useState<Record<"resume" | "jd", SourceDraft>>({
+    jd: { text: "", title: "" },
+    resume: { text: "", title: "" },
+  });
+  const [projectNoteText, setProjectNoteText] = useState("");
+  const [projectNoteTitle, setProjectNoteTitle] = useState("");
   const [fileStatus, setFileStatus] = useState<string | null>(null);
+  const [resumeSources, setResumeSources] = useState<ResumeSourceSummary[]>([]);
+  const [selectedResumeSourceId, setSelectedResumeSourceId] = useState<string>(
+    initialResumeSourceVersionId ?? "",
+  );
+  const [selectedResumeSourceLoading, setSelectedResumeSourceLoading] = useState(false);
   const [result, setResult] = useState<ProfileEvidenceExtraction | null>(null);
   const [library, setLibrary] = useState<EvidenceLibrary | null>(null);
   const [dedupeCandidates, setDedupeCandidates] = useState<DedupeCandidate[]>([]);
-  const [projectDedupeCandidates, setProjectDedupeCandidates] = useState<ProjectDedupeCandidate[]>(
+  const [storyDedupeCandidates, setStoryDedupeCandidates] = useState<StoryDedupeCandidate[]>(
     [],
   );
   const [starStories, setStarStories] = useState<StarStory[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState("Ready to build your material library.");
+  const [status, setStatus] = useState("Add a source to continue.");
   const [lastIntakeSummary, setLastIntakeSummary] = useState<{
     evidenceCount: number;
     projectCount: number;
+    storyCount: number;
+    workExperienceCount: number;
     sourceTitle: string;
     type: "resume" | "project";
   } | null>(null);
@@ -201,9 +284,20 @@ export function ProfileEvidenceWorkspace({
   useEffect(() => {
     void loadLibrary();
     void loadDedupeCandidates();
-    void loadProjectDedupeCandidates();
+    void loadStoryDedupeCandidates();
     void loadStarStories();
+    void loadResumeSources();
   }, []);
+
+  useEffect(() => {
+    if (!initialResumeSourceVersionId) return;
+    setSelectedResumeSourceId(initialResumeSourceVersionId);
+    void loadResumeSourceIntoIntake(initialResumeSourceVersionId);
+  }, [initialResumeSourceVersionId]);
+
+  useEffect(() => {
+    setSelectedEntryIntent(entryIntent);
+  }, [entryIntent]);
 
   useEffect(() => {
     if (!isExtracting) {
@@ -229,6 +323,30 @@ export function ProfileEvidenceWorkspace({
     return () => window.clearInterval(timer);
   }, [isProjectEnriching]);
 
+  const activeSourceIntent = selectedEntryIntent === "jd" ? "jd" : "resume";
+  const sourceText = sourceDrafts[activeSourceIntent].text;
+  const sourceTitle = sourceDrafts[activeSourceIntent].title;
+
+  function updateActiveSourceDraft(patch: Partial<SourceDraft>) {
+    setSourceDrafts((current) => ({
+      ...current,
+      [activeSourceIntent]: {
+        ...current[activeSourceIntent],
+        ...patch,
+      },
+    }));
+  }
+
+  function updateSourceDraft(intent: "resume" | "jd", patch: Partial<SourceDraft>) {
+    setSourceDrafts((current) => ({
+      ...current,
+      [intent]: {
+        ...current[intent],
+        ...patch,
+      },
+    }));
+  }
+
   async function loadLibrary() {
     const response = await fetchJson("/api/profile-evidence/recent");
     if (!response.ok) {
@@ -248,13 +366,13 @@ export function ProfileEvidenceWorkspace({
     setDedupeCandidates(payload.data?.candidates ?? []);
   }
 
-  async function loadProjectDedupeCandidates() {
-    const response = await fetchJson("/api/projects/dedupe");
+  async function loadStoryDedupeCandidates() {
+    const response = await fetchJson("/api/story-targets/dedupe");
     if (!response.ok) return;
     const payload = (await response.json()) as {
-      data?: { status: string; candidates?: ProjectDedupeCandidate[] };
+      data?: { status: string; candidates?: StoryDedupeCandidate[] };
     };
-    setProjectDedupeCandidates(payload.data?.candidates ?? []);
+    setStoryDedupeCandidates(payload.data?.candidates ?? []);
   }
 
   async function loadStarStories() {
@@ -266,10 +384,66 @@ export function ProfileEvidenceWorkspace({
     setStarStories(payload.data?.stories ?? []);
   }
 
+  async function loadResumeSources() {
+    const response = await fetchJson("/api/resume-review");
+    if (!response.ok) return;
+    const payload = (await response.json()) as {
+      data?: { status: string; resumes?: ResumeSourceSummary[] };
+    };
+    setResumeSources(payload.data?.resumes ?? []);
+  }
+
+  async function loadResumeSourceIntoIntake(resumeSourceVersionId: string) {
+    if (!resumeSourceVersionId) {
+      setSelectedResumeSourceId("");
+      updateSourceDraft("resume", { text: "", title: "" });
+      setFileStatus(null);
+      setStatus("Ready for a new resume source. Select a reviewed resume, upload a file, or paste resume text.");
+      return;
+    }
+    setSelectedResumeSourceLoading(true);
+    setError(null);
+    try {
+      const response = await fetchJson(`/api/resume-review/${resumeSourceVersionId}`);
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            data?: {
+              status: string;
+              resume?: {
+                id: string;
+                title: string;
+                sourceText: string;
+              };
+            };
+            error?: string;
+          }
+        | null;
+      if (response.status === 404) {
+        setSelectedResumeSourceId("");
+        updateSourceDraft("resume", { text: "", title: "" });
+        setFileStatus(null);
+        setError("That reviewed resume was deleted. Select another resume or upload a new one.");
+        await loadResumeSources();
+        return;
+      }
+      if (!response.ok || payload?.data?.status !== "ready" || !payload.data.resume) {
+        setError(payload?.error ?? "Could not load selected resume.");
+        return;
+      }
+      updateSourceDraft("resume", {
+        text: payload.data.resume.sourceText,
+        title: formatResumeTitle(payload.data.resume.title),
+      });
+      setFileStatus(`Using reviewed resume ${formatResumeTitle(payload.data.resume.title)}`);
+    } finally {
+      setSelectedResumeSourceLoading(false);
+    }
+  }
+
   async function refreshLibraryAfterMutation() {
     await loadLibrary();
     await loadDedupeCandidates();
-    await loadProjectDedupeCandidates();
+    await loadStoryDedupeCandidates();
     await loadStarStories();
     window.dispatchEvent(new Event("jobdesk:evidence-library-updated"));
   }
@@ -286,6 +460,7 @@ export function ProfileEvidenceWorkspace({
           body: JSON.stringify({
             sourceText,
             sourceTitle: sourceTitle.trim() || undefined,
+            resumeSourceVersionId: selectedResumeSourceId || undefined,
           }),
         });
         const payload = (await response.json()) as ExtractionResponse;
@@ -300,10 +475,17 @@ export function ProfileEvidenceWorkspace({
         setStatus(formatStatus(payload.meta));
         if (payload.meta.persistence?.status === "saved") {
           await refreshLibraryAfterMutation();
+          await loadResumeSources();
           setResult(null);
           setLastIntakeSummary({
             evidenceCount: payload.meta.persistence.evidenceCount ?? payload.data.evidence_items.length,
             projectCount: payload.meta.persistence.projectCount ?? payload.data.project_cards.length,
+            storyCount:
+              (payload.meta.persistence.initiativeCount ?? payload.data.initiatives.length) +
+              (payload.meta.persistence.portfolioProjectCount ??
+                payload.data.portfolio_projects.length),
+            workExperienceCount:
+              payload.meta.persistence.workExperienceCount ?? payload.data.work_experiences.length,
             sourceTitle: sourceTitle.trim() || "Resume/source",
             type: "resume",
           });
@@ -311,9 +493,12 @@ export function ProfileEvidenceWorkspace({
         } else {
           setResult(payload.data);
           await refreshLibraryAfterMutation();
+          await loadResumeSources();
           setLastIntakeSummary({
             evidenceCount: payload.data.evidence_items.length,
             projectCount: payload.data.project_cards.length,
+            storyCount: payload.data.initiatives.length + payload.data.portfolio_projects.length,
+            workExperienceCount: payload.data.work_experiences.length,
             sourceTitle: sourceTitle.trim() || "Resume/source",
             type: "resume",
           });
@@ -346,6 +531,53 @@ export function ProfileEvidenceWorkspace({
       return;
     }
 
+    if (selectedEntryIntent === "resume") {
+      setFileStatus(`Reviewing ${file.name}...`);
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetchJson("/api/resume-review", {
+        method: "POST",
+        body: formData,
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            data?: {
+              status: "saved" | "duplicate" | "skipped";
+              resume?: { id: string; title: string; version: number };
+              existingResume?: { id: string; title: string; version: number };
+              parseWarnings?: string[];
+              reason?: string;
+            };
+            error?: string;
+          }
+        | null;
+      if (!response.ok || !payload?.data) {
+        setFileStatus(null);
+        setError(payload?.error ?? "Resume review failed.");
+        return;
+      }
+      if (payload.data.status === "duplicate" && payload.data.existingResume) {
+        setSelectedResumeSourceId(payload.data.existingResume.id);
+        await loadResumeSources();
+        await loadResumeSourceIntoIntake(payload.data.existingResume.id);
+        setFileStatus(
+          `This exact resume already exists as v${payload.data.existingResume.version}. Using ${formatResumeTitle(payload.data.existingResume.title)}.`,
+        );
+        return;
+      }
+      if (payload.data.status === "saved" && payload.data.resume) {
+        setSelectedResumeSourceId(payload.data.resume.id);
+        await loadResumeSources();
+        await loadResumeSourceIntoIntake(payload.data.resume.id);
+        setFileStatus(
+          `Reviewed ${formatResumeTitle(payload.data.resume.title)}${payload.data.parseWarnings?.length ? ` · ${payload.data.parseWarnings.length} parser note${payload.data.parseWarnings.length === 1 ? "" : "s"}` : ""}`,
+        );
+        return;
+      }
+      setError(payload.data.reason ?? "Resume review storage is not configured.");
+      return;
+    }
+
     if (
       lowerName.endsWith(".txt") ||
       lowerName.endsWith(".md") ||
@@ -356,8 +588,7 @@ export function ProfileEvidenceWorkspace({
         setError("Resume source file does not contain enough readable text.");
         return;
       }
-      setSourceText(text);
-      setSourceTitle(file.name);
+    updateActiveSourceDraft({ text, title: file.name });
       setFileStatus(
         `Imported ${file.name}`,
       );
@@ -407,10 +638,101 @@ export function ProfileEvidenceWorkspace({
       setError(payload?.error ?? "Resume source parsing failed.");
       return;
     }
-    setSourceText(payload.data.sourceText);
-    setSourceTitle(payload.data.sourceTitle);
+    updateActiveSourceDraft({
+      text: payload.data.sourceText,
+      title: payload.data.sourceTitle,
+    });
+    setSelectedResumeSourceId("");
     setFileStatus(
       `Imported ${payload.data.sourceTitle}${payload.data.warnings.length > 0 ? ` · ${payload.data.warnings.length} note${payload.data.warnings.length === 1 ? "" : "s"} to review` : ""}`,
+    );
+  }
+
+  async function parseSourceFile(file: File) {
+    const allowedExtensions = [".pdf", ".docx", ".txt", ".md", ".markdown"];
+    const lowerName = file.name.toLowerCase();
+    if (!allowedExtensions.some((extension) => lowerName.endsWith(extension))) {
+      throw new Error(`${file.name}: unsupported file type`);
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      throw new Error(`${file.name}: file is too large; keep each file under 8 MB`);
+    }
+
+    if (
+      lowerName.endsWith(".txt") ||
+      lowerName.endsWith(".md") ||
+      lowerName.endsWith(".markdown")
+    ) {
+      const text = await file.text();
+      if (text.trim().length < 80) {
+        throw new Error(`${file.name}: not enough readable text`);
+      }
+      return {
+        sourceTitle: file.name,
+        sourceText: text.trim(),
+        warnings: [] as string[],
+      };
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetchJson("/api/profile-evidence/parse-source", {
+      method: "POST",
+      body: formData,
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          data?: {
+            sourceTitle: string;
+            sourceText: string;
+            warnings: string[];
+          };
+          error?: string;
+        }
+      | null;
+    if (!response.ok || !payload?.data) {
+      throw new Error(`${file.name}: ${payload?.error ?? "source parsing failed"}`);
+    }
+    return payload.data;
+  }
+
+  async function importProjectNoteFiles(files: FileList | null) {
+    setError(null);
+    if (!files || files.length === 0) return;
+    setFileStatus(`Reading ${files.length} project source file${files.length === 1 ? "" : "s"}...`);
+    const parsedSources: Awaited<ReturnType<typeof parseSourceFile>>[] = [];
+    const failures = [];
+    for (const file of Array.from(files)) {
+      try {
+        parsedSources.push(await parseSourceFile(file));
+      } catch (caught) {
+        failures.push(caught instanceof Error ? caught.message : `${file.name}: parse failed`);
+      }
+    }
+    if (parsedSources.length === 0) {
+      setFileStatus(null);
+      setError(failures[0] ?? "No project source files could be parsed.");
+      return;
+    }
+    const appendedText = parsedSources
+      .map((source) => [`## ${source.sourceTitle}`, source.sourceText].join("\n\n"))
+      .join("\n\n---\n\n");
+    setProjectNoteText((current) =>
+      current.trim() ? `${current.trim()}\n\n---\n\n${appendedText}` : appendedText,
+    );
+    setProjectNoteTitle((current) =>
+      current.trim()
+        ? current
+        : parsedSources.length === 1
+          ? parsedSources[0]?.sourceTitle ?? "Project source"
+          : `${parsedSources.length} project source files`,
+    );
+    const warningCount = parsedSources.reduce(
+      (count, source) => count + source.warnings.length,
+      0,
+    );
+    setFileStatus(
+      `Imported ${parsedSources.length} project source file${parsedSources.length === 1 ? "" : "s"}${warningCount ? ` · ${warningCount} parser note${warningCount === 1 ? "" : "s"}` : ""}${failures.length ? ` · ${failures.length} failed` : ""}`,
     );
   }
 
@@ -444,6 +766,12 @@ export function ProfileEvidenceWorkspace({
           setLastIntakeSummary({
             evidenceCount: payload.meta.persistence.evidenceCount ?? payload.data.evidence_items.length,
             projectCount: payload.meta.persistence.projectCount ?? payload.data.project_cards.length,
+            storyCount:
+              (payload.meta.persistence.initiativeCount ?? payload.data.initiatives.length) +
+              (payload.meta.persistence.portfolioProjectCount ??
+                payload.data.portfolio_projects.length),
+            workExperienceCount:
+              payload.meta.persistence.workExperienceCount ?? payload.data.work_experiences.length,
             sourceTitle: projectNoteTitle.trim() || "Project source",
             type: "project",
           });
@@ -454,6 +782,8 @@ export function ProfileEvidenceWorkspace({
           setLastIntakeSummary({
             evidenceCount: payload.data.evidence_items.length,
             projectCount: payload.data.project_cards.length,
+            storyCount: payload.data.initiatives.length + payload.data.portfolio_projects.length,
+            workExperienceCount: payload.data.work_experiences.length,
             sourceTitle: projectNoteTitle.trim() || "Project source",
             type: "project",
           });
@@ -473,15 +803,54 @@ export function ProfileEvidenceWorkspace({
 
   const sourceIsReady = sourceText.trim().length >= 80;
   const projectNoteIsReady = projectNoteText.trim().length >= 80;
+  const sourceFormState = getLocalFormState({
+    error,
+    isRunning: isExtracting,
+    ready: sourceIsReady && sourceTitle.trim().length > 0,
+    success: Boolean(lastIntakeSummary && lastIntakeSummary.type === "resume"),
+  });
+  const projectFormState = getLocalFormState({
+    error,
+    isRunning: isProjectEnriching,
+    ready: projectNoteIsReady && projectNoteTitle.trim().length > 0,
+    success: Boolean(lastIntakeSummary && lastIntakeSummary.type === "project"),
+  });
   const profile = result?.profile;
   const evidenceItems = result?.evidence_items ?? library?.evidenceItems ?? [];
+  const workExperiences = result?.work_experiences ?? library?.workExperiences ?? [];
+  const initiatives = result?.initiatives ?? library?.initiatives ?? [];
+  const portfolioProjects = result?.portfolio_projects ?? library?.portfolioProjects ?? [];
   const projectCards = result?.project_cards ?? library?.projectCards ?? [];
-  const unlinkedEvidenceItems = getUnlinkedEvidenceItems(projectCards, evidenceItems);
+  const linkTargets = {
+    initiatives,
+    portfolioProjects,
+    projects: projectCards,
+    workExperiences,
+  };
+  const unlinkedEvidenceItems = getUnlinkedEvidenceItems(linkTargets, evidenceItems);
   const libraryReadiness = summarizeLibraryReadiness({
+    cleanupCount: storyDedupeCandidates.length + dedupeCandidates.length,
     evidenceItems,
+    initiatives,
+    portfolioProjects,
     projectCards,
+    workExperiences,
   });
-  const entryGuidance = getEntryGuidance(entryIntent);
+  const entryGuidance = getEntryGuidance(selectedEntryIntent);
+
+  function selectEntryIntent(intent: MaterialEntryIntent) {
+    setSelectedEntryIntent(intent);
+    setFileStatus(null);
+    if (intent === "resume") {
+      setStatus("Resume path selected. Select a reviewed resume, upload a file, or paste resume text.");
+    } else if (intent === "jd") {
+      setSelectedResumeSourceId("");
+      setStatus("JD gap path selected. Add JD gap notes; resume drafts stay separate.");
+    } else {
+      setSelectedResumeSourceId("");
+      setStatus("Project/source path selected. Add source notes or files to enrich story material.");
+    }
+  }
 
   function startProjectEnrichment(project: {
     title: string;
@@ -504,6 +873,7 @@ export function ProfileEvidenceWorkspace({
         "Additional details to add: ",
       ].join("\n"),
     );
+    setSelectedEntryIntent("scratch");
     setStatus(`Add more context for ${project.title}, then run Project Library Builder.`);
     setActiveSection("intake");
   }
@@ -536,6 +906,9 @@ export function ProfileEvidenceWorkspace({
                 sensitivityLevel: "public_safe",
                 allowedUsage: patch.allowedUsage ?? externalAllowedUsage,
                 relatedProjectId: patch.relatedProjectId,
+                relatedWorkExperienceId: patch.relatedWorkExperienceId,
+                relatedInitiativeId: patch.relatedInitiativeId,
+                relatedPortfolioProjectId: patch.relatedPortfolioProjectId,
               }
             : action === "approve_for_resume"
               ? { action, allowedUsage: item.allowed_usage ?? [] }
@@ -582,39 +955,50 @@ export function ProfileEvidenceWorkspace({
     void refreshLibraryAfterMutation();
   }
 
-  async function mergeProjectCandidate(candidate: ProjectDedupeCandidate): Promise<ProjectMergeResult> {
-    const response = await fetchJson("/api/projects/dedupe", {
+  async function keepEvidenceCandidateSeparate(candidate: DedupeCandidate) {
+    const response = await fetchJson("/api/evidence/dedupe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        primaryProjectId: candidate.primary.id,
-        duplicateProjectIds: candidate.duplicateProjectIds,
+        action: "keep_separate",
+        primaryEvidenceId: candidate.primary.id,
+        duplicateEvidenceId: candidate.duplicate.id,
       }),
     });
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as
         | { error?: string }
         | null;
-      const message = payload?.error ?? "Failed to merge project cards.";
+      setError(payload?.error ?? "Failed to keep evidence separate.");
+      return;
+    }
+    setResult(null);
+    setStatus("Marked this evidence overlap as separate claims.");
+    await refreshLibraryAfterMutation();
+  }
+
+  async function keepStoryCandidateSeparate(candidate: StoryDedupeCandidate) {
+    const response = await fetchJson("/api/story-targets/dedupe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "keep_separate",
+        storyType: candidate.primary.storyType,
+        primaryStoryId: candidate.primary.id,
+        duplicateStoryIds: candidate.duplicateStoryIds,
+      }),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      const message = payload?.error ?? "Failed to keep story targets separate.";
       setError(message);
       throw new Error(message);
     }
-    const payload = (await response.json()) as {
-      data?: {
-        duplicateProjectCount?: number;
-        movedEvidenceCount?: number;
-        mergedMetricCount?: number;
-      };
-    };
     setResult(null);
-    const movedEvidenceCount = payload.data?.movedEvidenceCount ?? 0;
-    const mergedMetricCount = payload.data?.mergedMetricCount ?? 0;
-    const duplicateProjectCount = payload.data?.duplicateProjectCount ?? candidate.duplicateCount;
-    setStatus(
-      `Merged ${duplicateProjectCount} duplicate project card${duplicateProjectCount === 1 ? "" : "s"}. Moved ${movedEvidenceCount} linked evidence item${movedEvidenceCount === 1 ? "" : "s"} to the kept project.`,
-    );
+    setStatus("Marked this story overlap as separate targets.");
     await refreshLibraryAfterMutation();
-    return { duplicateProjectCount, movedEvidenceCount, mergedMetricCount };
   }
 
   async function updateProject(
@@ -702,62 +1086,98 @@ export function ProfileEvidenceWorkspace({
               </p>
             </div>
           </div>
-          <OnboardingPaths activeIntent={entryIntent} />
-          <div className="source-controls">
-            <label className="source-field">
-              <span>{entryGuidance.primaryTitleLabel}</span>
-              <input
-                className="source-input"
-                type="text"
-                value={sourceTitle}
-                onChange={(event) => setSourceTitle(event.target.value)}
-              />
-            </label>
-            <label className="file-import">
-              <span>{entryGuidance.fileImportLabel}</span>
-              <input
-                accept=".pdf,.docx,.txt,.md,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
-                type="file"
-                onChange={(event) => {
-                  void importResumeFile(event.target.files?.[0] ?? null);
-                  event.currentTarget.value = "";
-                }}
-              />
-            </label>
-          </div>
-          {fileStatus ? <p className="source-status">{fileStatus}</p> : null}
-          <textarea
-            aria-label="Resume or career source text"
-            className="jd-input jd-input--compact"
-            value={sourceText}
-            onChange={(event) => {
-              setSourceText(event.target.value);
-              setFileStatus(null);
-            }}
-            spellCheck={false}
+          <IntakeStageHeader
+            activeIntent={selectedEntryIntent}
+            onExplain={(message) => setStatus(message)}
+            projectFormState={projectFormState}
+            sourceFormState={sourceFormState}
           />
-          <div className="actions">
-            <button
-              className="primary-button"
-              disabled={isExtracting || !sourceIsReady}
-              type="button"
-              onClick={runExtraction}
-            >
-              {isExtracting ? "Building..." : entryGuidance.primaryActionLabel}
-            </button>
-            <span className={error ? "status status--error" : "status"}>
-              {error ?? status}
-            </span>
-          </div>
-          <p className="source-status">{entryGuidance.primaryHint}</p>
-          {isExtracting ? (
-            <ProgressNotice
-              elapsedSeconds={extractElapsedSeconds}
-              label="Material Library build in progress"
-            />
+          <OnboardingPaths
+            activeIntent={selectedEntryIntent}
+            onSelect={selectEntryIntent}
+          />
+          {selectedEntryIntent !== "scratch" ? (
+            <section className="source-active-form">
+              <div className="source-controls">
+                <label className="source-field">
+                  <span>{entryGuidance.primaryTitleLabel}</span>
+                  <input
+                    className="source-input"
+                    type="text"
+                    value={sourceTitle}
+                    onChange={(event) => updateActiveSourceDraft({ title: event.target.value })}
+                  />
+                </label>
+                <label className="file-import">
+                  <span>{entryGuidance.fileImportLabel}</span>
+                  <input
+                    accept=".pdf,.docx,.txt,.md,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+                    type="file"
+                    onChange={(event) => {
+                      void importResumeFile(event.target.files?.[0] ?? null);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+              {selectedEntryIntent === "resume" ? (
+                <ResumeSourcePicker
+                  isLoading={selectedResumeSourceLoading}
+                  onSelect={(resumeSourceVersionId) => {
+                    setSelectedResumeSourceId(resumeSourceVersionId);
+                    void loadResumeSourceIntoIntake(resumeSourceVersionId);
+                  }}
+                  resumes={resumeSources}
+                  selectedId={selectedResumeSourceId}
+                />
+              ) : null}
+              {fileStatus ? <p className="source-status">{fileStatus}</p> : null}
+              <label className="source-field source-field--textarea">
+                <span>{selectedEntryIntent === "jd" ? "JD gap source text" : "Resume source text"}</span>
+                <small>{selectedEntryIntent === "jd" ? "Paste evidence-gap notes from a JD review, or route to Jobs for full JD analysis later." : "Paste resume text or load a reviewed resume version."}</small>
+                <textarea
+                  aria-label="Resume or career source text"
+                  className="jd-input jd-input--compact"
+                  placeholder={
+                    selectedEntryIntent === "jd"
+                      ? "Paste JD gap notes or missing-evidence prompts here..."
+                      : "Paste your real resume text here, upload a file, or select a reviewed resume version..."
+                  }
+                  value={sourceText}
+                  onChange={(event) => {
+                    updateActiveSourceDraft({ text: event.target.value });
+                    setFileStatus(null);
+                  }}
+                  spellCheck={false}
+                />
+              </label>
+              <div className="actions">
+                <button
+                  className="primary-button"
+                  disabled={isExtracting || sourceFormState !== "ready"}
+                  type="button"
+                  onClick={runExtraction}
+                >
+                  {isExtracting ? "Building..." : entryGuidance.primaryActionLabel}
+                </button>
+                <span className={error ? "status status--error" : "status"}>
+                  {error ?? status}
+                </span>
+              </div>
+              <FormStatePill state={sourceFormState} />
+              <p className="source-status">{entryGuidance.primaryHint}</p>
+              {isExtracting ? (
+                <ProgressNotice
+                  elapsedSeconds={extractElapsedSeconds}
+                  label="Material Library build in progress"
+                  mode="evidence"
+                />
+              ) : null}
+            </section>
           ) : null}
 
-          <section className="section-block section-block--builder">
+          {selectedEntryIntent === "scratch" ? (
+          <section className="section-block section-block--builder source-active-form">
             <h3>Project Library Builder</h3>
             <p className="panel__note">
               {entryGuidance.enrichmentHint}
@@ -772,14 +1192,31 @@ export function ProfileEvidenceWorkspace({
                   onChange={(event) => setProjectNoteTitle(event.target.value)}
                 />
               </label>
+              <label className="file-import">
+                <span>Import project files</span>
+                <input
+                  accept=".pdf,.docx,.txt,.md,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+                  multiple
+                  type="file"
+                  onChange={(event) => {
+                    void importProjectNoteFiles(event.target.files);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
             </div>
-            <textarea
-              aria-label="Project note source text"
-              className="jd-input jd-input--compact"
-              value={projectNoteText}
-              onChange={(event) => setProjectNoteText(event.target.value)}
-              spellCheck={false}
-            />
+            <label className="source-field source-field--textarea">
+              <span>Project or story source</span>
+              <small>Paste text or import multiple PDF, DOCX, TXT, or Markdown files. Each file must be under 8 MB.</small>
+              <textarea
+                aria-label="Project note source text"
+                className="jd-input jd-input--compact"
+                placeholder="Paste project notes, design docs, project summaries, performance review excerpts, or guided STAR notes here..."
+                value={projectNoteText}
+                onChange={(event) => setProjectNoteText(event.target.value)}
+                spellCheck={false}
+              />
+            </label>
             <div className="actions">
               <button
                 className="primary-button"
@@ -789,14 +1226,44 @@ export function ProfileEvidenceWorkspace({
               >
                 {isProjectEnriching ? "Enriching..." : "Enrich Project Note"}
               </button>
+              <span className="status">
+                {status}
+              </span>
             </div>
+            <FormStatePill state={projectFormState} />
             {isProjectEnriching ? (
               <ProgressNotice
                 elapsedSeconds={projectElapsedSeconds}
                 label="Project enrichment in progress"
+                mode="project"
               />
             ) : null}
           </section>
+          ) : selectedEntryIntent === "resume" ? (
+            <section className="source-path-handoff">
+              <div>
+                <span>Story enrichment comes next</span>
+                <p>
+                  After extracting this source, Library Review will show whether claims need approval or story targets need more context.
+                </p>
+              </div>
+              <button type="button" onClick={() => selectEntryIntent("scratch")}>
+                Switch to project/source docs
+              </button>
+            </section>
+          ) : (
+            <section className="source-path-handoff" data-secondary="true">
+              <div>
+                <span>JD-first is secondary during resume prep</span>
+                <p>
+                  Use this only for evidence-gap notes. Full JD analysis belongs in Jobs once resume evidence is ready.
+                </p>
+              </div>
+              <button type="button" onClick={() => selectEntryIntent("resume")}>
+                Back to resume intake
+              </button>
+            </section>
+          )}
         </div>
       ) : null}
 
@@ -806,8 +1273,9 @@ export function ProfileEvidenceWorkspace({
             <div>
               <h2 className="panel__title">Library Review</h2>
               <p className="panel__note">
-                Project cards are story containers. Evidence cards are source-backed
-                claims that support resumes, interviews, and Fact Guard.
+                Work experiences, initiatives, portfolio projects, and evidence
+                claims form the source-backed material library for resumes,
+                interviews, and Fact Guard.
               </p>
             </div>
             <button
@@ -825,6 +1293,14 @@ export function ProfileEvidenceWorkspace({
               onReturnToIntake={() => setActiveSection("intake")}
             />
           ) : null}
+          <EvidencePriorityQueue
+            onOpenCleanup={() => setReviewTab("cleanup")}
+            onOpenClaims={() => setReviewTab("unlinked")}
+            onOpenStories={() => setReviewTab("stories")}
+            onOpenStoryTargets={() => setReviewTab("projects")}
+            onReturnToIntake={() => setActiveSection("intake")}
+            summary={libraryReadiness}
+          />
           {profile ? <ProfileSummary extraction={result} /> : <LibrarySummary library={library} />}
           <LibraryReadinessSummary summary={libraryReadiness} />
           <div className="review-switcher" role="tablist" aria-label="Library Review panels">
@@ -833,7 +1309,7 @@ export function ProfileEvidenceWorkspace({
               type="button"
               onClick={() => setReviewTab("projects")}
             >
-              Projects ({projectCards.length})
+              Experience & Stories ({workExperiences.length + initiatives.length + portfolioProjects.length})
             </button>
             <button
               data-active={reviewTab === "unlinked"}
@@ -847,7 +1323,7 @@ export function ProfileEvidenceWorkspace({
               type="button"
               onClick={() => setReviewTab("cleanup")}
             >
-              Overlap Cleanup ({projectDedupeCandidates.length + dedupeCandidates.length})
+              Overlap Cleanup ({storyDedupeCandidates.length + dedupeCandidates.length})
             </button>
             <button
               data-active={reviewTab === "stories"}
@@ -858,31 +1334,33 @@ export function ProfileEvidenceWorkspace({
             </button>
           </div>
           {reviewTab === "projects" ? (
-            <ProjectList
+            <StoryMaterialList
               evidenceItems={evidenceItems}
-              onEnrichProject={startProjectEnrichment}
-              onEvidenceUpdate={updateEvidence}
-              projects={projectCards}
-              onUpdate={updateProject}
+              initiatives={initiatives}
+              onEnrichStory={startProjectEnrichment}
+              portfolioProjects={portfolioProjects}
+              workExperiences={workExperiences}
             />
           ) : null}
           {reviewTab === "unlinked" ? (
             <EvidenceList
-              description="These evidence claims are not attached to a project card yet. Review them as standalone facts or add richer project context from Source Intake."
-              emptyMessage="All current evidence is attached to project cards."
+              description="These evidence claims are not attached to a work experience, initiative, or portfolio project yet. Link them to a story target or keep them as standalone profile facts."
+              emptyMessage="All current evidence is attached to story targets."
               items={unlinkedEvidenceItems}
               onUpdate={updateEvidence}
               projects={projectCards}
+              linkTargets={linkTargets}
               title="Unlinked Evidence Claims"
             />
           ) : null}
           {reviewTab === "cleanup" ? (
             <DedupePanel
               evidenceCandidates={dedupeCandidates}
+              onEvidenceKeepSeparate={keepEvidenceCandidateSeparate}
               onEvidenceMerge={mergeEvidenceCandidate}
-              onProjectMerge={mergeProjectCandidate}
+              onStoryKeepSeparate={keepStoryCandidateSeparate}
               onRefresh={() => void refreshLibraryAfterMutation()}
-              projectCandidates={projectDedupeCandidates}
+              storyCandidates={storyDedupeCandidates}
             />
           ) : null}
           {reviewTab === "stories" ? (
@@ -901,17 +1379,19 @@ export function ProfileEvidenceWorkspace({
 function ProgressNotice({
   elapsedSeconds,
   label,
+  mode,
 }: {
   elapsedSeconds: number;
   label: string;
+  mode: "evidence" | "project";
 }) {
   const progress = Math.min(92, 18 + elapsedSeconds * 2);
-  const phase =
-    elapsedSeconds < 12
-      ? "Reading source and preparing evidence extraction"
-      : elapsedSeconds < 35
-        ? "AI is extracting profile facts, evidence, and project cards"
-        : "Still working; larger resumes can take about a minute";
+  const stages = getProgressStages(mode);
+  const activeIndex = Math.min(
+    elapsedSeconds < 8 ? 0 : elapsedSeconds < 22 ? 1 : elapsedSeconds < 40 ? 2 : 3,
+    stages.length - 1,
+  );
+  const activeStage = stages[activeIndex]!;
   return (
     <div className="progress-notice" role="status" aria-live="polite">
       <div className="progress-notice__top">
@@ -921,9 +1401,77 @@ function ProgressNotice({
       <div className="progress-bar" aria-hidden="true">
         <span style={{ width: `${progress}%` }} />
       </div>
-      <p>{phase}. Keep this page open.</p>
+      <p>
+        {activeStage.detail}
+        {elapsedSeconds >= 40 ? " Long sources or provider retries can take about a minute." : ""}
+      </p>
+      <ol className="progress-stages" aria-label="Current extraction stages">
+        {stages.map((stage, index) => (
+          <li
+            data-active={index === activeIndex}
+            data-complete={index < activeIndex}
+            key={stage.label}
+          >
+            <span>{index + 1}</span>
+            <div>
+              <strong>{stage.label}</strong>
+              <small>{stage.summary}</small>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <p>Keep this page open; the library will switch to review mode when this finishes.</p>
     </div>
   );
+}
+
+function getProgressStages(mode: "evidence" | "project") {
+  if (mode === "project") {
+    return [
+      {
+        label: "Read project note",
+        summary: "Normalize the pasted project source.",
+        detail: "Reading the project note and preparing reusable career signals.",
+      },
+      {
+        label: "Extract project evidence",
+        summary: "Identify claims, impact, tools, and scope.",
+        detail: "AI is extracting grounded project claims, impact signals, and missing proof points.",
+      },
+      {
+        label: "Build project card",
+        summary: "Create a story container for resume/interview use.",
+        detail: "Organizing the project into a reusable card and linking supporting evidence.",
+      },
+      {
+        label: "Save and refresh",
+        summary: "Persist results and prepare cleanup checks.",
+        detail: "Saving project material, refreshing the library, and checking possible overlaps.",
+      },
+    ];
+  }
+  return [
+    {
+      label: "Read source",
+      summary: "Use the uploaded/reviewed resume or pasted text.",
+      detail: "Reading the source and preparing it for evidence extraction.",
+    },
+    {
+      label: "Extract signals",
+      summary: "Find profile facts, evidence claims, and project candidates.",
+      detail: "AI is extracting profile facts, reusable evidence claims, and project-card candidates.",
+    },
+    {
+      label: "Structure library items",
+      summary: "Convert raw signals into reviewable cards.",
+      detail: "Structuring the extracted material into Evidence Library cards with gaps and questions.",
+    },
+    {
+      label: "Save and dedupe",
+      summary: "Persist results and surface possible overlaps.",
+      detail: "Saving library items, refreshing review tabs, and preparing possible-overlap cleanup.",
+    },
+  ];
 }
 
 function ReviewHandoffNotice({
@@ -936,6 +1484,8 @@ function ReviewHandoffNotice({
   summary: {
     evidenceCount: number;
     projectCount: number;
+    storyCount: number;
+    workExperienceCount: number;
     sourceTitle: string;
     type: "resume" | "project";
   };
@@ -947,9 +1497,11 @@ function ReviewHandoffNotice({
         <span>New material ready for review</span>
         <p>
           {summary.sourceTitle} created {summary.evidenceCount} evidence claim
-          {summary.evidenceCount === 1 ? "" : "s"} and {summary.projectCount} project
-          card{summary.projectCount === 1 ? "" : "s"}. Review the cards below,
-          then enrich thin projects with more {sourceType} context if needed.
+          {summary.evidenceCount === 1 ? "" : "s"}, {summary.workExperienceCount} work
+          experience{summary.workExperienceCount === 1 ? "" : "s"}, and{" "}
+          {summary.storyCount} story target{summary.storyCount === 1 ? "" : "s"}.
+          Review the material below, then enrich thin stories with more {sourceType}
+          context if needed.
         </p>
       </div>
       <div className="actions actions--compact">
@@ -964,23 +1516,32 @@ function ReviewHandoffNotice({
   );
 }
 
-function OnboardingPaths({ activeIntent }: { activeIntent: MaterialEntryIntent }) {
+function OnboardingPaths({
+  activeIntent,
+  onSelect,
+}: {
+  activeIntent: MaterialEntryIntent;
+  onSelect: (intent: MaterialEntryIntent) => void;
+}) {
   const paths = [
     {
+      ariaLabel: "Extract from reviewed resume path",
       intent: "resume" as const,
-      title: "I have a resume",
+      title: "Extract from reviewed resume",
       body:
-        "Start with resume review and extraction. Expect thin project/evidence drafts, then enrich them with follow-up material.",
+        "Use a reviewed resume version to create reusable evidence candidates. This does not replace the Resume Review report.",
       steps: "Resume review -> extract signals -> enrich projects -> main resume",
     },
     {
+      ariaLabel: "Project source intake path",
       intent: "scratch" as const,
-      title: "Build from scratch",
+      title: "Project/source docs",
       body:
-        "Use project notes, guided answers, or detailed docs first. Project stories become the backbone, then evidence claims support them.",
-      steps: "Project intake -> evidence claims -> main resume",
+        "Add design docs, project summaries, performance notes, or guided answers to create or enrich story material.",
+      steps: "Source docs -> story context -> evidence claims",
     },
     {
+      ariaLabel: "JD gap evidence path",
       intent: "jd" as const,
       title: "I have a JD now",
       body:
@@ -989,14 +1550,69 @@ function OnboardingPaths({ activeIntent }: { activeIntent: MaterialEntryIntent }
     },
   ];
   return (
-    <section className="onboarding-paths" aria-label="Material Library paths">
+    <section className="onboarding-paths" aria-label="Material Library paths" role="tablist">
       {paths.map((path) => (
-        <article data-active={path.intent === activeIntent} key={path.title}>
+        <button
+          aria-label={path.ariaLabel}
+          aria-selected={path.intent === activeIntent}
+          className="onboarding-path"
+          data-active={path.intent === activeIntent}
+          key={path.title}
+          role="tab"
+          type="button"
+          onClick={() => onSelect(path.intent)}
+        >
           <span>{path.title}</span>
           <p>{path.body}</p>
           <small>{path.steps}</small>
-        </article>
+        </button>
       ))}
+    </section>
+  );
+}
+
+function ResumeSourcePicker({
+  isLoading,
+  onSelect,
+  resumes,
+  selectedId,
+}: {
+  isLoading: boolean;
+  onSelect: (resumeSourceVersionId: string) => void;
+  resumes: ResumeSourceSummary[];
+  selectedId: string;
+}) {
+  if (resumes.length === 0) {
+    return (
+      <section className="resume-source-picker">
+        <div>
+          <span>Reviewed resumes</span>
+        <p>No reviewed resume versions yet. Upload one in Resume Review, or import an external source below for ad hoc extraction.</p>
+        </div>
+      </section>
+    );
+  }
+  return (
+    <section className="resume-source-picker">
+      <div>
+        <span>Use reviewed resume</span>
+        <p>Use reviewed resume version as a provenance source for reusable evidence candidates. This does not replace the Resume Review report.</p>
+      </div>
+      <select
+        aria-label="Reviewed resume version"
+        disabled={isLoading}
+        value={selectedId}
+        onChange={(event) => onSelect(event.target.value)}
+      >
+        <option value="">Upload or paste a new resume source</option>
+        {resumes.map((resume) => (
+          <option key={resume.id} value={resume.id}>
+            v{resume.version} · {formatResumeTitle(resume.title)}
+            {resume.latestReview ? ` · score ${resume.latestReview.overallScore}` : ""}
+            {resume.status === "extracted" ? " · extracted" : ""}
+          </option>
+        ))}
+      </select>
     </section>
   );
 }
@@ -1009,14 +1625,22 @@ function LibraryReadinessSummary({
   return (
     <section className="library-readiness" aria-label="Material Library readiness">
       <article>
-        <span>Project stories</span>
-        <strong>{summary.storyReadyProjects}</strong>
-        <p>{summary.projectsNeedingContext} need more context</p>
+        <span>Projects needing context</span>
+        <strong>{summary.projectsNeedingContext}</strong>
+        <p>
+          {summary.projectsNeedingContext > 0
+            ? "Add problem, role, actions, results, metrics, and public-safe wording."
+            : `${summary.storyReadyProjects} story target${summary.storyReadyProjects === 1 ? "" : "s"} ready`}
+        </p>
       </article>
       <article>
-        <span>Evidence claims</span>
-        <strong>{summary.resumeReadyEvidence}</strong>
-        <p>{summary.evidenceNeedingReview} need review or resume approval</p>
+        <span>Claims awaiting review</span>
+        <strong>{summary.evidenceNeedingReview}</strong>
+        <p>
+          {summary.evidenceNeedingReview > 0
+            ? "Review truth, confirmation, sensitivity, and resume usage."
+            : `${summary.resumeReadyEvidence} resume-ready claim${summary.resumeReadyEvidence === 1 ? "" : "s"}`}
+        </p>
       </article>
       <article>
         <span>Next best action</span>
@@ -1027,9 +1651,198 @@ function LibraryReadinessSummary({
   );
 }
 
+function EvidencePriorityQueue({
+  onOpenClaims,
+  onOpenCleanup,
+  onOpenStories,
+  onOpenStoryTargets,
+  onReturnToIntake,
+  summary,
+}: {
+  onOpenClaims: () => void;
+  onOpenCleanup: () => void;
+  onOpenStories: () => void;
+  onOpenStoryTargets: () => void;
+  onReturnToIntake: () => void;
+  summary: ReturnType<typeof summarizeLibraryReadiness>;
+}) {
+  const queue = [
+    {
+      action: summary.evidenceNeedingReview > 0 ? onOpenClaims : onReturnToIntake,
+      button: summary.evidenceNeedingReview > 0 ? "Review claims" : "Add source material",
+      count: summary.evidenceNeedingReview,
+      detail: "Claims must be approved before they are safe for resume generation.",
+      label: "1. Claims awaiting review",
+      state: summary.evidenceNeedingReview > 0 ? "active" : "empty",
+    },
+    {
+      action: summary.projectsNeedingContext > 0 ? onOpenStoryTargets : onReturnToIntake,
+      button: summary.projectsNeedingContext > 0 ? "Enrich thin projects" : "Add project/source docs",
+      count: summary.projectsNeedingContext,
+      detail: "Thin story targets need problem, role, actions, results, metrics, and external-safe context.",
+      label: "2. Thin projects needing context",
+      state: summary.projectsNeedingContext > 0 ? "active" : "empty",
+    },
+    {
+      action: summary.cleanupCount > 0 ? onOpenCleanup : onOpenStoryTargets,
+      button: summary.cleanupCount > 0 ? "Resolve overlaps" : "No cleanup needed",
+      count: summary.cleanupCount,
+      detail: "Possible duplicate claims or story targets should be resolved before reuse.",
+      label: "3. Duplicate cleanup",
+      state: summary.cleanupCount > 0 ? "active" : "empty",
+    },
+    {
+      action: summary.storyReadyProjects > 0 ? onOpenStories : onOpenStoryTargets,
+      button: summary.storyReadyProjects > 0 ? "Review STAR stories" : "Prepare stories first",
+      count: summary.storyReadyProjects,
+      detail: `${summary.storyReadyProjects} STAR stories ready · ${summary.storyTargetCount} story targets available.`,
+      label: "4. STAR stories ready",
+      state: summary.storyReadyProjects > 0 ? "active" : "empty",
+    },
+  ];
+  const next = queue.find((item) => item.state === "active") ?? queue[0]!;
+  return (
+    <section className="evidence-priority-queue" aria-label="Evidence Library priority queue">
+      <div className="evidence-priority-queue__header">
+        <div>
+          <span>Next best queue</span>
+          <strong>{next.label}</strong>
+          <p>{next.detail}</p>
+        </div>
+        <button className="primary-button" type="button" onClick={next.action}>
+          {next.button}
+        </button>
+      </div>
+      <div className="evidence-priority-queue__items">
+        {queue.map((item) => (
+          <button
+            data-state={item.state}
+            key={item.label}
+            onClick={item.action}
+            type="button"
+          >
+            <span>{item.label}</span>
+            <strong>{item.count}</strong>
+            <small>{item.detail}</small>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function IntakeStageHeader({
+  activeIntent,
+  onExplain,
+  projectFormState,
+  sourceFormState,
+}: {
+  activeIntent: MaterialEntryIntent;
+  onExplain: (message: string) => void;
+  projectFormState: LocalFormState;
+  sourceFormState: LocalFormState;
+}) {
+  const activeFormState = activeIntent === "scratch" ? projectFormState : sourceFormState;
+  const sourceComplete = activeFormState === "success";
+  const sourceReady = activeFormState === "ready" || activeFormState === "extracting" || sourceComplete;
+  const isRunning = activeFormState === "extracting";
+  const steps = [
+    {
+      label: "Choose intake path",
+      message: `Selected path: ${formatIntakeIntent(activeIntent)}.`,
+      state: "complete",
+    },
+    {
+      label: "Add source",
+      message: sourceReady
+        ? "Source content is ready for extraction."
+        : "Add a title and at least 80 characters of source text first.",
+      state: sourceReady ? "complete" : "current",
+    },
+    {
+      label: activeIntent === "scratch" ? "Enrich project note" : "Extract signals",
+      message: sourceReady
+        ? "Run the primary action near the active form."
+        : "Blocked until the source section is ready.",
+      state: isRunning ? "current" : sourceComplete ? "complete" : sourceReady ? "current" : "blocked",
+    },
+    {
+      label: "Review output",
+      message: sourceComplete
+        ? "Switch to Library Review to approve claims and inspect story targets."
+        : "Blocked until extraction finishes successfully.",
+      state: sourceComplete ? "current" : "blocked",
+    },
+    {
+      label: "Approve evidence",
+      message: "Approve claims from Library Review after extraction creates reviewable material.",
+      state: sourceComplete ? "blocked" : "blocked",
+    },
+  ] satisfies Array<{ label: string; message: string; state: "complete" | "current" | "blocked" }>;
+  return (
+    <section className="intake-stage-bar" aria-label="Source Intake workflow">
+      {steps.map((step, index) => (
+        <button
+          data-state={step.state}
+          key={step.label}
+          onClick={() => onExplain(step.message)}
+          type="button"
+        >
+          <span>{index + 1}</span>
+          <strong>{step.label}</strong>
+          {index === 0 ? <small>{formatIntakeIntent(activeIntent)}</small> : null}
+        </button>
+      ))}
+    </section>
+  );
+}
+
+type LocalFormState = "unsaved" | "ready" | "extracting" | "success" | "failed";
+
+function getLocalFormState({
+  error,
+  isRunning,
+  ready,
+  success,
+}: {
+  error: string | null;
+  isRunning: boolean;
+  ready: boolean;
+  success: boolean;
+}): LocalFormState {
+  if (error) return "failed";
+  if (isRunning) return "extracting";
+  if (success) return "success";
+  if (ready) return "ready";
+  return "unsaved";
+}
+
+function FormStatePill({ state }: { state: LocalFormState }) {
+  const label = {
+    extracting: "extracting",
+    failed: "failed",
+    ready: "ready",
+    success: "success",
+    unsaved: "unsaved",
+  } satisfies Record<LocalFormState, string>;
+  return (
+    <div className="source-stage-status" data-state={state}>
+      {label[state]}
+    </div>
+  );
+}
+
+function formatIntakeIntent(intent: MaterialEntryIntent) {
+  if (intent === "scratch") return "project/source docs";
+  if (intent === "jd") return "JD gap source";
+  return "resume";
+}
+
 function formatStatus(meta: Extract<ExtractionResponse, { data: unknown }>["meta"]) {
   if (meta.persistence?.status === "saved") {
-    return `${meta.persistence.evidenceCount ?? 0} evidence items · ${meta.persistence.projectCount ?? 0} projects added`;
+    const storyCount =
+      (meta.persistence.initiativeCount ?? 0) + (meta.persistence.portfolioProjectCount ?? 0);
+    return `${meta.persistence.evidenceCount ?? 0} evidence items · ${storyCount} story targets added`;
   }
   if (meta.persistence?.reason === "missing_database_url") {
     return "Draft created · save storage is not configured";
@@ -1069,14 +1882,14 @@ function getEntryGuidance(intent: MaterialEntryIntent) {
   if (intent === "scratch") {
     return {
       enrichmentHint:
-        "Start with project notes, design docs, performance reviews, or guided answers. Project cards should become the backbone before generating a main resume.",
+        "Use project notes, design docs, performance reviews, or guided answers to create new story material or enrich thin resume-derived stories.",
       fileImportLabel: "Import source doc",
-      primaryActionLabel: "Extract Career Signals",
+      primaryActionLabel: "Extract Source Signals",
       primaryHint:
-        "Optional: paste a short career summary above. For from-scratch intake, the Project Library Builder below is usually the higher-value first step.",
-      primaryTitleLabel: "Career summary or source title",
+        "Use this path with or without an initial resume. The Project Library Builder below is the main enrich workflow.",
+      primaryTitleLabel: "Source title",
       summary:
-        "You are building the library from source material rather than starting from a resume. Prioritize project context, actions, outcomes, and metrics.",
+        "Add project/source documents to create or enrich work stories. Prioritize context, ownership, actions, outcomes, metrics, and public-safe wording.",
     };
   }
   if (intent === "jd") {
@@ -1095,28 +1908,37 @@ function getEntryGuidance(intent: MaterialEntryIntent) {
   return {
     enrichmentHint:
       "Add project notes, design docs, performance reviews, or accomplishment drafts to turn thin resume signals into richer project stories and stronger evidence.",
-    fileImportLabel: "Import resume/source",
+      fileImportLabel: "Import external source",
     primaryActionLabel: "Extract Resume Signals",
     primaryHint:
       "Upload or paste your current resume. Expect initial cards to be thin until enriched with deeper source material.",
-    primaryTitleLabel: "Resume or source title",
+      primaryTitleLabel: "Reviewed resume or external source title",
     summary:
       "Start from your existing resume, review its weak spots, then extract profile, project, and evidence signals for enrichment.",
   };
 }
 
 function summarizeLibraryReadiness({
+  cleanupCount,
   evidenceItems,
+  initiatives,
+  portfolioProjects,
   projectCards,
+  workExperiences,
 }: {
+  cleanupCount: number;
   evidenceItems: EvidenceCardItem[];
+  initiatives: InitiativeItem[];
+  portfolioProjects: PortfolioProjectItem[];
   projectCards: ProjectCardItem[];
+  workExperiences: WorkExperienceItem[];
 }) {
-  const storyReadyProjects = projectCards.filter(
-    (project) => getProjectReadiness(project).state === "story_ready",
+  const storyTargets = [...initiatives, ...portfolioProjects];
+  const storyReadyProjects = storyTargets.filter(
+    (target) => getStoryReadiness(target).state === "story_ready",
   ).length;
-  const projectsNeedingContext = projectCards.filter(
-    (project) => getProjectReadiness(project).state !== "story_ready",
+  const projectsNeedingContext = storyTargets.filter(
+    (target) => getStoryReadiness(target).state !== "story_ready",
   ).length;
   const resumeReadyEvidence = evidenceItems.filter(
     (item) => getEvidenceReadiness(item).state === "resume_ready",
@@ -1126,27 +1948,38 @@ function summarizeLibraryReadiness({
   ).length;
   let nextActionTitle = "Add source material";
   let nextActionDetail = "Upload a resume or paste project notes to start the library.";
-  if (projectCards.length > 0 && projectsNeedingContext > 0) {
-    nextActionTitle = "Enrich project context";
-    nextActionDetail = "Add project docs, review notes, metrics, or guided answers for thin stories.";
-  } else if (evidenceItems.length > 0 && evidenceNeedingReview > 0) {
+  if (evidenceItems.length > 0 && evidenceNeedingReview > 0) {
     nextActionTitle = "Review evidence claims";
     nextActionDetail = "Approve source-backed claims and mark resume-safe summaries before tailoring.";
+  } else if (storyTargets.length > 0 && projectsNeedingContext > 0) {
+    nextActionTitle = "Enrich story context";
+    nextActionDetail = "Add docs, review notes, metrics, or guided answers for thin initiatives/projects.";
+  } else if (workExperiences.length > 0 && storyTargets.length === 0) {
+    nextActionTitle = "Extract initiatives";
+    nextActionDetail = "Work experiences exist, but need initiative/story cards before resume generation.";
   } else if (resumeReadyEvidence > 0) {
     nextActionTitle = "Generate resume";
     nextActionDetail = "Use the approved library to create a main resume or a JD-tailored draft.";
   }
   return {
+    cleanupCount,
     evidenceNeedingReview,
     nextActionDetail,
     nextActionTitle,
     projectsNeedingContext,
     resumeReadyEvidence,
     storyReadyProjects,
+    storyTargetCount: storyTargets.length,
   };
 }
 
 function getProjectReadiness(project: ProjectCardItem) {
+  return getStoryReadiness(project);
+}
+
+function getStoryReadiness(
+  project: ProjectCardItem | InitiativeItem | PortfolioProjectItem,
+) {
   const actionCount = project.actions.filter(Boolean).length;
   const resultCount = project.results.filter(Boolean).length;
   const hasMetric = (project.metrics ?? []).length > 0;
@@ -1199,6 +2032,63 @@ function getEvidenceReadiness(item: EvidenceCardItem) {
   };
 }
 
+function formatReusableUsage(item: EvidenceCardItem) {
+  const allowedUsage = item.allowed_usage ?? [];
+  if (allowedUsage.length === 0) return "Not approved for reuse yet";
+  return allowedUsage
+    .map((usage) => usage.replace(/_/g, " "))
+    .map((usage) => usage.charAt(0).toUpperCase() + usage.slice(1))
+    .join(", ");
+}
+
+function formatEvidenceSource(item: EvidenceCardItem) {
+  if (item.source_document_id) return "Source document";
+  return "Extracted source";
+}
+
+function formatSourceQuotePreview(quote: string) {
+  const normalized = quote.replace(/\s+/g, " ").trim();
+  if (!normalized) return "No source quote captured";
+  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
+}
+
+function getEvidenceBlocker(item: EvidenceCardItem) {
+  const allowedUsage = item.allowed_usage ?? [];
+  if (item.status !== "approved") {
+    return {
+      action: "approve_for_resume" as const,
+      label: "Review truth and approve",
+      reason: "Truth review is still pending.",
+    };
+  }
+  if (item.needs_user_confirmation) {
+    return {
+      action: "approve_for_resume" as const,
+      label: "Confirm claim for resume",
+      reason: "User confirmation is required before resume use.",
+    };
+  }
+  if (item.sensitivity_level !== "public_safe" && !item.public_safe_summary) {
+    return {
+      action: "mark_external_safe" as const,
+      label: "Add external-safe wording",
+      reason: "Sensitive evidence needs external-safe wording.",
+    };
+  }
+  if (!allowedUsage.includes("resume")) {
+    return {
+      action: "approve_for_resume" as const,
+      label: "Enable resume use",
+      reason: "Resume usage has not been enabled.",
+    };
+  }
+  return {
+    action: "edit" as const,
+    label: "Edit",
+    reason: "Resume-ready.",
+  };
+}
+
 function estimateLinkedEvidenceCount(project: ProjectCardItem, evidenceItems: EvidenceCardItem[]) {
   return getProjectEvidence(project, evidenceItems).length;
 }
@@ -1209,14 +2099,39 @@ function getProjectEvidence(project: ProjectCardItem, evidenceItems: EvidenceCar
 }
 
 function getUnlinkedEvidenceItems(
-  projects: ProjectCardItem[],
+  targets: EvidenceLinkTargets,
   evidenceItems: EvidenceCardItem[],
 ) {
   const projectIds = new Set(
-    projects.map((project) => project.id).filter((id): id is string => Boolean(id)),
+    targets.projects.map((project) => project.id).filter((id): id is string => Boolean(id)),
+  );
+  const workExperienceIds = new Set(
+    targets.workExperiences
+      .map((experience) => experience.id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const initiativeIds = new Set(
+    targets.initiatives
+      .map((initiative) => initiative.id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const portfolioProjectIds = new Set(
+    targets.portfolioProjects
+      .map((project) => project.id)
+      .filter((id): id is string => Boolean(id)),
   );
   return evidenceItems.filter(
-    (item) => !item.related_project_id || !projectIds.has(item.related_project_id),
+    (item) =>
+      !(item.related_project_id && projectIds.has(item.related_project_id)) &&
+      !(
+        item.related_work_experience_id &&
+        workExperienceIds.has(item.related_work_experience_id)
+      ) &&
+      !(item.related_initiative_id && initiativeIds.has(item.related_initiative_id)) &&
+      !(
+        item.related_portfolio_project_id &&
+        portfolioProjectIds.has(item.related_portfolio_project_id)
+      ),
   );
 }
 
@@ -1230,11 +2145,11 @@ function formatOverlapTitle(candidate: DedupeCandidate) {
   return `Wording similarity ${Math.round(candidate.score * 100)}%`;
 }
 
-function formatProjectOverlapTitle(candidate: ProjectDedupeCandidate) {
+function formatStoryOverlapTitle(candidate: StoryDedupeCandidate) {
   if (candidate.score >= 0.999) {
-    return "Exact project title match";
+    return "Exact story title match";
   }
-  return `Project similarity ${Math.round(candidate.score * 100)}%`;
+  return `Story similarity ${Math.round(candidate.score * 100)}%`;
 }
 
 function ProfileSummary({
@@ -1276,7 +2191,9 @@ function LibrarySummary({ library }: { library: EvidenceLibrary | null }) {
       </p>
       <p className="requirement__quote">
         {library?.evidenceItems.length ?? 0} evidence items ·{" "}
-        {library?.projectCards.length ?? 0} project cards
+        {library?.workExperiences.length ?? 0} roles ·{" "}
+        {library?.initiatives.length ?? 0} initiatives ·{" "}
+        {library?.portfolioProjects.length ?? 0} portfolio projects
       </p>
     </section>
   );
@@ -1284,20 +2201,22 @@ function LibrarySummary({ library }: { library: EvidenceLibrary | null }) {
 
 function DedupePanel({
   evidenceCandidates,
+  onEvidenceKeepSeparate,
   onEvidenceMerge,
-  onProjectMerge,
+  onStoryKeepSeparate,
   onRefresh,
-  projectCandidates,
+  storyCandidates,
 }: {
   evidenceCandidates: DedupeCandidate[];
+  onEvidenceKeepSeparate: (candidate: DedupeCandidate) => Promise<void>;
   onEvidenceMerge: (candidate: DedupeCandidate) => void;
-  onProjectMerge: (candidate: ProjectDedupeCandidate) => Promise<ProjectMergeResult>;
+  onStoryKeepSeparate: (candidate: StoryDedupeCandidate) => Promise<void>;
   onRefresh: () => void;
-  projectCandidates: ProjectDedupeCandidate[];
+  storyCandidates: StoryDedupeCandidate[];
 }) {
-  const [activeOverlap, setActiveOverlap] = useState<"projects" | "evidence">("projects");
+  const [activeOverlap, setActiveOverlap] = useState<"stories" | "evidence">("stories");
   const activeCount =
-    activeOverlap === "projects" ? projectCandidates.length : evidenceCandidates.length;
+    activeOverlap === "stories" ? storyCandidates.length : evidenceCandidates.length;
   return (
     <section className="section-block">
       <div className="requirement__top">
@@ -1307,17 +2226,17 @@ function DedupePanel({
         </button>
       </div>
       <p className="requirement__quote">
-        Review project-level overlaps separately from evidence-level overlaps.
-        Project merge combines story containers and moves linked evidence;
-        evidence merge keeps one atomic claim and rejects the duplicate claim.
+        Review story-target overlaps separately from evidence-level overlaps.
+        Story cleanup supports keep-separate decisions now; evidence merge keeps one
+        atomic claim and rejects the duplicate claim.
       </p>
       <div className="filter-row" role="group" aria-label="Overlap cleanup type">
         <button
-          data-active={activeOverlap === "projects"}
+          data-active={activeOverlap === "stories"}
           type="button"
-          onClick={() => setActiveOverlap("projects")}
+          onClick={() => setActiveOverlap("stories")}
         >
-          Project overlaps ({projectCandidates.length})
+          Story overlaps ({storyCandidates.length})
         </button>
         <button
           data-active={activeOverlap === "evidence"}
@@ -1329,45 +2248,161 @@ function DedupePanel({
       </div>
       {activeCount === 0 ? (
         <p className="requirement__quote">
-          No {activeOverlap === "projects" ? "project" : "evidence"} overlaps need review right now.
+          No {activeOverlap === "stories" ? "story" : "evidence"} overlaps need review right now.
         </p>
-      ) : activeOverlap === "projects" ? (
-        <ProjectOverlapPanel candidates={projectCandidates} onMerge={onProjectMerge} />
+      ) : activeOverlap === "stories" ? (
+        <StoryOverlapPanel
+          candidates={storyCandidates}
+          onKeepSeparate={onStoryKeepSeparate}
+        />
       ) : (
-        <EvidenceOverlapPanel candidates={evidenceCandidates} onMerge={onEvidenceMerge} />
+        <EvidenceOverlapPanel
+          candidates={evidenceCandidates}
+          onKeepSeparate={onEvidenceKeepSeparate}
+          onMerge={onEvidenceMerge}
+        />
       )}
     </section>
   );
 }
 
-function ProjectOverlapPanel({
+function StoryOverlapPanel({
   candidates,
-  onMerge,
+  onKeepSeparate,
 }: {
-  candidates: ProjectDedupeCandidate[];
-  onMerge: (candidate: ProjectDedupeCandidate) => Promise<ProjectMergeResult>;
+  candidates: StoryDedupeCandidate[];
+  onKeepSeparate: (candidate: StoryDedupeCandidate) => Promise<void>;
 }) {
-  const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [messageById, setMessageById] = useState<Record<string, string>>({});
-  async function confirmMerge(candidate: ProjectDedupeCandidate) {
+  async function keepSeparate(candidate: StoryDedupeCandidate) {
     const key = `${candidate.primary.id}-${candidate.duplicate.id}`;
     setPendingId(key);
     setMessageById((messages) => ({
       ...messages,
-      [key]: "Merging project cards...",
+      [key]: "Saving keep-separate decision...",
     }));
     try {
-      const result = await onMerge(candidate);
+      await onKeepSeparate(candidate);
       setMessageById((messages) => ({
         ...messages,
-        [key]: `Merged ${result.duplicateProjectCount} duplicate project card${result.duplicateProjectCount === 1 ? "" : "s"}. Moved ${result.movedEvidenceCount} linked evidence item${result.movedEvidenceCount === 1 ? "" : "s"} to the kept project.`,
+        [key]: "Kept as separate story targets.",
+      }));
+    } catch (caught) {
+      setMessageById((messages) => ({
+        ...messages,
+        [key]: caught instanceof Error ? caught.message : "Keep-separate decision failed.",
+      }));
+    } finally {
+      setPendingId(null);
+    }
+  }
+  return (
+    <div className="result-stack result-stack--inner">
+      {candidates.map((candidate) => {
+        const key = `${candidate.primary.id}-${candidate.duplicate.id}`;
+        const isPending = pendingId === key;
+        return (
+          <article className="requirement overlap-card" key={key}>
+            <div className="requirement__top">
+              <div>
+                <p className="requirement__text">Possible duplicate story target</p>
+                <p className="requirement__quote">
+                  {formatStoryOverlapTitle(candidate)} · {candidate.duplicateCount} duplicate
+                  target{candidate.duplicateCount === 1 ? "" : "s"} ·{" "}
+                  {candidate.reasons.join(", ")}
+                </p>
+              </div>
+              <span className="requirement__type">
+                {candidate.primary.storyType.replaceAll("_", " ")} overlap
+              </span>
+            </div>
+            <div className="overlap-project-grid">
+              <StoryOverlapSummary label="Primary target" story={candidate.primary} />
+              <StoryOverlapSummary label="Possible duplicate" story={candidate.duplicate} />
+            </div>
+            <div className="actions actions--compact">
+              <button
+                className="secondary-button"
+                disabled={Boolean(pendingId)}
+                type="button"
+                onClick={() => void keepSeparate(candidate)}
+              >
+                {isPending ? "Saving..." : "Keep separate"}
+              </button>
+            </div>
+            {messageById[key] ? <p className="card-message">{messageById[key]}</p> : null}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function StoryOverlapSummary({
+  label,
+  story,
+}: {
+  label: string;
+  story: StoryDedupeItem;
+}) {
+  const signals = [
+    story.context,
+    story.problem,
+    story.role,
+    ...story.actions.slice(0, 2),
+    ...story.results.slice(0, 2),
+  ].filter((item): item is string => Boolean(item));
+  return (
+    <div className="overlap-project">
+      <span>{label}</span>
+      <strong>{story.title}</strong>
+      {story.internalTitle && story.internalTitle !== story.title ? (
+        <p>Internal: {story.internalTitle}</p>
+      ) : null}
+      {signals.length > 0 ? (
+        <ul>
+          {signals.slice(0, 4).map((signal) => (
+            <li key={signal}>{signal}</li>
+          ))}
+        </ul>
+      ) : (
+        <p>No story details captured yet.</p>
+      )}
+    </div>
+  );
+}
+
+function EvidenceOverlapPanel({
+  candidates,
+  onKeepSeparate,
+  onMerge,
+}: {
+  candidates: DedupeCandidate[];
+  onKeepSeparate: (candidate: DedupeCandidate) => Promise<void>;
+  onMerge: (candidate: DedupeCandidate) => void;
+}) {
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [messageById, setMessageById] = useState<Record<string, string>>({});
+  async function keepSeparate(candidate: DedupeCandidate) {
+    const key = `${candidate.primary.id}-${candidate.duplicate.id}`;
+    setPendingId(key);
+    setMessageById((messages) => ({
+      ...messages,
+      [key]: "Saving keep-separate decision...",
+    }));
+    try {
+      await onKeepSeparate(candidate);
+      setMessageById((messages) => ({
+        ...messages,
+        [key]: "Kept as separate evidence claims.",
       }));
       setReviewingId(null);
     } catch (caught) {
       setMessageById((messages) => ({
         ...messages,
-        [key]: caught instanceof Error ? caught.message : "Project merge failed.",
+        [key]: caught instanceof Error ? caught.message : "Keep-separate decision failed.",
       }));
     } finally {
       setPendingId(null);
@@ -1379,113 +2414,6 @@ function ProjectOverlapPanel({
         const key = `${candidate.primary.id}-${candidate.duplicate.id}`;
         const isReviewing = reviewingId === key;
         const isPending = pendingId === key;
-        return (
-          <article className="requirement overlap-card" key={key}>
-            <div className="requirement__top">
-              <div>
-                <p className="requirement__text">Possible duplicate project</p>
-                <p className="requirement__quote">
-                  {formatProjectOverlapTitle(candidate)} · {candidate.duplicateCount} duplicate
-                  project{candidate.duplicateCount === 1 ? "" : "s"} ·{" "}
-                  {candidate.reasons.join(", ")}
-                </p>
-              </div>
-              <span className="requirement__type">project overlap</span>
-            </div>
-            <div className="overlap-project-grid">
-              <ProjectOverlapSummary label="Kept project" project={candidate.primary} />
-              <ProjectOverlapSummary label="Duplicate example" project={candidate.duplicate} />
-            </div>
-            <div className="actions actions--compact">
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => setReviewingId(isReviewing ? null : key)}
-              >
-                {isReviewing ? "Hide merge review" : "Review merge"}
-              </button>
-            </div>
-            {isReviewing ? (
-              <div className="merge-review">
-                <p className="requirement__text">Merge confirmation</p>
-                <p className="requirement__quote">
-                  Keep <strong>{candidate.primary.title}</strong>. Merge{" "}
-                  <strong>{candidate.duplicateCount} duplicate project card{candidate.duplicateCount === 1 ? "" : "s"}</strong>{" "}
-                  into it, move{" "}
-                  {candidate.duplicateEvidenceCount} linked evidence item
-                  {candidate.duplicateEvidenceCount === 1 ? "" : "s"}, combine project
-                  details, and mark the duplicate project as rejected.
-                </p>
-                <div className="merge-review__facts">
-                  <span>Kept project status: {candidate.primary.status}</span>
-                  <span>Duplicates to merge: {candidate.duplicateCount}</span>
-                  <span>Kept evidence: {candidate.primaryEvidenceCount}</span>
-                  <span>Evidence to move: {candidate.duplicateEvidenceCount}</span>
-                </div>
-                <div className="actions actions--compact">
-	                  <button
-	                    className="primary-button"
-	                    disabled={Boolean(pendingId)}
-	                    type="button"
-                    onClick={() => void confirmMerge(candidate)}
-                  >
-                    {isPending ? "Merging..." : "Confirm merge"}
-                  </button>
-                </div>
-              </div>
-            ) : null}
-            {messageById[key] ? <p className="card-message">{messageById[key]}</p> : null}
-          </article>
-        );
-      })}
-    </div>
-  );
-}
-
-function ProjectOverlapSummary({
-  label,
-  project,
-}: {
-  label: string;
-  project: ProjectDedupeItem;
-}) {
-  const signals = [
-    project.context,
-    project.problem,
-    project.role,
-    ...project.actions.slice(0, 2),
-    ...project.results.slice(0, 2),
-  ].filter((item): item is string => Boolean(item));
-  return (
-    <div className="overlap-project">
-      <span>{label}</span>
-      <strong>{project.title}</strong>
-      {signals.length > 0 ? (
-        <ul>
-          {signals.slice(0, 4).map((signal) => (
-            <li key={signal}>{signal}</li>
-          ))}
-        </ul>
-      ) : (
-        <p>No project details captured yet.</p>
-      )}
-    </div>
-  );
-}
-
-function EvidenceOverlapPanel({
-  candidates,
-  onMerge,
-}: {
-  candidates: DedupeCandidate[];
-  onMerge: (candidate: DedupeCandidate) => void;
-}) {
-  const [reviewingId, setReviewingId] = useState<string | null>(null);
-  return (
-    <div className="result-stack result-stack--inner">
-      {candidates.map((candidate) => {
-        const key = `${candidate.primary.id}-${candidate.duplicate.id}`;
-        const isReviewing = reviewingId === key;
         return (
           <article className="requirement overlap-card" key={key}>
             <div className="requirement__top">
@@ -1504,10 +2432,19 @@ function EvidenceOverlapPanel({
             <div className="actions actions--compact">
               <button
                 className="secondary-button"
+                disabled={Boolean(pendingId)}
                 type="button"
                 onClick={() => setReviewingId(isReviewing ? null : key)}
               >
                 {isReviewing ? "Hide merge review" : "Review merge"}
+              </button>
+              <button
+                className="secondary-button"
+                disabled={Boolean(pendingId)}
+                type="button"
+                onClick={() => void keepSeparate(candidate)}
+              >
+                {isPending ? "Saving..." : "Keep separate"}
               </button>
             </div>
             {isReviewing ? (
@@ -1529,6 +2466,7 @@ function EvidenceOverlapPanel({
                 <div className="actions actions--compact">
                   <button
                     className="primary-button"
+                    disabled={Boolean(pendingId)}
                     type="button"
                     onClick={() => onMerge(candidate)}
                   >
@@ -1537,6 +2475,7 @@ function EvidenceOverlapPanel({
                 </div>
               </div>
             ) : null}
+            {messageById[key] ? <p className="card-message">{messageById[key]}</p> : null}
           </article>
         );
       })}
@@ -1581,7 +2520,7 @@ function StarStoryPanel({
       </div>
       {stories.length === 0 ? (
         <p className="requirement__quote">
-          No project cards are ready to promote into STAR stories yet.
+          No initiatives or portfolio projects are ready to promote into STAR stories yet.
         </p>
       ) : (
         <div className="result-stack result-stack--inner">
@@ -1589,8 +2528,13 @@ function StarStoryPanel({
             <article className="requirement" key={story.id}>
               <div className="requirement__top">
                 <p className="requirement__text">{story.title}</p>
-                <span className="requirement__type">{story.readiness}</span>
+                <span className="requirement__type">
+                  {story.story_target_type.replaceAll("_", " ")} · {story.readiness}
+                </span>
               </div>
+              {story.internal_title && story.internal_title !== story.title ? (
+                <p className="requirement__quote">Internal title: {story.internal_title}</p>
+              ) : null}
               {story.situation ? (
                 <p className="requirement__quote">S: {story.situation}</p>
               ) : null}
@@ -1624,7 +2568,8 @@ function StarStoryPanel({
               {story.gaps.length > 0 ? (
                 <SectionList title="Gaps" items={story.gaps.slice(0, 3)} />
               ) : null}
-              <div className="actions actions--compact">
+              {story.story_target_type === "legacy_project" ? (
+                <div className="actions actions--compact">
                 <button
                   className="secondary-button"
                   type="button"
@@ -1651,7 +2596,8 @@ function StarStoryPanel({
                 >
                   Improve story
                 </button>
-              </div>
+                </div>
+              ) : null}
             </article>
           ))}
         </div>
@@ -1664,6 +2610,7 @@ function EvidenceList({
   description = "Evidence cards are atomic source-backed claims. They support project stories, resumes, interviews, and Fact Guard.",
   emptyMessage = "No evidence has been created yet.",
   items,
+  linkTargets,
   onUpdate,
   projects,
   title = "Evidence Claims",
@@ -1687,6 +2634,7 @@ function EvidenceList({
     action: EvidenceUpdateAction,
     patch?: EvidenceUpdatePatch,
   ) => Promise<{ ok: boolean; message: string }>;
+  linkTargets?: EvidenceLinkTargets;
   projects?: ProjectCardItem[];
   title?: string;
 }) {
@@ -1825,7 +2773,7 @@ function EvidenceList({
           No evidence matches this filter.
         </p>
       ) : null}
-      <div className="result-stack result-stack--inner">
+      <div className="evidence-row-table result-stack--inner">
         {visibleItems.map((item, index) => {
           return (
             <EvidenceCard
@@ -1833,6 +2781,7 @@ function EvidenceList({
               isUpdating={item.id ? pendingEvidenceId === item.id : false}
               item={item}
               key={item.id ?? `${item.source_quote}-${index}`}
+              linkTargets={linkTargets}
               onUpdate={handleUpdate}
               projects={projects}
             />
@@ -1852,10 +2801,69 @@ function EvidenceList({
   );
 }
 
+function buildEvidenceTargetOptions(
+  linkTargets?: EvidenceLinkTargets,
+  legacyProjects: ProjectCardItem[] = [],
+) {
+  const targets: Array<{ label: string; value: string }> = [];
+  for (const experience of linkTargets?.workExperiences ?? []) {
+    if (!experience.id) continue;
+    targets.push({
+      label: `Work experience · ${experience.employer} · ${experience.role_title}`,
+      value: `work_experience:${experience.id}`,
+    });
+  }
+  for (const initiative of linkTargets?.initiatives ?? []) {
+    if (!initiative.id) continue;
+    targets.push({
+      label: `Work initiative · ${initiative.external_safe_title ?? initiative.internal_title}`,
+      value: `initiative:${initiative.id}`,
+    });
+  }
+  for (const project of linkTargets?.portfolioProjects ?? []) {
+    if (!project.id) continue;
+    targets.push({
+      label: `Portfolio project · ${project.external_safe_title ?? project.title}`,
+      value: `portfolio_project:${project.id}`,
+    });
+  }
+  for (const project of legacyProjects) {
+    if (!project.id) continue;
+    targets.push({
+      label: `Legacy project · ${project.title}`,
+      value: `legacy_project:${project.id}`,
+    });
+  }
+  return targets;
+}
+
+function toEvidenceTargetValue(item: EvidenceCardItem) {
+  if (item.related_initiative_id) return `initiative:${item.related_initiative_id}`;
+  if (item.related_portfolio_project_id) {
+    return `portfolio_project:${item.related_portfolio_project_id}`;
+  }
+  if (item.related_work_experience_id) {
+    return `work_experience:${item.related_work_experience_id}`;
+  }
+  if (item.related_project_id) return `legacy_project:${item.related_project_id}`;
+  return "";
+}
+
+function toEvidenceTargetPatch(target: string, legacyProjectId = "") {
+  const [kind, id] = target.split(":");
+  return {
+    relatedInitiativeId: kind === "initiative" ? id : null,
+    relatedPortfolioProjectId: kind === "portfolio_project" ? id : null,
+    relatedProjectId: kind === "legacy_project" ? id : legacyProjectId || null,
+    relatedWorkExperienceId: kind === "work_experience" ? id : null,
+  };
+}
+
 function EvidenceCard({
   cardMessage,
   isUpdating,
   item,
+  linkTargets,
   onUpdate,
   projects = [],
   variant = "default",
@@ -1868,15 +2876,18 @@ function EvidenceCard({
     action: EvidenceUpdateAction,
     patch?: EvidenceUpdatePatch,
   ) => void;
+  linkTargets?: EvidenceLinkTargets;
   projects?: ProjectCardItem[];
   variant?: "default" | "nested";
 }) {
   const readiness = getEvidenceReadiness(item);
+  const blocker = getEvidenceBlocker(item);
   const [isEditing, setIsEditing] = useState(false);
   const [draftText, setDraftText] = useState(item.text);
   const [draftSummary, setDraftSummary] = useState(item.public_safe_summary ?? "");
   const [draftSensitivity, setDraftSensitivity] = useState(item.sensitivity_level);
   const [draftProjectId, setDraftProjectId] = useState(item.related_project_id ?? "");
+  const [draftTarget, setDraftTarget] = useState(() => toEvidenceTargetValue(item));
   const [draftAllowedUsage, setDraftAllowedUsage] = useState<string[]>(
     item.allowed_usage ?? [],
   );
@@ -1886,11 +2897,15 @@ function EvidenceCard({
     setDraftSummary(item.public_safe_summary ?? "");
     setDraftSensitivity(item.sensitivity_level);
     setDraftProjectId(item.related_project_id ?? "");
+    setDraftTarget(toEvidenceTargetValue(item));
     setDraftAllowedUsage(item.allowed_usage ?? []);
   }, [
     item.allowed_usage,
     item.public_safe_summary,
+    item.related_initiative_id,
+    item.related_portfolio_project_id,
     item.related_project_id,
+    item.related_work_experience_id,
     item.sensitivity_level,
     item.text,
   ]);
@@ -1908,38 +2923,88 @@ function EvidenceCard({
     onUpdate(item, externalSafe ? "mark_external_safe" : "edit", {
       allowedUsage: draftAllowedUsage,
       publicSafeSummary: draftSummary.trim() || null,
-      relatedProjectId: draftProjectId || null,
+      ...toEvidenceTargetPatch(draftTarget, draftProjectId),
       sensitivityLevel: externalSafe ? "public_safe" : draftSensitivity,
       text: draftText.trim(),
     });
     setIsEditing(false);
   }
 
+  if (variant === "nested") {
+    return (
+      <article className="requirement evidence-subcard">
+        <div className="requirement__top">
+          <p className="requirement__text">{item.text}</p>
+          <span className="requirement__type">{readiness.label}</span>
+        </div>
+        <p className="requirement__quote">{readiness.next}</p>
+        <p className="requirement__quote">Status: {item.status}</p>
+        <p className="requirement__quote">Reusable in: {formatReusableUsage(item)}</p>
+        <p className="requirement__quote">Source: {formatEvidenceSource(item)}</p>
+        <p className="requirement__quote">Quote: {item.source_quote}</p>
+        {item.public_safe_summary ? (
+          <p className="requirement__quote">External-safe: {item.public_safe_summary}</p>
+        ) : null}
+      </article>
+    );
+  }
+
   return (
-    <article
-      className={variant === "nested" ? "requirement evidence-subcard" : "requirement"}
-    >
-      <div className="requirement__top">
-        <p className="requirement__text">{item.text}</p>
-        <span className="requirement__type">{readiness.label}</span>
+    <article className="evidence-row">
+      <div className="evidence-row__main">
+        <div>
+          <span>{item.evidence_type}</span>
+          <strong>{item.text}</strong>
+          <p>{readiness.next}</p>
+        </div>
+        <em data-ready={readiness.state === "resume_ready"}>{readiness.label}</em>
+        <small>{item.sensitivity_level}</small>
+        <button
+          className="secondary-button"
+          disabled={isUpdating || !item.id}
+          type="button"
+          onClick={() => {
+            if (!item.id) return;
+            if (blocker.action === "edit") {
+              setIsEditing((current) => !current);
+            } else if (blocker.action === "mark_external_safe") {
+              onUpdate(item, "mark_external_safe");
+            } else {
+              onUpdate(item, "approve_for_resume");
+            }
+          }}
+        >
+          {blocker.action === "edit"
+            ? isEditing
+              ? "Close edit"
+              : "Edit"
+            : blocker.label}
+        </button>
       </div>
-      <p className="requirement__quote">{readiness.next}</p>
-      <p className="requirement__quote">Quote: {item.source_quote}</p>
-      {item.public_safe_summary ? (
-        <p className="requirement__quote">External-safe: {item.public_safe_summary}</p>
-      ) : null}
-      <div className="chip-row">
-        <span className="chip">{item.evidence_type}</span>
-        <span className="chip">{item.sensitivity_level}</span>
-        <span className="chip">{item.status}</span>
+      <div className="evidence-row__meta">
+        <span>Status: {item.status}</span>
+        <small>Reusable in: {formatReusableUsage(item)}</small>
+        <small>Source: {formatEvidenceSource(item)}</small>
+        <small>{blocker.reason}</small>
         {(item.allowed_usage ?? []).map((usage) => (
-          <span className="chip" key={usage}>
+          <small key={usage}>
             {usage}
-          </span>
+          </small>
         ))}
-        {item.needs_user_confirmation ? <span className="chip">needs confirmation</span> : null}
+        {item.needs_user_confirmation ? <small>needs confirmation</small> : null}
       </div>
-      {item.id ? (
+      {cardMessage ? (
+        <p className={cardMessage.ok ? "card-message" : "card-message card-message--error"}>
+          {cardMessage.text}
+        </p>
+      ) : null}
+      <details className="evidence-row__details" {...(isEditing ? { open: true } : {})}>
+        <summary>View evidence detail</summary>
+        <p>Source: {formatEvidenceSource(item)}</p>
+        <p>Reusable in: {formatReusableUsage(item)}</p>
+        <p>Quote: {formatSourceQuotePreview(item.source_quote)}</p>
+        {item.public_safe_summary ? <p>External-safe: {item.public_safe_summary}</p> : null}
+        {item.id ? (
         <div className="actions actions--compact">
           <button
             className="secondary-button"
@@ -1986,13 +3051,8 @@ function EvidenceCard({
             </button>
           ) : null}
         </div>
-      ) : null}
-      {cardMessage ? (
-        <p className={cardMessage.ok ? "card-message" : "card-message card-message--error"}>
-          {cardMessage.text}
-        </p>
-      ) : null}
-      {isEditing ? (
+        ) : null}
+        {isEditing ? (
         <div className="inline-editor">
           <label>
             Evidence text
@@ -2022,15 +3082,18 @@ function EvidenceCard({
               </select>
             </label>
             <label>
-              Link to project
+              Link to story target
               <select
-                value={draftProjectId}
-                onChange={(event) => setDraftProjectId(event.target.value)}
+                value={draftTarget || (draftProjectId ? `legacy_project:${draftProjectId}` : "")}
+                onChange={(event) => {
+                  setDraftTarget(event.target.value);
+                  setDraftProjectId("");
+                }}
               >
                 <option value="">Unlinked evidence</option>
-                {projects.map((project) => (
-                  <option key={project.id ?? project.title} value={project.id ?? ""}>
-                    {project.title}
+                {buildEvidenceTargetOptions(linkTargets, projects).map((target) => (
+                  <option key={target.value} value={target.value}>
+                    {target.label}
                   </option>
                 ))}
               </select>
@@ -2068,19 +3131,272 @@ function EvidenceCard({
             </button>
           </div>
         </div>
-      ) : null}
+        ) : null}
+      </details>
     </article>
   );
 }
 
+function StoryMaterialList({
+  evidenceItems,
+  initiatives,
+  onEnrichStory,
+  portfolioProjects,
+  workExperiences,
+}: {
+  evidenceItems: EvidenceCardItem[];
+  initiatives: InitiativeItem[];
+  onEnrichStory: (project: {
+    title: string;
+    context?: string | null;
+    problem?: string | null;
+    role?: string | null;
+    actions?: string[];
+    results?: string[];
+  }) => void;
+  portfolioProjects: PortfolioProjectItem[];
+  workExperiences: WorkExperienceItem[];
+}) {
+  const hasAny =
+    workExperiences.length > 0 || initiatives.length > 0 || portfolioProjects.length > 0;
+  if (!hasAny) {
+    return (
+      <section className="section-block">
+        <div className="section-block__top">
+          <div>
+            <h3>Experience & Story Library</h3>
+            <p>
+              Import a resume or source document to create work experiences,
+              internal initiatives, and portfolio projects.
+            </p>
+          </div>
+          <span>0 story targets</span>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="section-block">
+      <div className="section-block__top">
+        <div>
+          <h3>Experience & Story Library</h3>
+          <p>
+            Work experience is the employer/role container. Initiatives are
+            internal work stories. Portfolio projects are personal, academic,
+            open-source, freelance, or hackathon projects.
+          </p>
+        </div>
+        <span>
+          {workExperiences.length} roles · {initiatives.length} initiatives ·{" "}
+          {portfolioProjects.length} portfolio projects
+        </span>
+      </div>
+
+      {workExperiences.length > 0 ? (
+        <div className="story-table story-table--work result-stack--inner">
+          {workExperiences.map((experience) => {
+            const childInitiatives = initiatives.filter(
+              (initiative) => initiative.work_experience_id === experience.id,
+            );
+            const directEvidence = evidenceItems.filter(
+              (item) => item.related_work_experience_id === experience.id,
+            );
+            return (
+              <article className="story-group-row" key={experience.id}>
+                <div className="story-group-row__summary">
+                  <span>Work experience</span>
+                  <div>
+                    <strong>{experience.employer} · {experience.role_title}</strong>
+                    <p>
+                      {[experience.team, experience.location, experience.start_date, experience.end_date]
+                        .filter(Boolean)
+                        .join(" · ") || "Work experience"}
+                    </p>
+                  </div>
+                  <em>{experience.status}</em>
+                  <small>{childInitiatives.length} initiatives · {directEvidence.length} direct claims</small>
+                </div>
+                {experience.summary ? (
+                  <p className="story-group-row__note">{experience.summary}</p>
+                ) : null}
+                {childInitiatives.map((initiative) => (
+                  <StoryTargetRow
+                    evidenceItems={evidenceItems.filter(
+                      (item) => item.related_initiative_id === initiative.id,
+                    )}
+                    key={initiative.id ?? initiative.internal_title}
+                    kind="Work initiative"
+                    onEnrichStory={onEnrichStory}
+                    story={initiative}
+                    title={initiative.external_safe_title ?? initiative.internal_title}
+                  />
+                ))}
+              </article>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {portfolioProjects.length > 0 ? (
+        <div className="story-table result-stack--inner">
+          {portfolioProjects.map((project) => (
+            <StoryTargetRow
+              evidenceItems={evidenceItems.filter(
+                (item) => item.related_portfolio_project_id === project.id,
+              )}
+              key={project.id ?? project.title}
+              kind={formatPortfolioProjectType(project.project_type)}
+              onEnrichStory={onEnrichStory}
+              story={project}
+              title={project.external_safe_title ?? project.title}
+            />
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function StoryTargetRow({
+  evidenceItems,
+  kind,
+  onEnrichStory,
+  story,
+  title,
+}: {
+  evidenceItems: EvidenceCardItem[];
+  kind: string;
+  onEnrichStory: (project: {
+    title: string;
+    context?: string | null;
+    problem?: string | null;
+    role?: string | null;
+    actions?: string[];
+    results?: string[];
+  }) => void;
+  story: InitiativeItem | PortfolioProjectItem;
+  title: string;
+}) {
+  const readiness = getStoryReadiness(story);
+  const metrics = story.metrics?.map((metric) => metric.value) ?? [];
+  const primaryAction =
+    readiness.state === "story_ready"
+      ? "Generate STAR story"
+      : evidenceItems.length > 0
+        ? "Review claims"
+        : "Enrich";
+  const actionLabel = `${primaryAction} ${compactStoryTitle(title)}`;
+  const meta = [
+    story.status,
+    story.sensitivity_level,
+    story.needs_redaction_review ? "redaction review" : null,
+  ].filter((item): item is string => Boolean(item));
+  const linkedUsage = formatStoryReusableUsage(evidenceItems);
+  const linkedSource = formatStorySourceSummary(evidenceItems);
+  const linkedStatus = formatStoryEvidenceStatus(evidenceItems);
+  return (
+    <article className="story-target-row">
+      <div className="story-target-row__main">
+        <div>
+          <span>{kind}</span>
+          <strong>{title}</strong>
+          {"internal_title" in story && story.internal_title !== title ? (
+            <p>Internal: {story.internal_title}</p>
+          ) : null}
+        </div>
+        <em data-ready={readiness.state === "story_ready"}>{readiness.label}</em>
+        <small>{evidenceItems.length} claims</small>
+        <button
+          className="story-target-row__action"
+          type="button"
+          onClick={() =>
+            onEnrichStory({
+              title,
+              context: story.context,
+              problem: story.problem,
+              role: story.role,
+              actions: story.actions,
+              results: story.results,
+            })
+          }
+        >
+          {actionLabel}
+        </button>
+      </div>
+      <div className="story-target-row__meta">
+        <span>{readiness.next}</span>
+        <small>Status: {linkedStatus}</small>
+        <small>Reusable in: {linkedUsage}</small>
+        <small>Source: {linkedSource}</small>
+        {meta.map((item) => (
+          <small key={item}>{item}</small>
+        ))}
+      </div>
+      <details className="story-target-row__details">
+        <summary>View story detail</summary>
+        {story.context ? <p>Context: {story.context}</p> : null}
+        {story.problem ? <p>Problem: {story.problem}</p> : null}
+        {story.role ? <p>Role: {story.role}</p> : null}
+        {story.external_safe_summary ? <p>External-safe: {story.external_safe_summary}</p> : null}
+        <div className="story-target-row__detail-grid">
+          <SectionList title="Actions" items={story.actions} />
+          <SectionList title="Results" items={story.results} />
+          <SectionList title="Metrics" items={metrics} />
+        </div>
+      </details>
+    </article>
+  );
+}
+
+function formatStoryReusableUsage(evidenceItems: EvidenceCardItem[]) {
+  const usage = Array.from(
+    new Set(evidenceItems.flatMap((item) => item.allowed_usage ?? [])),
+  );
+  if (usage.length === 0) return "not approved yet";
+  return usage
+    .map((item) => item.replace(/_/g, " "))
+    .map((item) => item.charAt(0).toUpperCase() + item.slice(1))
+    .join(", ");
+}
+
+function formatStorySourceSummary(evidenceItems: EvidenceCardItem[]) {
+  if (evidenceItems.length === 0) return "no linked evidence yet";
+  const sourcedCount = evidenceItems.filter((item) => item.source_document_id).length;
+  return sourcedCount > 0
+    ? `${sourcedCount} linked source document${sourcedCount === 1 ? "" : "s"}`
+    : "extracted source";
+}
+
+function formatStoryEvidenceStatus(evidenceItems: EvidenceCardItem[]) {
+  if (evidenceItems.length === 0) return "needs source";
+  if (evidenceItems.some((item) => getEvidenceReadiness(item).state === "resume_ready")) {
+    return "has resume-safe evidence";
+  }
+  if (evidenceItems.some((item) => item.status === "approved")) return "has approved evidence";
+  return "needs review";
+}
+
+function formatPortfolioProjectType(type: string) {
+  return type.replace(/_/g, " ");
+}
+
+function compactStoryTitle(title: string) {
+  const trimmed = title.trim();
+  if (trimmed.length <= 28) return trimmed;
+  return `${trimmed.slice(0, 25)}...`;
+}
+
 function ProjectList({
   evidenceItems,
+  linkTargets,
   onEnrichProject,
   onEvidenceUpdate,
   onUpdate,
   projects,
 }: {
   evidenceItems: EvidenceCardItem[];
+  linkTargets?: EvidenceLinkTargets;
   onEnrichProject: (project: ProjectCardItem) => void;
   onEvidenceUpdate: (
     item: EvidenceCardItem,
@@ -2262,6 +3578,7 @@ function ProjectList({
                       isUpdating={item.id ? pendingEvidenceId === item.id : false}
                       item={item}
                       key={item.id ?? `${project.title}-${index}`}
+                      linkTargets={linkTargets}
                       onUpdate={handleEvidenceUpdate}
                       projects={projects}
                       variant="nested"
@@ -2299,4 +3616,8 @@ function SectionList({ title, items }: { title: string; items: string[] }) {
       </ul>
     </div>
   );
+}
+
+function formatResumeTitle(title: string) {
+  return title.replace(/(\.[A-Za-z0-9]+)(?:\1)+$/i, "$1");
 }

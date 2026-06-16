@@ -3,10 +3,12 @@ import { z } from "zod";
 
 import {
   getProjectDedupeCandidates,
+  keepProjectOverlapSeparate,
   mergeProjectCards,
 } from "../../../../src/server/profile-evidence-repository";
 
-const mergeSchema = z.object({
+const decisionSchema = z.object({
+  action: z.enum(["merge", "keep_separate"]).default("merge"),
   primaryProjectId: z.string().uuid(),
   duplicateProjectId: z.string().uuid().optional(),
   duplicateProjectIds: z.array(z.string().uuid()).optional(),
@@ -18,15 +20,18 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const parsed = mergeSchema.safeParse(await request.json().catch(() => null));
+  const parsed = decisionSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Invalid project merge request.", kind: "invalid_request" },
+      { error: "Invalid project overlap request.", kind: "invalid_request" },
       { status: 400 },
     );
   }
 
-  const result = await mergeProjectCards(parsed.data);
+  const result =
+    parsed.data.action === "keep_separate"
+      ? await keepProjectOverlapSeparate(parsed.data)
+      : await mergeProjectCards(parsed.data);
   if (result.status === "not_found") {
     return NextResponse.json(
       { error: "Project card not found.", kind: "not_found" },
@@ -35,7 +40,7 @@ export async function POST(request: Request) {
   }
   if (result.status === "invalid") {
     return NextResponse.json(
-      { error: result.reason, kind: "invalid_merge" },
+      { error: result.reason, kind: "invalid_overlap_decision" },
       { status: 409 },
     );
   }

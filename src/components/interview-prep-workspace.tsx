@@ -15,6 +15,20 @@ type RecentJob = {
   requirementCount: number;
 };
 
+type LibrarySummary = {
+  evidenceItems: Array<{
+    id: string;
+    status: string;
+  }>;
+};
+
+type StarStorySummary = {
+  stories: Array<{
+    id: string;
+    readiness: string;
+  }>;
+};
+
 type GenerateResponse =
   | { data: { status: "saved"; pack: InterviewPrepPack } }
   | { data: { status: "skipped"; reason: string } }
@@ -26,6 +40,9 @@ export function InterviewPrepWorkspace() {
   const [selectedJobId, setSelectedJobId] = useState("");
   const [latestPack, setLatestPack] = useState<InterviewPrepPack | null>(null);
   const [recentPacks, setRecentPacks] = useState<InterviewPrepPack[]>([]);
+  const [approvedEvidenceCount, setApprovedEvidenceCount] = useState(0);
+  const [starStoryCount, setStarStoryCount] = useState(0);
+  const [tailoredResumeCount, setTailoredResumeCount] = useState(0);
   const [status, setStatus] = useState(
     "Select a role workspace to create an interview prep pack.",
   );
@@ -35,6 +52,7 @@ export function InterviewPrepWorkspace() {
   useEffect(() => {
     void loadJobs();
     void loadRecentPacks();
+    void loadPrepReadiness();
   }, []);
 
   async function loadJobs() {
@@ -59,6 +77,29 @@ export function InterviewPrepWorkspace() {
     const packs = payload.data ?? [];
     setRecentPacks(packs);
     setLatestPack((current) => current ?? packs[0] ?? null);
+  }
+
+  async function loadPrepReadiness() {
+    const [libraryResponse, starResponse, resumesResponse] = await Promise.all([
+      fetchJson("/api/profile-evidence/recent"),
+      fetchJson("/api/profile-evidence/star-stories"),
+      fetchJson("/api/resumes/recent"),
+    ]);
+
+    if (libraryResponse.ok) {
+      const payload = (await libraryResponse.json()) as { data?: LibrarySummary | null };
+      setApprovedEvidenceCount(
+        payload.data?.evidenceItems.filter((item) => item.status === "approved").length ?? 0,
+      );
+    }
+    if (starResponse.ok) {
+      const payload = (await starResponse.json()) as { data?: StarStorySummary };
+      setStarStoryCount(payload.data?.stories.length ?? 0);
+    }
+    if (resumesResponse.ok) {
+      const payload = (await resumesResponse.json()) as { data?: unknown[] };
+      setTailoredResumeCount(payload.data?.length ?? 0);
+    }
   }
 
   function generatePrep() {
@@ -92,15 +133,54 @@ export function InterviewPrepWorkspace() {
   }
 
   const selectedJob = jobs.find((job) => job.id === selectedJobId);
+  const disabledReason = !selectedJobId
+    ? "Analyze a JD in Jobs before creating an interview prep pack."
+    : null;
+  const prerequisites = [
+    {
+      label: "Analyzed JD required",
+      detail: selectedJob
+        ? `${selectedJob.requirementCount} requirements available`
+        : "Create or select a JD Analysis workspace first.",
+      ready: Boolean(selectedJob),
+    },
+    {
+      label: "Approved evidence recommended",
+      detail:
+        approvedEvidenceCount > 0
+          ? `${approvedEvidenceCount} approved evidence items available`
+          : "Improves answer grounding and weak-area detection.",
+      ready: approvedEvidenceCount > 0,
+      optional: true,
+    },
+    {
+      label: "STAR stories recommended",
+      detail:
+        starStoryCount > 0
+          ? `${starStoryCount} STAR-ready story candidates available`
+          : "Used for behavioral question story matching.",
+      ready: starStoryCount > 0,
+      optional: true,
+    },
+    {
+      label: "Tailored resume optional",
+      detail:
+        tailoredResumeCount > 0
+          ? `${tailoredResumeCount} tailored resume versions available`
+          : "Useful for checking likely resume follow-up questions.",
+      ready: tailoredResumeCount > 0,
+      optional: true,
+    },
+  ];
 
   return (
     <section className="workspace__grid workspace__grid--interview">
       <div className="panel panel--control">
         <div className="panel__header">
           <div>
-            <h2 className="panel__title">Interview prep control</h2>
+            <h2 className="panel__title">Interview Prep Setup</h2>
             <p className="panel__note">
-              Build a focused plan from the selected JD plus STAR stories in the material library.
+              Build from one analyzed JD. Evidence and STAR stories make the plan stronger.
             </p>
           </div>
         </div>
@@ -119,22 +199,17 @@ export function InterviewPrepWorkspace() {
             ))}
           </select>
         </label>
-        {selectedJob ? (
-          <div className="readiness-panel">
-            <div className="readiness-item" data-ready="true">
-              <span className="readiness-item__state">job</span>
+        <div className="prep-prereq-list" aria-label="Interview prep prerequisites">
+          {prerequisites.map((item) => (
+            <div className="prep-prereq" data-ready={item.ready} key={item.label}>
+              <span>{item.ready ? "Ready" : item.optional ? "Recommended" : "Required"}</span>
               <div>
-                <p className="readiness-item__label">{selectedJob.title}</p>
-                <p className="readiness-item__detail">
-                  {selectedJob.requirementCount} requirements
-                  {selectedJob.analyzedAt
-                    ? ` · ${new Date(selectedJob.analyzedAt).toLocaleDateString()}`
-                    : ""}
-                </p>
+                <strong>{item.label}</strong>
+                <p>{item.detail}</p>
               </div>
             </div>
-          </div>
-        ) : null}
+          ))}
+        </div>
         <div className="actions">
           <button
             className="primary-button"
@@ -145,7 +220,7 @@ export function InterviewPrepWorkspace() {
             {isPending ? "Building prep..." : "Create prep pack"}
           </button>
           <span className={error ? "status status--error" : "status"}>
-            {error ?? status}
+            {error ?? disabledReason ?? status}
           </span>
         </div>
         {recentPacks.length > 0 ? (
@@ -172,19 +247,27 @@ export function InterviewPrepWorkspace() {
       <div className="panel panel--output">
         <div className="panel__header">
           <div>
-            <h2 className="panel__title">Prep pack</h2>
+            <h2 className="panel__title">Prep Pack Output</h2>
             <p className="panel__note">
-              Practice questions are grounded in your selected role and approved material.
+              Themes, questions, story recommendations, and weak areas for the selected role.
             </p>
           </div>
         </div>
-        {latestPack ? <PrepPackView pack={latestPack} /> : <EmptyPrepState />}
+        {latestPack ? <PrepPackView pack={latestPack} /> : <EmptyPrepState hasJobs={jobs.length > 0} />}
       </div>
     </section>
   );
 }
 
 function PrepPackView({ pack }: { pack: InterviewPrepPack }) {
+  const likelyThemes = buildLikelyThemes(pack);
+  const storyRecommendations = pack.behavioral_questions
+    .filter((question) => question.recommended_story_title)
+    .slice(0, 4);
+  const jdChecklist = [
+    ...pack.technical_review_topics.slice(0, 3).map((topic) => topic.practice_prompt),
+    ...pack.company_research_prompts.slice(0, 3),
+  ];
   return (
     <div className="result-stack">
       <section className="job-facts">
@@ -193,6 +276,29 @@ function PrepPackView({ pack }: { pack: InterviewPrepPack }) {
           <span className="chip">{pack.job_snapshot.role_archetype}</span>
           <span className="chip">{pack.status}</span>
           <span className="chip">{pack.retrieved_context.length} supporting notes</span>
+        </div>
+      </section>
+      <section className="section-block prep-summary-grid">
+        <div>
+          <h3>Likely interview themes</h3>
+          <ul>
+            {likelyThemes.map((theme) => (
+              <li key={theme}>{theme}</li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <h3>Weak areas to review</h3>
+          <ul>
+            {(pack.evidence_gaps.length > 0
+              ? pack.evidence_gaps
+              : ["Add more approved evidence and STAR-ready material."]
+            )
+              .slice(0, 5)
+              .map((gap) => (
+                <li key={gap}>{gap}</li>
+              ))}
+          </ul>
         </div>
       </section>
       <section className="section-block">
@@ -216,25 +322,43 @@ function PrepPackView({ pack }: { pack: InterviewPrepPack }) {
           ))}
         </div>
       </section>
+      {storyRecommendations.length > 0 ? (
+        <section className="section-block">
+          <h3>STAR story recommendations</h3>
+          <div className="result-stack result-stack--inner">
+            {storyRecommendations.map((question) => (
+              <article className="requirement" key={`${question.question}-${question.recommended_story_title}`}>
+                <div className="requirement__top">
+                  <p className="requirement__text">{question.recommended_story_title}</p>
+                  <span className="requirement__type">{question.focus}</span>
+                </div>
+                <p className="requirement__quote">{question.question}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
       <section className="section-block">
-        <h3>Technical review</h3>
+        <h3>Company / JD-specific prep checklist</h3>
         <div className="result-stack result-stack--inner">
-          {pack.technical_review_topics.slice(0, 5).map((topic) => (
-            <article className="requirement" key={topic.topic}>
-              <div className="requirement__top">
-                <p className="requirement__text">{topic.topic}</p>
-                <span className="requirement__type">review</span>
-              </div>
-              <p className="requirement__quote">{topic.practice_prompt}</p>
+          {jdChecklist.slice(0, 6).map((item) => (
+            <article className="requirement" key={item}>
+              <p className="requirement__text">{item}</p>
             </article>
           ))}
         </div>
       </section>
       <SectionList title="Practice plan" items={pack.practice_plan} />
-      <SectionList title="Company research prompts" items={pack.company_research_prompts} />
-      <SectionList title="Evidence gaps" items={pack.evidence_gaps.slice(0, 6)} />
     </div>
   );
+}
+
+function buildLikelyThemes(pack: InterviewPrepPack) {
+  const themes = [
+    ...pack.behavioral_questions.map((question) => question.focus),
+    ...pack.technical_review_topics.map((topic) => topic.topic),
+  ];
+  return Array.from(new Set(themes.filter(Boolean))).slice(0, 6);
 }
 
 async function formatLoadError(response: Response, fallback: string) {
@@ -247,10 +371,15 @@ async function formatLoadError(response: Response, fallback: string) {
   return payload?.error ?? fallback;
 }
 
-function EmptyPrepState() {
+function EmptyPrepState({ hasJobs }: { hasJobs: boolean }) {
   return (
-    <div className="empty-state empty-state--compact">
-      Create a prep pack after selecting a role workspace and preparing STAR-ready material.
+    <div className="empty-state empty-state--compact prep-empty-state">
+      <strong>{hasJobs ? "Select a role and create a prep pack." : "No analyzed JD yet."}</strong>
+      <p>
+        {hasJobs
+          ? "The output will show likely themes, behavioral questions, STAR story matches, a JD-specific checklist, and weak areas."
+          : "Go to Jobs, analyze a JD, then return here to generate interview prep."}
+      </p>
     </div>
   );
 }

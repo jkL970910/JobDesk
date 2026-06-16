@@ -9,6 +9,8 @@ import {
   getRecentEvidenceLibrary,
   getResumeTailoringContext,
   getStarStoryBank,
+  keepEvidenceOverlapSeparate,
+  keepProjectOverlapSeparate,
   mergeEvidenceItems,
   mergeProjectCards,
   persistProfileEvidenceExtraction,
@@ -263,19 +265,69 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(candidate).toBeDefined();
     if (!candidate) throw new Error("Expected duplicate candidate.");
 
-    const merge = await mergeEvidenceItems({
+    const keepSeparate = await keepEvidenceOverlapSeparate({
       primaryEvidenceId: candidate.primary.id,
       duplicateEvidenceId: candidate.duplicate.id,
     });
+    expect(keepSeparate).toMatchObject({ status: "saved", entityType: "evidence" });
+    const afterKeepSeparate = await getEvidenceDedupeCandidates(20);
+    expect(afterKeepSeparate.status).toBe("ready");
+    if (afterKeepSeparate.status !== "ready") {
+      throw new Error("Expected dedupe candidates after keep-separate.");
+    }
+    expect(
+      afterKeepSeparate.candidates.some(
+        (item) =>
+          item.primary.id === candidate.primary.id &&
+          item.duplicate.id === candidate.duplicate.id,
+      ),
+    ).toBe(false);
+
+    const mergeDuplicateA = await persistProfileEvidenceExtraction({
+      sourceText: duplicateSourceText,
+      extraction: buildDuplicateExtraction("Built onboarding funnel reporting with SQL."),
+      provider: "integration-test",
+      model: "test-model",
+      usage: {},
+      retryCount: 0,
+    });
+    const mergeDuplicateB = await persistProfileEvidenceExtraction({
+      sourceText: duplicateSourceText,
+      extraction: buildDuplicateExtraction("Built SQL reporting for onboarding funnel analysis."),
+      provider: "integration-test",
+      model: "test-model",
+      usage: {},
+      retryCount: 0,
+    });
+    if (mergeDuplicateA.status !== "saved" || mergeDuplicateB.status !== "saved") {
+      throw new Error("Expected duplicate evidence merge setup to save.");
+    }
+    const mergeDedupe = await getEvidenceDedupeCandidates(20);
+    expect(mergeDedupe.status).toBe("ready");
+    if (mergeDedupe.status !== "ready") throw new Error("Expected merge dedupe candidates.");
+    const mergeCandidate = mergeDedupe.candidates.find(
+      (item) =>
+        item.primary.text.includes("onboarding funnel") &&
+        item.duplicate.text.includes("onboarding funnel") &&
+        item.primary.id !== candidate.primary.id &&
+        item.duplicate.id !== candidate.duplicate.id,
+    );
+    expect(mergeCandidate).toBeDefined();
+    if (!mergeCandidate) throw new Error("Expected duplicate merge candidate.");
+
+    const merge = await mergeEvidenceItems({
+      primaryEvidenceId: mergeCandidate.primary.id,
+      duplicateEvidenceId: mergeCandidate.duplicate.id,
+    });
     expect(merge).toMatchObject({
       status: "merged",
-      primaryEvidenceId: candidate.primary.id,
-      duplicateEvidenceId: candidate.duplicate.id,
+      primaryEvidenceId: mergeCandidate.primary.id,
+      duplicateEvidenceId: mergeCandidate.duplicate.id,
     });
 
     const afterMerge = await getRecentEvidenceLibrary(50);
     const duplicateAfterMerge = afterMerge.evidenceItems.find(
-      (item) => item.id === candidate.duplicate.id,
+      (item) => item.id === mergeCandidate.duplicate.id,
     );
     expect(duplicateAfterMerge).toMatchObject({ status: "rejected" });
 
@@ -322,27 +374,93 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(projectCandidate).toBeDefined();
     if (!projectCandidate) throw new Error("Expected duplicate project candidate.");
 
-    const projectMerge = await mergeProjectCards({
+    const projectKeepSeparate = await keepProjectOverlapSeparate({
       primaryProjectId: projectCandidate.primary.id,
       duplicateProjectIds: projectCandidate.duplicateProjectIds,
     });
+    expect(projectKeepSeparate).toMatchObject({
+      status: "saved",
+      entityType: "project",
+      ignoredPairCount: projectCandidate.duplicateProjectIds.length,
+    });
+    const projectDedupeAfterKeepSeparate = await getProjectDedupeCandidates(200);
+    expect(projectDedupeAfterKeepSeparate.status).toBe("ready");
+    if (projectDedupeAfterKeepSeparate.status !== "ready") {
+      throw new Error("Expected project dedupe after keep-separate.");
+    }
+    expect(
+      projectDedupeAfterKeepSeparate.candidates.some(
+        (item) =>
+          item.primary.id === projectCandidate.primary.id &&
+          item.duplicateProjectIds.some((id) =>
+            projectCandidate.duplicateProjectIds.includes(id),
+          ),
+      ),
+    ).toBe(false);
+
+    const mergeProjectA = await persistProfileEvidenceExtraction({
+      sourceText: projectDuplicateSourceText,
+      extraction: buildProjectDuplicateExtraction({
+        action: "Mapped activation funnel cohorts.",
+        evidence: "Mapped activation funnel cohorts with SQL.",
+        result: "Found onboarding drop-off for paid acquisition.",
+        title: "Activation dashboard merge test",
+      }),
+      provider: "integration-test",
+      model: "test-model",
+      usage: {},
+      retryCount: 0,
+    });
+    const mergeProjectB = await persistProfileEvidenceExtraction({
+      sourceText: projectDuplicateSourceText,
+      extraction: buildProjectDuplicateExtraction({
+        action: "Mapped activation funnel cohort dashboard slices.",
+        evidence: "Mapped activation funnel cohort dashboard slices.",
+        result: "Prioritized paid acquisition onboarding experiments.",
+        title: "Activation dashboard merge test",
+      }),
+      provider: "integration-test",
+      model: "test-model",
+      usage: {},
+      retryCount: 0,
+    });
+    if (mergeProjectA.status !== "saved" || mergeProjectB.status !== "saved") {
+      throw new Error("Expected duplicate project merge setup to save.");
+    }
+    const projectMergeDedupe = await getProjectDedupeCandidates(200);
+    expect(projectMergeDedupe.status).toBe("ready");
+    if (projectMergeDedupe.status !== "ready") {
+      throw new Error("Expected project merge dedupe candidates.");
+    }
+    const projectMergeCandidate = projectMergeDedupe.candidates.find(
+      (item) =>
+        item.primary.title.includes("Activation dashboard merge test") &&
+        item.duplicate.title.includes("Activation dashboard merge test"),
+    );
+    expect(projectMergeCandidate).toBeDefined();
+    if (!projectMergeCandidate) throw new Error("Expected duplicate project merge candidate.");
+
+    const projectMerge = await mergeProjectCards({
+      primaryProjectId: projectMergeCandidate.primary.id,
+      duplicateProjectIds: projectMergeCandidate.duplicateProjectIds,
+    });
     expect(projectMerge).toMatchObject({
       status: "merged",
-      primaryProjectId: projectCandidate.primary.id,
-      duplicateProjectId: projectCandidate.duplicate.id,
-      duplicateProjectCount: projectCandidate.duplicateCount,
-      movedEvidenceCount: projectCandidate.duplicateEvidenceCount,
+      primaryProjectId: projectMergeCandidate.primary.id,
+      duplicateProjectId: projectMergeCandidate.duplicate.id,
+      duplicateProjectCount: projectMergeCandidate.duplicateCount,
+      movedEvidenceCount: projectMergeCandidate.duplicateEvidenceCount,
     });
 
     const afterProjectMerge = await getRecentEvidenceLibrary(80);
     expect(
-      afterProjectMerge.projectCards.some((project) => project.id === projectCandidate.duplicate.id),
+      afterProjectMerge.projectCards.some((project) => project.id === projectMergeCandidate.duplicate.id),
     ).toBe(false);
     expect(
       afterProjectMerge.evidenceItems.some(
         (item) =>
-          item.related_project_id === projectCandidate.primary.id &&
-          item.text.includes("dashboard slices"),
+          item.related_project_id === projectMergeCandidate.primary.id &&
+          item.text.includes("cohort dashboard slices"),
       ),
     ).toBe(true);
   });
@@ -416,6 +534,9 @@ function buildExtraction(): ProfileEvidenceExtraction {
       low_confidence_fields: [],
       invented_field_flags: [],
     },
+    work_experiences: [],
+    initiatives: [],
+    portfolio_projects: [],
     evidence_items: [
       {
         text: "Built SQL dashboards for onboarding funnel analysis.",
@@ -527,6 +648,9 @@ function buildDuplicateExtraction(text: string): ProfileEvidenceExtraction {
       low_confidence_fields: [],
       invented_field_flags: [],
     },
+    work_experiences: [],
+    initiatives: [],
+    portfolio_projects: [],
     evidence_items: [
       {
         text,
@@ -567,6 +691,9 @@ function buildProjectDuplicateExtraction(args: {
       low_confidence_fields: [],
       invented_field_flags: [],
     },
+    work_experiences: [],
+    initiatives: [],
+    portfolio_projects: [],
     evidence_items: [
       {
         text: args.evidence,

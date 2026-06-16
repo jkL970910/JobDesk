@@ -91,7 +91,10 @@ function story(): StarStoryCard {
   return {
     id: "star-project-1",
     project_id: "project-1",
+    story_target_id: "project-1",
+    story_target_type: "initiative",
     title: "Onboarding analytics",
+    internal_title: "Internal onboarding analytics",
     status: "approved",
     readiness: "ready",
     situation: "Product teams could not see onboarding drop-off.",

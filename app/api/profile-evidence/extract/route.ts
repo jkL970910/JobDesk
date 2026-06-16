@@ -8,10 +8,12 @@ import {
   persistProfileEvidenceExtraction,
   persistProfileEvidenceFailure,
 } from "../../../../src/server/profile-evidence-repository";
+import { markResumeSourceExtracted } from "../../../../src/server/resume-review-repository";
 
 const requestSchema = z.object({
   sourceText: z.string().trim().min(80).max(50_000),
   sourceTitle: z.string().trim().min(1).max(240).optional(),
+  resumeSourceVersionId: z.string().uuid().optional(),
 });
 
 export async function POST(request: Request) {
@@ -39,6 +41,9 @@ export async function POST(request: Request) {
       usage: result.usage,
       retryCount: result.retryCount,
     });
+    if (persistence.status === "saved" && parsed.data.resumeSourceVersionId) {
+      await markResumeSourceExtracted(parsed.data.resumeSourceVersionId);
+    }
     return NextResponse.json({
       data: result.data,
       meta: {

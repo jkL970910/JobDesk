@@ -10,6 +10,7 @@ import {
   AllowedUsage,
   ApprovalStatus,
   GroundedMetric,
+  PortfolioProjectType,
 } from "./shared";
 
 export const EvidenceItem = z.object({
@@ -26,6 +27,9 @@ export const EvidenceItem = z.object({
   public_safe_summary: z.string().nullable().default(null),
   status: ApprovalStatus.default("pending"),
   related_project_id: z.string().nullable().default(null),
+  related_work_experience_id: z.string().nullable().optional().default(null),
+  related_initiative_id: z.string().nullable().optional().default(null),
+  related_portfolio_project_id: z.string().nullable().optional().default(null),
   // True when the item is inferred and must not auto-promote to confirmed.
   needs_user_confirmation: z.boolean().default(false),
 });
@@ -48,6 +52,62 @@ export const ProjectCard = z.object({
   status: ApprovalStatus.default("pending"),
 });
 export type ProjectCard = z.infer<typeof ProjectCard>;
+
+export const WorkExperience = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  employer: z.string(),
+  role_title: z.string(),
+  team: z.string().nullable().default(null),
+  location: z.string().nullable().default(null),
+  start_date: z.string().nullable().default(null),
+  end_date: z.string().nullable().default(null),
+  summary: z.string().nullable().default(null),
+  status: ApprovalStatus.default("pending"),
+});
+export type WorkExperience = z.infer<typeof WorkExperience>;
+
+export const Initiative = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  work_experience_id: z.string().nullable().default(null),
+  internal_title: z.string(),
+  external_safe_title: z.string().nullable().default(null),
+  context: z.string().nullable().default(null),
+  problem: z.string().nullable().default(null),
+  role: z.string().nullable().default(null),
+  actions: z.array(z.string()).default([]),
+  results: z.array(z.string()).default([]),
+  metrics: z.array(GroundedMetric).default([]),
+  technologies: z.array(z.string()).default([]),
+  stakeholders: z.array(z.string()).default([]),
+  external_safe_summary: z.string().nullable().default(null),
+  sensitivity_level: SensitivityLevel.default("private"),
+  needs_redaction_review: z.boolean().default(true),
+  status: ApprovalStatus.default("pending"),
+});
+export type Initiative = z.infer<typeof Initiative>;
+
+export const PortfolioProject = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  project_type: PortfolioProjectType.default("general_project"),
+  title: z.string(),
+  external_safe_title: z.string().nullable().default(null),
+  context: z.string().nullable().default(null),
+  problem: z.string().nullable().default(null),
+  role: z.string().nullable().default(null),
+  actions: z.array(z.string()).default([]),
+  results: z.array(z.string()).default([]),
+  metrics: z.array(GroundedMetric).default([]),
+  technologies: z.array(z.string()).default([]),
+  stakeholders: z.array(z.string()).default([]),
+  external_safe_summary: z.string().nullable().default(null),
+  sensitivity_level: SensitivityLevel.default("private"),
+  needs_redaction_review: z.boolean().default(false),
+  status: ApprovalStatus.default("pending"),
+});
+export type PortfolioProject = z.infer<typeof PortfolioProject>;
 
 /** STAR-C story candidate (skills/star-story-extraction). */
 export const StarStory = z.object({

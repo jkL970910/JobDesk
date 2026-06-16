@@ -1,5 +1,8 @@
-export type StarStoryProjectInput = {
+export type StarStoryTargetType = "initiative" | "portfolio_project" | "legacy_project";
+
+export type StarStoryTargetInput = {
   id: string;
+  type?: StarStoryTargetType;
   title: string;
   context: string | null;
   problem: string | null;
@@ -10,10 +13,13 @@ export type StarStoryProjectInput = {
   technologies: string[];
   stakeholders: string[];
   publicSafeSummary: string | null;
+  internalTitle?: string | null;
   sensitivityLevel: string;
   status: string;
   updatedAt?: Date | string | null;
 };
+
+export type StarStoryProjectInput = StarStoryTargetInput;
 
 export type StarStoryEvidenceInput = {
   id: string;
@@ -25,6 +31,9 @@ export type StarStoryEvidenceInput = {
   publicSafeSummary: string | null;
   status: string;
   relatedProjectId: string | null;
+  relatedInitiativeId?: string | null;
+  relatedPortfolioProjectId?: string | null;
+  relatedWorkExperienceId?: string | null;
 };
 
 export type StarStoryReadiness = "ready" | "needs_review" | "thin";
@@ -32,7 +41,10 @@ export type StarStoryReadiness = "ready" | "needs_review" | "thin";
 export type StarStoryCard = {
   id: string;
   project_id: string;
+  story_target_id: string;
+  story_target_type: StarStoryTargetType;
   title: string;
+  internal_title: string | null;
   status: string;
   readiness: StarStoryReadiness;
   situation: string | null;
@@ -51,21 +63,24 @@ export type StarStoryCard = {
 };
 
 export function buildStarStoryCards(args: {
-  projects: StarStoryProjectInput[];
+  projects?: StarStoryProjectInput[];
+  storyTargets?: StarStoryTargetInput[];
   evidenceItems?: StarStoryEvidenceInput[];
   limit?: number;
 }) {
-  const evidenceByProject = new Map<string, StarStoryEvidenceInput[]>();
+  const storyTargets = args.storyTargets ?? args.projects ?? [];
+  const evidenceByStoryTarget = new Map<string, StarStoryEvidenceInput[]>();
   for (const item of args.evidenceItems ?? []) {
-    if (!item.relatedProjectId) continue;
-    const existing = evidenceByProject.get(item.relatedProjectId) ?? [];
+    const storyTargetId = getEvidenceStoryTargetId(item);
+    if (!storyTargetId) continue;
+    const existing = evidenceByStoryTarget.get(storyTargetId) ?? [];
     existing.push(item);
-    evidenceByProject.set(item.relatedProjectId, existing);
+    evidenceByStoryTarget.set(storyTargetId, existing);
   }
 
-  return args.projects
-    .map((project) =>
-      buildStarStoryCard(project, evidenceByProject.get(project.id) ?? []),
+  return storyTargets
+    .map((storyTarget) =>
+      buildStarStoryCard(storyTarget, evidenceByStoryTarget.get(storyTarget.id) ?? []),
     )
     .sort((left, right) => {
       const readinessDelta =
@@ -77,7 +92,7 @@ export function buildStarStoryCards(args: {
 }
 
 export function buildStarStoryCard(
-  project: StarStoryProjectInput,
+  project: StarStoryTargetInput,
   evidenceItems: StarStoryEvidenceInput[] = [],
 ): StarStoryCard {
   const evidenceActions = evidenceItems
@@ -101,7 +116,10 @@ export function buildStarStoryCard(
   return {
     id: `star-${project.id}`,
     project_id: project.id,
+    story_target_id: project.id,
+    story_target_type: project.type ?? "legacy_project",
     title: project.title,
+    internal_title: project.internalTitle ?? null,
     status: project.status,
     readiness,
     situation,
@@ -146,7 +164,7 @@ function toReadiness(gaps: string[]): StarStoryReadiness {
 }
 
 function buildInterviewAngles(
-  project: StarStoryProjectInput,
+  project: StarStoryTargetInput,
   action: string[],
   result: string[],
   metrics: string[],
@@ -177,6 +195,15 @@ function buildInterviewAngles(
     angles.push("delivery ownership");
   }
   return uniqueStrings(angles).slice(0, 4);
+}
+
+function getEvidenceStoryTargetId(item: StarStoryEvidenceInput) {
+  return (
+    item.relatedInitiativeId ??
+    item.relatedPortfolioProjectId ??
+    item.relatedProjectId ??
+    null
+  );
 }
 
 function metricToStrings(metric: Record<string, unknown>) {

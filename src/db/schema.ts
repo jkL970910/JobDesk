@@ -5,11 +5,14 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  uniqueIndex,
+  check,
   text,
   timestamp,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const workflowStatusEnum = pgEnum("workflow_status", [
   "running",
@@ -77,6 +80,33 @@ export const interviewPrepStatusEnum = pgEnum("interview_prep_status", [
   "draft",
   "ready",
   "stale",
+]);
+export const overlapEntityTypeEnum = pgEnum("overlap_entity_type", [
+  "evidence",
+  "project",
+  "initiative",
+  "portfolio_project",
+]);
+export const overlapDecisionEnum = pgEnum("overlap_decision", [
+  "keep_separate",
+]);
+export const resumeSourceStatusEnum = pgEnum("resume_source_status", [
+  "uploaded",
+  "reviewed",
+  "extracted",
+  "archived",
+]);
+export const resumeReviewStatusEnum = pgEnum("resume_review_status", [
+  "ready",
+  "stale",
+]);
+export const portfolioProjectTypeEnum = pgEnum("portfolio_project_type", [
+  "personal_project",
+  "academic_project",
+  "open_source",
+  "freelance",
+  "hackathon",
+  "general_project",
 ]);
 
 export const workspaces = pgTable(
@@ -235,6 +265,135 @@ export const profiles = pgTable(
   }),
 );
 
+export const workExperiences = pgTable(
+  "work_experiences",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sourceDocumentId: uuid("source_document_id").references(
+      () => sourceDocuments.id,
+      { onDelete: "set null" },
+    ),
+    employer: varchar("employer", { length: 240 }).notNull(),
+    roleTitle: varchar("role_title", { length: 240 }).notNull(),
+    team: varchar("team", { length: 240 }),
+    location: varchar("location", { length: 240 }),
+    startDate: varchar("start_date", { length: 80 }),
+    endDate: varchar("end_date", { length: 80 }),
+    summary: text("summary"),
+    status: approvalStatusEnum("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workspaceUpdatedIdx: index("work_experiences_workspace_updated_idx").on(
+      table.workspaceId,
+      table.updatedAt,
+    ),
+  }),
+);
+
+export const initiatives = pgTable(
+  "initiatives",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    workExperienceId: uuid("work_experience_id").references(
+      () => workExperiences.id,
+      { onDelete: "cascade" },
+    ),
+    sourceDocumentId: uuid("source_document_id").references(
+      () => sourceDocuments.id,
+      { onDelete: "set null" },
+    ),
+    internalTitle: varchar("internal_title", { length: 240 }).notNull(),
+    externalSafeTitle: varchar("external_safe_title", { length: 240 }),
+    context: text("context"),
+    problem: text("problem"),
+    role: text("role"),
+    actions: jsonb("actions").$type<string[]>().notNull().default([]),
+    results: jsonb("results").$type<string[]>().notNull().default([]),
+    metrics: jsonb("metrics").$type<Array<Record<string, unknown>>>().notNull().default([]),
+    technologies: jsonb("technologies").$type<string[]>().notNull().default([]),
+    stakeholders: jsonb("stakeholders").$type<string[]>().notNull().default([]),
+    externalSafeSummary: text("external_safe_summary"),
+    sensitivityLevel: sensitivityLevelEnum("sensitivity_level")
+      .notNull()
+      .default("private"),
+    needsRedactionReview: integer("needs_redaction_review").notNull().default(1),
+    status: approvalStatusEnum("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workspaceUpdatedIdx: index("initiatives_workspace_updated_idx").on(
+      table.workspaceId,
+      table.updatedAt,
+    ),
+    workExperienceUpdatedIdx: index("initiatives_work_experience_updated_idx").on(
+      table.workExperienceId,
+      table.updatedAt,
+    ),
+  }),
+);
+
+export const portfolioProjects = pgTable(
+  "portfolio_projects",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sourceDocumentId: uuid("source_document_id").references(
+      () => sourceDocuments.id,
+      { onDelete: "set null" },
+    ),
+    projectType: portfolioProjectTypeEnum("project_type")
+      .notNull()
+      .default("general_project"),
+    title: varchar("title", { length: 240 }).notNull(),
+    externalSafeTitle: varchar("external_safe_title", { length: 240 }),
+    context: text("context"),
+    problem: text("problem"),
+    role: text("role"),
+    actions: jsonb("actions").$type<string[]>().notNull().default([]),
+    results: jsonb("results").$type<string[]>().notNull().default([]),
+    metrics: jsonb("metrics").$type<Array<Record<string, unknown>>>().notNull().default([]),
+    technologies: jsonb("technologies").$type<string[]>().notNull().default([]),
+    stakeholders: jsonb("stakeholders").$type<string[]>().notNull().default([]),
+    externalSafeSummary: text("external_safe_summary"),
+    sensitivityLevel: sensitivityLevelEnum("sensitivity_level")
+      .notNull()
+      .default("private"),
+    needsRedactionReview: integer("needs_redaction_review").notNull().default(0),
+    status: approvalStatusEnum("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workspaceUpdatedIdx: index("portfolio_projects_workspace_updated_idx").on(
+      table.workspaceId,
+      table.updatedAt,
+    ),
+  }),
+);
+
 export const evidenceItems = pgTable(
   "evidence_items",
   {
@@ -257,6 +416,18 @@ export const evidenceItems = pgTable(
     publicSafeSummary: text("public_safe_summary"),
     status: approvalStatusEnum("status").notNull().default("pending"),
     relatedProjectId: uuid("related_project_id"),
+    relatedWorkExperienceId: uuid("related_work_experience_id").references(
+      () => workExperiences.id,
+      { onDelete: "set null" },
+    ),
+    relatedInitiativeId: uuid("related_initiative_id").references(
+      () => initiatives.id,
+      { onDelete: "set null" },
+    ),
+    relatedPortfolioProjectId: uuid("related_portfolio_project_id").references(
+      () => portfolioProjects.id,
+      { onDelete: "set null" },
+    ),
     needsUserConfirmation: integer("needs_user_confirmation").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -266,12 +437,17 @@ export const evidenceItems = pgTable(
       .defaultNow(),
   },
   (table) => ({
+    singleStoryTargetCheck: check(
+      "evidence_items_single_story_target_check",
+      sql`num_nonnulls(${table.relatedWorkExperienceId}, ${table.relatedInitiativeId}, ${table.relatedPortfolioProjectId}) <= 1`,
+    ),
     workspaceUpdatedIdx: index("evidence_items_workspace_updated_idx").on(
       table.workspaceId,
       table.updatedAt,
     ),
   }),
 );
+
 
 export const projectCards = pgTable(
   "project_cards",
@@ -303,6 +479,121 @@ export const projectCards = pgTable(
   },
   (table) => ({
     workspaceUpdatedIdx: index("project_cards_workspace_updated_idx").on(
+      table.workspaceId,
+      table.updatedAt,
+    ),
+  }),
+);
+
+export const overlapReviewDecisions = pgTable(
+  "overlap_review_decisions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    entityType: overlapEntityTypeEnum("entity_type").notNull(),
+    leftEntityId: uuid("left_entity_id").notNull(),
+    rightEntityId: uuid("right_entity_id").notNull(),
+    decision: overlapDecisionEnum("decision").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workspaceTypeIdx: index("overlap_review_decisions_workspace_type_idx").on(
+      table.workspaceId,
+      table.entityType,
+    ),
+    uniquePairIdx: uniqueIndex("overlap_review_decisions_unique_pair_idx").on(
+      table.workspaceId,
+      table.entityType,
+      table.leftEntityId,
+      table.rightEntityId,
+    ),
+  }),
+);
+
+export const resumeSourceVersions = pgTable(
+  "resume_source_versions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sourceDocumentId: uuid("source_document_id")
+      .notNull()
+      .references(() => sourceDocuments.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 240 }).notNull(),
+    contentHash: varchar("content_hash", { length: 128 }).notNull(),
+    sourceKind: varchar("source_kind", { length: 40 }).notNull(),
+    sourceText: text("source_text").notNull(),
+    version: integer("version").notNull().default(1),
+    status: resumeSourceStatusEnum("status").notNull().default("uploaded"),
+    lastReviewedAt: timestamp("last_reviewed_at", { withTimezone: true }),
+    extractedAt: timestamp("extracted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workspaceUpdatedIdx: index("resume_source_versions_workspace_updated_idx").on(
+      table.workspaceId,
+      table.updatedAt,
+    ),
+    uniqueHashIdx: uniqueIndex("resume_source_versions_workspace_hash_idx").on(
+      table.workspaceId,
+      table.contentHash,
+    ),
+  }),
+);
+
+export const resumeReviewReports = pgTable(
+  "resume_review_reports",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    resumeSourceVersionId: uuid("resume_source_version_id")
+      .notNull()
+      .references(() => resumeSourceVersions.id, { onDelete: "cascade" }),
+    overallScore: integer("overall_score").notNull(),
+    rubricJson: jsonb("rubric_json")
+      .$type<Array<Record<string, unknown>>>()
+      .notNull()
+      .default([]),
+    strengths: jsonb("strengths").$type<string[]>().notNull().default([]),
+    weaknesses: jsonb("weaknesses").$type<string[]>().notNull().default([]),
+    recommendedActions: jsonb("recommended_actions")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    missingEvidenceQuestions: jsonb("missing_evidence_questions")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    riskFlags: jsonb("risk_flags").$type<string[]>().notNull().default([]),
+    status: resumeReviewStatusEnum("status").notNull().default("ready"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    resumeUpdatedIdx: index("resume_review_reports_resume_updated_idx").on(
+      table.resumeSourceVersionId,
+      table.updatedAt,
+    ),
+    workspaceUpdatedIdx: index("resume_review_reports_workspace_updated_idx").on(
       table.workspaceId,
       table.updatedAt,
     ),
@@ -507,6 +798,9 @@ export const workspaceRelations = relations(workspaces, ({ many }) => ({
   profiles: many(profiles),
   evidenceItems: many(evidenceItems),
   projectCards: many(projectCards),
+  overlapReviewDecisions: many(overlapReviewDecisions),
+  resumeSourceVersions: many(resumeSourceVersions),
+  resumeReviewReports: many(resumeReviewReports),
   resumeVersions: many(resumeVersions),
   generatedClaims: many(generatedClaims),
   embeddings: many(embeddings),
@@ -520,6 +814,35 @@ export const sourceDocumentRelations = relations(sourceDocuments, ({ one }) => (
     references: [workspaces.id],
   }),
 }));
+
+export const resumeSourceVersionRelations = relations(
+  resumeSourceVersions,
+  ({ many, one }) => ({
+    workspace: one(workspaces, {
+      fields: [resumeSourceVersions.workspaceId],
+      references: [workspaces.id],
+    }),
+    sourceDocument: one(sourceDocuments, {
+      fields: [resumeSourceVersions.sourceDocumentId],
+      references: [sourceDocuments.id],
+    }),
+    reports: many(resumeReviewReports),
+  }),
+);
+
+export const resumeReviewReportRelations = relations(
+  resumeReviewReports,
+  ({ one }) => ({
+    workspace: one(workspaces, {
+      fields: [resumeReviewReports.workspaceId],
+      references: [workspaces.id],
+    }),
+    resumeSourceVersion: one(resumeSourceVersions, {
+      fields: [resumeReviewReports.resumeSourceVersionId],
+      references: [resumeSourceVersions.id],
+    }),
+  }),
+);
 
 export const jobRelations = relations(jobs, ({ many, one }) => ({
   workspace: one(workspaces, {

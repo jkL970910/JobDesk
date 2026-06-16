@@ -165,14 +165,6 @@ export function JdAnalysisWorkspace() {
               the reusable material library.
             </p>
           </div>
-        </div>
-        <textarea
-          className="jd-input"
-          value={jdText}
-          onChange={(event) => setJdText(event.target.value)}
-          spellCheck={false}
-        />
-        <div className="actions">
           <button
             className="primary-button"
             disabled={isPending || jdText.trim().length < 20}
@@ -181,6 +173,15 @@ export function JdAnalysisWorkspace() {
           >
             {isPending ? "Analyzing..." : "Analyze JD"}
           </button>
+        </div>
+        {jdText === sampleJd ? <p className="sample-marker">Sample JD loaded</p> : null}
+        <textarea
+          className="jd-input"
+          value={jdText}
+          onChange={(event) => setJdText(event.target.value)}
+          spellCheck={false}
+        />
+        <div className="actions">
           {selectedJobId ? (
             <button
               className="secondary-button"
@@ -257,9 +258,9 @@ async function formatLoadError(response: Response, fallback: string) {
 
 function EmptyState() {
   return (
-    <div className="empty-state">
-      Run the analysis to see hard requirements, soft signals, keywords, and
-      interview implications.
+    <div className="empty-state jd-empty-state">
+      <strong>Analyze a JD to build the requirement matrix.</strong>
+      <p>The matrix will show hard requirements, soft signals, keywords, evidence matches, and interview implications.</p>
     </div>
   );
 }

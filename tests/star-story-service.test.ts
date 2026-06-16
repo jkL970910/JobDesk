@@ -6,7 +6,7 @@ import {
 } from "../src/server/star-story-service";
 
 describe("STAR story service", () => {
-  it("promotes a project card and linked evidence into a ready STAR story", () => {
+  it("promotes an initiative and linked evidence into a ready STAR story", () => {
     const story = buildStarStoryCard(project(), [
       {
         id: "e1",
@@ -17,12 +17,15 @@ describe("STAR story service", () => {
         allowedUsage: ["interview"],
         publicSafeSummary: null,
         status: "approved",
-        relatedProjectId: "p1",
+        relatedProjectId: null,
+        relatedInitiativeId: "p1",
       },
     ]);
 
     expect(story).toMatchObject({
       project_id: "p1",
+      story_target_id: "p1",
+      story_target_type: "initiative",
       readiness: "ready",
       situation: "Product teams could not see onboarding drop-off.",
       task: "Identify activation friction.",
@@ -72,7 +75,9 @@ describe("STAR story service", () => {
 function project(patch = {}) {
   return {
     id: "p1",
+    type: "initiative" as const,
     title: "Onboarding analytics",
+    internalTitle: "Internal onboarding analytics",
     context: "Product teams could not see onboarding drop-off.",
     problem: "Identify activation friction.",
     role: "Product analyst",

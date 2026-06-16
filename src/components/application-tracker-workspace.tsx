@@ -100,6 +100,9 @@ export function ApplicationTrackerWorkspace() {
     ...option,
     count: jobs.filter((job) => (job.application_status ?? "evaluated") === option.value).length,
   }));
+  const funnel = counts.filter((item) =>
+    ["evaluated", "applied", "responded", "interview", "offer", "rejected"].includes(item.value),
+  );
 
   return (
     <section className="workspace__grid workspace__grid--stacked">
@@ -132,7 +135,7 @@ export function ApplicationTrackerWorkspace() {
           </div>
         ) : (
           <div className="empty-state empty-state--compact">
-            Analyze a target JD before tracking application status.
+            Analyze a JD first to start tracking an application.
           </div>
         )}
       </div>
@@ -146,6 +149,14 @@ export function ApplicationTrackerWorkspace() {
             </p>
           </div>
         </div>
+        <section className="pipeline-funnel" aria-label="Application pipeline summary">
+          {funnel.map((item) => (
+            <article data-active={item.count > 0} key={item.value}>
+              <span>{item.label}</span>
+              <strong>{item.count}</strong>
+            </article>
+          ))}
+        </section>
         {selectedJob ? (
           <div className="tracker-detail">
             <div className="job-facts">
@@ -190,7 +201,7 @@ export function ApplicationTrackerWorkspace() {
           </div>
         ) : (
           <div className="empty-state empty-state--compact">
-            Select an analyzed job to update its pipeline status.
+            Analyze a JD first to start tracking an application.
           </div>
         )}
         <div className="tracker-counts">

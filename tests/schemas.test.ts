@@ -8,6 +8,8 @@ import { ExtractedField, EvidenceType } from "../src/schemas/shared";
 import { Profile } from "../src/schemas/profile";
 import { EvidenceItem } from "../src/schemas/evidence";
 import { JDAnalysis } from "../src/schemas/jd-analysis";
+import { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
+import { ResumeReview } from "../src/schemas/resume-review";
 import { GeneratedClaim, TailoredResumeDraft } from "../src/schemas/tailored-resume";
 
 describe("ExtractedField", () => {
@@ -37,6 +39,193 @@ describe("Profile", () => {
       contact: { name: { value: "Jane Doe", source_quote: "Jane Doe" } },
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe("ProfileEvidenceExtraction", () => {
+  it("drops null loose profile array entries from provider output", () => {
+    const parsed = ProfileEvidenceExtraction.parse({
+      profile: {
+        name: { value: "Jane Doe", source_quote: "Jane Doe", confidence: 1 },
+        certifications: [null],
+        skills: ["SQL", null, ""],
+      },
+      evidence_items: [],
+      project_cards: [],
+    });
+
+    expect(parsed.profile.certifications).toEqual([]);
+    expect(parsed.profile.skills.map((skill) => skill.value)).toEqual(["SQL"]);
+  });
+
+  it("does not fail when provider returns loose string profile history arrays", () => {
+    const parsed = ProfileEvidenceExtraction.parse({
+      profile: {
+        name: "Jane Doe",
+        experience: [
+          "Amazon SDE built resilient service workflows.",
+          "RBC mobile engineering internship.",
+          2024,
+        ],
+        education: ["University of Waterloo", "Computer Science", "GPA 3.8"],
+        certifications: [],
+        skills: ["TypeScript"],
+      },
+      work_experiences: [],
+      initiatives: [],
+      portfolio_projects: [],
+      evidence_items: [],
+      project_cards: [],
+    });
+
+    expect(parsed.profile.experience).toEqual([]);
+    expect(parsed.profile.education).toEqual([]);
+    expect(parsed.profile.skills.map((skill) => skill.value)).toEqual(["TypeScript"]);
+  });
+
+  it("normalizes string confidence values on extracted profile fields", () => {
+    const parsed = ProfileEvidenceExtraction.parse({
+      profile: {
+        name: { value: "Jane Doe", source_quote: "Jane Doe", confidence: "0.92" },
+        email: {
+          value: "jane@example.com",
+          source_quote: "jane@example.com",
+          confidence: "88%",
+        },
+        phone: { value: "555-1234", source_quote: "555-1234", confidence: "75" },
+      },
+      work_experiences: [],
+      initiatives: [],
+      portfolio_projects: [],
+      evidence_items: [],
+      project_cards: [],
+    });
+
+    expect(parsed.profile.name.confidence).toBe(0.92);
+    expect(parsed.profile.email?.confidence).toBe(0.88);
+    expect(parsed.profile.phone?.confidence).toBe(0.75);
+  });
+});
+
+describe("ResumeReview", () => {
+  it("parses the HR reviewer output contract", () => {
+    const parsed = ResumeReview.parse({
+      score: {
+        overall: "82",
+        confidence: "0.74",
+        scope_note: "General resume review without a JD.",
+      },
+      rubric: [
+        {
+          key: "scan",
+          label: "10-second scan",
+          score: 80,
+          maxScore: 100,
+          note: "Top evidence is visible.",
+        },
+      ],
+      strengths: ["Clear analytics scope."],
+      weaknesses: ["Some bullets need quantified outcomes."],
+      suggested_edits: ["Move the strongest metric earlier."],
+      ten_second_scan: "Recruiters see product analytics quickly.",
+      ats_notes: ["Headings are parseable."],
+      missing_evidence_questions: ["Which project had the strongest result?"],
+      risk_flags: [],
+      fairness_check: {
+        applied: true,
+        note: "No protected or proxy signals penalized.",
+        signals_not_penalized: [],
+      },
+    });
+
+    expect(parsed.score.overall).toBe(82);
+    expect(parsed.score.confidence).toBe(0.74);
+  });
+
+  it("normalizes common provider naming variants", () => {
+    const parsed = ResumeReview.parse({
+      score: {
+        overall: "86/100",
+        confidence: "74%",
+        scopeNote: "General resume review.",
+      },
+      rubric: [
+        {
+          key: "impact",
+          label: "Impact",
+          score: "82",
+          max_score: "100",
+          rationale: "Strong quantified outcomes.",
+        },
+      ],
+      strengths: ["Strong impact."],
+      weaknesses: [],
+      suggestedEdits: ["Move top metric earlier."],
+      tenSecondScan: {
+        summary: "Software engineer with strong cloud scale.",
+        concern: "Some details need public-safe wording.",
+      },
+      atsNotes: ["Readable headings."],
+      missingEvidenceQuestions: ["Which metrics are public-safe?"],
+      riskFlags: [],
+      fairnessCheck: {
+        applied: true,
+        note: "No protected signals penalized.",
+        signalsNotPenalized: ["career gap"],
+      },
+    });
+
+    expect(parsed.score.overall).toBe(86);
+    expect(parsed.score.confidence).toBe(0.74);
+    expect(parsed.rubric[0]?.maxScore).toBe(100);
+    expect(parsed.rubric[0]?.note).toBe("Strong quantified outcomes.");
+    expect(parsed.suggested_edits).toEqual(["Move top metric earlier."]);
+    expect(parsed.ten_second_scan).toBe("Software engineer with strong cloud scale.");
+    expect(parsed.fairness_check.signals_not_penalized).toEqual(["career gap"]);
+  });
+
+  it("normalizes object list items into readable review bullets", () => {
+    const parsed = ResumeReview.parse({
+      score: {
+        overall: 84,
+        confidence: 0.8,
+        scope_note: "General resume review.",
+      },
+      rubric: [],
+      strengths: [
+        {
+          section: "Amazon SDE experience",
+          note: "Strong quantified production impact.",
+        },
+      ],
+      weaknesses: [
+        {
+          section: "Projects",
+          note: "Project bullets need clearer architecture and outcomes.",
+        },
+      ],
+      suggested_edits: [{ suggestion: "Move the strongest Amazon metric earlier." }],
+      ten_second_scan: "Strong backend/cloud resume.",
+      ats_notes: [{ note: "Headings are parseable." }],
+      missing_evidence_questions: [{ question: "Which metrics are safe to disclose?" }],
+      risk_flags: [{ risk: "Some internal Amazon language may need context." }],
+      fairness_check: {
+        applied: true,
+        note: "No protected signals penalized.",
+        signals_not_penalized: [],
+      },
+    });
+
+    expect(parsed.strengths).toEqual([
+      "Amazon SDE experience: Strong quantified production impact.",
+    ]);
+    expect(parsed.weaknesses).toEqual([
+      "Projects: Project bullets need clearer architecture and outcomes.",
+    ]);
+    expect(parsed.suggested_edits).toEqual(["Move the strongest Amazon metric earlier."]);
+    expect(parsed.ats_notes).toEqual(["Headings are parseable."]);
+    expect(parsed.missing_evidence_questions).toEqual(["Which metrics are safe to disclose?"]);
+    expect(parsed.risk_flags).toEqual(["Some internal Amazon language may need context."]);
   });
 });
 

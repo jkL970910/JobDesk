@@ -8,8 +8,9 @@ The source of truth for implementation progress is `docs/development-status.md`.
 
 Current local baseline:
 
-- 8 product workflows implemented at MVP depth.
-- Material Library workflow: PDF, DOCX, TXT, and Markdown resume source parsing.
+- 9 product workflows implemented at MVP depth.
+- Resume Review workflow: PDF, DOCX, TXT, and Markdown resume version upload, duplicate detection, and LLM-first general resume scoring with local fallback.
+- Material Library workflow: reviewed resume version extraction plus project-note/source parsing.
 - Material Library workflow: profile/evidence extraction from resumes and project notes with persistence.
 - Basic evidence/project-card review, external-safe de-identification, duplicate evidence merge, and STAR story promotion.
 - Job Workspace workflow: JD analysis with persistence, reload, reanalysis, and archive.

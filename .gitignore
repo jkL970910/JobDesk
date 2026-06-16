@@ -1,5 +1,6 @@
 node_modules/
 .next/
+.next.backup-*/
 .vercel/
 dist/
 schemas-json/

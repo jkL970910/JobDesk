@@ -272,6 +272,9 @@ function buildExtraction(): ProfileEvidenceExtraction {
       low_confidence_fields: [],
       invented_field_flags: [],
     },
+    work_experiences: [],
+    initiatives: [],
+    portfolio_projects: [],
     evidence_items: [
       {
         text: "Built SQL dashboards for onboarding funnel analysis.",

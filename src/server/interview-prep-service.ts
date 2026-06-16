@@ -67,7 +67,12 @@ export async function generateInterviewPrepPack(jobId: string) {
   const retrievalQuery = buildRetrievalQuery(job);
   const retrievedContext = await searchPersonalEmbeddings({
     query: retrievalQuery,
-    indexTypes: ["evidence_index", "project_index"],
+    indexTypes: [
+      "evidence_index",
+      "initiative_index",
+      "portfolio_project_index",
+      "project_index",
+    ],
     limit: 8,
   });
 

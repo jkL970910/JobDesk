@@ -7,9 +7,10 @@ describe("Evidence Library Builder instructions", () => {
     const instructions = buildProfileEvidenceInstructions("project_note");
 
     expect(instructions).toContain("project note");
-    expect(instructions).toContain("Project cards are the primary output");
+    expect(instructions).toContain("work_experiences are employer/role containers");
+    expect(instructions).toContain("create either one initiative");
     expect(instructions).toContain("Return at most 8 evidence_items");
-    expect(instructions).toContain("missing metric or specificity gaps");
+    expect(instructions).toContain("redaction");
   });
 
   it("keeps resume sources constrained to resume/profile extraction", () => {
@@ -17,6 +18,7 @@ describe("Evidence Library Builder instructions", () => {
 
     expect(instructions).toContain("resume or career-notes source");
     expect(instructions).toContain("Return at most 6 evidence_items");
-    expect(instructions).toContain("Return at most 2 project_cards");
+    expect(instructions).toContain("extract work_experiences from Experience sections");
+    expect(instructions).toContain("portfolio_projects only from non-employer Projects sections");
   });
 });
