@@ -7,7 +7,6 @@ import {
   resumeReviewReports,
   resumeSourceVersions,
   sourceDocuments,
-  workspaces,
   workflowRuns,
 } from "../db/schema";
 import { resolveJobDeskAiConfig } from "../ai/config";
@@ -26,8 +25,8 @@ import {
   buildResumeReviewEnrichmentTasks,
   upsertEnrichmentTasks,
 } from "./enrichment-task-repository";
+import { getOrCreateDefaultWorkspace } from "./workspace-repository";
 
-const defaultWorkspaceName = "Personal JobDesk";
 type DbHandle = ReturnType<typeof getDb>;
 
 type ResumeReviewBuildResult = {
@@ -508,24 +507,6 @@ export async function markResumeSourceExtracted(resumeSourceVersionId: string) {
   return resume
     ? ({ status: "saved" as const, resume: toResumeSourcePayload(resume) })
     : ({ status: "not_found" as const });
-}
-
-async function getOrCreateDefaultWorkspace(db: Pick<DbHandle, "select" | "insert">) {
-  const [existing] = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.name, defaultWorkspaceName))
-    .limit(1);
-  if (existing) return existing;
-
-  const [created] = await db
-    .insert(workspaces)
-    .values({ name: defaultWorkspaceName })
-    .returning();
-  if (!created) {
-    throw new Error("Failed to create workspace.");
-  }
-  return created;
 }
 
 async function inferNextResumeVersion(

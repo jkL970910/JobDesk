@@ -133,10 +133,50 @@ export const portfolioProjectTypeEnum = pgEnum("portfolio_project_type", [
   "general_project",
 ]);
 
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    email: varchar("email", { length: 320 }).notNull(),
+    passwordHash: text("password_hash").notNull(),
+    displayName: varchar("display_name", { length: 160 }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    emailIdx: uniqueIndex("users_email_idx").on(table.email),
+  }),
+);
+
+export const userSessions = pgTable(
+  "user_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: varchar("token_hash", { length: 128 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  },
+  (table) => ({
+    tokenHashIdx: uniqueIndex("user_sessions_token_hash_idx").on(table.tokenHash),
+    userExpiresIdx: index("user_sessions_user_expires_idx").on(table.userId, table.expiresAt),
+  }),
+);
+
 export const workspaces = pgTable(
   "workspaces",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 160 }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -147,6 +187,7 @@ export const workspaces = pgTable(
   },
   (table) => ({
     createdIdx: index("workspaces_created_idx").on(table.createdAt),
+    userIdx: index("workspaces_user_idx").on(table.userId),
   }),
 );
 
@@ -937,7 +978,23 @@ export const workflowRuns = pgTable(
   }),
 );
 
-export const workspaceRelations = relations(workspaces, ({ many }) => ({
+export const userRelations = relations(users, ({ many }) => ({
+  sessions: many(userSessions),
+  workspaces: many(workspaces),
+}));
+
+export const userSessionRelations = relations(userSessions, ({ one }) => ({
+  user: one(users, {
+    fields: [userSessions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const workspaceRelations = relations(workspaces, ({ many, one }) => ({
+  user: one(users, {
+    fields: [workspaces.userId],
+    references: [users.id],
+  }),
   sourceDocuments: many(sourceDocuments),
   jobs: many(jobs),
   profiles: many(profiles),

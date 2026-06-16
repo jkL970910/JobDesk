@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   isAccessTokenConfigured,
+  validateRequestAccess,
   validateAccessToken,
 } from "../src/server/access-guard";
+import { serializeSessionCookie } from "../src/server/auth-service";
 
 describe("access guard", () => {
   it("allows requests when no access token is configured", () => {
@@ -41,5 +43,42 @@ describe("access guard", () => {
     });
 
     expect(validateAccessToken(request, env)).toEqual({ ok: true });
+  });
+
+  it("accepts a signed account session cookie when account auth is configured", async () => {
+    const previousSecret = process.env.JOBDESK_SESSION_SECRET;
+    process.env.JOBDESK_SESSION_SECRET = "test-session-secret";
+    const env = {
+      DATABASE_URL: "postgres://example/test",
+      JOBDESK_SESSION_SECRET: "test-session-secret",
+      NODE_ENV: "test",
+    } as NodeJS.ProcessEnv;
+    const cookie = serializeSessionCookie({
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      sessionId: "session-1",
+      token: "session-token",
+      userId: "user-1",
+    });
+    const request = new Request("http://localhost/api/jobs", {
+      headers: { Cookie: cookie },
+    });
+
+    expect(await validateRequestAccess(request, env)).toMatchObject({
+      ok: true,
+      userId: "user-1",
+    });
+    process.env.JOBDESK_SESSION_SECRET = previousSecret;
+  });
+
+  it("allows auth endpoints without a token or session", async () => {
+    const env = {
+      DATABASE_URL: "postgres://example/test",
+      JOBDESK_SESSION_SECRET: "test-session-secret",
+      NODE_ENV: "test",
+    } as NodeJS.ProcessEnv;
+
+    expect(
+      await validateRequestAccess(new Request("http://localhost/api/auth/login"), env),
+    ).toEqual({ ok: true });
   });
 });

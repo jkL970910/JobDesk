@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { AccessProvider } from "../src/components/access-provider";
-import { isAccessTokenConfigured } from "../src/server/access-guard";
+import { isAccountAuthConfigured, isAccessTokenConfigured } from "../src/server/access-guard";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,7 +17,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <AccessProvider configured={isAccessTokenConfigured()}>
+        <AccessProvider configured={isAccessTokenConfigured() || isAccountAuthConfigured()}>
           {children}
         </AccessProvider>
       </body>

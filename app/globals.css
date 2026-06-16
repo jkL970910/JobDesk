@@ -2016,6 +2016,21 @@ textarea:focus-visible {
   padding: 10px 16px;
 }
 
+.access-panel > div {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.access-panel strong {
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.access-panel__actions {
+  margin-left: auto;
+}
+
 .access-panel label {
   align-items: center;
   display: flex;
@@ -2043,6 +2058,89 @@ select {
 .access-panel input {
   min-height: 32px;
   padding: 6px 9px;
+}
+
+.auth-shell {
+  align-items: center;
+  background:
+    radial-gradient(circle at top left, rgba(111, 124, 255, 0.16), transparent 34%),
+    var(--bg);
+  color: var(--ink);
+  display: flex;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.auth-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 14px;
+  margin: 0 auto;
+  max-width: 440px;
+  padding: 26px;
+  width: 100%;
+}
+
+.auth-card h1 {
+  color: var(--ink);
+  font-size: 2rem;
+  line-height: 1.05;
+  margin: 0;
+}
+
+.auth-card p {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.auth-card label {
+  display: grid;
+  gap: 7px;
+}
+
+.auth-card label span {
+  color: var(--faint);
+  font-size: 0.76rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.auth-card input {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  min-height: 42px;
+  padding: 9px 11px;
+}
+
+.auth-tabs {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 4px;
+}
+
+.auth-tabs button {
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  color: var(--muted);
+  font-weight: 820;
+  min-height: 34px;
+}
+
+.auth-tabs button[data-active="true"] {
+  background: var(--primary);
+  color: white;
 }
 
 .workspace__header {

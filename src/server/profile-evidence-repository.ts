@@ -13,7 +13,6 @@ import {
   projectCards,
   sourceDocuments,
   workExperiences,
-  workspaces,
   workflowRuns,
 } from "../db/schema";
 import type {
@@ -34,8 +33,7 @@ import {
   buildExtractionNoteEnrichmentTasks,
   upsertEnrichmentTasks,
 } from "./enrichment-task-repository";
-
-const defaultWorkspaceName = "Personal JobDesk";
+import { getOrCreateDefaultWorkspace } from "./workspace-repository";
 
 export type ProfileEvidencePersistenceResult =
   | {
@@ -1465,24 +1463,6 @@ export async function getResumeTailoringContext(
       : null,
     evidenceItems: evidence,
   };
-}
-
-async function getOrCreateDefaultWorkspace(db: Pick<DbHandle, "select" | "insert">) {
-  const [existing] = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.name, defaultWorkspaceName))
-    .limit(1);
-  if (existing) return existing;
-
-  const [created] = await db
-    .insert(workspaces)
-    .values({ name: defaultWorkspaceName })
-    .returning();
-  if (!created) {
-    throw new Error("Failed to create workspace.");
-  }
-  return created;
 }
 
 async function getIgnoredOverlapPairs(args: {

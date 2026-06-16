@@ -85,6 +85,13 @@
       "when": 1781633516369,
       "tag": "0011_slim_imperial_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1781655000000,
+      "tag": "0012_jobdesk_accounts",
+      "breakpoints": true
     }
   ]
 }

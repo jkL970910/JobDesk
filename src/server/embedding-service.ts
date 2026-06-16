@@ -9,8 +9,8 @@ import {
   initiatives,
   portfolioProjects,
   projectCards,
-  workspaces,
 } from "../db/schema";
+import { getOrCreateDefaultWorkspace } from "./workspace-repository";
 
 export const localEmbeddingModel = "jobdesk-local-hash-v1";
 const dimensions = 128;
@@ -59,7 +59,7 @@ export async function syncPersonalEmbeddings() {
   }
 
   const db = getDb();
-  const workspace = await getOrCreateDefaultWorkspace();
+  const workspace = await getOrCreateDefaultWorkspace(db);
   const evidence = await db
     .select()
     .from(evidenceItems)
@@ -256,8 +256,8 @@ export async function searchPersonalEmbeddings(args: {
   limit?: number;
 }) {
   if (!hasDatabaseUrl()) return [];
-  const workspace = await getOrCreateDefaultWorkspace();
   const db = getDb();
+  const workspace = await getOrCreateDefaultWorkspace(db);
   const rows = await db
     .select()
     .from(embeddings)
@@ -281,22 +281,6 @@ export async function searchPersonalEmbeddings(args: {
     }))
     .sort((left, right) => right.similarity - left.similarity)
     .slice(0, args.limit ?? 8);
-}
-
-async function getOrCreateDefaultWorkspace() {
-  const db = getDb();
-  const [existing] = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.name, "Personal JobDesk"))
-    .limit(1);
-  if (existing) return existing;
-  const [created] = await db
-    .insert(workspaces)
-    .values({ name: "Personal JobDesk" })
-    .returning();
-  if (!created) throw new Error("Failed to create workspace.");
-  return created;
 }
 
 function tokenize(text: string) {

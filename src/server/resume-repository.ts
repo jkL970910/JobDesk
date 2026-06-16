@@ -6,7 +6,6 @@ import {
   generatedClaims,
   mainResumeVersions,
   resumeVersions,
-  workspaces,
   workflowRuns,
 } from "../db/schema";
 import type {
@@ -19,8 +18,8 @@ import type { MainResumeDraft } from "../schemas/main-resume";
 import { claimsMatch, validateBulletClaimCoverage } from "./tailored-resume-guardrails";
 import { workflowSkillFields } from "./workflow-run-metadata";
 import { skillRegistry } from "../ai/skills-registry";
+import { getOrCreateDefaultWorkspace } from "./workspace-repository";
 
-const defaultWorkspaceName = "Personal JobDesk";
 type DbHandle = ReturnType<typeof getDb>;
 
 export type FactGuardClaimReport = {
@@ -599,24 +598,6 @@ function toFactGuardClaimReport(
     stale_reason: claim.staleReason,
     last_validated_at: claim.lastValidatedAt?.toISOString() ?? null,
   };
-}
-
-async function getOrCreateDefaultWorkspace(db: Pick<DbHandle, "select" | "insert">) {
-  const [existing] = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.name, defaultWorkspaceName))
-    .limit(1);
-  if (existing) return existing;
-
-  const [created] = await db
-    .insert(workspaces)
-    .values({ name: defaultWorkspaceName })
-    .returning();
-  if (!created) {
-    throw new Error("Failed to create workspace.");
-  }
-  return created;
 }
 
 function sanitizeWorkflowError(message: string) {

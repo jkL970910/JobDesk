@@ -3,16 +3,25 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
 
+type AuthUser = {
+  id: string;
+  email: string;
+  displayName: string | null;
+};
+
 type AccessContextValue = {
-  token: string;
   configured: boolean;
-  setToken: (token: string) => void;
   fetchJson: typeof fetch;
+  refreshUser: () => Promise<void>;
+  setToken: (token: string) => void;
+  token: string;
+  user: AuthUser | null;
 };
 
 const AccessContext = createContext<AccessContextValue | null>(null);
@@ -29,6 +38,29 @@ export function AccessProvider({
     if (typeof window === "undefined") return "";
     return window.localStorage.getItem(storageKey) ?? "";
   });
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(configured);
+
+  async function refreshUser() {
+    if (!configured) {
+      setUser(null);
+      setAuthLoading(false);
+      return;
+    }
+    try {
+      const response = await fetch("/api/auth/me", { credentials: "include" });
+      const payload = (await response.json().catch(() => null)) as
+        | { data?: { user?: AuthUser | null } }
+        | null;
+      setUser(payload?.data?.user ?? null);
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshUser();
+  }, [configured]);
 
   const value = useMemo<AccessContextValue>(() => {
     function setToken(nextToken: string) {
@@ -45,16 +77,28 @@ export function AccessProvider({
       if (configured && token) {
         headers.set("Authorization", `Bearer ${token}`);
       }
-      return fetch(input, { ...init, headers });
+      return fetch(input, { ...init, credentials: "include", headers });
     };
 
-    return { token, configured, setToken, fetchJson };
-  }, [configured, token]);
+    return { configured, fetchJson, refreshUser, setToken, token, user };
+  }, [configured, token, user]);
 
   return (
     <AccessContext.Provider value={value}>
-      {configured ? <AccessTokenPanel /> : null}
-      {children}
+      {configured ? (
+        user ? (
+          <>
+            <AccountPanel />
+            {children}
+          </>
+        ) : authLoading ? (
+          <AuthShell title="Loading account..." />
+        ) : (
+          <AuthPanel />
+        )
+      ) : (
+        children
+      )}
     </AccessContext.Provider>
   );
 }
@@ -67,20 +111,146 @@ export function useAccess() {
   return context;
 }
 
-function AccessTokenPanel() {
-  const { token, setToken } = useAccess();
+function AuthPanel() {
+  const { refreshUser } = useAccess();
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [status, setStatus] = useState("Sign in to access your JobDesk workspace.");
+  const [pending, setPending] = useState(false);
+
+  async function submit() {
+    setPending(true);
+    setStatus(mode === "login" ? "Signing in..." : "Creating account...");
+    try {
+      const response = await fetch(`/api/auth/${mode === "login" ? "login" : "register"}`, {
+        body: JSON.stringify({ displayName, email, password }),
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) {
+        setStatus(payload?.error ?? "Authentication failed.");
+        return;
+      }
+      await refreshUser();
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
-    <div className="access-panel">
+    <AuthShell title={mode === "login" ? "Sign in to JobDesk" : "Create your JobDesk account"}>
+      <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
+        <button data-active={mode === "login"} type="button" onClick={() => setMode("login")}>
+          Login
+        </button>
+        <button data-active={mode === "register"} type="button" onClick={() => setMode("register")}>
+          Register
+        </button>
+      </div>
       <label>
-        <span>Access token</span>
+        <span>Email</span>
         <input
-          type="password"
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-          placeholder="Enter JOBDESK_ACCESS_TOKEN"
+          autoComplete="email"
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="you@example.com"
+          type="email"
+          value={email}
         />
       </label>
-      <p>Protected API calls use this browser-local token.</p>
+      {mode === "register" ? (
+        <label>
+          <span>Name</span>
+          <input
+            autoComplete="name"
+            onChange={(event) => setDisplayName(event.target.value)}
+            placeholder="Optional display name"
+            type="text"
+            value={displayName}
+          />
+        </label>
+      ) : null}
+      <label>
+        <span>Password</span>
+        <input
+          autoComplete={mode === "login" ? "current-password" : "new-password"}
+          onChange={(event) => setPassword(event.target.value)}
+          placeholder="At least 8 characters"
+          type="password"
+          value={password}
+        />
+      </label>
+      <button
+        className="primary-button"
+        disabled={pending || !email.trim() || password.length < 8}
+        onClick={() => void submit()}
+        type="button"
+      >
+        {mode === "login" ? "Sign in" : "Create account"}
+      </button>
+      <p>{status}</p>
+    </AuthShell>
+  );
+}
+
+function AccountPanel() {
+  const { refreshUser, setToken, token, user } = useAccess();
+  const [showLegacyToken, setShowLegacyToken] = useState(false);
+
+  async function logout() {
+    await fetch("/api/auth/logout", { credentials: "include", method: "POST" });
+    await refreshUser();
+  }
+
+  return (
+    <div className="access-panel">
+      <div>
+        <span>Signed in</span>
+        <strong>{user?.displayName || user?.email}</strong>
+      </div>
+      <div className="access-panel__actions">
+        <button className="ghost-button" type="button" onClick={() => setShowLegacyToken((value) => !value)}>
+          Legacy token
+        </button>
+        <button className="secondary-button" type="button" onClick={() => void logout()}>
+          Sign out
+        </button>
+      </div>
+      {showLegacyToken ? (
+        <label>
+          <span>Access token</span>
+          <input
+            onChange={(event) => setToken(event.target.value)}
+            placeholder="Enter JOBDESK_ACCESS_TOKEN"
+            type="password"
+            value={token}
+          />
+        </label>
+      ) : null}
     </div>
+  );
+}
+
+function AuthShell({
+  children,
+  title,
+}: {
+  children?: ReactNode;
+  title: string;
+}) {
+  return (
+    <main className="auth-shell">
+      <section className="auth-card">
+        <p className="panel-kicker">Account</p>
+        <h1>{title}</h1>
+        <p>
+          Keep resume sources, evidence, generated resumes, and job workspaces scoped to your account.
+        </p>
+        {children}
+      </section>
+    </main>
   );
 }

@@ -2,7 +2,7 @@
 
 This sets up the canonical Zod schemas and local MVP workbench for the Material Library
 and Job Workspace flows, with type-checking, contract tests, JSON Schema generation,
-OpenRouter-backed structured AI calls, persistence, resume source parsing, local embedding retrieval, interview prep packs, manual application tracking, optional personal access protection, and Fact Guard verification.
+OpenRouter-backed structured AI calls, persistence, resume source parsing, local embedding retrieval, interview prep packs, manual application tracking, account login/register, optional personal access protection, and Fact Guard verification.
 
 Decisions baked in (per design review):
 1. **Zod (`.ts`) is the source of truth.** JSON Schema is *generated*, never
@@ -59,8 +59,9 @@ Run these from the JobDesk folder (where `package.json` is).
    The default `.env.example` uses the OpenRouter-compatible
    `chat-completions` transport because the current `openrouter.icu` route
    exposes `/v1/chat/completions`.
-   Set `JOBDESK_ACCESS_TOKEN` when running a personal deployment that should
-   reject unauthenticated API calls. Leave it empty for local development.
+   Set `JOBDESK_SESSION_SECRET` when running a deployed account-login environment.
+   `JOBDESK_ACCESS_TOKEN` is still supported as a legacy bearer-token bypass for
+   personal deployments.
 
 6. Run the JD analysis smoke test:
    ```
@@ -86,6 +87,11 @@ Run these from the JobDesk folder (where `package.json` is).
    ```
    `DATABASE_URL` must point to the JobDesk database, not the portfolio-manager
    or alignerlog database.
+
+   When `DATABASE_URL` is configured, the app shows login/register and stores
+   user sessions in Postgres. Each account gets its own default personal
+   workspace for new data. Existing legacy rows with no workspace owner remain
+   available only through the no-session/local fallback path.
 
    Migration policy:
    - `npm run db:generate` creates versioned SQL files under `drizzle/` after a schema change.
@@ -150,9 +156,12 @@ JobDesk/
   The current baseline includes JD analysis, resume source parsing for PDF/DOCX/TXT/Markdown,
   Profile/Evidence extraction, basic evidence approval/editing, tailored resume generation,
   generated claim ledgers, deterministic Fact Guard revalidation, local embedding indexing,
-  interview prep packs, manual application status tracking, optional bearer-token API protection,
-  Drizzle/Postgres persistence, recent job reload, same-job re-analysis, soft archive, Skills Registry audit metadata, and DB-backed integration tests. Use `npm run verify:local` for the standard local baseline. See `docs/development-status.md` for the current workflow count, verification status, and next tasks.
-  PDF/DOCX export, full auth/workspace isolation, daily job recommendations, and email-assisted tracking are still later phases.
+  interview prep packs, manual application status tracking, account login/register with session cookies,
+  legacy bearer-token API compatibility, Drizzle/Postgres persistence, recent job reload,
+  same-job re-analysis, soft archive, Skills Registry audit metadata, and DB-backed integration tests.
+  Use `npm run verify:local` for the standard local baseline. See `docs/development-status.md`
+  for the current workflow count, verification status, and next tasks.
+  PDF/DOCX export, daily job recommendations, and email-assisted tracking are still later phases.
 - To extend: add a new `src/schemas/<name>.ts`, import shared primitives, export it
   from `index.ts`, and add it to `scripts/generate-json-schema.ts` if you want a
   generated JSON artifact.

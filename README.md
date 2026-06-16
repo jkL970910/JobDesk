@@ -8,7 +8,7 @@ The source of truth for implementation progress is `docs/development-status.md`.
 
 Current local baseline:
 
-- 9 product workflows implemented at MVP depth.
+- 10 product workflows implemented at MVP depth.
 - Resume Review workflow: PDF, DOCX, TXT, and Markdown resume version upload, duplicate detection, and LLM-first general resume scoring with local fallback.
 - Material Library workflow: reviewed resume version extraction plus project-note/source parsing.
 - Material Library workflow: profile/evidence extraction from resumes and project notes with persistence.
@@ -18,7 +18,7 @@ Current local baseline:
 - Generated claim ledger and deterministic Fact Guard revalidation.
 - Interview prep packs from analyzed jobs, STAR stories, and indexed evidence.
 - Manual application tracker for analyzed job workspaces.
-- Optional bearer-token access gate for personal deployments.
+- Account login/register with httpOnly session cookies plus legacy bearer-token access gate compatibility.
 - Local deterministic embedding index with a reindex API and Drizzle persistence.
 - Drizzle/Postgres migrations and DB-backed integration tests.
 - Skills Registry audit metadata for AI/deterministic workflow provenance.
@@ -26,7 +26,7 @@ Current local baseline:
 
 Not implemented yet:
 
-- Full auth and production workspace isolation.
+- Fine-grained multi-workspace/team sharing beyond one personal workspace per account.
 - Resume export to PDF/DOCX.
 - Daily job recommendation workflow.
 - Email-assisted tracking workflow.
@@ -42,8 +42,9 @@ Fill `JOBDESK_OPENROUTER_API_KEY` in `.env` before running real AI calls.
 For the current OpenRouter-compatible route, use
 `JOBDESK_OPENROUTER_TRANSPORT=chat-completions`.
 Fill `DATABASE_URL` with the separate JobDesk Postgres connection string when
-you are ready to persist jobs, evidence, resumes, claims, embeddings, interview prep packs, and workflow runs.
-Set `JOBDESK_ACCESS_TOKEN` for a personal deployment that should block unauthenticated API calls. Leave it empty for local development without an access prompt.
+you are ready to persist jobs, evidence, resumes, claims, embeddings, interview prep packs, workflow runs, users, and sessions.
+Set `JOBDESK_SESSION_SECRET` for deployed account sessions. `JOBDESK_ACCESS_TOKEN`
+is still supported as a legacy bearer-token bypass for personal deployments.
 
 ## Commands
 

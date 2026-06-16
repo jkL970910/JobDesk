@@ -75,6 +75,18 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     );
     expect(metricTask).toBeDefined();
     if (!metricTask) throw new Error("Expected enrichment task.");
+    const filterSmokePrompt = `Filter smoke metric ${result.workflowRunId}`;
+    await upsertEnrichmentTasks(getDb(), {
+      workspaceId: result.workspaceId,
+      tasks: [
+        {
+          taskType: "metric",
+          sourceType: "extraction_note",
+          sourceLabel: `Filter smoke ${result.workflowRunId}`,
+          prompt: filterSmokePrompt,
+        },
+      ],
+    });
     const filteredExtractionTasks = await getEnrichmentTaskQueue({
       limit: 20,
       sourceType: "extraction_note",
@@ -85,6 +97,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       throw new Error("Expected filtered enrichment queue.");
     }
     expect(filteredExtractionTasks.tasks.length).toBeGreaterThan(0);
+    expect(filteredExtractionTasks.tasks.some((task) => task.prompt === filterSmokePrompt)).toBe(true);
     expect(
       filteredExtractionTasks.tasks.every(
         (task) => task.source_type === "extraction_note" && ["open", "answered"].includes(task.status),

@@ -7,15 +7,14 @@ import {
   jobRequirements,
   jobs,
   sourceDocuments,
-  workspaces,
   workflowRuns,
 } from "../db/schema";
 import { JobLegitimacy, type JDAnalysis } from "../schemas/jd-analysis";
 import { ApplicationStatus, type ApplicationStatus as ApplicationStatusValue } from "../schemas/shared";
 import type { JobDeskAiFailureKind, JobDeskAiSkillBinding } from "../ai/types";
 import { workflowSkillFields } from "./workflow-run-metadata";
+import { getOrCreateDefaultWorkspace } from "./workspace-repository";
 
-const defaultWorkspaceName = "Personal JobDesk";
 type DbHandle = ReturnType<typeof getDb>;
 
 export class JobRepositoryError extends Error {
@@ -309,26 +308,6 @@ export async function updateApplicationStatus(
         applicationStatus: job.applicationStatus,
       })
     : ({ status: "not_found" as const });
-}
-
-async function getOrCreateDefaultWorkspace(db: Pick<DbHandle, "select" | "insert">) {
-  const [existing] = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.name, defaultWorkspaceName))
-    .limit(1);
-  if (existing) return existing;
-
-  const [created] = await db
-    .insert(workspaces)
-    .values({
-      name: defaultWorkspaceName,
-    })
-    .returning();
-  if (!created) {
-    throw new Error("Failed to create workspace.");
-  }
-  return created;
 }
 
 async function createSourceDocument(
