@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-16
 Baseline commit: ce44458 `Build local MVP workflow baseline`
-Latest implementation commit: 6bb36ad `chore: stabilize workflow baseline diagnostics`
+Latest implementation commit: 875055d `fix: tighten workflow audit and enrichment dedupe`
 Production URL: https://jobdesk-tau.vercel.app
 Final UI reference: Figma Make `Si82hetJamO8bUqHOacgv9` — signed off as **JobDesk Final Project Reference UI v1**
 
@@ -75,7 +75,7 @@ Support workflows:
 | S4 | Local embedding RAG index | Done, MVP | Deterministic local hash-vector embeddings persisted in Postgres JSONB with explicit `/api/retrieval/reindex`. Resume retrieval consumes existing embeddings as a best-effort semantic bonus and falls back to deterministic overlap ranking. |
 | S5 | Personal access gate | Done, MVP | Optional `JOBDESK_ACCESS_TOKEN` protects `/api/*` through middleware and lets the workbench send the token from browser-local storage. |
 | S6 | Skills Registry audit metadata | Done, MVP | `src/ai/skills-registry.ts` binds live AI/deterministic workflows to runtime skill ids, prompt versions, schema versions, model tiers, and source skill ids. `workflow_runs` persists this metadata, and Resume Review reports now link to workflow runs. Runtime SKILL.md loader / prompt composer is not implemented yet. |
-| S7 | Workflow/system diagnostics | Done, MVP | Settings exposes read-only diagnostics for DB connectivity, AI provider status, current model, registry entry count, latest workflow runs, failed workflow count, and last workflow time without exposing API keys. |
+| S7 | Workflow/system diagnostics | Done | Settings exposes read-only diagnostics for DB connectivity, AI provider status, current model, registry entry count, latest workflow runs, failed workflow count, and last workflow time without exposing API keys. |
 
 ## Latest Verified Local Workflow
 
@@ -109,6 +109,8 @@ Last verified on 2026-06-16:
 | `npm run verify:local` | Passed; runs typecheck, unit tests, and DB integration tests |
 | `npm run build` | Passed |
 | `npm run db:migrate` | Passed on the configured JobDesk development database through `drizzle/0011_slim_imperial_guard.sql` |
+| Guided Evidence Enrichment audit checks | Passed; source-aware dedupe and terminal-state protection verified in integration tests |
+| Main Resume Builder audit checks | Passed; success and failure workflow metadata verified in integration tests |
 | Local responsive UI browser audit at `http://localhost:3030` | Passed, app shell desktop, Evidence Library navigation, Overlap Cleanup tab, 390px mobile, no horizontal overflow, no browser console errors |
 | Local `/api/retrieval/reindex` smoke | Passed, saved 264 chunks |
 | Local `/api/interview-prep/generate` smoke | Passed, saved prep pack with 4 behavioral questions and 1 technical topic |
