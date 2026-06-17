@@ -21,6 +21,13 @@ export type PositioningRoleFamily = z.infer<typeof PositioningRoleFamily>;
 export const PositioningConfidence = z.enum(["low", "medium", "high"]);
 export type PositioningConfidence = z.infer<typeof PositioningConfidence>;
 
+export const PositioningSupportLevel = z.enum([
+  "strong_fit",
+  "medium_fit",
+  "aspirational_gap",
+]);
+export type PositioningSupportLevel = z.infer<typeof PositioningSupportLevel>;
+
 export const PositioningSupportingEvidence = z.object({
   evidence_id: z.string().trim().min(1),
   reason: z.string().trim().min(1),
@@ -36,6 +43,7 @@ export const PositioningDirection = z.object({
   role_family: PositioningRoleFamily,
   fit_score: z.number().min(0).max(100),
   confidence: PositioningConfidence,
+  support_level: PositioningSupportLevel,
   positioning_angle: z.string().trim().min(1),
   supporting_evidence: z.array(PositioningSupportingEvidence).default([]),
   evidence_strength_explanation: z.string().trim().min(1),

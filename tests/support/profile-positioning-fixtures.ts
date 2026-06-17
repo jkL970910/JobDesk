@@ -7,6 +7,7 @@ export function buildDirection(evidenceId: string): PositioningDirection {
     role_family: "data",
     fit_score: 78,
     confidence: "medium",
+    support_level: "medium_fit",
     positioning_angle: "Lead with analytics execution and product funnel ownership.",
     supporting_evidence: [
       {

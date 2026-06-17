@@ -1840,6 +1840,56 @@ textarea:focus-visible {
   margin: 0;
 }
 
+.positioning-direction-card small {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 760;
+}
+
+.positioning-support-badge {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: var(--muted);
+  display: inline-flex;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  margin-top: 4px;
+  padding: 4px 8px;
+  text-transform: uppercase;
+}
+
+.positioning-support-badge[data-level="strong_fit"] {
+  background: rgba(49, 208, 170, 0.14);
+  border-color: rgba(49, 208, 170, 0.38);
+  color: var(--primary-strong);
+}
+
+.positioning-support-badge[data-level="medium_fit"] {
+  background: rgba(255, 190, 92, 0.12);
+  border-color: rgba(255, 190, 92, 0.3);
+  color: #ffd08a;
+}
+
+.positioning-support-badge[data-level="aspirational_gap"] {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--muted);
+}
+
+.compact-gap-list {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.76rem;
+  gap: 4px;
+  line-height: 1.35;
+  list-style: disc;
+  margin: 0;
+  padding-left: 16px;
+}
+
 .positioning-detail-grid {
   display: grid;
   gap: 10px;

@@ -242,6 +242,7 @@ describe("ProfilePositioningReport", () => {
           role_family: "data",
           fit_score: 76,
           confidence: "medium",
+          support_level: "medium_fit",
           positioning_angle: "Lead with analytics automation and product execution.",
           supporting_evidence: [
             {

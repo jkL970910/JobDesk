@@ -1,19 +1,24 @@
 import crypto from "node:crypto";
 
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 
 import { skillRegistry } from "../ai/skills-registry";
+import type { ProfilePositioningEvidenceContext } from "../ai/profile-positioning";
 import type {
   JobDeskAiFailureKind,
   JobDeskAiSkillBinding,
   JobDeskAiUsage,
 } from "../ai/types";
 import { getDb, hasDatabaseUrl } from "../db/client";
-import { profilePositioningReports, workflowRuns } from "../db/schema";
+import {
+  evidenceItems,
+  profilePositioningReports,
+  profiles,
+  workflowRuns,
+} from "../db/schema";
 import type { ProfilePositioningReport } from "../schemas/profile-positioning";
-import type { TailoredResumeEvidenceContext } from "../ai/tailored-resume";
-import { getResumeTailoringContext } from "./profile-evidence-repository";
 import { workflowSkillFields } from "./workflow-run-metadata";
+import { upsertEnrichmentTasks } from "./enrichment-task-repository";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 
 export type ProfilePositioningContext = Awaited<
@@ -34,11 +39,44 @@ export type ProfilePositioningPersistenceResult =
     };
 
 export async function getProfilePositioningContext() {
-  const context = await getResumeTailoringContext(null);
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [profile] = await db
+    .select()
+    .from(profiles)
+    .where(eq(profiles.workspaceId, workspace.id))
+    .orderBy(desc(profiles.updatedAt))
+    .limit(1);
+  const rows = await db
+    .select()
+    .from(evidenceItems)
+    .where(
+      and(
+        eq(evidenceItems.workspaceId, workspace.id),
+        or(
+          eq(evidenceItems.status, "approved"),
+          and(
+            eq(evidenceItems.status, "pending"),
+            eq(evidenceItems.needsUserConfirmation, 0),
+          ),
+        ),
+      ),
+    )
+    .orderBy(desc(evidenceItems.updatedAt))
+    .limit(80);
+  const evidence = rows
+    .filter((item) => isUsefulPositioningEvidence(item))
+    .map(toProfilePositioningEvidenceContext);
   return {
-    profile: context.profile,
-    evidenceItems: context.evidenceItems,
-    evidenceSnapshotHash: buildEvidenceSnapshotHash(context.evidenceItems),
+    profile: profile
+      ? {
+          id: profile.id,
+          profile: profile.profileJson,
+          updatedAt: profile.updatedAt.toISOString(),
+        }
+      : null,
+    evidenceItems: evidence,
+    evidenceSnapshotHash: buildEvidenceSnapshotHash(evidence),
   };
 }
 
@@ -82,6 +120,46 @@ export async function getProfilePositioningReportById(reportId: string) {
     evidenceSnapshotHash: row.evidenceSnapshotHash,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export async function createPositioningEnrichmentTasks(args: {
+  reportId: string;
+  directionId: string;
+}) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [row] = await db
+    .select()
+    .from(profilePositioningReports)
+    .where(
+      and(
+        eq(profilePositioningReports.id, args.reportId),
+        eq(profilePositioningReports.workspaceId, workspace.id),
+      ),
+    )
+    .limit(1);
+  if (!row) return { status: "not_found" as const };
+  const report = row.reportJson as ProfilePositioningReport;
+  const direction = report.directions.find((candidate) => candidate.id === args.directionId);
+  if (!direction) return { status: "not_found" as const };
+  const tasks = direction.missing_evidence_questions.map((question) => ({
+    taskType: classifyPositioningQuestion(question),
+    sourceType: "user_input" as const,
+    sourceLabel: `Positioning: ${direction.target_role}`,
+    prompt: question,
+  }));
+  const inserted = await upsertEnrichmentTasks(db, {
+    workspaceId: workspace.id,
+    tasks,
+  });
+  return {
+    status: "saved" as const,
+    taskCount: inserted.length,
+    directionTitle: direction.target_role,
   };
 }
 
@@ -150,6 +228,52 @@ export async function persistProfilePositioningReport(args: {
   });
 }
 
+export class ProfilePositioningPostCheckError extends Error {
+  readonly issues: string[];
+
+  constructor(issues: string[]) {
+    super(`Profile positioning report failed deterministic checks: ${issues.join("; ")}`);
+    this.name = "ProfilePositioningPostCheckError";
+    this.issues = issues;
+  }
+}
+
+export function validateProfilePositioningReport(
+  report: ProfilePositioningReport,
+  evidenceItems: ProfilePositioningEvidenceContext[],
+) {
+  const evidenceIds = new Set(evidenceItems.map((item) => item.id));
+  const issues: string[] = [];
+  for (const direction of report.directions) {
+    if (direction.supporting_evidence.length === 0) {
+      issues.push(`${direction.id}: missing supporting evidence`);
+    }
+    if (direction.fit_score < 0 || direction.fit_score > 100) {
+      issues.push(`${direction.id}: fit score outside 0-100`);
+    }
+    if (
+      (direction.confidence === "low" || direction.confidence === "medium") &&
+      direction.missing_evidence_questions.length === 0
+    ) {
+      issues.push(`${direction.id}: low/medium confidence direction needs missing evidence questions`);
+    }
+    if (
+      direction.support_level === "aspirational_gap" &&
+      direction.missing_evidence_questions.length === 0
+    ) {
+      issues.push(`${direction.id}: aspirational direction needs missing evidence questions`);
+    }
+    for (const support of direction.supporting_evidence) {
+      if (!evidenceIds.has(support.evidence_id)) {
+        issues.push(`${direction.id}: unknown evidence id ${support.evidence_id}`);
+      }
+    }
+  }
+  if (issues.length > 0) {
+    throw new ProfilePositioningPostCheckError(issues);
+  }
+}
+
 export async function persistProfilePositioningFailure(args: {
   provider: string;
   model: string;
@@ -186,7 +310,47 @@ export async function persistProfilePositioningFailure(args: {
     : ({ status: "skipped" as const, reason: "missing_database_url" as const });
 }
 
-function buildEvidenceSnapshotHash(evidenceItems: TailoredResumeEvidenceContext[]) {
+function isUsefulPositioningEvidence(item: typeof evidenceItems.$inferSelect) {
+  if (item.allowedUsage.includes("internal_only")) return false;
+  if (item.status === "approved") return true;
+  return item.status === "pending" && item.needsUserConfirmation === 0;
+}
+
+function toProfilePositioningEvidenceContext(
+  item: typeof evidenceItems.$inferSelect,
+): ProfilePositioningEvidenceContext {
+  return {
+    id: item.id,
+    text: item.text,
+    source_quote: item.sourceQuote,
+    evidence_type: item.evidenceType,
+    status: item.status,
+    allowed_usage: item.allowedUsage,
+    needs_user_confirmation: item.needsUserConfirmation === 1,
+    metrics: item.metrics,
+    sensitivity_level: item.sensitivityLevel,
+    public_safe_summary: item.publicSafeSummary,
+  };
+}
+
+function classifyPositioningQuestion(question: string) {
+  const normalized = question.toLowerCase();
+  if (/\bmetric|measure|impact|result|lift|revenue|conversion|reduction\b/.test(normalized)) {
+    return "metric" as const;
+  }
+  if (/\bscope|team|scale|users|stakeholder|cross-functional\b/.test(normalized)) {
+    return "scope" as const;
+  }
+  if (/\bown|owner|ownership|led|drive|decision\b/.test(normalized)) {
+    return "ownership" as const;
+  }
+  if (/\btechnical|architecture|system|model|api|data\b/.test(normalized)) {
+    return "technical_depth" as const;
+  }
+  return "impact" as const;
+}
+
+function buildEvidenceSnapshotHash(evidenceItems: ProfilePositioningEvidenceContext[]) {
   return crypto
     .createHash("sha256")
     .update(

@@ -99,6 +99,7 @@ type ProfilePositioningReportSummary = {
       role_family: string;
       fit_score: number;
       confidence: "low" | "medium" | "high";
+      support_level: "strong_fit" | "medium_fit" | "aspirational_gap";
       positioning_angle: string;
       evidence_strength_explanation: string;
       supporting_evidence: Array<{
@@ -1030,6 +1031,14 @@ function formatResumePrepState(state: ResumePrepWorkflowState) {
   return copy[state];
 }
 
+function formatPositioningSupportLevel(
+  level: ProfilePositioningReportSummary["report"]["directions"][number]["support_level"],
+) {
+  if (level === "strong_fit") return "Strong fit";
+  if (level === "medium_fit") return "Medium fit";
+  return "Aspirational / evidence gap";
+}
+
 function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void }) {
   const { fetchJson } = useAccess();
   const [library, setLibrary] = useState<EvidenceLibrarySummary | null>(null);
@@ -1062,7 +1071,7 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
           fetchJson("/api/profile-evidence/recent"),
           fetchJson("/api/resume-review"),
           fetchJson("/api/main-resume"),
-          fetchJson("/api/profile-positioning"),
+          fetchJson("/api/profile-positioning/recent"),
         ]);
         if (cancelled) return;
         const hasLibrary = libraryResult.status === "fulfilled" && libraryResult.value.ok;
@@ -1182,7 +1191,7 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
         );
         return;
       }
-      const reportResponse = await fetchJson("/api/profile-positioning");
+      const reportResponse = await fetchJson("/api/profile-positioning/recent");
       if (reportResponse.ok) {
         const reportPayload = (await reportResponse.json()) as {
           data?: { reports?: ProfilePositioningReportSummary[] };
@@ -1258,6 +1267,37 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
       );
     } finally {
       setIsGeneratingMainResume(false);
+    }
+  }
+
+  async function createPositioningEnrichmentTasks() {
+    if (!latestPositioningReport || !selectedPositioningDirection) return;
+    setPositioningStatus(`Creating enrichment tasks for ${selectedPositioningDirection.target_role}...`);
+    try {
+      const response = await fetchJson("/api/profile-positioning/enrichment-tasks", {
+        body: JSON.stringify({
+          positioningReportId: latestPositioningReport.id,
+          positioningDirectionId: selectedPositioningDirection.id,
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      const payload = (await response.json()) as {
+        data?: { taskCount?: number; directionTitle?: string };
+        error?: string;
+      };
+      if (!response.ok) {
+        setPositioningStatus(payload.error ?? "Failed to create enrichment tasks.");
+        return;
+      }
+      setPositioningStatus(
+        `Created ${payload.data?.taskCount ?? 0} enrichment task(s) for ${payload.data?.directionTitle ?? selectedPositioningDirection.target_role}.`,
+      );
+      onNavigate("evidence");
+    } catch (error) {
+      setPositioningStatus(
+        error instanceof Error ? error.message : "Failed to create enrichment tasks.",
+      );
     }
   }
 
@@ -1474,8 +1514,15 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
                   >
                     <span>{direction.role_family}</span>
                     <strong>{direction.target_role}</strong>
-                    <em>{direction.fit_score}/100 · {direction.confidence}</em>
+                    <em>
+                      {formatPositioningSupportLevel(direction.support_level)} ·{" "}
+                      {direction.fit_score}/100 · {direction.confidence}
+                    </em>
                     <p>{direction.positioning_angle}</p>
+                    <small>
+                      {direction.supporting_evidence.length} evidence cited ·{" "}
+                      {direction.missing_evidence_questions.length} gaps
+                    </small>
                   </button>
                 );
               })}
@@ -1485,6 +1532,9 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
                 <div>
                   <p className="panel-kicker">Selected direction</p>
                   <h4>{selectedPositioningDirection.target_role}</h4>
+                  <span className="positioning-support-badge" data-level={selectedPositioningDirection.support_level}>
+                    {formatPositioningSupportLevel(selectedPositioningDirection.support_level)}
+                  </span>
                   <p>{selectedPositioningDirection.evidence_strength_explanation}</p>
                 </div>
                 <div className="positioning-detail-grid">
@@ -1506,8 +1556,26 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
                   <article>
                     <span>Missing proof</span>
                     <strong>{selectedPositioningDirection.missing_evidence_questions.length}</strong>
-                    <p>{selectedPositioningDirection.missing_evidence_questions[0] ?? "No missing evidence question listed."}</p>
+                    {selectedPositioningDirection.missing_evidence_questions.length > 0 ? (
+                      <ul className="compact-gap-list">
+                        {selectedPositioningDirection.missing_evidence_questions
+                          .slice(0, 3)
+                          .map((question) => (
+                            <li key={question}>{question}</li>
+                          ))}
+                      </ul>
+                    ) : (
+                      <p>No missing evidence question listed.</p>
+                    )}
                   </article>
+                </div>
+                <div className="actions actions--compact">
+                  <button className="secondary-button" onClick={() => onNavigate("evidence")} type="button">
+                    View supporting evidence
+                  </button>
+                  <button className="secondary-button" onClick={() => void createPositioningEnrichmentTasks()} type="button">
+                    Create enrichment tasks
+                  </button>
                 </div>
               </div>
             ) : null}

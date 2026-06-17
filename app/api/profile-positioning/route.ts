@@ -9,6 +9,8 @@ import {
   getRecentProfilePositioningReports,
   persistProfilePositioningFailure,
   persistProfilePositioningReport,
+  ProfilePositioningPostCheckError,
+  validateProfilePositioningReport,
 } from "../../../src/server/profile-positioning-repository";
 
 export async function GET() {
@@ -57,6 +59,7 @@ export async function POST() {
       profile: context.profile.profile,
       evidenceItems: context.evidenceItems,
     });
+    validateProfilePositioningReport(result.data, context.evidenceItems);
     const persistence = await persistProfilePositioningReport({
       profileId: context.profile.id,
       report: result.data,
@@ -79,6 +82,24 @@ export async function POST() {
       },
     });
   } catch (error) {
+    if (error instanceof ProfilePositioningPostCheckError) {
+      await persistFailureRun({
+        provider: `openrouter-compatible:${config.transport}`,
+        model: config.model,
+        errorKind: "contract_invalid",
+        errorMessage: error.message,
+        retryCount: 0,
+      });
+      return NextResponse.json(
+        {
+          error: "Profile positioning output failed deterministic validation.",
+          issues: error.issues,
+          kind: "contract_invalid",
+        },
+        { status: 422 },
+      );
+    }
+
     if (error instanceof JobDeskAiError) {
       await persistFailureRun({
         provider: `openrouter-compatible:${config.transport}`,

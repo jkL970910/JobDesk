@@ -1,6 +1,6 @@
 # JobDesk Development Status
 
-Last updated: 2026-06-16
+Last updated: 2026-06-17
 Baseline commit: ce44458 `Build local MVP workflow baseline`
 Latest implementation commit: aad7ece `feat: add profile positioning engine`
 Production URL: https://jobdesk-tau.vercel.app
@@ -64,7 +64,7 @@ Product workflows:
 | 8 | Job Workspace: interview preparation | Done, MVP | Passed | Generates persisted prep packs from an analyzed job, STAR story bank, local embedding retrieval context, behavioral questions, technical review topics, research prompts, practice plan, and evidence gaps. |
 | 9 | Job Workspace: manual application tracking | Done, MVP | Passed | Updates analyzed jobs through the canonical application status pipeline without external actions or email automation. |
 | 10 | Profile: Main Resume Builder | Done, MVP | Passed | Generates a general-purpose main resume under Profile from canonical profile facts plus resume-safe evidence, writes `main_resume_versions`, stores generated claim ledger entries, runs deterministic Fact Guard, exposes Markdown/JSON export, and keeps JD-tailored resumes separate under Job Workspace. |
-| 11 | Profile: Positioning Engine and Main Resume variants | Done, MVP | Passed | Analyzes canonical profile facts plus resume-safe Evidence Library material to recommend 3-5 evidence-backed target role directions without requiring a concrete JD. Persists `profile_positioning_reports`, writes workflow metadata through the Skills Registry, links selected directions to `main_resume_versions`, and lets Profile generate direction-specific Main Resume variants that still run deterministic Fact Guard. |
+| 11 | Profile: Positioning Engine and Main Resume variants | Done, MVP | Passed | Analyzes canonical profile facts plus approved or user-confirmed Evidence Library material to recommend 3-5 evidence-backed target role directions without requiring a concrete JD. Direction cards explicitly separate `strong_fit`, `medium_fit`, and `aspirational_gap`, show supporting evidence and missing-evidence counts, and can create enrichment tasks from positioning gaps. The API persists `profile_positioning_reports`, writes workflow metadata through the Skills Registry, exposes `/api/profile-positioning/recent`, post-checks AI output for valid evidence ids and low/medium confidence gaps before saving, links selected directions to `main_resume_versions`, and lets Profile generate direction-specific Main Resume variants that still run deterministic Fact Guard. |
 
 Support workflows:
 
@@ -106,8 +106,8 @@ Last verified on 2026-06-16:
 | Command | Status |
 |---------|--------|
 | `npm run typecheck` | Passed |
-| `npm test` | Passed, 74 passed / 8 skipped |
-| `npm run test:integration` | Passed, 4 files / 8 tests passed |
+| `npm test` | Passed, 82 passed / 10 skipped |
+| `npm run test:integration` | Passed, 5 files / 10 tests passed |
 | `npm run verify:local` | Passed; runs typecheck, unit tests, and DB integration tests |
 | `npm run build` | Passed |
 | Resume Review → Needs Enrichment UI closure | Passed; Resume Review shows evidence-gap task handoff, counts only real matching tasks, and routes directly to Evidence Library Needs Enrichment |
@@ -117,7 +117,7 @@ Last verified on 2026-06-16:
 | `npm run db:migrate` | Passed on the configured JobDesk development database through `drizzle/0012_jobdesk_accounts.sql` |
 | Guided Evidence Enrichment audit checks | Passed; source-aware dedupe and terminal-state protection verified in integration tests |
 | Main Resume Builder audit checks | Passed; success and failure workflow metadata verified in integration tests |
-| Profile Positioning Engine audit checks | Passed; schema, skill registry, AI builder, repository persistence, workflow metadata, and Main Resume variant linkage verified |
+| Profile Positioning Engine audit checks | Passed; schema, skill registry, AI builder, deterministic post-checks, recent report API, repository persistence, workflow metadata, cross-workspace isolation, Main Resume variant linkage, and positioned variant Fact Guard verified |
 | Runtime SKILL.md loader / prompt composer with frontmatter version checks | Passed; source skill hard rules load into live prompts and version mismatch fails fast |
 | Tailored Resume automatic Fact Guard | Passed; generated tailored resumes auto-run claim support review after persistence |
 | Resume-safe evidence disclosure gate | Passed; direct approval, bulk project approval, retrieval eligibility, dashboard readiness, and Evidence Library labels require public-safe disclosure before resume use |
@@ -153,7 +153,7 @@ Integration tests use the configured JobDesk database and write temporary workfl
 - Running `next build` while `next dev` is still running can invalidate dev-server chunks in `.next`; restart the dev server after a production build.
 - Account login/register is implemented for personal accounts and per-account default workspace isolation. Raw-id repository paths are scoped to the current workspace for the implemented workflows, production account sessions require `JOBDESK_SESSION_SECRET`, and the first registered account claims the legacy unowned workspace. Middleware remains edge-safe and validates signed session cookies before requests reach route handlers; full DB-backed session revocation is enforced by auth APIs and repository workspace ownership, but there is not yet a route-level test suite for every API endpoint. It is not yet a full team/workspace-sharing system, RBAC layer, password reset flow, or OAuth/social-login system. `JOBDESK_ACCESS_TOKEN` remains as a legacy bearer-token bypass for personal deployments.
 - Evidence Library Builder MVP is implemented for project-note enrichment, enrichment-answer AI extraction with deterministic fallback, project-card review, inline evidence edit/linking with related-project validation, project-level overlap merge or keep-separate review, evidence-level overlap merge or keep-separate review, deterministic external-safe de-identification guards with blocked-term reports, computed STAR story promotion, and local embedding index reindexing. Resume-use eligibility now requires approved evidence plus public-safe disclosure, so private evidence without a clean public-safe summary cannot enter Main Resume or Tailored Resume retrieval. The embedding layer is a deterministic local JSONB MVP, not pgvector/ANN or provider embeddings yet.
-- Profile Positioning Engine MVP is evidence-backed and no-JD. It recommends role directions as fit hypotheses, not career prescriptions, and only consumes the current workspace's canonical profile plus resume-safe evidence. It does not perform job search, market research, open-role recommendation, or company-specific targeting without a JD.
+- Profile Positioning Engine MVP is evidence-backed and no-JD. It recommends role directions as fit hypotheses, not career prescriptions, and consumes the current workspace's canonical profile plus approved or user-confirmed Evidence Library material for analysis. Positioning reports cannot persist directions with zero support, unknown evidence ids, or low/medium confidence without missing-evidence questions. Main Resume generation still uses resume-safe evidence as the external-facing output gate. It does not perform job search, market research, open-role recommendation, or company-specific targeting without a JD.
 - Resume extraction can generate thin project/evidence cards because resumes rarely contain full project context. This is expected. The current UI surfaces readiness, shows Resume Review missing-evidence question status from real matching tasks, routes users into Needs Enrichment, and creates persistent enrichment tasks from Resume Review missing-evidence questions and extraction notes. Project-level Source Intake handoff remains available from story cards and STAR stories.
 - Project card edits still use browser prompts for some fields. Evidence edits now use inline card editing; project editing should move to the same inline/drawer pattern before production-level UX signoff.
 - Resume retrieval does not auto-reindex on every tailored-resume request. Run `/api/retrieval/reindex` or generate an interview prep pack to refresh local embeddings.

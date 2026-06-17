@@ -5,6 +5,10 @@ import { loadDotEnv } from "../src/ai/env";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
 import type { TailoredResumeDraft } from "../src/schemas/tailored-resume";
 import {
+  registerUser,
+  runWithAuthContext,
+} from "../src/server/auth-service";
+import {
   getRecentEvidenceLibrary,
   getResumeTailoringContext,
   persistProfileEvidenceExtraction,
@@ -17,7 +21,11 @@ import {
   persistProfilePositioningFailure,
   persistProfilePositioningReport,
 } from "../src/server/profile-positioning-repository";
-import { getRecentMainResumes, persistMainResume } from "../src/server/resume-repository";
+import {
+  getRecentMainResumes,
+  persistMainResume,
+  runFactGuardForMainResume,
+} from "../src/server/resume-repository";
 import { expectWorkflowRunMetadata } from "./helpers/workflow-run-assertions";
 import { buildDirection } from "./support/profile-positioning-fixtures";
 
@@ -109,6 +117,12 @@ describe.skipIf(!runIntegration)("profile positioning repository integration", (
       positioning_direction_id: "data-product-manager",
       positioning_title: "Data Product Manager",
     });
+    const guard = await runFactGuardForMainResume(mainResume.mainResumeVersionId);
+    expect(guard).toMatchObject({
+      status: "validated",
+      supportedCount: 1,
+      resumeStatus: "validated",
+    });
 
     const failure = await persistProfilePositioningFailure({
       provider: "integration-test",
@@ -128,6 +142,51 @@ describe.skipIf(!runIntegration)("profile positioning repository integration", (
       workflowType: "profile-positioning",
       sourceSkillIds: ["profile-positioning"],
     });
+  });
+
+  it("does not expose positioning reports across authenticated workspaces", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const owner = await registerUser({
+      email: `positioning-owner-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    const other = await registerUser({
+      email: `positioning-other-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created" || other.status !== "created") {
+      throw new Error("Expected test users to be created.");
+    }
+
+    const ownerReportId = await runWithAuthContext(owner.user.id, async () => {
+      const evidenceId = await createApprovedResumeEvidence();
+      const context = await getProfilePositioningContext();
+      const persisted = await persistProfilePositioningReport({
+        profileId: context.profile?.id ?? null,
+        report: {
+          summary: "Owner-only positioning report.",
+          generated_at: new Date().toISOString(),
+          directions: [buildDirection(evidenceId)],
+          global_strengths: ["Analytics execution"],
+          global_gaps: ["Product strategy scope"],
+        },
+        evidenceSnapshotHash: context.evidenceSnapshotHash,
+        provider: "integration-test",
+        model: "test-model",
+        usage: {},
+        retryCount: 0,
+        skill: skillRegistry.profilePositioning,
+      });
+      if (persisted.status !== "saved") {
+        throw new Error("Expected owner report to persist.");
+      }
+      return persisted.profilePositioningReportId;
+    });
+
+    const otherLoadedReport = await runWithAuthContext(other.user.id, () =>
+      getProfilePositioningReportById(ownerReportId),
+    );
+    expect(otherLoadedReport).toBeNull();
   });
 });
 
