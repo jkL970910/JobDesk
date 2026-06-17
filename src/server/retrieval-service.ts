@@ -3,6 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { getDb, hasDatabaseUrl } from "../db/client";
 import { searchPersonalEmbeddings } from "./embedding-service";
 import { evidenceItems } from "../db/schema";
+import { getCurrentWorkspace } from "./workspace-repository";
 import {
   AllowedUsage,
   type EvidenceType,
@@ -68,11 +69,14 @@ export async function retrieveResumeEvidenceForJob(
 ) {
   if (!hasDatabaseUrl()) return [];
 
-  const candidates = await getDb()
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const candidates = await db
     .select()
     .from(evidenceItems)
     .where(
       and(
+        eq(evidenceItems.workspaceId, workspace.id),
         eq(evidenceItems.status, "approved"),
         eq(evidenceItems.needsUserConfirmation, 0),
       ),

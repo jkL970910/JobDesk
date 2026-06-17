@@ -22,6 +22,7 @@ import type { TailoredResumeDraft } from "../src/schemas/tailored-resume";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
 import { skillRegistry } from "../src/ai/skills-registry";
 import { expectWorkflowRunMetadata } from "./helpers/workflow-run-assertions";
+import { registerUser, runWithAuthContext } from "../src/server/auth-service";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
 
@@ -258,6 +259,40 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
       supportedCount: 1,
       resumeStatus: "validated",
     });
+  });
+
+  it("does not retrieve another workspace's approved resume evidence", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const owner = await registerUser({
+      email: `retrieval-owner-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    const other = await registerUser({
+      email: `retrieval-other-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created" || other.status !== "created") {
+      throw new Error("Expected test users to be created.");
+    }
+
+    const ownerEvidenceId = await runWithAuthContext(owner.user.id, () =>
+      createApprovedResumeEvidence(),
+    );
+    await expect(
+      runWithAuthContext(owner.user.id, () => getResumeTailoringContext()),
+    ).resolves.toMatchObject({
+      evidenceItems: expect.arrayContaining([
+        expect.objectContaining({ id: ownerEvidenceId }),
+      ]),
+    });
+
+    const otherContext = await runWithAuthContext(other.user.id, () =>
+      getResumeTailoringContext({
+        keywords: ["sql", "dashboards"],
+        requirements: [{ text: "SQL dashboards", keywords: ["sql"] }],
+      }),
+    );
+    expect(otherContext.evidenceItems.some((item) => item.id === ownerEvidenceId)).toBe(false);
   });
 });
 
