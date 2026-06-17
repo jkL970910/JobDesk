@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-16
 Baseline commit: ce44458 `Build local MVP workflow baseline`
-Latest implementation commit: 222860e `fix: harden account auth baseline`
+Latest implementation commit: 7045e7e `fix: scope resume evidence retrieval`
 Production URL: https://jobdesk-tau.vercel.app
 Final UI reference: Figma Make `Si82hetJamO8bUqHOacgv9` — signed off as **JobDesk Final Project Reference UI v1**
 
@@ -72,7 +72,7 @@ Support workflows:
 | S1 | Local dashboard/workbench | Done, MVP | Figma-reference app shell now separates Dashboard, Profile, Evidence Library, Jobs, Applications, Interview Prep, planned Recommendations, planned Growth Profile, and Settings while keeping implemented workflows backed by real APIs. |
 | S2 | DB persistence and migrations | Done | Drizzle/Postgres migrations are committed. Existing dev DB journal was baselined for 0000-0005, then migration 0006 was applied normally. Use migrations for any DB with user data. |
 | S3 | Vercel deployment path | Done | Production deployment path exists at `https://jobdesk-tau.vercel.app`; rerun production smoke after the latest local-only workflow changes before treating production as current. |
-| S4 | Local embedding RAG index | Done, MVP | Deterministic local hash-vector embeddings persisted in Postgres JSONB with explicit `/api/retrieval/reindex`. Resume retrieval consumes existing embeddings as a best-effort semantic bonus and falls back to deterministic overlap ranking. |
+| S4 | Local embedding RAG index | Done, MVP | Deterministic local hash-vector embeddings persisted in Postgres JSONB with explicit `/api/retrieval/reindex`. Resume retrieval consumes current-workspace embeddings as a best-effort semantic bonus and falls back to deterministic overlap ranking over current-workspace approved evidence only. |
 | S5 | Personal access gate | Done, MVP | Optional `JOBDESK_ACCESS_TOKEN` protects `/api/*` through middleware and lets the workbench send the token from browser-local storage. |
 | S6 | Skills Registry audit metadata | Done, MVP | `src/ai/skills-registry.ts` binds live AI/deterministic workflows to runtime skill ids, prompt versions, schema versions, model tiers, and source skill ids. `workflow_runs` persists this metadata, and Resume Review reports now link to workflow runs. Runtime SKILL.md loader / prompt composer is not implemented yet. |
 | S7 | Workflow/system diagnostics | Done | Settings exposes read-only diagnostics for DB connectivity, AI provider status, current model, registry entry count, latest workflow runs, failed workflow count, and last workflow time without exposing API keys. |
@@ -105,13 +105,14 @@ Last verified on 2026-06-16:
 | Command | Status |
 |---------|--------|
 | `npm run typecheck` | Passed |
-| `npm test` | Passed, 70 passed / 7 skipped |
-| `npm run test:integration` | Passed, 4 files / 7 tests passed |
+| `npm test` | Passed, 70 passed / 8 skipped |
+| `npm run test:integration` | Passed, 4 files / 8 tests passed |
 | `npm run verify:local` | Passed; runs typecheck, unit tests, and DB integration tests |
 | `npm run build` | Passed |
 | Resume Review → Needs Enrichment UI closure | Passed; Resume Review shows evidence-gap task handoff, counts only real matching tasks, and routes directly to Evidence Library Needs Enrichment |
 | Account auth migration and middleware gate | Passed; `drizzle/0012_jobdesk_accounts.sql` applied locally, access guard tests cover signed session cookies, auth route bypass, and production missing-secret fail-closed behavior |
 | Workspace ownership guard | Passed; integration tests cover cross-user raw job ids, resume source ids returning not-found/update-denied semantics, and first-account claim of the legacy unowned workspace |
+| Resume evidence retrieval workspace guard | Passed; integration test verifies one account cannot retrieve another account's approved resume evidence for tailoring context |
 | `npm run db:migrate` | Passed on the configured JobDesk development database through `drizzle/0012_jobdesk_accounts.sql` |
 | Guided Evidence Enrichment audit checks | Passed; source-aware dedupe and terminal-state protection verified in integration tests |
 | Main Resume Builder audit checks | Passed; success and failure workflow metadata verified in integration tests |
