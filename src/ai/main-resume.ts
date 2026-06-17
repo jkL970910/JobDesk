@@ -1,3 +1,7 @@
+import type {
+  ResumeRefreshMode,
+  ResumeRefreshStyleConstraints,
+} from "../schemas/main-resume";
 import { MainResumeDraft } from "../schemas/main-resume";
 import type { TailoredResumeEvidenceContext } from "./tailored-resume";
 import { resolveJobDeskAiConfig } from "./config";
@@ -11,6 +15,12 @@ export async function generateMainResumeWithAi(params: {
   profile: Record<string, unknown>;
   evidenceItems: TailoredResumeEvidenceContext[];
   positioningDirection?: PositioningDirection | null;
+  refreshContext?: {
+    sourceResumeTitle: string;
+    sourceResumeText: string;
+    mode: ResumeRefreshMode;
+    styleConstraints?: ResumeRefreshStyleConstraints;
+  } | null;
   fetchFn?: FetchLike;
 }) {
   const adapter = new OpenRouterResponsesAdapter({
@@ -27,6 +37,14 @@ export async function generateMainResumeWithAi(params: {
       approved_resume_evidence: params.evidenceItems.map(toExternalFacingEvidence),
       positioning_direction: params.positioningDirection
         ? toPositioningDirectionInput(params.positioningDirection)
+        : null,
+      resume_refresh: params.refreshContext
+        ? {
+            source_resume_title: params.refreshContext.sourceResumeTitle,
+            source_resume_text: params.refreshContext.sourceResumeText,
+            update_mode: params.refreshContext.mode,
+            style_constraints: params.refreshContext.styleConstraints ?? {},
+          }
         : null,
     }),
     maxOutputTokens: 3200,
@@ -66,6 +84,12 @@ export function buildMainResumeInstructions() {
     "Generate a general-purpose recruiter/networking resume, not a JD-tailored resume.",
     "If positioning_direction is provided, generate a direction-specific Main Resume variant for that role direction while staying evidence-bounded.",
     "If positioning_direction is provided, follow its summary angle, skills emphasis, project ordering guidance, keywords, and deprioritize guidance only where supplied evidence supports the wording.",
+    "If resume_refresh is provided, refresh the old resume as an output artifact using the current approved_resume_evidence as the fact source.",
+    "For resume_refresh, do not re-extract evidence from source_resume_text and do not treat the old resume as truth when it conflicts with approved_resume_evidence.",
+    "For conservative_update, preserve the old resume structure and add only clearly supported updates.",
+    "For balanced_rewrite, preserve major sections but improve narrative and prioritization.",
+    "For strategic_reposition, rewrite around positioning_direction when provided; if no positioning_direction is provided, keep it as a broader evidence-backed refresh.",
+    "Honor resume_refresh style_constraints where they do not conflict with evidence grounding.",
     "Use only the provided profile and approved_resume_evidence. Do not use outside knowledge and do not invent facts.",
     "For external-facing resume wording, prefer public_safe_summary when present; never expose private company, client, or internal system names from source_quote.",
     "Every substantive resume bullet must have a matching claim in claims.",

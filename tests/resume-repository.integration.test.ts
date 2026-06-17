@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { loadDotEnv } from "../src/ai/env";
+import { getDb } from "../src/db/client";
+import { resumeSourceVersions, sourceDocuments } from "../src/db/schema";
 import { persistJdAnalysis } from "../src/server/job-repository";
 import {
   getRecentEvidenceLibrary,
@@ -18,6 +20,7 @@ import {
   runFactGuardForMainResume,
   runFactGuardForResume,
 } from "../src/server/resume-repository";
+import { getCurrentWorkspace } from "../src/server/workspace-repository";
 import type { JDAnalysis } from "../src/schemas/jd-analysis";
 import type { TailoredResumeDraft } from "../src/schemas/tailored-resume";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
@@ -252,6 +255,46 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
       claim_text: "Built SQL dashboards for onboarding funnel analysis.",
       evidence_ids: [evidenceId],
     });
+
+    const refreshSourceResume = await createRefreshSourceResume();
+    const refreshedMainResumeResult = await persistMainResume({
+      draft: {
+        ...buildResumeDraft(evidenceId),
+        title: "Refreshed integration resume",
+      },
+      generationMode: "resume_refresh",
+      refresh: {
+        mode: "balanced_rewrite",
+        sourceResume: refreshSourceResume,
+        styleConstraints: {
+          atsFriendly: true,
+          preserveSectionOrder: true,
+          targetLength: "one_page",
+          tone: "concise",
+        },
+      },
+      provider: "integration-test",
+      model: "test-model",
+      usage: { totalTokens: 88 },
+      retryCount: 0,
+      skill: skillRegistry.mainResume,
+    });
+    if (refreshedMainResumeResult.status !== "saved") {
+      throw new Error("Expected saved refreshed main resume.");
+    }
+    const refreshedMainResume = (await getRecentMainResumes(10)).find(
+      (resume) => resume.id === refreshedMainResumeResult.mainResumeVersionId,
+    );
+    expect(refreshedMainResume).toMatchObject({
+      generation_mode: "resume_refresh",
+      refresh_mode: "balanced_rewrite",
+      refresh_source_resume_id: refreshSourceResume.id,
+    });
+    expect(refreshedMainResume?.refresh_style_constraints).toMatchObject({
+      atsFriendly: true,
+      targetLength: "one_page",
+    });
+
     const exportedMainResume = await getMainResumeById(mainResumeResult.mainResumeVersionId);
     expect(exportedMainResume).toMatchObject({
       id: mainResumeResult.mainResumeVersionId,
@@ -265,7 +308,7 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
       supportedCount: 1,
       resumeStatus: "validated",
     });
-  });
+  }, 12_000);
 
   it("does not retrieve another workspace's approved resume evidence", async () => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -301,6 +344,55 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
     expect(otherContext.evidenceItems.some((item) => item.id === ownerEvidenceId)).toBe(false);
   });
 });
+
+async function createRefreshSourceResume() {
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const now = new Date();
+  const sourceText = `Old resume\nExperience\nBuilt dashboards.\n${Date.now()}`;
+  const [sourceDocument] = await db
+    .insert(sourceDocuments)
+    .values({
+      workspaceId: workspace.id,
+      sourceType: "resume-review",
+      title: "Old resume refresh baseline",
+      contentText: sourceText,
+      contentHash: `refresh-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      createdAt: now,
+    })
+    .returning({ id: sourceDocuments.id });
+  if (!sourceDocument) throw new Error("Expected source document.");
+  const [resume] = await db
+    .insert(resumeSourceVersions)
+    .values({
+      workspaceId: workspace.id,
+      sourceDocumentId: sourceDocument.id,
+      title: "Old resume refresh baseline",
+      contentHash: `refresh-resume-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      sourceKind: "text",
+      sourceText,
+      version: 1,
+      status: "reviewed",
+      lastReviewedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning();
+  if (!resume) throw new Error("Expected resume source version.");
+  return {
+    id: resume.id,
+    title: resume.title,
+    sourceKind: resume.sourceKind,
+    sourceText: resume.sourceText,
+    version: resume.version,
+    status: resume.status,
+    contentHash: resume.contentHash,
+    lastReviewedAt: resume.lastReviewedAt?.toISOString() ?? null,
+    extractedAt: resume.extractedAt?.toISOString() ?? null,
+    createdAt: resume.createdAt.toISOString(),
+    updatedAt: resume.updatedAt.toISOString(),
+  };
+}
 
 function buildAnalysis(): JDAnalysis {
   return {
@@ -430,7 +522,7 @@ function buildExtraction(): ProfileEvidenceExtraction {
         source_quote: "Built SQL dashboards for onboarding funnel analysis.",
         evidence_type: "extracted",
         metrics: [],
-        sensitivity_level: "private",
+        sensitivity_level: "public_safe",
         allowed_usage: ["resume"],
         public_safe_summary: null,
         status: "pending",

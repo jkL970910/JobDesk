@@ -1918,6 +1918,61 @@ textarea:focus-visible {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.resume-refresh-panel {
+  background: rgba(8, 12, 20, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.resume-refresh-panel h4 {
+  color: var(--ink);
+  margin: 0 0 6px;
+}
+
+.resume-refresh-panel p {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.42;
+  margin: 0;
+}
+
+.resume-refresh-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.resume-refresh-grid label,
+.resume-refresh-options label {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.74rem;
+  font-weight: 750;
+  gap: 6px;
+}
+
+.resume-refresh-grid select {
+  background: rgba(8, 12, 20, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  padding: 9px 10px;
+}
+
+.resume-refresh-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.resume-refresh-options label {
+  align-items: center;
+  display: flex;
+}
+
 .main-resume-builder__metrics {
   display: grid;
   gap: 10px;
@@ -4374,6 +4429,7 @@ select:focus {
   .profile-fact-grid,
   .positioning-detail-grid,
   .positioning-direction-grid,
+  .resume-refresh-grid,
   .review-top-fixes__grid,
   .review-finding-grid,
   .evidence-priority-queue__items {
@@ -4439,6 +4495,7 @@ select:focus {
   .profile-fact-grid,
   .positioning-detail-grid,
   .positioning-direction-grid,
+  .resume-refresh-grid,
   .review-top-fixes__grid,
   .review-finding-grid,
   .evidence-priority-queue__items,
@@ -4498,6 +4555,7 @@ select:focus {
   .profile-fact-grid,
   .positioning-detail-grid,
   .positioning-direction-grid,
+  .resume-refresh-grid,
   .review-detail-tabs,
   .review-top-fixes__grid,
   .review-finding-grid,

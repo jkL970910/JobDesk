@@ -5,8 +5,14 @@ import { resolveJobDeskAiConfig } from "../../../src/ai/config";
 import { JobDeskAiError } from "../../../src/ai/errors";
 import { generateMainResumeWithAi } from "../../../src/ai/main-resume";
 import { skillRegistry } from "../../../src/ai/skills-registry";
+import {
+  MainResumeGenerationMode,
+  ResumeRefreshMode,
+  ResumeRefreshStyleConstraints,
+} from "../../../src/schemas/main-resume";
 import { getResumeTailoringContext } from "../../../src/server/profile-evidence-repository";
 import { getProfilePositioningReportById } from "../../../src/server/profile-positioning-repository";
+import { getResumeSourceVersion } from "../../../src/server/resume-review-repository";
 import {
   getRecentMainResumes,
   persistMainResume,
@@ -20,8 +26,12 @@ import {
 
 const postSchema = z
   .object({
+    generationMode: MainResumeGenerationMode.optional(),
     positioningReportId: z.string().uuid().optional(),
     positioningDirectionId: z.string().trim().min(1).optional(),
+    refreshSourceResumeId: z.string().uuid().optional(),
+    refreshMode: ResumeRefreshMode.optional(),
+    styleConstraints: ResumeRefreshStyleConstraints.optional(),
   })
   .optional();
 
@@ -71,12 +81,22 @@ export async function POST(request: Request) {
       );
     }
 
+    const generationMode = parsed.data?.generationMode ?? inferGenerationMode(parsed.data);
     const positioning = await resolvePositioningSelection(parsed.data);
+    const refresh = await resolveRefreshSelection(parsed.data, generationMode);
 
     const result = await generateMainResumeWithAi({
       profile: context.profile.profile,
       evidenceItems: context.evidenceItems,
       positioningDirection: positioning?.direction ?? null,
+      refreshContext: refresh
+        ? {
+            sourceResumeText: refresh.sourceResume.sourceText,
+            sourceResumeTitle: refresh.sourceResume.title,
+            mode: refresh.mode,
+            styleConstraints: refresh.styleConstraints,
+          }
+        : null,
     });
     validateTailoredResumeDraft({
       draft: result.data,
@@ -94,7 +114,9 @@ export async function POST(request: Request) {
       usage: result.usage,
       retryCount: result.retryCount,
       skill: result.skill,
+      generationMode,
       positioning,
+      refresh,
     });
     const factGuard =
       persistence.status === "saved"
@@ -113,6 +135,14 @@ export async function POST(request: Request) {
               reportId: positioning.reportId,
               directionId: positioning.direction.id,
               targetRole: positioning.direction.target_role,
+            }
+          : null,
+        refresh: refresh
+          ? {
+              sourceResumeId: refresh.sourceResume.id,
+              sourceResumeTitle: refresh.sourceResume.title,
+              mode: refresh.mode,
+              styleConstraints: refresh.styleConstraints,
             }
           : null,
         persistence,
@@ -225,6 +255,51 @@ async function resolvePositioningSelection(
     reportId: report.id,
     direction,
   };
+}
+
+async function resolveRefreshSelection(
+  selection:
+    | {
+        refreshSourceResumeId?: string;
+        refreshMode?: z.infer<typeof ResumeRefreshMode>;
+        styleConstraints?: z.infer<typeof ResumeRefreshStyleConstraints>;
+      }
+    | undefined,
+  generationMode: z.infer<typeof MainResumeGenerationMode>,
+) {
+  if (generationMode !== "resume_refresh") return null;
+  if (!selection?.refreshSourceResumeId) {
+    throw new MainResumeSelectionError("Select an old resume before refreshing it.");
+  }
+  const sourceResume = await getResumeSourceVersion(selection.refreshSourceResumeId);
+  if (sourceResume.status !== "ready") {
+    throw new MainResumeSelectionError(
+      sourceResume.status === "not_found"
+        ? "Selected resume source was not found in this workspace."
+        : "Selected resume source is not available.",
+    );
+  }
+  return {
+    sourceResume: sourceResume.resume,
+    mode: selection.refreshMode ?? "balanced_rewrite",
+    styleConstraints: selection.styleConstraints ?? {},
+  };
+}
+
+function inferGenerationMode(
+  selection:
+    | {
+        positioningReportId?: string;
+        positioningDirectionId?: string;
+        refreshSourceResumeId?: string;
+      }
+    | undefined,
+) {
+  if (selection?.refreshSourceResumeId) return "resume_refresh" as const;
+  if (selection?.positioningReportId || selection?.positioningDirectionId) {
+    return "positioning_variant" as const;
+  }
+  return "main_resume" as const;
 }
 
 class MainResumeSelectionError extends Error {

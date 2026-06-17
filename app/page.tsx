@@ -66,9 +66,12 @@ type ResumeReviewSummary = {
 type MainResumeSummary = {
   id: string;
   title: string;
+  generation_mode?: "main_resume" | "positioning_variant" | "resume_refresh";
   positioning_report_id?: string | null;
   positioning_direction_id?: string | null;
   positioning_title?: string | null;
+  refresh_source_resume_id?: string | null;
+  refresh_mode?: string | null;
   resume_markdown: string;
   missing_evidence_questions: string[];
   status: string;
@@ -776,25 +779,25 @@ function DashboardView({
         ];
   const entryPaths = [
     {
-      action: "Start with resume",
+      action: "Build library",
       body:
-        "Upload a current resume, review its weak spots, then extract thin project/evidence signals for enrichment.",
-      intent: "resume" as const,
-      title: "I have a resume",
+        "Import resumes, project notes, performance excerpts, or guided answers into canonical evidence, stories, and enrichment tasks.",
+      target: () => onStartMaterialPath(hasExtractedMaterial ? "scratch" : "resume"),
+      title: "Build My Evidence Library",
     },
     {
-      action: "Add source docs",
+      action: "Create or update",
       body:
-        "Add design docs, project summaries, performance notes, or guided answers to create or enrich story material.",
-      intent: "scratch" as const,
-      title: "Project/source docs",
+        "Generate main resumes, positioning variants, refresh an old resume, review versions, and export final artifacts.",
+      target: () => onNavigate("profile"),
+      title: "Create or Update My Resume",
     },
     {
-      action: "Analyze JD",
+      action: "Apply to job",
       body:
-        "Create a quick job workspace now; missing evidence becomes follow-up work for the library.",
-      intent: "jd" as const,
-      title: "I have a JD now",
+        "Analyze a specific JD, find evidence gaps, tailor a resume, prepare interview notes, and track the application.",
+      target: () => onNavigate("jobs"),
+      title: "Apply to a Target Job",
     },
   ];
 
@@ -887,10 +890,10 @@ function DashboardView({
 
       <section className="entry-path-board" aria-label="Start JobDesk workflow">
         {entryPaths.map((path) => (
-          <article data-phase={path.intent === "resume" || hasExtractedMaterial || resumeReadyClaims > 0 ? "primary" : "secondary"} key={path.intent}>
+          <article data-phase={path.title === "Apply to a Target Job" && resumeReadyClaims === 0 ? "secondary" : "primary"} key={path.title}>
             <span>{path.title}</span>
             <p>{path.body}</p>
-            <button type="button" onClick={() => onStartMaterialPath(path.intent)}>
+            <button type="button" onClick={path.target}>
               {path.action}
             </button>
           </article>
@@ -1055,6 +1058,18 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
   const [positioningStatus, setPositioningStatus] = useState<string | null>(null);
   const [isGeneratingMainResume, setIsGeneratingMainResume] = useState(false);
   const [isGeneratingPositioning, setIsGeneratingPositioning] = useState(false);
+  const [refreshSourceResumeId, setRefreshSourceResumeId] = useState("");
+  const [refreshMode, setRefreshMode] = useState<
+    "conservative_update" | "balanced_rewrite" | "strategic_reposition"
+  >("balanced_rewrite");
+  const [refreshTargetLength, setRefreshTargetLength] = useState<
+    "one_page" | "standard" | "detailed"
+  >("standard");
+  const [refreshTone, setRefreshTone] = useState<
+    "concise" | "executive" | "technical" | "product"
+  >("concise");
+  const [refreshPreserveSectionOrder, setRefreshPreserveSectionOrder] = useState(true);
+  const [refreshAtsFriendly, setRefreshAtsFriendly] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -1210,23 +1225,47 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
     }
   }
 
-  async function generateMainResume(options?: { useSelectedPositioning?: boolean }) {
+  async function generateMainResume(options?: {
+    mode?: "main_resume" | "positioning_variant" | "resume_refresh";
+  }) {
     setIsGeneratingMainResume(true);
-    const usePositioning = Boolean(options?.useSelectedPositioning && selectedPositioningDirection);
+    const mode = options?.mode ?? "main_resume";
+    const useRefresh = mode === "resume_refresh";
+    const usePositioning = Boolean(
+      (mode === "positioning_variant" || mode === "resume_refresh") &&
+        selectedPositioningDirection,
+    );
     setMainResumeStatus(
-      usePositioning
+      useRefresh
+        ? "Refreshing old resume with current approved evidence..."
+        : usePositioning
         ? `Generating ${selectedPositioningDirection?.target_role} resume variant...`
         : "Generating main resume from resume-safe evidence...",
     );
     try {
+      if (useRefresh && !refreshSourceResumeId) {
+        setMainResumeStatus("Select an old resume version before refreshing.");
+        return;
+      }
       const response = await fetchJson("/api/main-resume", {
-        body: usePositioning
+        body: usePositioning || useRefresh
           ? JSON.stringify({
+              generationMode: mode,
               positioningReportId: latestPositioningReport?.id,
               positioningDirectionId: selectedPositioningDirection?.id,
+              refreshSourceResumeId: useRefresh ? refreshSourceResumeId : undefined,
+              refreshMode: useRefresh ? refreshMode : undefined,
+              styleConstraints: useRefresh
+                ? {
+                    atsFriendly: refreshAtsFriendly,
+                    preserveSectionOrder: refreshPreserveSectionOrder,
+                    targetLength: refreshTargetLength,
+                    tone: refreshTone,
+                  }
+                : undefined,
             })
           : undefined,
-        headers: usePositioning ? { "content-type": "application/json" } : undefined,
+        headers: usePositioning || useRefresh ? { "content-type": "application/json" } : undefined,
         method: "POST",
       });
       const payload = (await response.json().catch(() => null)) as
@@ -1254,10 +1293,14 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
       }
       setMainResumeStatus(
         payload?.meta?.factGuard?.status === "validated"
-          ? usePositioning
+          ? useRefresh
+            ? "Refreshed resume generated and Fact Guard completed."
+            : usePositioning
             ? "Positioned main resume variant generated and Fact Guard completed."
             : "Main resume generated and Fact Guard completed."
-          : usePositioning
+          : useRefresh
+            ? "Refreshed resume generated. Review claim support before export."
+            : usePositioning
             ? "Positioned main resume variant generated. Review claim support before export."
             : "Main resume generated. Review claim support before export.",
       );
@@ -1597,7 +1640,7 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
             className="primary-button"
             disabled={!mainResumeReady || isGeneratingMainResume}
             type="button"
-            onClick={() => void generateMainResume()}
+            onClick={() => void generateMainResume({ mode: "main_resume" })}
           >
             {isGeneratingMainResume ? "Generating..." : "Generate main resume"}
           </button>
@@ -1615,12 +1658,100 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
               className="secondary-button"
               disabled={!mainResumeReady || isGeneratingMainResume}
               type="button"
-              onClick={() => void generateMainResume({ useSelectedPositioning: true })}
+              onClick={() => void generateMainResume({ mode: "positioning_variant" })}
             >
               Generate this variant
             </button>
           </div>
         ) : null}
+        <div className="resume-refresh-panel">
+          <div>
+            <p className="panel-kicker">Resume Refresh</p>
+            <h4>Refresh an old resume using current evidence.</h4>
+            <p>
+              Select a reviewed resume as the structure baseline. JobDesk does not
+              re-extract evidence by default; the Evidence Library remains the fact source.
+            </p>
+          </div>
+          <div className="resume-refresh-grid">
+            <label>
+              <span>Old resume</span>
+              <select
+                value={refreshSourceResumeId}
+                onChange={(event) => setRefreshSourceResumeId(event.target.value)}
+              >
+                <option value="">Select a resume version</option>
+                {resumes.map((resume) => (
+                  <option key={resume.id} value={resume.id}>
+                    {formatResumeTitle(resume.title)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Update mode</span>
+              <select
+                value={refreshMode}
+                onChange={(event) => setRefreshMode(event.target.value as typeof refreshMode)}
+              >
+                <option value="conservative_update">Conservative update</option>
+                <option value="balanced_rewrite">Balanced rewrite</option>
+                <option value="strategic_reposition">Strategic reposition</option>
+              </select>
+            </label>
+            <label>
+              <span>Length</span>
+              <select
+                value={refreshTargetLength}
+                onChange={(event) =>
+                  setRefreshTargetLength(event.target.value as typeof refreshTargetLength)
+                }
+              >
+                <option value="one_page">One page</option>
+                <option value="standard">Standard</option>
+                <option value="detailed">Detailed</option>
+              </select>
+            </label>
+            <label>
+              <span>Tone</span>
+              <select
+                value={refreshTone}
+                onChange={(event) => setRefreshTone(event.target.value as typeof refreshTone)}
+              >
+                <option value="concise">Concise</option>
+                <option value="executive">Executive</option>
+                <option value="technical">Technical</option>
+                <option value="product">Product</option>
+              </select>
+            </label>
+          </div>
+          <div className="resume-refresh-options">
+            <label>
+              <input
+                checked={refreshPreserveSectionOrder}
+                onChange={(event) => setRefreshPreserveSectionOrder(event.target.checked)}
+                type="checkbox"
+              />
+              Preserve section order
+            </label>
+            <label>
+              <input
+                checked={refreshAtsFriendly}
+                onChange={(event) => setRefreshAtsFriendly(event.target.checked)}
+                type="checkbox"
+              />
+              ATS-friendly wording
+            </label>
+          </div>
+          <button
+            className="secondary-button"
+            disabled={!mainResumeReady || !refreshSourceResumeId || isGeneratingMainResume}
+            onClick={() => void generateMainResume({ mode: "resume_refresh" })}
+            type="button"
+          >
+            Refresh selected resume
+          </button>
+        </div>
         <div className="main-resume-builder__metrics">
           <article>
             <span>Resume-safe evidence</span>
@@ -1630,7 +1761,11 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
           <article>
             <span>Latest main resume</span>
             <strong>{latestMainResume?.positioning_title ?? (latestMainResume ? latestMainResume.status : "None")}</strong>
-            <p>{latestMainResume ? formatDateTime(latestMainResume.updatedAt) : "No generated main resume yet."}</p>
+            <p>
+              {latestMainResume
+                ? `${latestMainResume.generation_mode ?? "main_resume"} · ${formatDateTime(latestMainResume.updatedAt)}`
+                : "No generated main resume yet."}
+            </p>
           </article>
           <article>
             <span>Claim ledger</span>

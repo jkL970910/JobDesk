@@ -101,4 +101,63 @@ describe("profile positioning AI workflows", () => {
     expect(request).toContain("Data Product Manager");
     expect(request).toContain("Generate a general-purpose recruiter/networking resume");
   });
+
+  it("injects resume refresh context into main resume generation", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetchFn = async (_url: string | URL, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({
+            title: "Refreshed main resume",
+            resume_json: {},
+            resume_markdown: "## Experience\n- Built activation funnel dashboard.",
+            claims: [
+              {
+                claim_text: "Built activation funnel dashboard.",
+                section: "Experience",
+                evidence_ids: ["evidence-1"],
+                source_quotes: ["Built activation funnel dashboard."],
+                risk_level: "low",
+              },
+            ],
+            missing_evidence_questions: [],
+          }),
+        }),
+        { status: 200 },
+      );
+    };
+
+    await generateMainResumeWithAi({
+      profile: { name: { value: "Jane Doe" } },
+      evidenceItems: [
+        {
+          id: "evidence-1",
+          text: "Built activation funnel dashboard.",
+          source_quote: "Built activation funnel dashboard.",
+          metrics: [],
+          sensitivity_level: "public_safe",
+          public_safe_summary: null,
+        },
+      ],
+      refreshContext: {
+        mode: "balanced_rewrite",
+        sourceResumeText: "Old resume text.",
+        sourceResumeTitle: "Old resume v1",
+        styleConstraints: {
+          atsFriendly: true,
+          preserveSectionOrder: true,
+          targetLength: "one_page",
+          tone: "concise",
+        },
+      },
+      fetchFn,
+    });
+
+    const request = JSON.stringify(bodies[0]);
+    expect(request).toContain("resume_refresh");
+    expect(request).toContain("balanced_rewrite");
+    expect(request).toContain("Old resume v1");
+    expect(request).toContain("do not re-extract evidence");
+  });
 });

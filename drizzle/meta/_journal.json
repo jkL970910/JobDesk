@@ -99,6 +99,13 @@
       "when": 1781666400000,
       "tag": "0013_profile_positioning",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1781742000000,
+      "tag": "0014_resume_refresh_metadata",
+      "breakpoints": true
     }
   ]
 }

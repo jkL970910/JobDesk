@@ -15,8 +15,14 @@ import type {
   JobDeskAiUsage,
 } from "../ai/types";
 import type { TailoredResumeDraft } from "../schemas/tailored-resume";
-import type { MainResumeDraft } from "../schemas/main-resume";
+import type {
+  MainResumeDraft,
+  MainResumeGenerationMode,
+  ResumeRefreshMode,
+  ResumeRefreshStyleConstraints,
+} from "../schemas/main-resume";
 import type { PositioningDirection } from "../schemas/profile-positioning";
+import type { getResumeSourceVersion } from "./resume-review-repository";
 import { claimsMatch, validateBulletClaimCoverage } from "./tailored-resume-guardrails";
 import { workflowSkillFields } from "./workflow-run-metadata";
 import { skillRegistry } from "../ai/skills-registry";
@@ -158,9 +164,15 @@ export async function persistTailoredResume(args: {
 
 export async function persistMainResume(args: {
   draft: MainResumeDraft;
+  generationMode?: MainResumeGenerationMode;
   positioning?: {
     reportId: string;
     direction: PositioningDirection;
+  } | null;
+  refresh?: {
+    sourceResume: Extract<Awaited<ReturnType<typeof getResumeSourceVersion>>, { status: "ready" }>["resume"];
+    mode: ResumeRefreshMode;
+    styleConstraints?: ResumeRefreshStyleConstraints;
   } | null;
   provider: string;
   model: string;
@@ -204,6 +216,10 @@ export async function persistMainResume(args: {
         positioningReportId: args.positioning?.reportId ?? null,
         positioningDirectionId: args.positioning?.direction.id ?? null,
         positioningTitle: args.positioning?.direction.target_role ?? null,
+        generationMode: args.generationMode ?? "main_resume",
+        refreshSourceResumeId: args.refresh?.sourceResume.id ?? null,
+        refreshMode: args.refresh?.mode ?? null,
+        refreshStyleConstraints: args.refresh?.styleConstraints ?? null,
         title: args.draft.title,
         resumeJson: args.draft.resume_json,
         resumeMarkdown: args.draft.resume_markdown,
@@ -336,9 +352,13 @@ async function toMainResumeDto(
   return {
     id: resume.id,
     title: resume.title,
+    generation_mode: resume.generationMode,
     positioning_report_id: resume.positioningReportId,
     positioning_direction_id: resume.positioningDirectionId,
     positioning_title: resume.positioningTitle,
+    refresh_source_resume_id: resume.refreshSourceResumeId,
+    refresh_mode: resume.refreshMode,
+    refresh_style_constraints: resume.refreshStyleConstraints,
     resume_markdown: resume.resumeMarkdown,
     resume_json: resume.resumeJson,
     missing_evidence_questions: resume.missingEvidenceQuestions,

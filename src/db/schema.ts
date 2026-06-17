@@ -728,6 +728,20 @@ export const mainResumeVersions = pgTable(
     ),
     positioningDirectionId: varchar("positioning_direction_id", { length: 120 }),
     positioningTitle: varchar("positioning_title", { length: 240 }),
+    generationMode: varchar("generation_mode", { length: 40 })
+      .$type<"main_resume" | "positioning_variant" | "resume_refresh">()
+      .notNull()
+      .default("main_resume"),
+    refreshSourceResumeId: uuid("refresh_source_resume_id").references(
+      () => resumeSourceVersions.id,
+      { onDelete: "set null" },
+    ),
+    refreshMode: varchar("refresh_mode", { length: 40 }).$type<
+      "conservative_update" | "balanced_rewrite" | "strategic_reposition"
+    >(),
+    refreshStyleConstraints: jsonb("refresh_style_constraints")
+      .$type<Record<string, unknown> | null>()
+      .default(null),
     title: varchar("title", { length: 240 }).notNull(),
     resumeJson: jsonb("resume_json")
       .$type<Record<string, unknown>>()
@@ -758,6 +772,9 @@ export const mainResumeVersions = pgTable(
     positioningIdx: index("main_resume_versions_positioning_idx").on(
       table.positioningReportId,
       table.positioningDirectionId,
+    ),
+    refreshSourceIdx: index("main_resume_versions_refresh_source_idx").on(
+      table.refreshSourceResumeId,
     ),
   }),
 );
@@ -1139,6 +1156,10 @@ export const mainResumeVersionRelations = relations(
     positioningReport: one(profilePositioningReports, {
       fields: [mainResumeVersions.positioningReportId],
       references: [profilePositioningReports.id],
+    }),
+    refreshSourceResume: one(resumeSourceVersions, {
+      fields: [mainResumeVersions.refreshSourceResumeId],
+      references: [resumeSourceVersions.id],
     }),
     claims: many(generatedClaims),
   }),
