@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-17
 Baseline commit: ce44458 `Build local MVP workflow baseline`
-Latest implementation commit: next `feat: add resume refresh workflow mode`
+Latest implementation commit: a5e56ca `feat: add resume refresh workflow mode`
 Production URL: https://jobdesk-tau.vercel.app
 Final UI reference: Figma Make `Si82hetJamO8bUqHOacgv9` — signed off as **JobDesk Final Project Reference UI v1**
 
