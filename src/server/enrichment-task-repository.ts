@@ -51,6 +51,15 @@ export type EnrichmentTaskDraft = {
   resumeReviewReportId?: string | null;
 };
 
+export type EnrichmentAnswerExtractorResult = {
+  extraction: ProfileEvidenceExtraction;
+  provider: string;
+  model: string;
+  usage: { inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null };
+  retryCount: number;
+  skill: JobDeskAiSkillBinding;
+};
+
 export async function getEnrichmentTaskQueue(filters: EnrichmentTaskQueueFilters | number = {}) {
   if (!hasDatabaseUrl()) {
     return {
@@ -183,6 +192,10 @@ export async function updateEnrichmentTask(args: {
   action: "answer" | "dismiss" | "reopen" | "convert";
   userAnswer?: string;
   useAiExtraction?: boolean;
+  extractAnswerEvidence?: (args: {
+    sourceId: string;
+    sourceText: string;
+  }) => Promise<EnrichmentAnswerExtractorResult | null>;
 }) {
   if (!hasDatabaseUrl()) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
@@ -203,6 +216,7 @@ export async function updateEnrichmentTask(args: {
       task: existing,
       now,
       useAiExtraction: args.useAiExtraction ?? false,
+      extractAnswerEvidence: args.extractAnswerEvidence,
     });
   }
 
@@ -240,6 +254,10 @@ async function convertEnrichmentTaskToEvidenceCandidate(
     task: typeof enrichmentTasks.$inferSelect;
     now: Date;
     useAiExtraction: boolean;
+    extractAnswerEvidence?: (args: {
+      sourceId: string;
+      sourceText: string;
+    }) => Promise<EnrichmentAnswerExtractorResult | null>;
   },
 ) {
   if (!args.task.userAnswer?.trim()) {
@@ -255,9 +273,9 @@ async function convertEnrichmentTaskToEvidenceCandidate(
 
   const content = args.task.userAnswer?.trim() ?? "";
   const aiExtraction = args.useAiExtraction
-    ? await extractEnrichmentAnswerEvidence({
+    ? await (args.extractAnswerEvidence ?? extractEnrichmentAnswerEvidence)({
         sourceId: args.task.id,
-        sourceText: buildEnrichmentAnswerSourceText(args.task, content),
+        sourceText: content,
       })
     : null;
 
@@ -283,13 +301,15 @@ async function convertEnrichmentTaskToEvidenceCandidate(
     const insertedEvidence = await tx
       .insert(evidenceItems)
       .values(
-        evidenceDrafts.map((item) => ({
+        evidenceDrafts.map((item) => {
+          const guardrail = evaluateEnrichmentEvidenceGuardrails(item, content);
+          return {
           workspaceId: args.task.workspaceId,
           sourceDocumentId: sourceDocument.id,
           text: item.text,
           sourceQuote: item.source_quote,
           evidenceType: item.evidence_type,
-          metrics: item.metrics as Array<Record<string, unknown>>,
+          metrics: guardrail.metrics,
           sensitivityLevel: item.sensitivity_level,
           allowedUsage: item.allowed_usage,
           publicSafeSummary: item.public_safe_summary,
@@ -297,10 +317,11 @@ async function convertEnrichmentTaskToEvidenceCandidate(
           relatedWorkExperienceId: args.task.workExperienceId,
           relatedInitiativeId: args.task.initiativeId,
           relatedPortfolioProjectId: args.task.portfolioProjectId,
-          needsUserConfirmation: item.needs_user_confirmation ? 1 : 0,
+          needsUserConfirmation: guardrail.needsUserConfirmation ? 1 : 0,
           createdAt: args.now,
           updatedAt: args.now,
-        })),
+          };
+        }),
       )
       .returning({ id: evidenceItems.id });
     if (insertedEvidence.length === 0) {
@@ -408,19 +429,6 @@ async function persistEnrichmentExtractionFailure(args: {
   });
 }
 
-function buildEnrichmentAnswerSourceText(
-  task: typeof enrichmentTasks.$inferSelect,
-  answer: string,
-) {
-  return [
-    `Source label: ${task.sourceLabel}`,
-    `Task type: ${task.taskType}`,
-    `Prompt: ${task.prompt}`,
-    "User answer:",
-    answer,
-  ].join("\n");
-}
-
 function buildFallbackEvidenceDraft(
   content: string,
 ): ProfileEvidenceExtraction["evidence_items"][number] {
@@ -439,6 +447,30 @@ function buildFallbackEvidenceDraft(
     related_portfolio_project_id: null,
     needs_user_confirmation: true,
   };
+}
+
+function evaluateEnrichmentEvidenceGuardrails(
+  item: ProfileEvidenceExtraction["evidence_items"][number],
+  sourceText: string,
+) {
+  const quoteFound = sourceText.includes(item.source_quote);
+  const groundedMetrics = item.metrics.filter((metric) =>
+    sourceText.includes(metric.source_quote) &&
+    metricNumbersAreInQuote(metric.value, metric.source_quote),
+  );
+  return {
+    metrics: groundedMetrics as Array<Record<string, unknown>>,
+    needsUserConfirmation:
+      item.needs_user_confirmation ||
+      item.evidence_type === "inferred" ||
+      !quoteFound ||
+      groundedMetrics.length !== item.metrics.length,
+  };
+}
+
+function metricNumbersAreInQuote(value: string, quote: string) {
+  const numbers = value.match(/\d+(?:[.,]\d+)?%?/g) ?? [];
+  return numbers.every((number) => quote.includes(number));
 }
 
 export async function getOpenEnrichmentTaskCountsByEvidenceIds(evidenceIds: string[]) {

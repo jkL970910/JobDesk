@@ -2373,12 +2373,7 @@ function getStoryReadiness(
 }
 
 function getEvidenceReadiness(item: EvidenceCardItem) {
-  const allowedUsage = item.allowed_usage ?? [];
-  if (
-    item.status === "approved" &&
-    !item.needs_user_confirmation &&
-    allowedUsage.includes("resume")
-  ) {
+  if (isResumeReadyEvidence(item)) {
     return {
       label: "Resume-ready",
       state: "resume_ready" as const,
@@ -2397,6 +2392,19 @@ function getEvidenceReadiness(item: EvidenceCardItem) {
     state: "needs_review" as const,
     next: "Review truth, sensitivity, and allowed usage before using it.",
   };
+}
+
+function isResumeReadyEvidence(item: EvidenceCardItem) {
+  return (
+    item.status === "approved" &&
+    !item.needs_user_confirmation &&
+    (item.allowed_usage ?? []).includes("resume") &&
+    hasExternalSafeDisclosure(item)
+  );
+}
+
+function hasExternalSafeDisclosure(item: EvidenceCardItem) {
+  return item.sensitivity_level === "public_safe" || Boolean(item.public_safe_summary?.trim());
 }
 
 function formatReusableUsage(item: EvidenceCardItem) {
@@ -2526,6 +2534,13 @@ function getEvidenceBlocker(item: EvidenceCardItem) {
       action: "mark_external_safe" as const,
       label: "Add external-safe wording",
       reason: "Sensitive evidence needs external-safe wording.",
+    };
+  }
+  if (item.sensitivity_level !== "public_safe") {
+    return {
+      action: "mark_external_safe" as const,
+      label: "Approve external-safe wording",
+      reason: "Confirm the public-safe summary before resume use.",
     };
   }
   if (!allowedUsage.includes("resume")) {
@@ -3091,12 +3106,7 @@ function EvidenceList({
   const counts = {
     all: items.length,
     approved: items.filter((item) => item.status === "approved").length,
-    resume_ready: items.filter(
-      (item) =>
-        item.status === "approved" &&
-        !item.needs_user_confirmation &&
-        (item.allowed_usage ?? []).includes("resume"),
-    ).length,
+    resume_ready: items.filter(isResumeReadyEvidence).length,
     needs_review: items.filter(
       (item) =>
         item.status !== "approved" ||
@@ -3108,11 +3118,7 @@ function EvidenceList({
     if (filter === "all") return true;
     if (filter === "approved") return item.status === "approved";
     if (filter === "resume_ready") {
-      return (
-        item.status === "approved" &&
-        !item.needs_user_confirmation &&
-        (item.allowed_usage ?? []).includes("resume")
-      );
+      return isResumeReadyEvidence(item);
     }
     return (
       item.status !== "approved" ||

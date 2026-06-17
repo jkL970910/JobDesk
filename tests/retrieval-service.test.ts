@@ -16,7 +16,14 @@ const resumePolicy: EvidenceRetrievalPolicy = {
 
 describe("retrieval service", () => {
   it("blocks evidence that is not eligible for external resume generation", () => {
-    expect(isEvidenceEligible(candidate(), resumePolicy)).toBe(true);
+    expect(isEvidenceEligible(candidate({ sensitivity_level: "public_safe" }), resumePolicy)).toBe(true);
+    expect(
+      isEvidenceEligible(
+        candidate({ public_safe_summary: "Built dashboard reporting for a product team." }),
+        resumePolicy,
+      ),
+    ).toBe(true);
+    expect(isEvidenceEligible(candidate(), resumePolicy)).toBe(false);
     expect(
       isEvidenceEligible(candidate({ status: "pending" }), resumePolicy),
     ).toBe(false);
@@ -56,6 +63,7 @@ describe("retrieval service", () => {
           id: "other",
           text: "Built SQL dashboards.",
           source_quote: "Built SQL dashboards.",
+          sensitivity_level: "public_safe",
         }),
       ],
     });
@@ -84,12 +92,14 @@ describe("retrieval service", () => {
           id: "stakeholder",
           text: "Led stakeholder reporting.",
           source_quote: "Led stakeholder reporting.",
+          sensitivity_level: "public_safe",
           updatedAt: "2026-01-02T00:00:00.000Z",
         }),
         candidate({
           id: "sql",
           text: "Built SQL dashboards for onboarding funnel analytics.",
           source_quote: "Built SQL dashboards for onboarding funnel analytics.",
+          sensitivity_level: "public_safe",
           updatedAt: "2026-01-01T00:00:00.000Z",
         }),
         candidate({

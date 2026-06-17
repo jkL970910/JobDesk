@@ -33,7 +33,11 @@ import {
   buildExtractionNoteEnrichmentTasks,
   upsertEnrichmentTasks,
 } from "./enrichment-task-repository";
-import { buildRedactionReport, isPublicSafeText } from "./deidentification-service";
+import {
+  buildRedactionReport,
+  hasResumeSafeDisclosure,
+  isPublicSafeText,
+} from "./deidentification-service";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 
 export type ProfileEvidencePersistenceResult =
@@ -1323,9 +1327,12 @@ export async function approveProjectEvidenceForResume(projectId: string) {
     .where(and(eq(evidenceItems.workspaceId, workspace.id), eq(evidenceItems.relatedProjectId, projectId)));
   const eligibleEvidence = linkedEvidence.filter(
     (item) =>
-      item.sensitivityLevel !== "sensitive" &&
       item.evidenceType !== "inferred" &&
-      !item.allowedUsage.includes("internal_only"),
+      !item.allowedUsage.includes("internal_only") &&
+      hasResumeSafeDisclosure({
+        sensitivityLevel: item.sensitivityLevel,
+        publicSafeSummary: item.publicSafeSummary,
+      }),
   );
   if (eligibleEvidence.length === 0) {
     return {
@@ -1450,10 +1457,19 @@ export async function updateEvidenceItem(args: {
     const requestedUsage = Array.from(
       new Set([...(args.allowedUsage ?? existing.allowedUsage), "resume"]),
     );
-    if (existing.sensitivityLevel === "sensitive") {
+    if (
+      !hasResumeSafeDisclosure({
+        sensitivityLevel: existing.sensitivityLevel,
+        publicSafeSummary: existing.publicSafeSummary,
+      })
+    ) {
       return {
         status: "invalid" as const,
-        reason: "sensitive_evidence_requires_deidentification" as const,
+        reason: "resume_evidence_requires_public_safe_summary" as const,
+        redactionReport: buildRedactionReport({
+          text: existing.sourceQuote,
+          fallbackSummary: existing.publicSafeSummary,
+        }),
       };
     }
     if (requestedUsage.includes("internal_only") || existing.allowedUsage.includes("internal_only")) {

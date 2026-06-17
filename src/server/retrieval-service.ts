@@ -3,6 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { getDb, hasDatabaseUrl } from "../db/client";
 import { searchPersonalEmbeddings } from "./embedding-service";
 import { evidenceItems } from "../db/schema";
+import { hasResumeSafeDisclosure } from "./deidentification-service";
 import { getCurrentWorkspace } from "./workspace-repository";
 import {
   AllowedUsage,
@@ -136,7 +137,13 @@ export function isEvidenceEligible(
   if (policy.externalFacing && candidate.allowed_usage.includes("internal_only")) {
     return false;
   }
-  if (policy.externalFacing && candidate.sensitivity_level === "sensitive") {
+  if (
+    policy.externalFacing &&
+    !hasResumeSafeDisclosure({
+      sensitivityLevel: candidate.sensitivity_level,
+      publicSafeSummary: candidate.public_safe_summary,
+    })
+  ) {
     return false;
   }
   if (policy.excludeInferred && candidate.evidence_type === "inferred") {

@@ -44,6 +44,15 @@ export function isPublicSafeText(text: string) {
   return findBlockedTerms(text).length === 0;
 }
 
+export function hasResumeSafeDisclosure(input: {
+  sensitivityLevel?: string | null;
+  publicSafeSummary?: string | null;
+}) {
+  if (input.sensitivityLevel === "public_safe") return true;
+  const summary = input.publicSafeSummary?.trim();
+  return Boolean(summary && isPublicSafeText(summary));
+}
+
 function findBlockedTerms(text: string) {
   const seen = new Set<string>();
   for (const pattern of blockedTermPatterns) {

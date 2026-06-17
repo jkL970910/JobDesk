@@ -47,6 +47,7 @@ type EvidenceLibrarySummary = {
     evidence_type: string;
     sensitivity_level: string;
     allowed_usage: string[];
+    public_safe_summary?: string | null;
     needs_user_confirmation?: boolean;
   }>;
   workExperiences: Array<{ id: string; status: string }>;
@@ -964,8 +965,16 @@ function isResumeReadyClaim(item: EvidenceLibrarySummary["evidenceItems"][number
   return (
     item.status === "approved" &&
     item.allowed_usage.includes("resume") &&
-    !item.needs_user_confirmation
+    !item.needs_user_confirmation &&
+    hasExternalSafeDisclosure(item)
   );
+}
+
+function hasExternalSafeDisclosure(item: {
+  sensitivity_level?: string | null;
+  public_safe_summary?: string | null;
+}) {
+  return item.sensitivity_level === "public_safe" || Boolean(item.public_safe_summary?.trim());
 }
 
 function formatResumePrepState(state: ResumePrepWorkflowState) {

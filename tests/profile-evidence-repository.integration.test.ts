@@ -9,6 +9,7 @@ import {
   upsertEnrichmentTasks,
 } from "../src/server/enrichment-task-repository";
 import { getDb } from "../src/db/client";
+import { evidenceItems, sourceDocuments } from "../src/db/schema";
 import {
   getEvidenceDedupeCandidates,
   getProjectDedupeCandidates,
@@ -25,6 +26,7 @@ import {
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
 import { skillRegistry } from "../src/ai/skills-registry";
 import { expectWorkflowRunMetadata } from "./helpers/workflow-run-assertions";
+import { eq } from "drizzle-orm";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
 
@@ -136,6 +138,96 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       conversionMode: "fallback",
       evidenceCount: 1,
     });
+    const aiAnswerPrompt = `AI extraction answer ${result.workflowRunId}`;
+    await upsertEnrichmentTasks(getDb(), {
+      workspaceId: result.workspaceId,
+      tasks: [
+        {
+          taskType: "metric",
+          sourceType: "user_input",
+          sourceLabel: "AI answer smoke",
+          prompt: aiAnswerPrompt,
+        },
+      ],
+    });
+    const aiTaskQueue = await getEnrichmentTaskQueue({
+      limit: 20,
+      sourceType: "user_input",
+      statuses: ["open"],
+    });
+    expect(aiTaskQueue.status).toBe("ready");
+    if (aiTaskQueue.status !== "ready") throw new Error("Expected AI task queue.");
+    const aiTask = aiTaskQueue.tasks.find((task) => task.prompt === aiAnswerPrompt);
+    if (!aiTask) throw new Error("Expected AI extraction task.");
+    const aiAnswer = "Increased onboarding activation by 12% across three cohorts.";
+    await updateEnrichmentTask({
+      taskId: aiTask.id,
+      action: "answer",
+      userAnswer: aiAnswer,
+    });
+    const aiConverted = await updateEnrichmentTask({
+      taskId: aiTask.id,
+      action: "convert",
+      useAiExtraction: true,
+      extractAnswerEvidence: async ({ sourceText }) => ({
+        extraction: {
+          ...buildExtraction(),
+          evidence_items: [
+            {
+              text: "Increased onboarding activation by 12% across three cohorts.",
+              source_quote: sourceText,
+              evidence_type: "extracted",
+              metrics: [
+                { value: "12%", source_quote: "Increased onboarding activation by 12%" },
+                { value: "40%", source_quote: "Prompt said 40%" },
+              ],
+              sensitivity_level: "private",
+              allowed_usage: ["resume", "interview"],
+              public_safe_summary: null,
+              status: "pending",
+              related_project_id: null,
+              needs_user_confirmation: false,
+            },
+          ],
+        },
+        provider: "mock-ai",
+        model: "mock-model",
+        usage: { totalTokens: 10 },
+        retryCount: 0,
+        skill: skillRegistry.profileEvidenceExtractionProjectNote,
+      }),
+    });
+    expect(aiConverted).toMatchObject({
+      status: "saved",
+      conversionMode: "ai_extraction",
+      evidenceCount: 1,
+    });
+    if (
+      aiConverted.status !== "saved" ||
+      !("evidenceItemId" in aiConverted) ||
+      !aiConverted.evidenceItemId
+    ) {
+      throw new Error("Expected converted AI evidence.");
+    }
+    const [aiEvidence] = await getDb()
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.id, aiConverted.evidenceItemId))
+      .limit(1);
+    expect(aiEvidence).toMatchObject({
+      needsUserConfirmation: 1,
+    });
+    expect(aiEvidence?.metrics).toEqual([
+      { value: "12%", source_quote: "Increased onboarding activation by 12%" },
+    ]);
+    const [aiSource] = aiEvidence?.sourceDocumentId
+      ? await getDb()
+          .select()
+          .from(sourceDocuments)
+          .where(eq(sourceDocuments.id, aiEvidence.sourceDocumentId))
+          .limit(1)
+      : [];
+    expect(aiSource?.contentText).toBe(aiAnswer);
     await upsertEnrichmentTasks(getDb(), {
       workspaceId: result.workspaceId,
       tasks: [
@@ -285,6 +377,12 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       afterEditContext.evidenceItems.some((item) => item.id === sqlEvidence.id),
     ).toBe(false);
 
+    await updateEvidenceItem({
+      evidenceId: sqlEvidence.id,
+      action: "edit",
+      publicSafeSummary: "Built dashboard analysis for onboarding funnel metrics.",
+      sensitivityLevel: "public_safe",
+    });
     const resumeEligible = await updateEvidenceItem({
       evidenceId: sqlEvidence.id,
       action: "approve_for_resume",
@@ -315,6 +413,22 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       updateEvidenceItem({
         evidenceId: internalEvidence.id,
         action: "approve_for_resume",
+        allowedUsage: ["resume"],
+      }),
+    ).resolves.toMatchObject({
+      status: "invalid",
+      reason: "resume_evidence_requires_public_safe_summary",
+    });
+    await updateEvidenceItem({
+      evidenceId: internalEvidence.id,
+      action: "edit",
+      publicSafeSummary: "Led stakeholder reporting for cross-functional product teams.",
+      allowedUsage: ["resume", "internal_only"],
+    });
+    await expect(
+      updateEvidenceItem({
+        evidenceId: internalEvidence.id,
+        action: "approve_for_resume",
         allowedUsage: ["resume", "internal_only"],
       }),
     ).resolves.toMatchObject({
@@ -329,7 +443,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       }),
     ).resolves.toMatchObject({
       status: "invalid",
-      reason: "sensitive_evidence_requires_deidentification",
+      reason: "resume_evidence_requires_public_safe_summary",
     });
     await updateEvidenceItem({
       evidenceId: internalEvidence.id,
