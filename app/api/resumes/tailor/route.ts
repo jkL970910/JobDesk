@@ -10,6 +10,7 @@ import { getResumeTailoringContext } from "../../../../src/server/profile-eviden
 import {
   persistTailoredResume,
   persistTailoredResumeFailure,
+  runFactGuardForResume,
 } from "../../../../src/server/resume-repository";
 import {
   TailoredResumeGuardrailError,
@@ -81,6 +82,16 @@ export async function POST(request: Request) {
       retryCount: result.retryCount,
       skill: result.skill,
     });
+    const factGuard =
+      persistence.status === "saved"
+        ? await runFactGuardForResume(persistence.resumeVersionId).catch((caught) => ({
+            status: "failed" as const,
+            reason:
+              caught instanceof Error
+                ? caught.message
+                : "Tailored resume claim review failed.",
+          }))
+        : null;
 
     return NextResponse.json({
       data: result.data,
@@ -95,6 +106,7 @@ export async function POST(request: Request) {
           reason_for_selection: item.reason_for_selection,
         })),
         persistence,
+        factGuard,
       },
     });
   } catch (error) {

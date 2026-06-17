@@ -78,6 +78,16 @@ type TailorResponse =
           resumeVersionId?: string;
           claimCount?: number;
         };
+        factGuard?: {
+          status: "validated" | "skipped" | "not_found" | "failed";
+          reason?: string;
+          supportedCount?: number;
+          claimCount?: number;
+          resumeStatus?: string;
+          coveragePassed?: boolean;
+          coverageReason?: string | null;
+          claims?: ResumeClaim[];
+        } | null;
         selectedEvidence?: Array<{
           id: string;
           retrieval_score: number;
@@ -179,17 +189,27 @@ export function TailoredResumeWorkspace() {
           );
           return;
         }
+        const factGuard = payload.meta.factGuard;
         setDraft(payload.data);
-        setStatus(
-          `Resume drafted · ${payload.meta.evidenceCount} evidence items used · ${payload.meta.persistence?.claimCount ?? payload.data.claims.length} claims to review`,
-        );
+        setStatus(buildGenerationStatus(payload));
         void loadReadiness();
         const resumes = await loadRecentResumes();
         const savedResumeId = payload.meta.persistence?.resumeVersionId;
         const savedResume = savedResumeId
           ? resumes.find((resume) => resume.id === savedResumeId)
           : null;
-        if (savedResume) setLatestResume(savedResume);
+        if (savedResume) {
+          setLatestResume(
+            factGuard?.status === "validated"
+              ? {
+                  ...savedResume,
+                  status: factGuard.resumeStatus ?? savedResume.status,
+                  claims: factGuard.claims ?? savedResume.claims,
+                }
+              : savedResume,
+          );
+          if (factGuard?.status === "validated") setDraft(null);
+        }
       } catch (caught) {
         setError(
           caught instanceof Error
@@ -455,6 +475,20 @@ function ReadinessItem({
       </div>
     </div>
   );
+}
+
+function buildGenerationStatus(payload: Extract<TailorResponse, { data: TailoredResumeDraft }>) {
+  const factGuard = payload.meta.factGuard;
+  if (factGuard?.status === "validated") {
+    return `Resume drafted and reviewed · ${factGuard.supportedCount ?? 0}/${factGuard.claimCount ?? payload.data.claims.length} claims supported · ${factGuard.resumeStatus ?? "unvalidated"}`;
+  }
+  if (factGuard?.status === "failed") {
+    return `Resume drafted · automatic claim review failed · ${factGuard.reason ?? "run Review Claims before external use"}`;
+  }
+  if (factGuard?.status === "skipped") {
+    return `Resume drafted · claim review unavailable · ${factGuard.reason ?? "run Review Claims when storage is available"}`;
+  }
+  return `Resume drafted · ${payload.meta.evidenceCount} evidence items used · ${payload.meta.persistence?.claimCount ?? payload.data.claims.length} claims to review`;
 }
 
 function ResumeResult({
