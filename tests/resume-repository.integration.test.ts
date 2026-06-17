@@ -294,6 +294,18 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
       atsFriendly: true,
       targetLength: "one_page",
     });
+    expect(refreshedMainResume?.claims[0]).toMatchObject({
+      claim_text: "Built SQL dashboards for onboarding funnel analysis.",
+      evidence_ids: [evidenceId],
+    });
+    const refreshedGuard = await runFactGuardForMainResume(
+      refreshedMainResumeResult.mainResumeVersionId,
+    );
+    expect(refreshedGuard).toMatchObject({
+      status: "validated",
+      supportedCount: 1,
+      resumeStatus: "validated",
+    });
 
     const exportedMainResume = await getMainResumeById(mainResumeResult.mainResumeVersionId);
     expect(exportedMainResume).toMatchObject({
