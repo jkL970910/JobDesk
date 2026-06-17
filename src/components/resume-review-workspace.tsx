@@ -328,22 +328,21 @@ export function ResumeReviewWorkspace({
         <span className={error ? "status status--error" : "status"}>{error ?? status}</span>
         {parseStatus ? <ResumeParseStatusCard status={parseStatus} /> : null}
         {!selectedResume && !isUploading ? (
-          <section className="resume-empty-steps" aria-label="Resume Review workflow">
+          <section className="resume-empty-steps resume-empty-steps--handoff" aria-label="No resume path">
             <article>
-              <span>1</span>
-              <strong>Upload</strong>
-              <p>Add the resume you use today.</p>
+              <span>Alternative path</span>
+              <strong>No resume yet? Build Evidence Library directly.</strong>
+              <p>
+                Use guided project questions, work notes, or performance summaries to create reusable evidence without uploading a resume first.
+              </p>
             </article>
-            <article>
-              <span>2</span>
-              <strong>Review</strong>
-              <p>Check score, strengths, gaps, and risks.</p>
-            </article>
-            <article>
-              <span>3</span>
-              <strong>Extract evidence</strong>
-              <p>Send source-backed claims to Evidence Library.</p>
-            </article>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => onOpenEvidenceReview("projects")}
+            >
+              Build from source material
+            </button>
           </section>
         ) : null}
         {isUploading ? (
@@ -407,9 +406,7 @@ export function ResumeReviewWorkspace({
               }
             >
               {selectedReview
-                ? selectedResumeIsExtracted
-                  ? "Continue in Evidence Library"
-                  : "Extract evidence now"
+                ? "Continue to Evidence"
                 : "Review pending"}
             </button>
           </section>
@@ -696,7 +693,7 @@ function ResumeReviewReportCard({
               <h3>Top recommended fixes</h3>
             </div>
             <span className="review-next-step">
-              {resume.status === "extracted" ? "Next: review claim gaps in Evidence Library" : "Next: extract evidence into the library"}
+              {resume.status === "extracted" ? "Next: continue reviewing Evidence" : "Next: continue to Evidence"}
             </span>
           </div>
           <div className="review-top-fixes__grid">
@@ -712,19 +709,19 @@ function ResumeReviewReportCard({
       {missingEvidenceQuestions.length ? (
         <section className="review-enrichment-handoff">
           <div>
-            <p className="panel-kicker">Evidence gap backlog</p>
+            <p className="panel-kicker">Evidence tasks</p>
             <h3>
               {activeQuestionCount > 0
                 ? `This review created ${activeQuestionCount} active enrichment task${activeQuestionCount === 1 ? "" : "s"}.`
                 : "This review has evidence gaps ready for enrichment."}
             </h3>
             <p>
-              Answer these prompts in Evidence Library to turn review gaps into
-              reusable, source-backed evidence candidates.
+              Continue to Evidence to turn these review findings into reusable,
+              source-backed material.
             </p>
           </div>
-          <button className="primary-button" type="button" onClick={onOpenEnrichment}>
-            Answer evidence gaps
+          <button className="secondary-button" type="button" onClick={onOpenEnrichment}>
+            Open Evidence tasks
           </button>
           <div className="review-enrichment-status-list">
             {questionStatuses.map((item) => (
@@ -767,22 +764,22 @@ function ResumeReviewReportCard({
       ) : null}
       <div className="handoff-panel">
         <div>
-          <p className="panel-kicker">Review-driven enrich</p>
+          <p className="panel-kicker">Evidence handoff</p>
           <h3>
             {resume.status === "extracted"
-              ? "Use extracted evidence or update it with new source material."
-              : "Turn review gaps into source-backed evidence."}
+              ? "Continue refining reusable material."
+              : "Continue this review in Evidence Library."}
           </h3>
           <p>
             {resume.status === "extracted"
-              ? "Re-extraction creates new reviewable drafts and relies on library dedupe; it does not silently overwrite approved evidence."
-              : "Use Evidence Library to answer missing evidence questions, add project/source docs, and create reusable claims before generating a main or tailored resume."}
+              ? "Use Evidence Library to review open tasks, add missing context, and keep approved evidence stable."
+              : "Evidence Library is where review findings become reusable claims, project stories, and resume-safe material."}
           </p>
         </div>
         <ul className="review-next-steps">
-          <li>Review evidence gaps from this resume in Needs Enrichment.</li>
+          <li>Continue to Evidence Library and review tasks from this resume.</li>
           <li>Approve resume-safe claims in Evidence Library.</li>
-          <li>Use Source Intake to update extraction when new source material exists.</li>
+          <li>Add more material only when the review reveals missing context.</li>
         </ul>
       </div>
     </section>
@@ -885,7 +882,7 @@ function ReviewDimensionWorkbench({
                 ))}
               </ul>
             ) : (
-              <p>Use Source Intake only if this dimension needs more specific metrics, project context, or external-safe wording.</p>
+              <p>Use Add Material only if this dimension needs more specific metrics, project context, or external-safe wording.</p>
             )}
           </div>
         </div>
@@ -1132,7 +1129,7 @@ function ReviewDetailTabs({
             <p>{metadataScan || "Use the tabs to inspect strengths, fixes, evidence gaps, rewrite suggestions, ATS notes, and privacy risks."}</p>
           </div>
           <span className="review-next-step">
-            {resumeStatus === "extracted" ? "Next: approve resume-safe evidence in Evidence Library" : "Next: extract evidence after review"}
+            {resumeStatus === "extracted" ? "Next: approve resume-safe evidence" : "Next: continue to Evidence"}
           </span>
         </section>
       ) : (
@@ -1239,7 +1236,7 @@ function buildReviewFindingGroups({
       items: missingEvidenceQuestions.map((item, index) => ({
         detail: item,
         id: `missing-${index}-${item}`,
-        nextStep: "Use Source Intake or project/source docs to answer this question, then approve the resulting claim.",
+        nextStep: "Use Add Material or work notes to answer this question, then approve the resulting claim.",
         title: "Evidence needed",
         tone: "warning",
         why: "Tailored resumes work better when claims are backed by reusable source material.",

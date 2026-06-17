@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ApplicationTrackerWorkspace } from "../src/components/application-tracker-workspace";
 import { InterviewPrepWorkspace } from "../src/components/interview-prep-workspace";
@@ -24,16 +24,6 @@ type View =
   | "recommendations"
   | "growth"
   | "settings";
-
-type NavGroup = {
-  label: string;
-  items: Array<{
-    id: View;
-    label: string;
-    hint: string;
-    status: "live" | "partial" | "planned";
-  }>;
-};
 
 type EvidenceLibrarySummary = {
   profile: {
@@ -178,83 +168,13 @@ type ResumePrepWorkflowState =
 
 type MaterialReviewTab = "enrichment" | "projects" | "unlinked" | "cleanup" | "stories";
 
-const navGroups: NavGroup[] = [
-  {
-    label: "Workspace",
-    items: [
-      {
-        id: "dashboard",
-        label: "Dashboard",
-        hint: "Command center",
-        status: "partial",
-      },
-      {
-        id: "profile",
-        label: "Profile",
-        hint: "Career facts",
-        status: "partial",
-      },
-      {
-        id: "resumeReview",
-        label: "Resume Review",
-        hint: "General score",
-        status: "live",
-      },
-      {
-        id: "evidence",
-        label: "Evidence Library",
-        hint: "Reusable material",
-        status: "live",
-      },
-    ],
-  },
-  {
-    label: "Job Search",
-    items: [
-      {
-        id: "jobs",
-        label: "Jobs",
-        hint: "JD workspace",
-        status: "live",
-      },
-      {
-        id: "applications",
-        label: "Applications",
-        hint: "Manual tracker",
-        status: "live",
-      },
-      {
-        id: "recommendations",
-        label: "Recommendations",
-        hint: "Future scout",
-        status: "planned",
-      },
-    ],
-  },
-  {
-    label: "Interview",
-    items: [
-      {
-        id: "interview",
-        label: "Interview Prep",
-        hint: "Grounded practice",
-        status: "live",
-      },
-      {
-        id: "growth",
-        label: "Growth Profile",
-        hint: "Future feedback loop",
-        status: "planned",
-      },
-    ],
-  },
+const topNavItems: Array<{ id: View; label: string; description: string }> = [
+  { id: "dashboard", label: "Dashboard", description: "Current next step" },
+  { id: "profile", label: "Resume", description: "Create or update" },
+  { id: "evidence", label: "Evidence", description: "Reusable proof" },
+  { id: "jobs", label: "Jobs", description: "Target applications" },
+  { id: "interview", label: "Interview", description: "Practice packs" },
 ];
-
-const statusLabel = {
-  live: "Live",
-  partial: "MVP",
-  planned: "Planned",
-} satisfies Record<NavGroup["items"][number]["status"], string>;
 
 const pageCopy = {
   dashboard: {
@@ -330,7 +250,6 @@ export default function HomePage() {
   const [selectedResumeSourceVersionId, setSelectedResumeSourceVersionId] =
     useState<string | null>(null);
   const activeCopy = pageCopy[activeView];
-  const activeStatus = useMemo(() => findStatus(activeView), [activeView]);
   function navigateToMaterial(intent: MaterialEntryIntent) {
     if (intent === "resume") {
       setActiveView("resumeReview");
@@ -366,141 +285,122 @@ export default function HomePage() {
   }
 
   return (
-    <main className="jobdesk-shell">
-      <aside className="app-sidebar" aria-label="JobDesk navigation">
-        <div className="app-sidebar__brand">
-          <div className="app-sidebar__mark">J</div>
-          <div>
-            <p className="app-sidebar__name">JobDesk</p>
-            <p className="app-sidebar__caption">Career copilot</p>
-          </div>
-        </div>
+    <>
+      <a className="skip-link" href="#jobdesk-main">Skip to workspace</a>
+      <main className="jobdesk-shell" id="jobdesk-main">
+        <header className="app-topbar" aria-label="JobDesk workspace navigation">
+          <button
+            className="app-brand"
+            onClick={() => navigateToView("dashboard")}
+            type="button"
+          >
+            <span className="app-brand__mark" aria-hidden="true">J</span>
+            <span>
+              <strong>JobDesk</strong>
+              <small>Career operating system</small>
+            </span>
+          </button>
 
-        <nav className="app-sidebar__nav">
-          {navGroups.map((group) => (
-            <section className="app-sidebar__group" key={group.label}>
-              <p className="app-sidebar__group-label">{group.label}</p>
-              {group.items.map((item) => (
-                <button
-                  aria-current={item.id === activeView ? "page" : undefined}
-                  aria-label={item.label}
-                  className="app-sidebar__item"
-                  data-active={item.id === activeView}
-                  data-status={item.status}
-                  key={item.id}
-                  onClick={() => navigateToView(item.id)}
-                  type="button"
-                >
-                  <i aria-hidden="true">{item.label.slice(0, 1)}</i>
-                  <span>
-                    <strong>{item.label}</strong>
-                    <small>{item.hint}</small>
-                  </span>
-                  <em aria-hidden="true" data-status={item.status}>{statusLabel[item.status]}</em>
-                </button>
-              ))}
-            </section>
-          ))}
-        </nav>
+          <nav className="app-topnav" aria-label="Primary navigation">
+            {topNavItems.map((item) => (
+              <button
+                aria-current={item.id === activeView ? "page" : undefined}
+                className="app-topnav__item"
+                data-active={item.id === activeView}
+                key={item.id}
+                onClick={() => navigateToView(item.id)}
+                type="button"
+              >
+                <span>{item.label}</span>
+                <small>{item.description}</small>
+              </button>
+            ))}
+          </nav>
 
-        <button
-          aria-current={activeView === "settings" ? "page" : undefined}
-          aria-label="Settings"
-          className="app-sidebar__settings"
-          data-active={activeView === "settings"}
-          onClick={() => navigateToView("settings")}
-          type="button"
-        >
-          <i aria-hidden="true">S</i>
-          Settings
-          <span aria-hidden="true">{statusLabel[findStatus("settings")]}</span>
-        </button>
-      </aside>
-
-      <section className="app-content">
-        <header className="app-content__header">
-          <div>
-            <p className="app-content__eyebrow">{activeCopy.eyebrow}</p>
-            <h1>{activeCopy.title}</h1>
-            <p>{activeCopy.subtitle}</p>
-          </div>
-          <div className="reference-card">
-            <span>Page Status</span>
-            <strong>{statusLabel[activeStatus]}</strong>
-            <small>
-              {activeStatus === "live"
-                ? "Backed by current JobDesk data"
-                : activeStatus === "partial"
-                  ? "Useful now, still evolving"
-                  : "Planned surface"}
-            </small>
-            <em aria-hidden="true" data-status={activeStatus}>{statusLabel[activeStatus]}</em>
+          <div className="app-topbar__actions">
+            <button
+              className="quiet-nav-button"
+              data-active={activeView === "applications"}
+              onClick={() => navigateToView("applications")}
+              type="button"
+            >
+              Applications
+            </button>
+            <button
+              className="quiet-nav-button"
+              data-active={activeView === "settings"}
+              onClick={() => navigateToView("settings")}
+              type="button"
+            >
+              Settings
+            </button>
           </div>
         </header>
 
-        <div className="app-content__body">
-          {activeView === "dashboard" ? (
-            <DashboardView
-              onNavigate={setActiveView}
-              onStartMaterialPath={navigateToMaterial}
-            />
-          ) : null}
-          {activeView === "profile" ? (
-            <ProfileReferenceView onNavigate={setActiveView} />
-          ) : null}
-          {activeView === "resumeReview" ? (
-            <ResumeReviewWorkspace
-              onExtractToEvidence={extractResumeToEvidence}
-              onOpenEvidenceReview={openEvidenceReview}
-            />
-          ) : null}
-          {activeView === "evidence" ? (
-            <ProfileEvidenceWorkspace
-              entryIntent={materialEntryIntent}
-              initialSection={materialInitialSection}
-              initialResumeSourceVersionId={selectedResumeSourceVersionId}
-              initialReviewTab={materialReviewTab}
-            />
-          ) : null}
-          {activeView === "jobs" ? <JobsWorkspaceView /> : null}
-          {activeView === "applications" ? <ApplicationTrackerWorkspace /> : null}
-          {activeView === "interview" ? <InterviewPrepWorkspace /> : null}
-          {activeView === "recommendations" ? (
-            <PlannedReferenceView
-              title="Recommendations"
-              description="This final reference surface will rank and explain relevant jobs from configured sources. It should use profile goals, evidence coverage, job freshness, legitimacy checks, and user dismiss/save behavior once implemented."
-              nextSteps={[
-                "Define job source connectors and freshness policy.",
-                "Add recommendation ranking service and persisted decisions.",
-                "Render fit reasons, risk notes, and create-workspace actions from real data.",
-              ]}
-            />
-          ) : null}
-          {activeView === "growth" ? (
-            <PlannedReferenceView
-              title="Growth Profile"
-              description="This final reference surface will summarize interview reviews and recurring gaps from explicit interview notes and review sessions."
-              nextSteps={[
-                "Add interview review schema and saved feedback entries.",
-                "Aggregate recurring strengths, weaknesses, and knowledge gaps.",
-                "Connect recommended practice tasks back to Interview Prep.",
-              ]}
-            />
-          ) : null}
-          {activeView === "settings" ? <SettingsReferenceView /> : null}
-        </div>
-      </section>
-    </main>
-  );
-}
+        <section className="app-content">
+          <header className="app-content__header">
+            <div>
+              <p className="app-content__eyebrow">{activeCopy.eyebrow}</p>
+              <h1>{activeCopy.title}</h1>
+              <p>{activeCopy.subtitle}</p>
+            </div>
+          </header>
 
-function findStatus(view: View): "live" | "partial" | "planned" {
-  if (view === "settings") return "partial";
-  for (const group of navGroups) {
-    const item = group.items.find((candidate) => candidate.id === view);
-    if (item) return item.status;
-  }
-  return "planned";
+          <div className="app-content__body">
+            {activeView === "dashboard" ? (
+              <DashboardView
+                onNavigate={setActiveView}
+                onStartMaterialPath={navigateToMaterial}
+              />
+            ) : null}
+            {activeView === "profile" ? (
+              <ProfileReferenceView onNavigate={setActiveView} />
+            ) : null}
+            {activeView === "resumeReview" ? (
+              <ResumeReviewWorkspace
+                onExtractToEvidence={extractResumeToEvidence}
+                onOpenEvidenceReview={openEvidenceReview}
+              />
+            ) : null}
+            {activeView === "evidence" ? (
+              <ProfileEvidenceWorkspace
+                entryIntent={materialEntryIntent}
+                initialSection={materialInitialSection}
+                initialResumeSourceVersionId={selectedResumeSourceVersionId}
+                initialReviewTab={materialReviewTab}
+              />
+            ) : null}
+            {activeView === "jobs" ? <JobsWorkspaceView /> : null}
+            {activeView === "applications" ? <ApplicationTrackerWorkspace /> : null}
+            {activeView === "interview" ? <InterviewPrepWorkspace /> : null}
+            {activeView === "recommendations" ? (
+              <PlannedReferenceView
+                title="Recommendations"
+                description="This final reference surface will rank and explain relevant jobs from configured sources. It should use profile goals, evidence coverage, job freshness, legitimacy checks, and user dismiss/save behavior once implemented."
+                nextSteps={[
+                  "Define job source connectors and freshness policy.",
+                  "Add recommendation ranking service and persisted decisions.",
+                  "Render fit reasons, risk notes, and create-workspace actions from real data.",
+                ]}
+              />
+            ) : null}
+            {activeView === "growth" ? (
+              <PlannedReferenceView
+                title="Growth Profile"
+                description="This final reference surface will summarize interview reviews and recurring gaps from explicit interview notes and review sessions."
+                nextSteps={[
+                  "Add interview review schema and saved feedback entries.",
+                  "Aggregate recurring strengths, weaknesses, and knowledge gaps.",
+                  "Connect recommended practice tasks back to Interview Prep.",
+                ]}
+              />
+            ) : null}
+            {activeView === "settings" ? <SettingsReferenceView /> : null}
+          </div>
+        </section>
+      </main>
+    </>
+  );
 }
 
 function DashboardView({
@@ -766,7 +666,7 @@ function DashboardView({
                   ? `${thinStories} thin signals`
                   : "Stories enriched"
                 : "No story targets yet",
-            note: storyTargets > 0 ? "Project/source docs can improve this" : "Extract evidence first",
+            note: storyTargets > 0 ? "Work notes can strengthen this" : "Add material first",
           },
           {
             label: "Active jobs",
@@ -803,6 +703,73 @@ function DashboardView({
     },
   ];
 
+  const coreJourney = [
+    {
+      action: latestResume ? "Open review" : "Upload resume",
+      detail: latestResume
+        ? latestResume.latestReview
+          ? `${formatResumeTitle(latestResume.title)} scored ${latestResume.latestReview.overallScore}.`
+          : `${formatResumeTitle(latestResume.title)} is saved and ready for review.`
+        : hasExtractedMaterial
+          ? "You already have material in the library. Resume upload is optional."
+          : "Start with a resume upload, or skip directly to source material if you do not have one.",
+      id: "resume",
+      label: "Resume review",
+      metric: latestResume?.latestReview ? `Score ${latestResume.latestReview.overallScore}` : latestResume ? "Saved" : "Optional",
+      state: latestResume?.latestReview || hasExtractedMaterial ? "complete" : latestResume ? "active" : "blocked",
+      target: () => onNavigate("resumeReview"),
+    },
+    {
+      action: "Open evidence",
+      detail:
+        resumeReadyClaims > 0
+          ? `${resumeReadyClaims} claim${resumeReadyClaims === 1 ? "" : "s"} are resume-safe. ${claimsNeedingReview} still need review.`
+          : hasExtractedMaterial
+            ? `${claimsNeedingReview} extracted claim${claimsNeedingReview === 1 ? "" : "s"} need truth review and safe wording.`
+            : "Import notes, guided answers, or resume text into reusable proof.",
+      id: "evidence",
+      label: "Evidence library",
+      metric: resumeReadyClaims > 0 ? `${resumeReadyClaims} ready` : hasExtractedMaterial ? `${claimsNeedingReview} to review` : "Empty",
+      state: resumeReadyClaims > 0 ? "complete" : hasExtractedMaterial ? "active" : "blocked",
+      target: () => onNavigate("evidence"),
+    },
+    {
+      action: "Create resume",
+      detail:
+        resumeReadyClaims > 0
+          ? "Generate a grounded main resume, positioning variant, or refresh an old resume."
+          : "Requires resume-safe evidence before generation is trustworthy.",
+      id: "main-resume",
+      label: "Main resume",
+      metric: resumeReadyClaims > 0 ? "Ready" : "Blocked",
+      state: resumeReadyClaims > 0 ? "active" : "blocked",
+      target: () => onNavigate("profile"),
+    },
+  ];
+  const downstreamWorkflows = [
+    {
+      action: "Open jobs",
+      detail: jobs[0]?.title ?? "Analyze a specific JD once your evidence base is usable.",
+      label: "Apply to a target job",
+      metric: `${jobs.length} analyzed`,
+      target: () => onNavigate("jobs"),
+    },
+    {
+      action: "Open tracker",
+      detail: `${activeApplications} active applications · ${interviewJobs} in interview stage.`,
+      label: "Track applications",
+      metric: `${activeApplications} active`,
+      target: () => onNavigate("applications"),
+    },
+    {
+      action: "Prep interview",
+      detail: prepPacks.length > 0 ? `${prepPacks.length} prep packs saved.` : "Create prep once a JD is analyzed.",
+      label: "Interview prep",
+      metric: prepPacks.length > 0 ? `${prepPacks.length} packs` : "Later",
+      target: () => onNavigate("interview"),
+    },
+  ];
+
   return (
     <div className="dashboard-grid">
       <section className="command-center">
@@ -831,68 +798,29 @@ function DashboardView({
           </div>
         </article>
 
-        <div className="workflow-rail" aria-label="Current workflow readiness">
-          {resumePrepRows.map((row) => (
-            <article
-              className="workflow-row"
-              data-phase={row.phase}
-              data-state={row.state}
-              key={row.label}
-            >
-              <div>
-                <span>{row.label}</span>
-                <p>{row.note}</p>
-              </div>
-              <strong>{row.value}</strong>
-              {row.action ? (
-                <button
-                  disabled={dashboardLoadState === "loading"}
-                  type="button"
-                  onClick={() => onNavigate(row.view)}
-                >
-                  {row.action}
+        <div className="journey-panel" aria-label="Resume workflow journey">
+          <div className="journey-panel__header">
+            <div>
+              <p className="panel-kicker">Core journey</p>
+              <h2>Turn source material into a verified resume.</h2>
+            </div>
+            <span>{dashboardLoadState === "loading" ? "Loading" : `${resumeReadyClaims} resume-safe`}</span>
+          </div>
+          <div className="journey-steps">
+            {coreJourney.map((step, index) => (
+              <article className="journey-step" data-state={step.state} key={step.id}>
+                <div className="journey-step__number">{index + 1}</div>
+                <div>
+                  <span>{step.label}</span>
+                  <strong>{step.metric}</strong>
+                  <p>{step.detail}</p>
+                </div>
+                <button disabled={dashboardLoadState === "loading"} onClick={step.target} type="button">
+                  {step.action}
                 </button>
-              ) : (
-                <small className="workflow-row__hint">Current focus</small>
-              )}
-            </article>
-          ))}
-          <section className="workflow-later" data-open={showLaterWorkflows}>
-            <button
-              aria-controls="dashboard-later-workflows"
-              aria-expanded={showLaterWorkflows}
-              className="workflow-later__toggle"
-              type="button"
-              onClick={() => setShowLaterWorkflows((current) => !current)}
-            >
-              Later workflows
-            </button>
-            {showLaterWorkflows ? (
-              <div id="dashboard-later-workflows">
-              {laterWorkflowRows.map((row) => (
-                <article
-                  className="workflow-row"
-                  data-phase="secondary"
-                  data-state={row.state}
-                  key={row.label}
-                >
-                  <div>
-                    <span>{row.label}</span>
-                    <p>{row.note}</p>
-                  </div>
-                  <strong>{row.value}</strong>
-                  <button
-                    aria-label={`${row.action}: ${row.label}`}
-                    type="button"
-                    onClick={() => onNavigate(row.view)}
-                  >
-                    {row.action}
-                  </button>
-                </article>
-              ))}
-              </div>
-            ) : null}
-          </section>
+              </article>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -917,9 +845,23 @@ function DashboardView({
           </article>
         ))}
       </section>
+
+      <section className="downstream-board" aria-label="Later job-search workflows">
+        {downstreamWorkflows.map((workflow) => (
+          <article key={workflow.label}>
+            <span>{workflow.label}</span>
+            <strong>{workflow.metric}</strong>
+            <p>{workflow.detail}</p>
+            <button type="button" onClick={workflow.target}>
+              {workflow.action}
+            </button>
+          </article>
+        ))}
+      </section>
     </div>
   );
 }
+
 
 function determineDashboardNextAction({
   latestResume,
@@ -930,11 +872,11 @@ function determineDashboardNextAction({
 }) {
   if (state === "no_resume") {
     return {
-      detail: "Upload a resume for the fastest start, or add project notes, work summaries, and guided answers if you do not have one yet.",
-      label: "Upload Resume",
-      secondaryLabel: "No resume? Add source material",
+      detail: "Use a resume if you have one. If not, build the Evidence Library directly from guided project answers, work notes, or performance summaries.",
+      label: "Review a resume",
+      secondaryLabel: "No resume? Build evidence directly",
       secondaryTarget: "scratch" as MaterialEntryIntent,
-      title: "Start your evidence library.",
+      title: "Start from your strongest source material.",
       view: "resumeReview" as View,
     };
   }
@@ -948,9 +890,9 @@ function determineDashboardNextAction({
   }
   if (state === "resume_reviewed") {
     return {
-      detail: "The resume is reviewed; extract it into source-backed claims and story targets.",
-      label: "Extract evidence now",
-      title: "Extract reviewed resume evidence.",
+      detail: "The resume is reviewed. Continue to Evidence to create reusable claims and story targets.",
+      label: "Continue to Evidence",
+      title: "Turn this review into reusable evidence.",
       view: "resumeReview" as View,
     };
   }
@@ -1202,6 +1144,9 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
     latestPositioningReport?.report.directions[0] ??
     null;
   const mainResumeReady = resumeEligibleEvidence > 0;
+  const latestMainResumeClaimStats = latestMainResume
+    ? getMainResumeClaimStats(latestMainResume)
+    : null;
 
   async function generatePositioningReport() {
     setIsGeneratingPositioning(true);
@@ -1501,7 +1446,7 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
           <p>
             {hasExtractedMaterial
               ? `${displayedEvidenceCount} evidence item${displayedEvidenceCount === 1 ? "" : "s"} and ${displayedStoryCount} story target${displayedStoryCount === 1 ? "" : "s"} exist. If facts look thin here, promote or enrich them from Evidence Library.`
-              : "Profile stays read-only until Resume Review or Source Intake creates extracted facts."}
+              : "Profile stays read-only until Resume Review or Add Material creates extracted facts."}
           </p>
         </div>
         <button
@@ -1780,38 +1725,70 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
           </article>
           <article>
             <span>Latest main resume</span>
-            <strong>{latestMainResume?.positioning_title ?? (latestMainResume ? latestMainResume.status : "None")}</strong>
+            <strong>{latestMainResume ? formatMainResumeUserState(latestMainResume) : "None"}</strong>
             <p>
               {latestMainResume
-                ? `${latestMainResume.generation_mode ?? "main_resume"} · ${formatDateTime(latestMainResume.updatedAt)}`
+                ? `${formatMainResumeMode(latestMainResume)} · ${formatDateTime(latestMainResume.updatedAt)}`
                 : "No generated main resume yet."}
             </p>
           </article>
           <article>
-            <span>Claim ledger</span>
-            <strong>{latestMainResume?.claims.length ?? 0}</strong>
-            <p>{latestMainResume ? "Claims map bullets to evidence." : "Generated with the first main resume."}</p>
+            <span>Fact Guard</span>
+            <strong>{latestMainResume ? formatFactGuardSummary(latestMainResume, latestMainResumeClaimStats) : "Not run"}</strong>
+            <p>
+              {latestMainResumeClaimStats
+                ? `${latestMainResumeClaimStats.needsReview} claim${latestMainResumeClaimStats.needsReview === 1 ? "" : "s"} need review before final export.`
+                : latestMainResume
+                  ? "No claim ledger entries."
+                  : "Generated with the first main resume."}
+            </p>
           </article>
         </div>
         {mainResumeStatus ? <p className="status">{mainResumeStatus}</p> : null}
         {latestMainResume ? (
-          <details className="main-resume-builder__preview">
-            <summary>{latestMainResume.title}</summary>
-            <div className="actions actions--compact">
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => void exportMainResume(latestMainResume.id, "markdown")}
-              >
-                Export Markdown
-              </button>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => void exportMainResume(latestMainResume.id, "json")}
-              >
-                Export JSON
-              </button>
+          <section className="main-resume-builder__preview" aria-label="Latest main resume draft">
+            <div className="main-resume-builder__preview-header">
+              <div>
+                <span>{latestMainResume.status === "validated" ? "Ready to export" : "Draft under review"}</span>
+                <h4>{latestMainResume.title}</h4>
+                <p>
+                  {formatMainResumeMode(latestMainResume)} · {latestMainResumeClaimStats?.supported ?? 0}/{latestMainResumeClaimStats?.total ?? 0} claims supported
+                </p>
+              </div>
+              <div className="actions actions--compact">
+                <button
+                  className="secondary-button"
+                  disabled={latestMainResume.status !== "validated"}
+                  type="button"
+                  onClick={() => void exportMainResume(latestMainResume.id, "markdown")}
+                  title={
+                    latestMainResume.status === "validated"
+                      ? "Export final Markdown resume"
+                      : "Blocked until Fact Guard supports every generated claim"
+                  }
+                >
+                  Export Markdown
+                </button>
+                <button
+                  className="secondary-button secondary-button--quiet"
+                  type="button"
+                  onClick={() => void exportMainResume(latestMainResume.id, "json")}
+                >
+                  Export JSON audit
+                </button>
+              </div>
+            </div>
+            <div className="guardrail-banner" data-state={latestMainResume.status}>
+              <strong>
+                {latestMainResume.status === "validated"
+                  ? "Fact Guard passed"
+                  : "Draft only · Fact Guard needs review"}
+              </strong>
+              <p>
+                {latestMainResume.status === "validated"
+                  ? "Every generated claim is supported by approved evidence. Markdown export is enabled."
+                : `${latestMainResumeClaimStats?.supported ?? 0}/${latestMainResumeClaimStats?.total ?? 0} claims supported. Fix unsupported claims or add evidence before using this as a final resume.`}
+              </p>
             </div>
             <pre>{latestMainResume.resume_markdown}</pre>
             {latestMainResume.missing_evidence_questions.length > 0 ? (
@@ -1824,7 +1801,7 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
                 </ul>
               </div>
             ) : null}
-          </details>
+          </section>
         ) : null}
       </section>
     </div>
@@ -1841,6 +1818,37 @@ function extractProfileFacts(profile: unknown) {
     phone: extractFactValue(record.phone),
     skills: extractFactList(record.skills),
   };
+}
+
+function getMainResumeClaimStats(resume: MainResumeSummary) {
+  const total = resume.claims.length;
+  const supported = resume.claims.filter(
+    (claim) => claim.support_status === "supported" || claim.claim_status === "supported",
+  ).length;
+  const needsReview = Math.max(total - supported, 0);
+  return { needsReview, supported, total };
+}
+
+function formatMainResumeUserState(resume: MainResumeSummary) {
+  if (resume.status === "validated") return "Ready to export";
+  if (resume.claims.length > 0) return "Draft needs review";
+  return "Draft saved";
+}
+
+function formatMainResumeMode(resume: MainResumeSummary) {
+  if (resume.positioning_title) return `${resume.positioning_title} variant`;
+  if (resume.generation_mode === "resume_refresh") return "Refreshed resume";
+  if (resume.generation_mode === "positioning_variant") return "Positioning variant";
+  return "General resume";
+}
+
+function formatFactGuardSummary(
+  resume: MainResumeSummary,
+  stats: ReturnType<typeof getMainResumeClaimStats> | null,
+) {
+  if (resume.status === "validated") return "Exportable";
+  if (!stats || stats.total === 0) return "Needs review";
+  return `${stats.needsReview} to review`;
 }
 
 function extractFactValue(value: unknown): string | null {
@@ -1956,7 +1964,7 @@ function PlannedReferenceView({
 }) {
   return (
     <section className="planned-panel">
-      <span>Planned</span>
+      <span>Coming later</span>
       <h2>{title}</h2>
       <p>{description}</p>
       <div>
@@ -1998,16 +2006,15 @@ function SettingsReferenceView() {
   return (
     <section className="settings-panel settings-panel--quiet">
       <p className="panel-kicker">Settings</p>
-      <h2>Current workspace configuration</h2>
+      <h2>System health and workspace settings</h2>
       <p>
-        These are mostly reference checks for the personal MVP. Editable controls
-        only appear where the app has behavior wired today.
+        Review account protection, AI availability, storage, and recent workflow health without exposing secrets.
       </p>
       <div className="settings-panel__grid">
         <article>
           <span>Access</span>
-          <strong>Token gate</strong>
-          <p>Use the access bar only when deployment protection is enabled.</p>
+          <strong>Account session</strong>
+          <p>Protected by signed session cookies when account login is enabled.</p>
         </article>
         <article>
           <span>AI</span>

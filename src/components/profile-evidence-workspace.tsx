@@ -358,7 +358,7 @@ export function ProfileEvidenceWorkspace({
   const [enrichmentTaskQueueStatus, setEnrichmentTaskQueueStatus] =
     useState<"ready" | "skipped" | "error">("ready");
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState("Add a source to continue.");
+  const [status, setStatus] = useState("Add material to continue.");
   const [lastIntakeSummary, setLastIntakeSummary] = useState<{
     evidenceCount: number;
     projectCount: number;
@@ -516,7 +516,7 @@ export function ProfileEvidenceWorkspace({
       setSelectedResumeSourceId("");
       updateSourceDraft("resume", { text: "", title: "", sourceDocumentId: undefined });
       setFileStatus(null);
-      setStatus("Ready for a new resume source. Select a reviewed resume, upload a file, or paste resume text.");
+      setStatus("Ready for a new resume. Select a reviewed version, upload a file, or paste resume text.");
       return;
     }
     setSelectedResumeSourceLoading(true);
@@ -571,7 +571,7 @@ export function ProfileEvidenceWorkspace({
 
   function runExtraction() {
     setError(null);
-    setStatus("Extracting reusable evidence from the uploaded source.");
+    setStatus("Turning this material into reusable evidence.");
     setIsExtracting(true);
     void (async () => {
       try {
@@ -787,7 +787,7 @@ export function ProfileEvidenceWorkspace({
         duplicate: payload.data.duplicate,
         nextAction: parseNextAction,
       });
-      setFileStatus("This file needs manual text input before extraction.");
+      setFileStatus("This file needs manual text input before JobDesk can use it.");
       return;
     }
     if (selectedEntryIntent === "scratch") {
@@ -1071,7 +1071,7 @@ export function ProfileEvidenceWorkspace({
       setSelectedResumeSourceId("");
       setProjectSourceMode("guided");
       setSelectedStoryTarget(null);
-      setStatus("Project/source path selected. Add source notes, files, or guided answers to enrich story material.");
+      setStatus("Story material path selected. Add notes, files, or guided answers to strengthen your evidence.");
     }
   }
 
@@ -1364,14 +1364,14 @@ export function ProfileEvidenceWorkspace({
           type="button"
           onClick={() => setActiveSection("review")}
         >
-          Library Review
+          Review Material
         </button>
         <button
           data-active={activeSection === "intake"}
           type="button"
           onClick={() => setActiveSection("intake")}
         >
-          Source Intake
+          Add Material
         </button>
       </div>
 
@@ -1379,7 +1379,7 @@ export function ProfileEvidenceWorkspace({
         <div className="panel">
           <div className="panel__header">
             <div>
-              <h2 className="panel__title">Source Intake</h2>
+              <h2 className="panel__title">Add Material</h2>
               <p className="panel__note">
                 {entryGuidance.summary}
               </p>
@@ -1461,7 +1461,7 @@ export function ProfileEvidenceWorkspace({
                   type="button"
                   onClick={runExtraction}
                 >
-                  {isExtracting ? "Building..." : entryGuidance.primaryActionLabel}
+                  {isExtracting ? "Processing..." : entryGuidance.primaryActionLabel}
                 </button>
                 <span className={error ? "status status--error" : "status"}>
                   {error ?? status}
@@ -1472,7 +1472,7 @@ export function ProfileEvidenceWorkspace({
               {isExtracting ? (
                 <ProgressNotice
                   elapsedSeconds={extractElapsedSeconds}
-                  label="Material Library build in progress"
+                  label="Adding material to library"
                   mode="evidence"
                 />
               ) : null}
@@ -1481,7 +1481,7 @@ export function ProfileEvidenceWorkspace({
 
           {selectedEntryIntent === "scratch" ? (
           <section className="section-block section-block--builder source-active-form">
-            <h3>Project Library Builder</h3>
+            <h3>Work Story Builder</h3>
             <p className="panel__note">
               {entryGuidance.enrichmentHint}
             </p>
@@ -1507,7 +1507,7 @@ export function ProfileEvidenceWorkspace({
             ) : null}
             <div className="source-controls">
               <label className="source-field">
-                <span>Project source title</span>
+                <span>Work story title</span>
                 <input
                   className="source-input"
                   type="text"
@@ -1547,7 +1547,7 @@ export function ProfileEvidenceWorkspace({
                       : { targetTitle: fields.projectOrInitiativeTitle }),
                   );
                   if (!projectNoteTitle.trim() && fields.projectOrInitiativeTitle.trim()) {
-                    setProjectNoteTitle(`${fields.projectOrInitiativeTitle.trim()} guided source`);
+                    setProjectNoteTitle(`${fields.projectOrInitiativeTitle.trim()} guided material`);
                   }
                 }}
                 onUseTemplate={() => {
@@ -1563,17 +1563,17 @@ export function ProfileEvidenceWorkspace({
                   );
                   setProjectNoteText(markdown);
                   setProjectSourceDocumentId(undefined);
-                  setStatus("Structured guided source preview is ready. Edit it if needed, then enrich.");
+                  setStatus("Guided material preview is ready. Edit it if needed, then add it to the library.");
                 }}
               />
             ) : null}
             <label className="source-field source-field--textarea">
-              <span>{projectSourceMode === "guided" ? "Editable guided source preview" : "Project or story source"}</span>
+              <span>{projectSourceMode === "guided" ? "Editable guided material" : "Work story material"}</span>
               <small>
                 {projectSourceMode === "guided"
-                  ? "Guided answers become a source document first, then evidence candidates. Edit this preview before enrichment."
+                  ? "Guided answers become reusable material first. Edit this preview before adding it to the library."
                   : projectSourceMode === "upload"
-                    ? "Imported files append here. Edit or combine the parsed source before enrichment."
+                    ? "Imported files append here. Edit or combine the parsed material before adding it."
                     : "Paste project notes, work summaries, performance review excerpts, or STAR notes here."}
               </small>
               <textarea
@@ -1596,14 +1596,14 @@ export function ProfileEvidenceWorkspace({
                 onClick={runProjectEnrichment}
               >
                 {isProjectEnriching
-                  ? "Enriching..."
+                  ? "Adding..."
                   : selectedStoryTarget
-                    ? "Enrich selected story"
-                    : "Enrich Project Note"}
+                    ? "Strengthen selected story"
+                    : "Add material to library"}
               </button>
               <span className="status">
                 {projectSourceMode === "guided" && !projectNoteIsReady
-                  ? guidedReadiness.missingReason ?? "Add real guided answers before enrichment."
+                  ? guidedReadiness.missingReason ?? "Add real guided answers before continuing."
                   : status}
               </span>
             </div>
@@ -1611,7 +1611,7 @@ export function ProfileEvidenceWorkspace({
             {isProjectEnriching ? (
               <ProgressNotice
                 elapsedSeconds={projectElapsedSeconds}
-                label="Project enrichment in progress"
+                label="Adding work story material"
                 mode="project"
               />
             ) : null}
@@ -1619,13 +1619,13 @@ export function ProfileEvidenceWorkspace({
           ) : selectedEntryIntent === "resume" ? (
             <section className="source-path-handoff">
               <div>
-                <span>Story enrichment comes next</span>
+                <span>Story context comes next</span>
                 <p>
-                  After extracting this source, Library Review will show whether claims need approval or story targets need more context.
+                  After adding this material, Review Material will show whether claims need approval or stories need more context.
                 </p>
               </div>
               <button type="button" onClick={() => selectEntryIntent("scratch")}>
-                Switch to project/source docs
+                Add work notes
               </button>
             </section>
           ) : (
@@ -1648,7 +1648,7 @@ export function ProfileEvidenceWorkspace({
         <div className="panel">
           <div className="panel__header">
             <div>
-              <h2 className="panel__title">Library Review</h2>
+              <h2 className="panel__title">Review Material</h2>
               <p className="panel__note">
                 Work experiences, initiatives, portfolio projects, and evidence
                 claims form the source-backed material library for resumes,
@@ -1685,7 +1685,7 @@ export function ProfileEvidenceWorkspace({
           />
           {profile ? <ProfileSummary extraction={result} /> : <LibrarySummary library={library} />}
           <LibraryReadinessSummary summary={libraryReadiness} />
-          <div className="review-switcher" role="tablist" aria-label="Library Review panels">
+          <div className="review-switcher" role="tablist" aria-label="Review Material panels">
             <button
               data-active={reviewTab === "enrichment"}
               type="button"
@@ -1954,28 +1954,28 @@ function OnboardingPaths({
 }) {
   const paths = [
     {
-      ariaLabel: "Extract from reviewed resume path",
+      ariaLabel: "Use reviewed resume path",
       intent: "resume" as const,
-      title: "Extract from reviewed resume",
+      title: "Use a reviewed resume",
       body:
-        "Use a reviewed resume version to create reusable evidence candidates. This does not replace the Resume Review report.",
-      steps: "Resume review -> extract signals -> enrich projects -> main resume",
+        "Turn a reviewed resume into reusable material. This does not replace the Resume Review report.",
+      steps: "Resume review -> reusable material -> main resume",
     },
     {
-      ariaLabel: "Project source intake path",
+      ariaLabel: "Work notes and guided answers path",
       intent: "scratch" as const,
-      title: "Project/source docs",
+      title: "Work notes or guided answers",
       body:
-        "Add design docs, project summaries, performance notes, or guided answers to create or enrich story material.",
-      steps: "Source docs -> story context -> evidence claims",
+        "Add project summaries, performance notes, or guided answers to strengthen work stories.",
+      steps: "Work context -> story strength -> resume-ready evidence",
     },
     {
       ariaLabel: "JD gap evidence path",
       intent: "jd" as const,
       title: "I have a JD now",
       body:
-        "Use the Jobs workspace for a quick tailored draft, but treat missing evidence as follow-up tasks for the library.",
-      steps: "JD analysis -> tailored draft -> evidence gaps",
+        "Use Jobs for a specific role. Missing proof becomes follow-up material to add here.",
+      steps: "JD analysis -> draft -> missing proof",
     },
   ];
   return (
@@ -2285,15 +2285,15 @@ function EvidencePriorityQueue({
   const queue = [
     {
       action: enrichmentTaskCount > 0 ? onOpenEnrichment : onReturnToIntake,
-      button: enrichmentTaskCount > 0 ? "Answer enrichment tasks" : "Add source material",
+      button: enrichmentTaskCount > 0 ? "Answer evidence tasks" : "Open Add Material",
       count: enrichmentTaskCount,
       detail: "Answer missing metric, scope, ownership, technical-depth, and impact prompts to strengthen reusable evidence.",
-      label: "1. Needs enrichment",
+      label: "1. Needs more context",
       state: enrichmentTaskCount > 0 ? "active" : "empty",
     },
     {
       action: summary.evidenceNeedingReview > 0 ? onOpenClaims : onReturnToIntake,
-      button: summary.evidenceNeedingReview > 0 ? "Review claims" : "Waiting for source",
+      button: summary.evidenceNeedingReview > 0 ? "Review claims" : "Waiting for material",
       count: summary.evidenceNeedingReview,
       detail: "Claims must be approved before they are safe for resume generation.",
       label: "2. Claims awaiting review",
@@ -2301,7 +2301,7 @@ function EvidencePriorityQueue({
     },
     {
       action: summary.projectsNeedingContext > 0 ? onOpenStoryTargets : onReturnToIntake,
-      button: summary.projectsNeedingContext > 0 ? "Enrich thin projects" : "Waiting for source",
+      button: summary.projectsNeedingContext > 0 ? "Strengthen stories" : "Waiting for material",
       count: summary.projectsNeedingContext,
       detail: "Thin story targets need problem, role, actions, results, metrics, and external-safe context.",
       label: "3. Thin projects needing context",
@@ -2428,7 +2428,7 @@ function EnrichmentTaskQueue({
             <p>Connect the JobDesk database to save and review persistent enrichment tasks.</p>
           </div>
           <button className="secondary-button" type="button" onClick={onReturnToIntake}>
-            Add source material
+            Open Add Material
           </button>
         </div>
       ) : queueStatus === "error" ? (
@@ -2438,17 +2438,17 @@ function EnrichmentTaskQueue({
             <p>Check the local database connection, then reload the workspace.</p>
           </div>
           <button className="secondary-button" type="button" onClick={onReturnToIntake}>
-            Add source material
+            Open Add Material
           </button>
         </div>
       ) : actionableTasks.length === 0 ? (
         <div className="empty-state-row">
           <div>
             <strong>No enrichment tasks are open.</strong>
-            <p>Add source material or rerun Resume Review to surface new gaps.</p>
+            <p>Add material or rerun Resume Review to surface new gaps.</p>
           </div>
           <button className="secondary-button" type="button" onClick={onReturnToIntake}>
-            Add source material
+            Add guided material
           </button>
         </div>
       ) : (
@@ -2554,39 +2554,39 @@ function IntakeStageHeader({
   const isRunning = activeFormState === "extracting";
   const steps = [
     {
-      label: "Choose intake path",
+      label: "Choose material type",
       message: `Selected path: ${formatIntakeIntent(activeIntent)}.`,
       state: "complete",
     },
     {
-      label: "Add source",
+      label: "Add material",
       message: sourceReady
-        ? "Source content is ready for extraction."
-        : "Add a title and at least 80 characters of source text first.",
+        ? "Material is ready to process."
+        : "Add a title and at least 80 characters first.",
       state: sourceReady ? "complete" : "current",
     },
     {
-      label: activeIntent === "scratch" ? "Enrich project note" : "Extract signals",
+      label: activeIntent === "scratch" ? "Strengthen story" : "Create library items",
       message: sourceReady
         ? "Run the primary action near the active form."
-        : "Blocked until the source section is ready.",
+        : "Blocked until this material is ready.",
       state: isRunning ? "current" : sourceComplete ? "complete" : sourceReady ? "current" : "blocked",
     },
     {
-      label: "Review output",
+      label: "Review material",
       message: sourceComplete
-        ? "Switch to Library Review to approve claims and inspect story targets."
-        : "Blocked until extraction finishes successfully.",
+        ? "Switch to Review Material to approve claims and inspect story targets."
+        : "Blocked until JobDesk finishes processing this material.",
       state: sourceComplete ? "current" : "blocked",
     },
     {
-      label: "Approve evidence",
-      message: "Approve claims from Library Review after extraction creates reviewable material.",
+      label: "Approve for resume",
+      message: "Approve claims from Review Material after JobDesk creates reviewable cards.",
       state: sourceComplete ? "blocked" : "blocked",
     },
   ] satisfies Array<{ label: string; message: string; state: "complete" | "current" | "blocked" }>;
   return (
-    <section className="intake-stage-bar" aria-label="Source Intake workflow">
+    <section className="intake-stage-bar" aria-label="Add Material workflow">
       {steps.map((step, index) => (
         <button
           data-state={step.state}
@@ -2639,8 +2639,8 @@ function FormStatePill({ state }: { state: LocalFormState }) {
 }
 
 function formatIntakeIntent(intent: MaterialEntryIntent) {
-  if (intent === "scratch") return "project/source docs";
-  if (intent === "jd") return "JD gap source";
+  if (intent === "scratch") return "work notes";
+  if (intent === "jd") return "JD gaps";
   return "resume";
 }
 
@@ -2673,7 +2673,7 @@ function formatEvidenceActionMessage(
     return "Evidence approved. It is confirmed, but use Approve for resume before resume generation.";
   }
   if (action === "approve_for_resume") {
-    return "Evidence approved for resume use and available to tailored resume generation.";
+    return "Evidence approved for resume use. It can support main and tailored resume generation.";
   }
   if (action === "reject") {
     return "Evidence rejected. Existing generated claims that used it are marked stale.";
@@ -2740,25 +2740,25 @@ function getEntryGuidance(intent: MaterialEntryIntent) {
   if (intent === "scratch") {
     return {
       enrichmentHint:
-        "Use project notes, design docs, performance reviews, or guided answers to create new story material or enrich thin resume-derived stories.",
-      fileImportLabel: "Import source doc",
-      primaryActionLabel: "Extract Source Signals",
+        "Use project notes, design docs, performance reviews, or guided answers to create or strengthen work stories.",
+      fileImportLabel: "Import work files",
+      primaryActionLabel: "Add to library",
       primaryHint:
-        "Use this path with or without an initial resume. The Project Library Builder below is the main enrich workflow.",
-      primaryTitleLabel: "Source title",
+        "Use this path with or without an initial resume. Guided answers are often the fastest start.",
+      primaryTitleLabel: "Material title",
       summary:
-        "Add project/source documents to create or enrich work stories. Prioritize context, ownership, actions, outcomes, metrics, and public-safe wording.",
+        "Add work notes, files, or guided answers to create stronger story material. Focus on context, ownership, actions, outcomes, metrics, and public-safe wording.",
     };
   }
   if (intent === "jd") {
     return {
       enrichmentHint:
         "After JD analysis exposes missing evidence, add project notes or source docs here to close those gaps.",
-      fileImportLabel: "Import gap source",
-      primaryActionLabel: "Build Gap Evidence",
+      fileImportLabel: "Import gap notes",
+      primaryActionLabel: "Add gap material",
       primaryHint:
         "JD-first starts in Jobs. Use this library when the tailored draft needs stronger evidence or missing project context.",
-      primaryTitleLabel: "Evidence gap source title",
+      primaryTitleLabel: "Evidence gap title",
       summary:
         "JD-first is a quick path: analyze the role in Jobs first, then return here to fill evidence gaps with source-backed material.",
     };
@@ -2766,13 +2766,13 @@ function getEntryGuidance(intent: MaterialEntryIntent) {
   return {
     enrichmentHint:
       "Add project notes, design docs, performance reviews, or accomplishment drafts to turn thin resume signals into richer project stories and stronger evidence.",
-      fileImportLabel: "Import external source",
-    primaryActionLabel: "Extract Resume Signals",
+      fileImportLabel: "Import resume file",
+    primaryActionLabel: "Create library items",
     primaryHint:
-      "Upload or paste your current resume. Expect initial cards to be thin until enriched with deeper source material.",
-      primaryTitleLabel: "Reviewed resume or external source title",
+      "Upload or paste your current resume. Initial cards may need deeper work-story context later.",
+      primaryTitleLabel: "Reviewed resume title",
     summary:
-      "Start from your existing resume, review its weak spots, then extract profile, project, and evidence signals for enrichment.",
+      "Start from your existing resume, review weak spots, then turn it into reusable material for evidence and resume generation.",
   };
 }
 
@@ -3040,15 +3040,25 @@ function getEvidenceBlocker(item: EvidenceCardItem) {
   if (item.status !== "approved") {
     return {
       action: "approve_for_resume" as const,
-      label: "Review truth and approve",
-      reason: "Truth review is still pending.",
+      label: item.sensitivity_level !== "public_safe" && !item.public_safe_summary
+        ? "Review truth + add safe wording"
+        : "Review truth and approve",
+      reason:
+        item.sensitivity_level !== "public_safe" && !item.public_safe_summary
+          ? "Truth review and external-safe wording are required before resume use."
+          : "Truth review is still pending.",
     };
   }
   if (item.needs_user_confirmation) {
     return {
       action: "approve_for_resume" as const,
-      label: "Confirm claim for resume",
-      reason: "User confirmation is required before resume use.",
+      label: item.sensitivity_level !== "public_safe" && !item.public_safe_summary
+        ? "Confirm + add safe wording"
+        : "Confirm claim for resume",
+      reason:
+        item.sensitivity_level !== "public_safe" && !item.public_safe_summary
+          ? "User confirmation and external-safe wording are required before resume use."
+          : "User confirmation is required before resume use.",
     };
   }
   if (item.sensitivity_level !== "public_safe" && !item.public_safe_summary) {
@@ -4069,9 +4079,17 @@ function EvidenceCard({
               className="secondary-button"
               disabled={isUpdating}
               type="button"
-              onClick={() => onUpdate(item, "approve_for_resume")}
+              onClick={() => {
+                if (item.sensitivity_level !== "public_safe" && !item.public_safe_summary) {
+                  setIsEditing(true);
+                  return;
+                }
+                onUpdate(item, "approve_for_resume");
+              }}
             >
-              Approve for resume
+              {item.sensitivity_level !== "public_safe" && !item.public_safe_summary
+                ? "Add safe wording first"
+                : "Approve for resume"}
             </button>
           ) : null}
         </div>
@@ -4609,7 +4627,7 @@ function ProjectList({
                 {linkedEvidence.length === 0 ? (
                   <p className="requirement__quote">
                     No evidence is linked to this project yet. Add richer project context
-                    from Source Intake to strengthen this story.
+                    from Add Material to strengthen this story.
                   </p>
                 ) : (
                   linkedEvidence.map((item, index) => (
@@ -4671,18 +4689,18 @@ function SourceParseStatusCard({ card }: { card: SourceParseCard }) {
             ? "Duplicate source"
             : card.nextAction === "resume_review"
               ? "Ready to review"
-              : "Ready to extract";
+              : "Ready to add";
   const nextCopy =
     quality.status === "needs_ocr" || quality.status === "failed"
       ? "Paste text manually or upload a DOCX/text-layer PDF."
       : card.nextAction === "resume_review"
-        ? "Continue in Resume Review, then extract approved material to Evidence Library."
-        : "Review the extracted text, then extract it into reusable Evidence Library candidates.";
+        ? "Continue in Resume Review, then send useful material to Evidence Library."
+        : "Review the parsed text, then add it as reusable Evidence Library material.";
   return (
     <article className="source-parse-card" data-status={quality.status}>
       <div className="source-parse-card__top">
         <div>
-          <span className="eyebrow">Parsed source</span>
+          <span className="eyebrow">Parsed material</span>
           <h3>{card.title}</h3>
           <p>{card.filename}</p>
         </div>
