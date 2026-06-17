@@ -312,10 +312,37 @@ function toAuthUser(user: typeof users.$inferSelect): AuthUser {
 }
 
 function isUniqueViolation(error: unknown) {
-  return Boolean(
-    error &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error as { code?: string }).code === "23505",
-  );
+  const visited = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === "object" && !visited.has(current)) {
+    visited.add(current);
+    const record = current as {
+      cause?: unknown;
+      code?: unknown;
+      constraint?: unknown;
+      detail?: unknown;
+      message?: unknown;
+    };
+    if (record.code === "23505") return true;
+    if (
+      typeof record.constraint === "string" &&
+      record.constraint.includes("users_email_idx")
+    ) {
+      return true;
+    }
+    if (
+      typeof record.detail === "string" &&
+      record.detail.toLowerCase().includes("already exists")
+    ) {
+      return true;
+    }
+    if (
+      typeof record.message === "string" &&
+      record.message.includes("users_email_idx")
+    ) {
+      return true;
+    }
+    current = record.cause;
+  }
+  return false;
 }

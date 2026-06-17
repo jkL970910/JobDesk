@@ -20,6 +20,24 @@ describe("auth routes", () => {
     vi.clearAllMocks();
   });
 
+  it("maps duplicate registration emails to an account-exists response", async () => {
+    mockedRegisterUser.mockResolvedValueOnce({ status: "email_taken" });
+
+    const response = await register(
+      jsonRequest("http://localhost/api/auth/register", {
+        displayName: "Test User",
+        email: "test@example.com",
+        password: "password123",
+      }),
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      error: "An account already exists for this email.",
+      kind: "email_taken",
+    });
+    expect(response.status).toBe(409);
+  });
+
   it("does not expose registration database errors to the client", async () => {
     mockedRegisterUser.mockRejectedValueOnce(
       new Error('Failed query: insert into "users" values (...)'),
