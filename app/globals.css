@@ -2515,6 +2515,52 @@ select:focus {
   margin-bottom: 10px;
 }
 
+.project-source-modes {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 12px 0;
+}
+
+.project-source-modes button {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.018)),
+    var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+  text-align: left;
+}
+
+.project-source-modes button[data-active="true"] {
+  background:
+    linear-gradient(135deg, rgba(49, 208, 170, 0.16), rgba(111, 124, 255, 0.1)),
+    var(--panel-soft);
+  border-color: rgba(49, 208, 170, 0.34);
+}
+
+.project-source-modes span,
+.guided-target-card span,
+.guided-material-builder__top span,
+.focused-claims-banner span {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.project-source-modes small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
 .source-field,
 .file-import {
   color: var(--muted);
@@ -2527,6 +2573,57 @@ select:focus {
 .source-input {
   min-height: 40px;
   padding: 8px 10px;
+}
+
+.source-input--guided {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.source-field--wide {
+  grid-column: span 2;
+}
+
+.guided-target-card,
+.guided-material-builder,
+.focused-claims-banner {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 14px;
+}
+
+.guided-target-card strong,
+.focused-claims-banner strong {
+  color: var(--ink);
+  font-size: 0.94rem;
+}
+
+.guided-target-card p,
+.guided-target-card small,
+.guided-material-builder__top p,
+.focused-claims-banner p {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.42;
+  margin: 0;
+}
+
+.guided-material-builder__top,
+.focused-claims-banner {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.guided-material-builder__grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .file-import input {
@@ -3895,6 +3992,11 @@ select:focus {
   gap: 10px;
 }
 
+.requirement[data-focused="true"] {
+  border-color: rgba(49, 208, 170, 0.42);
+  box-shadow: 0 0 0 1px rgba(49, 208, 170, 0.18);
+}
+
 .project-card__top .requirement__quote {
   margin-top: 4px;
 }
@@ -4539,6 +4641,8 @@ select:focus {
   .status-board,
   .dashboard-summary,
   .entry-path-board,
+  .project-source-modes,
+  .guided-material-builder__grid,
   .resume-version-strip,
   .resume-review-rubric,
   .library-readiness,
@@ -4598,6 +4702,16 @@ select:focus {
 
   .story-target-row__detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .source-field--wide {
+    grid-column: span 1;
+  }
+
+  .guided-material-builder__top,
+  .focused-claims-banner {
+    align-items: stretch;
+    display: grid;
   }
 }
 

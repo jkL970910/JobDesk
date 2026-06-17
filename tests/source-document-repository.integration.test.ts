@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { loadDotEnv } from "../src/ai/env";
 import { getDb } from "../src/db/client";
-import { resumeSourceVersions, sourceDocuments } from "../src/db/schema";
+import { evidenceItems, initiatives, resumeSourceVersions, sourceDocuments } from "../src/db/schema";
 import {
   persistParsedSourceDocument,
   buildSourceContentHash,
@@ -11,7 +11,7 @@ import { persistProfileEvidenceExtraction } from "../src/server/profile-evidence
 import { getCurrentWorkspace } from "../src/server/workspace-repository";
 import type { ResumeSourceParseResult } from "../src/server/resume-source-parser";
 import { registerUser, runWithAuthContext } from "../src/server/auth-service";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
@@ -191,6 +191,176 @@ describe.skipIf(!runIntegration)("source document lifecycle integration", () => 
       sourceType: "project-note",
     });
   });
+
+  it("links extracted evidence back to a selected enrichment target", async () => {
+    const parsed = buildParsedSource(`Target-aware enrichment ${Date.now()}`);
+    const parsedSource = await persistParsedSourceDocument({
+      sourceType: "project_note",
+      parsed,
+    });
+    if (parsedSource.status !== "saved") {
+      throw new Error("Expected saved parsed source.");
+    }
+
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const [target] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: parsedSource.sourceDocumentId,
+        internalTitle: "Target activation story",
+        externalSafeTitle: "Target activation story",
+        context: "Existing thin initiative context.",
+        problem: null,
+        role: null,
+        actions: [],
+        results: [],
+        metrics: [],
+        technologies: [],
+        stakeholders: [],
+        status: "pending",
+      })
+      .returning({ id: initiatives.id });
+    if (!target) throw new Error("Expected target initiative.");
+
+    const persistence = await persistProfileEvidenceExtraction({
+      sourceText: parsed.sourceText,
+      sourceTitle: parsed.sourceTitle,
+      sourceDocumentId: parsedSource.sourceDocumentId,
+      sourceType: "project-note",
+      target: {
+        missingFields: ["metrics"],
+        targetId: target.id,
+        targetTitle: "Target activation story",
+        targetType: "initiative",
+      },
+      extraction: buildExtraction(parsed.sourceTitle),
+      provider: "test-provider",
+      model: "test-model",
+      usage: { totalTokens: 0 },
+      retryCount: 0,
+      skill: {
+        modelTier: "cheap",
+        promptVersion: "test-prompt",
+        schemaName: "ProfileEvidenceExtraction",
+        schemaVersion: "test-schema",
+        skillId: "profile-evidence-extraction-project-note",
+        skillVersion: "test-skill",
+        sourceSkillIds: ["profile-extraction", "evidence-extraction"],
+        workflowType: "profile-evidence-extraction",
+      },
+    });
+    expect(persistence).toMatchObject({ status: "saved" });
+
+    const linkedEvidence = await db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.relatedInitiativeId, target.id));
+    expect(linkedEvidence.length).toBeGreaterThan(0);
+    expect(linkedEvidence.every((item) => item.workspaceId === workspace.id)).toBe(true);
+  });
+
+  it("prefers the selected enrichment target over a newly generated duplicate target", async () => {
+    const parsed = buildParsedSource(`Duplicate-target enrichment ${Date.now()}`);
+    const parsedSource = await persistParsedSourceDocument({
+      sourceType: "project_note",
+      parsed,
+    });
+    if (parsedSource.status !== "saved") {
+      throw new Error("Expected saved parsed source.");
+    }
+
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const [selectedTarget] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: parsedSource.sourceDocumentId,
+        internalTitle: "Selected thin story",
+        externalSafeTitle: "Selected thin story",
+        context: "Existing thin story from resume review.",
+        problem: null,
+        role: null,
+        actions: [],
+        results: [],
+        metrics: [],
+        technologies: [],
+        stakeholders: [],
+        status: "pending",
+      })
+      .returning({ id: initiatives.id });
+    if (!selectedTarget) throw new Error("Expected selected target.");
+
+    const generatedTitle = `Generated duplicate story ${Date.now()}`;
+    const extraction = buildExtractionWithGeneratedInitiative(generatedTitle);
+    const persistence = await persistProfileEvidenceExtraction({
+      sourceText: parsed.sourceText,
+      sourceTitle: parsed.sourceTitle,
+      sourceDocumentId: parsedSource.sourceDocumentId,
+      sourceType: "project-note",
+      target: {
+        missingFields: ["metrics", "results"],
+        targetId: selectedTarget.id,
+        targetTitle: "Selected thin story",
+        targetType: "initiative",
+      },
+      extraction,
+      provider: "test-provider",
+      model: "test-model",
+      usage: { totalTokens: 0 },
+      retryCount: 0,
+      skill: {
+        modelTier: "cheap",
+        promptVersion: "test-prompt",
+        schemaName: "ProfileEvidenceExtraction",
+        schemaVersion: "test-schema",
+        skillId: "profile-evidence-extraction-project-note",
+        skillVersion: "test-skill",
+        sourceSkillIds: ["profile-extraction", "evidence-extraction"],
+        workflowType: "profile-evidence-extraction",
+      },
+    });
+    expect(persistence).toMatchObject({ status: "saved" });
+
+    const selectedEvidence = await db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.relatedInitiativeId, selectedTarget.id));
+    expect(selectedEvidence.length).toBeGreaterThan(0);
+
+    const generatedTargets = await db
+      .select()
+      .from(initiatives)
+      .where(
+        and(
+          eq(initiatives.workspaceId, workspace.id),
+          eq(initiatives.internalTitle, generatedTitle),
+        ),
+      );
+    expect(generatedTargets).toHaveLength(0);
+
+    const [updatedTarget] = await db
+      .select()
+      .from(initiatives)
+      .where(eq(initiatives.id, selectedTarget.id))
+      .limit(1);
+    expect(updatedTarget).toMatchObject({
+      problem: "Duplicate target problem.",
+      role: "Owner",
+    });
+    expect(updatedTarget?.actions).toContain("Built dashboards.");
+    expect(updatedTarget?.results).toContain("Reduced manual reporting effort.");
+    expect(updatedTarget?.technologies).toContain("SQL");
+    expect(updatedTarget?.stakeholders).toContain("product team");
+
+    const allEvidence = await db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.sourceDocumentId, parsedSource.sourceDocumentId));
+    expect(allEvidence.every((item) => item.relatedInitiativeId === selectedTarget.id)).toBe(true);
+  });
 });
 
 function buildParsedSource(title: string): ResumeSourceParseResult {
@@ -255,5 +425,45 @@ function buildExtraction(title: string): ProfileEvidenceExtraction {
       },
     ],
     extraction_notes: [],
+  };
+}
+
+function buildExtractionWithGeneratedInitiative(title: string): ProfileEvidenceExtraction {
+  return {
+    ...buildExtraction(title),
+    initiatives: [
+      {
+        internal_title: title,
+        external_safe_title: title,
+        work_experience_ref: null,
+        context: "Generated duplicate target from enrichment answer.",
+        problem: "Duplicate target problem.",
+        role: "Owner",
+        actions: ["Built dashboards."],
+        results: ["Reduced manual reporting effort."],
+        metrics: [],
+        technologies: ["SQL"],
+        stakeholders: ["product team"],
+        external_safe_summary: null,
+        sensitivity_level: "private",
+        needs_redaction_review: false,
+        status: "pending",
+      },
+    ],
+    evidence_items: [
+      {
+        text: "Built onboarding analytics dashboards with SQL and product event data.",
+        evidence_type: "extracted",
+        status: "pending",
+        source_quote: "Built onboarding analytics dashboards with SQL and product event data.",
+        metrics: [],
+        sensitivity_level: "public_safe",
+        allowed_usage: ["resume"],
+        needs_user_confirmation: true,
+        public_safe_summary: "Built onboarding analytics dashboards with SQL and product event data.",
+        related_project_id: null,
+        related_initiative_id: title,
+      },
+    ],
   };
 }

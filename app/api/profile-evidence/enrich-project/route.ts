@@ -14,6 +14,14 @@ const requestSchema = z.object({
   sourceText: z.string().trim().min(80).max(50_000),
   sourceTitle: z.string().trim().min(1).max(240).optional(),
   sourceDocumentId: z.string().uuid().optional(),
+  target: z
+    .object({
+      missingFields: z.array(z.string().trim().min(1).max(80)).default([]),
+      targetId: z.string().uuid(),
+      targetTitle: z.string().trim().min(1).max(240).optional(),
+      targetType: z.enum(["initiative", "portfolio_project", "legacy_project"]),
+    })
+    .optional(),
 });
 
 export async function POST(request: Request) {
@@ -40,6 +48,7 @@ export async function POST(request: Request) {
         sourceTitle: parsed.data.sourceTitle,
         sourceDocumentId: parsed.data.sourceDocumentId,
         sourceType: "project-note",
+        target: parsed.data.target,
         extraction: result.data,
         provider: `openrouter-compatible:${config.transport}`,
         model: config.model,

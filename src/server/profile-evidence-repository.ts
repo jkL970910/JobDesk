@@ -59,12 +59,22 @@ export type ProfileEvidencePersistenceResult =
     };
 
 type SourceDocumentStore = Pick<ReturnType<typeof getDb>, "select" | "insert" | "update">;
+type StoryTargetStore = Pick<ReturnType<typeof getDb>, "select">;
+type StoryTargetMergeStore = Pick<ReturnType<typeof getDb>, "select" | "update">;
+
+type EnrichmentStoryTarget = {
+  targetType: "initiative" | "portfolio_project" | "legacy_project";
+  targetId: string;
+  targetTitle?: string;
+  missingFields?: string[];
+};
 
 export async function persistProfileEvidenceExtraction(args: {
   sourceText: string;
   sourceTitle?: string;
   sourceType?: "profile-evidence" | "project-note" | "jd-gap-note";
   sourceDocumentId?: string;
+  target?: EnrichmentStoryTarget;
   extraction: ProfileEvidenceExtraction;
   provider: string;
   model: string;
@@ -92,6 +102,12 @@ export async function persistProfileEvidenceExtraction(args: {
       sourceType: args.sourceType ?? "profile-evidence",
       workspaceId: workspace.id,
     });
+    const enrichmentTarget = args.target
+      ? await resolveEnrichmentStoryTarget(tx, {
+          target: args.target,
+          workspaceId: workspace.id,
+        })
+      : null;
 
     const canonicalProfile = toCanonicalProfile(args.extraction.profile, args.sourceText);
     const displayName = args.extraction.profile.name.value;
@@ -141,100 +157,147 @@ export async function persistProfileEvidenceExtraction(args: {
     }
 
     const initiativeIdByDraftId = new Map<string, string>();
-    for (const initiative of args.extraction.initiatives) {
-      const workExperienceId = initiative.work_experience_ref
-        ? workExperienceIdByDraftId.get(initiative.work_experience_ref) ?? null
-        : null;
-      const [created] = await tx
-        .insert(initiatives)
-        .values({
-          workspaceId: workspace.id,
-          workExperienceId,
-          sourceDocumentId: sourceDocument.id,
-          internalTitle: initiative.internal_title,
-          externalSafeTitle: initiative.external_safe_title,
-          context: initiative.context,
-          problem: initiative.problem,
-          role: initiative.role,
-          actions: initiative.actions,
-          results: initiative.results,
-          metrics: initiative.metrics as Array<Record<string, unknown>>,
-          technologies: initiative.technologies,
-          stakeholders: initiative.stakeholders,
-          externalSafeSummary: initiative.external_safe_summary,
-          sensitivityLevel: initiative.sensitivity_level,
-          needsRedactionReview: initiative.needs_redaction_review ? 1 : 0,
-          status: initiative.status,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning({ id: initiatives.id });
-      if (created) {
-        initiativeIdByDraftId.set(initiative.internal_title, created.id);
+    if (enrichmentTarget?.targetType === "initiative") {
+      await mergeSelectedInitiativeTarget(tx, {
+        drafts: args.extraction.initiatives,
+        now,
+        sourceDocumentId: sourceDocument.id,
+        targetId: enrichmentTarget.targetId,
+        targetTitle: args.target?.targetTitle,
+        workspaceId: workspace.id,
+      });
+      for (const initiative of args.extraction.initiatives) {
+        initiativeIdByDraftId.set(initiative.internal_title, enrichmentTarget.targetId);
         if (initiative.external_safe_title) {
-          initiativeIdByDraftId.set(initiative.external_safe_title, created.id);
+          initiativeIdByDraftId.set(initiative.external_safe_title, enrichmentTarget.targetId);
+        }
+      }
+    } else {
+      for (const initiative of args.extraction.initiatives) {
+        const workExperienceId = initiative.work_experience_ref
+          ? workExperienceIdByDraftId.get(initiative.work_experience_ref) ?? null
+          : null;
+        const [created] = await tx
+          .insert(initiatives)
+          .values({
+            workspaceId: workspace.id,
+            workExperienceId,
+            sourceDocumentId: sourceDocument.id,
+            internalTitle: initiative.internal_title,
+            externalSafeTitle: initiative.external_safe_title,
+            context: initiative.context,
+            problem: initiative.problem,
+            role: initiative.role,
+            actions: initiative.actions,
+            results: initiative.results,
+            metrics: initiative.metrics as Array<Record<string, unknown>>,
+            technologies: initiative.technologies,
+            stakeholders: initiative.stakeholders,
+            externalSafeSummary: initiative.external_safe_summary,
+            sensitivityLevel: initiative.sensitivity_level,
+            needsRedactionReview: initiative.needs_redaction_review ? 1 : 0,
+            status: initiative.status,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning({ id: initiatives.id });
+        if (created) {
+          initiativeIdByDraftId.set(initiative.internal_title, created.id);
+          if (initiative.external_safe_title) {
+            initiativeIdByDraftId.set(initiative.external_safe_title, created.id);
+          }
         }
       }
     }
 
     const portfolioProjectIdByDraftId = new Map<string, string>();
-    for (const project of args.extraction.portfolio_projects) {
-      const [created] = await tx
-        .insert(portfolioProjects)
-        .values({
-          workspaceId: workspace.id,
-          sourceDocumentId: sourceDocument.id,
-          projectType: project.project_type,
-          title: project.title,
-          externalSafeTitle: project.external_safe_title,
-          context: project.context,
-          problem: project.problem,
-          role: project.role,
-          actions: project.actions,
-          results: project.results,
-          metrics: project.metrics as Array<Record<string, unknown>>,
-          technologies: project.technologies,
-          stakeholders: project.stakeholders,
-          externalSafeSummary: project.external_safe_summary,
-          sensitivityLevel: project.sensitivity_level,
-          needsRedactionReview: project.needs_redaction_review ? 1 : 0,
-          status: project.status,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning({ id: portfolioProjects.id });
-      if (created) {
-        portfolioProjectIdByDraftId.set(project.title, created.id);
+    if (enrichmentTarget?.targetType === "portfolio_project") {
+      await mergeSelectedPortfolioProjectTarget(tx, {
+        drafts: args.extraction.portfolio_projects,
+        now,
+        sourceDocumentId: sourceDocument.id,
+        targetId: enrichmentTarget.targetId,
+        targetTitle: args.target?.targetTitle,
+        workspaceId: workspace.id,
+      });
+      for (const project of args.extraction.portfolio_projects) {
+        portfolioProjectIdByDraftId.set(project.title, enrichmentTarget.targetId);
         if (project.external_safe_title) {
-          portfolioProjectIdByDraftId.set(project.external_safe_title, created.id);
+          portfolioProjectIdByDraftId.set(project.external_safe_title, enrichmentTarget.targetId);
+        }
+      }
+    } else {
+      for (const project of args.extraction.portfolio_projects) {
+        const [created] = await tx
+          .insert(portfolioProjects)
+          .values({
+            workspaceId: workspace.id,
+            sourceDocumentId: sourceDocument.id,
+            projectType: project.project_type,
+            title: project.title,
+            externalSafeTitle: project.external_safe_title,
+            context: project.context,
+            problem: project.problem,
+            role: project.role,
+            actions: project.actions,
+            results: project.results,
+            metrics: project.metrics as Array<Record<string, unknown>>,
+            technologies: project.technologies,
+            stakeholders: project.stakeholders,
+            externalSafeSummary: project.external_safe_summary,
+            sensitivityLevel: project.sensitivity_level,
+            needsRedactionReview: project.needs_redaction_review ? 1 : 0,
+            status: project.status,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning({ id: portfolioProjects.id });
+        if (created) {
+          portfolioProjectIdByDraftId.set(project.title, created.id);
+          if (project.external_safe_title) {
+            portfolioProjectIdByDraftId.set(project.external_safe_title, created.id);
+          }
         }
       }
     }
 
     const projectIdByDraftId = new Map<string, string>();
-    for (const project of args.extraction.project_cards) {
-      const [created] = await tx
-        .insert(projectCards)
-        .values({
-          workspaceId: workspace.id,
-          title: project.title,
-          context: project.context,
-          problem: project.problem,
-          role: project.role,
-          actions: project.actions,
-          results: project.results,
-          metrics: project.metrics as Array<Record<string, unknown>>,
-          technologies: project.technologies,
-          stakeholders: project.stakeholders,
-          publicSafeSummary: project.public_safe_summary,
-          sensitivityLevel: project.sensitivity_level,
-          status: project.status,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning({ id: projectCards.id });
-      if (created) {
-        projectIdByDraftId.set(project.title, created.id);
+    if (enrichmentTarget?.targetType === "legacy_project") {
+      await mergeSelectedLegacyProjectTarget(tx, {
+        drafts: args.extraction.project_cards,
+        now,
+        targetId: enrichmentTarget.targetId,
+        targetTitle: args.target?.targetTitle,
+        workspaceId: workspace.id,
+      });
+      for (const project of args.extraction.project_cards) {
+        projectIdByDraftId.set(project.title, enrichmentTarget.targetId);
+      }
+    } else {
+      for (const project of args.extraction.project_cards) {
+        const [created] = await tx
+          .insert(projectCards)
+          .values({
+            workspaceId: workspace.id,
+            title: project.title,
+            context: project.context,
+            problem: project.problem,
+            role: project.role,
+            actions: project.actions,
+            results: project.results,
+            metrics: project.metrics as Array<Record<string, unknown>>,
+            technologies: project.technologies,
+            stakeholders: project.stakeholders,
+            publicSafeSummary: project.public_safe_summary,
+            sensitivityLevel: project.sensitivity_level,
+            status: project.status,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning({ id: projectCards.id });
+        if (created) {
+          projectIdByDraftId.set(project.title, created.id);
+        }
       }
     }
 
@@ -242,6 +305,35 @@ export async function persistProfileEvidenceExtraction(args: {
       await tx.insert(evidenceItems).values(
         args.extraction.evidence_items.map((item) => {
           const guardrail = evaluateEvidenceGuardrails(item, args.sourceText);
+          const mappedProjectId = item.related_project_id
+            ? projectIdByDraftId.get(item.related_project_id) ?? null
+            : null;
+          const mappedInitiativeId = item.related_initiative_id
+            ? initiativeIdByDraftId.get(item.related_initiative_id) ?? null
+            : null;
+          const mappedPortfolioProjectId = item.related_portfolio_project_id
+            ? portfolioProjectIdByDraftId.get(item.related_portfolio_project_id) ?? null
+            : null;
+          const mappedWorkExperienceId = item.related_work_experience_id
+            ? workExperienceIdByDraftId.get(item.related_work_experience_id) ?? null
+            : null;
+          const preferredProjectId =
+            enrichmentTarget?.targetType === "legacy_project"
+              ? enrichmentTarget.targetId
+              : mappedProjectId;
+          const preferredInitiativeId =
+            enrichmentTarget?.targetType === "initiative"
+              ? enrichmentTarget.targetId
+              : mappedInitiativeId;
+          const preferredPortfolioProjectId =
+            enrichmentTarget?.targetType === "portfolio_project"
+              ? enrichmentTarget.targetId
+              : mappedPortfolioProjectId;
+          const preferredWorkExperienceId =
+            enrichmentTarget &&
+            (preferredProjectId || preferredInitiativeId || preferredPortfolioProjectId)
+              ? null
+              : mappedWorkExperienceId;
           return {
             workspaceId: workspace.id,
             sourceDocumentId: sourceDocument.id,
@@ -253,18 +345,10 @@ export async function persistProfileEvidenceExtraction(args: {
             allowedUsage: item.allowed_usage,
             publicSafeSummary: item.public_safe_summary,
             status: item.status,
-            relatedProjectId: item.related_project_id
-              ? projectIdByDraftId.get(item.related_project_id) ?? null
-              : null,
-            relatedWorkExperienceId: item.related_work_experience_id
-              ? workExperienceIdByDraftId.get(item.related_work_experience_id) ?? null
-              : null,
-            relatedInitiativeId: item.related_initiative_id
-              ? initiativeIdByDraftId.get(item.related_initiative_id) ?? null
-              : null,
-            relatedPortfolioProjectId: item.related_portfolio_project_id
-              ? portfolioProjectIdByDraftId.get(item.related_portfolio_project_id) ?? null
-              : null,
+            relatedProjectId: preferredProjectId,
+            relatedWorkExperienceId: preferredWorkExperienceId,
+            relatedInitiativeId: preferredInitiativeId,
+            relatedPortfolioProjectId: preferredPortfolioProjectId,
             needsUserConfirmation: guardrail.needsUserConfirmation ? 1 : 0,
             createdAt: now,
             updatedAt: now,
@@ -389,6 +473,245 @@ async function resolveExtractionSourceDocument(args: {
     throw new Error("Failed to create profile source document.");
   }
   return sourceDocument;
+}
+
+async function resolveEnrichmentStoryTarget(
+  db: StoryTargetStore,
+  args: {
+    target: EnrichmentStoryTarget;
+    workspaceId: string;
+  },
+) {
+  if (args.target.targetType === "initiative") {
+    const [target] = await db
+      .select({ id: initiatives.id, status: initiatives.status })
+      .from(initiatives)
+      .where(
+        and(
+          eq(initiatives.workspaceId, args.workspaceId),
+          eq(initiatives.id, args.target.targetId),
+        ),
+      )
+      .limit(1);
+    if (!target) throw new Error("Target initiative not found for this workspace.");
+    if (target.status === "rejected") throw new Error("Target initiative has been rejected.");
+    return { targetId: target.id, targetType: args.target.targetType } as const;
+  }
+  if (args.target.targetType === "portfolio_project") {
+    const [target] = await db
+      .select({ id: portfolioProjects.id, status: portfolioProjects.status })
+      .from(portfolioProjects)
+      .where(
+        and(
+          eq(portfolioProjects.workspaceId, args.workspaceId),
+          eq(portfolioProjects.id, args.target.targetId),
+        ),
+      )
+      .limit(1);
+    if (!target) throw new Error("Target portfolio project not found for this workspace.");
+    if (target.status === "rejected") throw new Error("Target portfolio project has been rejected.");
+    return { targetId: target.id, targetType: args.target.targetType } as const;
+  }
+  const [target] = await db
+    .select({ id: projectCards.id, status: projectCards.status })
+    .from(projectCards)
+    .where(
+      and(
+        eq(projectCards.workspaceId, args.workspaceId),
+        eq(projectCards.id, args.target.targetId),
+      ),
+    )
+    .limit(1);
+  if (!target) throw new Error("Target project not found for this workspace.");
+  if (target.status === "rejected") throw new Error("Target project has been rejected.");
+  return { targetId: target.id, targetType: args.target.targetType } as const;
+}
+
+async function mergeSelectedInitiativeTarget(
+  db: StoryTargetMergeStore,
+  args: {
+    drafts: ProfileEvidenceExtraction["initiatives"];
+    now: Date;
+    sourceDocumentId: string;
+    targetId: string;
+    targetTitle?: string;
+    workspaceId: string;
+  },
+) {
+  const draft = pickBestTargetDraft(args.drafts, args.targetTitle);
+  if (!draft) return;
+  const [current] = await db
+    .select()
+    .from(initiatives)
+    .where(and(eq(initiatives.workspaceId, args.workspaceId), eq(initiatives.id, args.targetId)))
+    .limit(1);
+  if (!current) throw new Error("Target initiative not found for this workspace.");
+
+  await db
+    .update(initiatives)
+    .set({
+      sourceDocumentId: current.sourceDocumentId ?? args.sourceDocumentId,
+      externalSafeTitle: preferExistingText(current.externalSafeTitle, draft.external_safe_title),
+      context: preferExistingText(current.context, draft.context),
+      problem: preferExistingText(current.problem, draft.problem),
+      role: preferExistingText(current.role, draft.role),
+      actions: mergeStringValues(current.actions, draft.actions),
+      results: mergeStringValues(current.results, draft.results),
+      metrics: mergeRecordValues(current.metrics, draft.metrics),
+      technologies: mergeStringValues(current.technologies, draft.technologies),
+      stakeholders: mergeStringValues(current.stakeholders, draft.stakeholders),
+      externalSafeSummary: preferExistingText(
+        current.externalSafeSummary,
+        draft.external_safe_summary,
+      ),
+      sensitivityLevel: current.sensitivityLevel ?? draft.sensitivity_level,
+      needsRedactionReview:
+        current.needsRedactionReview === 1 || draft.needs_redaction_review ? 1 : 0,
+      updatedAt: args.now,
+    })
+    .where(and(eq(initiatives.workspaceId, args.workspaceId), eq(initiatives.id, args.targetId)));
+}
+
+async function mergeSelectedPortfolioProjectTarget(
+  db: StoryTargetMergeStore,
+  args: {
+    drafts: ProfileEvidenceExtraction["portfolio_projects"];
+    now: Date;
+    sourceDocumentId: string;
+    targetId: string;
+    targetTitle?: string;
+    workspaceId: string;
+  },
+) {
+  const draft = pickBestTargetDraft(args.drafts, args.targetTitle);
+  if (!draft) return;
+  const [current] = await db
+    .select()
+    .from(portfolioProjects)
+    .where(
+      and(
+        eq(portfolioProjects.workspaceId, args.workspaceId),
+        eq(portfolioProjects.id, args.targetId),
+      ),
+    )
+    .limit(1);
+  if (!current) throw new Error("Target portfolio project not found for this workspace.");
+
+  await db
+    .update(portfolioProjects)
+    .set({
+      sourceDocumentId: current.sourceDocumentId ?? args.sourceDocumentId,
+      externalSafeTitle: preferExistingText(current.externalSafeTitle, draft.external_safe_title),
+      context: preferExistingText(current.context, draft.context),
+      problem: preferExistingText(current.problem, draft.problem),
+      role: preferExistingText(current.role, draft.role),
+      actions: mergeStringValues(current.actions, draft.actions),
+      results: mergeStringValues(current.results, draft.results),
+      metrics: mergeRecordValues(current.metrics, draft.metrics),
+      technologies: mergeStringValues(current.technologies, draft.technologies),
+      stakeholders: mergeStringValues(current.stakeholders, draft.stakeholders),
+      externalSafeSummary: preferExistingText(
+        current.externalSafeSummary,
+        draft.external_safe_summary,
+      ),
+      sensitivityLevel: current.sensitivityLevel ?? draft.sensitivity_level,
+      needsRedactionReview:
+        current.needsRedactionReview === 1 || draft.needs_redaction_review ? 1 : 0,
+      updatedAt: args.now,
+    })
+    .where(
+      and(
+        eq(portfolioProjects.workspaceId, args.workspaceId),
+        eq(portfolioProjects.id, args.targetId),
+      ),
+    );
+}
+
+async function mergeSelectedLegacyProjectTarget(
+  db: StoryTargetMergeStore,
+  args: {
+    drafts: ProfileEvidenceExtraction["project_cards"];
+    now: Date;
+    targetId: string;
+    targetTitle?: string;
+    workspaceId: string;
+  },
+) {
+  const draft = pickBestTargetDraft(args.drafts, args.targetTitle);
+  if (!draft) return;
+  const [current] = await db
+    .select()
+    .from(projectCards)
+    .where(and(eq(projectCards.workspaceId, args.workspaceId), eq(projectCards.id, args.targetId)))
+    .limit(1);
+  if (!current) throw new Error("Target project not found for this workspace.");
+
+  await db
+    .update(projectCards)
+    .set({
+      context: preferExistingText(current.context, draft.context),
+      problem: preferExistingText(current.problem, draft.problem),
+      role: preferExistingText(current.role, draft.role),
+      actions: mergeStringValues(current.actions, draft.actions),
+      results: mergeStringValues(current.results, draft.results),
+      metrics: mergeRecordValues(current.metrics, draft.metrics),
+      technologies: mergeStringValues(current.technologies, draft.technologies),
+      stakeholders: mergeStringValues(current.stakeholders, draft.stakeholders),
+      publicSafeSummary: preferExistingText(current.publicSafeSummary, draft.public_safe_summary),
+      sensitivityLevel: current.sensitivityLevel ?? draft.sensitivity_level,
+      updatedAt: args.now,
+    })
+    .where(and(eq(projectCards.workspaceId, args.workspaceId), eq(projectCards.id, args.targetId)));
+}
+
+function pickBestTargetDraft<T extends { title?: string; internal_title?: string }>(
+  drafts: T[],
+  targetTitle?: string,
+) {
+  if (!targetTitle) return drafts[0] ?? null;
+  const normalizedTarget = normalizeMatchText(targetTitle);
+  return (
+    drafts.find((draft) =>
+      [draft.title, draft.internal_title].some(
+        (candidate) => candidate && normalizeMatchText(candidate) === normalizedTarget,
+      ),
+    ) ??
+    drafts[0] ??
+    null
+  );
+}
+
+function preferExistingText(existing: string | null | undefined, incoming: string | null | undefined) {
+  return hasText(existing) ? existing : hasText(incoming) ? incoming!.trim() : existing ?? null;
+}
+
+function mergeStringValues(existing: string[] | null | undefined, incoming: string[] | null | undefined) {
+  const values = new Map<string, string>();
+  for (const value of [...(existing ?? []), ...(incoming ?? [])]) {
+    if (!hasText(value)) continue;
+    const trimmed = value.trim();
+    values.set(normalizeMatchText(trimmed), trimmed);
+  }
+  return Array.from(values.values());
+}
+
+function mergeRecordValues(
+  existing: Array<Record<string, unknown>> | null | undefined,
+  incoming: Array<Record<string, unknown>> | null | undefined,
+) {
+  const values = new Map<string, Record<string, unknown>>();
+  for (const value of [...(existing ?? []), ...(incoming ?? [])]) {
+    values.set(JSON.stringify(value), value);
+  }
+  return Array.from(values.values());
+}
+
+function hasText(value: string | null | undefined) {
+  return Boolean(value && value.trim().length > 0);
+}
+
+function normalizeMatchText(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 export async function persistProfileEvidenceFailure(args: {

@@ -1,9 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 
 import { useAccess } from "./access-provider";
 
+import {
+  buildGuidedMaterialMarkdown,
+  emptyGuidedMaterialFields,
+  getGuidedMaterialReadiness,
+  hasGuidedMaterialContent,
+  type GuidedMaterialFields,
+} from "../lib/guided-material";
 import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
 
 type ExtractionResponse =
@@ -215,6 +222,32 @@ type ProjectCardItem = {
 
 export type MaterialEntryIntent = "resume" | "scratch" | "jd";
 export type MaterialReviewTab = "enrichment" | "projects" | "unlinked" | "cleanup" | "stories";
+type ProjectSourceMode = "upload" | "paste" | "guided";
+type StoryEnrichmentTargetType = "initiative" | "portfolio_project" | "legacy_project";
+
+type StoryEnrichmentTarget = {
+  targetType: StoryEnrichmentTargetType;
+  targetId: string;
+  targetTitle: string;
+  context?: string | null;
+  problem?: string | null;
+  role?: string | null;
+  actions?: string[];
+  results?: string[];
+  missingFields?: string[];
+};
+
+type EvidenceFocus = {
+  targetType: StoryEnrichmentTargetType;
+  targetId: string;
+  title: string;
+} | null;
+
+type StarStoryFocus = {
+  targetType: StoryEnrichmentTargetType;
+  targetId: string;
+  title: string;
+} | null;
 
 type ResumeSourceSummary = {
   id: string;
@@ -299,6 +332,14 @@ export function ProfileEvidenceWorkspace({
   const [projectNoteText, setProjectNoteText] = useState("");
   const [projectNoteTitle, setProjectNoteTitle] = useState("");
   const [projectSourceDocumentId, setProjectSourceDocumentId] = useState<string | undefined>();
+  const [projectSourceMode, setProjectSourceMode] = useState<ProjectSourceMode>("guided");
+  const [guidedMaterialFields, setGuidedMaterialFields] = useState<GuidedMaterialFields>(
+    emptyGuidedMaterialFields,
+  );
+  const [selectedStoryTarget, setSelectedStoryTarget] =
+    useState<StoryEnrichmentTarget | null>(null);
+  const [evidenceFocus, setEvidenceFocus] = useState<EvidenceFocus>(null);
+  const [starStoryFocus, setStarStoryFocus] = useState<StarStoryFocus>(null);
   const [fileStatus, setFileStatus] = useState<string | null>(null);
   const [parseCard, setParseCard] = useState<SourceParseCard | null>(null);
   const [resumeSources, setResumeSources] = useState<ResumeSourceSummary[]>([]);
@@ -749,11 +790,17 @@ export function ProfileEvidenceWorkspace({
       setFileStatus("This file needs manual text input before extraction.");
       return;
     }
-    updateActiveSourceDraft({
-      text: payload.data.sourceText,
-      title: payload.data.sourceTitle,
-      sourceDocumentId: payload.data.sourceDocumentId,
-    });
+    if (selectedEntryIntent === "scratch") {
+      setProjectNoteText(payload.data.sourceText);
+      setProjectNoteTitle(payload.data.sourceTitle);
+      setProjectSourceDocumentId(payload.data.sourceDocumentId);
+    } else {
+      updateActiveSourceDraft({
+        text: payload.data.sourceText,
+        title: payload.data.sourceTitle,
+        sourceDocumentId: payload.data.sourceDocumentId,
+      });
+    }
     setSelectedResumeSourceId("");
     setParseCard({
       filename: file.name,
@@ -887,6 +934,14 @@ export function ProfileEvidenceWorkspace({
             sourceText: projectNoteText,
             sourceTitle: projectNoteTitle.trim() || undefined,
             sourceDocumentId: projectSourceDocumentId,
+            target: selectedStoryTarget
+              ? {
+                  missingFields: selectedStoryTarget.missingFields ?? [],
+                  targetId: selectedStoryTarget.targetId,
+                  targetTitle: selectedStoryTarget.targetTitle,
+                  targetType: selectedStoryTarget.targetType,
+                }
+              : undefined,
           }),
         });
         const payload = (await response.json()) as ExtractionResponse;
@@ -902,6 +957,7 @@ export function ProfileEvidenceWorkspace({
         if (payload.meta.persistence?.status === "saved") {
           await refreshLibraryAfterMutation();
           setResult(null);
+          setSelectedStoryTarget(null);
           setLastIntakeSummary({
             evidenceCount: payload.meta.persistence.evidenceCount ?? payload.data.evidence_items.length,
             projectCount: payload.meta.persistence.projectCount ?? payload.data.project_cards.length,
@@ -918,6 +974,7 @@ export function ProfileEvidenceWorkspace({
         } else {
           setResult(payload.data);
           await refreshLibraryAfterMutation();
+          setSelectedStoryTarget(null);
           setLastIntakeSummary({
             evidenceCount: payload.data.evidence_items.length,
             projectCount: payload.data.project_cards.length,
@@ -941,7 +998,11 @@ export function ProfileEvidenceWorkspace({
   }
 
   const sourceIsReady = sourceText.trim().length >= 80;
-  const projectNoteIsReady = projectNoteText.trim().length >= 80;
+  const guidedReadiness = getGuidedMaterialReadiness(guidedMaterialFields);
+  const projectNoteIsReady =
+    projectSourceMode === "guided"
+      ? guidedReadiness.isReady && hasGuidedMaterialContent(projectNoteText)
+      : projectNoteText.trim().length >= 80;
   const sourceFormState = getLocalFormState({
     error,
     isRunning: isExtracting,
@@ -983,6 +1044,9 @@ export function ProfileEvidenceWorkspace({
     workExperiences,
   };
   const unlinkedEvidenceItems = getUnlinkedEvidenceItems(linkTargets, evidenceItems);
+  const focusedEvidenceItems = evidenceFocus
+    ? evidenceItems.filter((item) => evidenceMatchesFocus(item, evidenceFocus))
+    : unlinkedEvidenceItems;
   const libraryReadiness = summarizeLibraryReadiness({
     cleanupCount: storyDedupeCandidates.length + dedupeCandidates.length,
     evidenceItems,
@@ -996,6 +1060,8 @@ export function ProfileEvidenceWorkspace({
   function selectEntryIntent(intent: MaterialEntryIntent) {
     setSelectedEntryIntent(intent);
     setFileStatus(null);
+    setEvidenceFocus(null);
+    setStarStoryFocus(null);
     if (intent === "resume") {
       setStatus("Resume path selected. Select a reviewed resume, upload a file, or paste resume text.");
     } else if (intent === "jd") {
@@ -1003,11 +1069,20 @@ export function ProfileEvidenceWorkspace({
       setStatus("JD gap path selected. Add JD gap notes; resume drafts stay separate.");
     } else {
       setSelectedResumeSourceId("");
-      setStatus("Project/source path selected. Add source notes or files to enrich story material.");
+      setProjectSourceMode("guided");
+      setSelectedStoryTarget(null);
+      setStatus("Project/source path selected. Add source notes, files, or guided answers to enrich story material.");
     }
   }
 
-  function startProjectEnrichment(project: {
+  function openGenericSourceIntake() {
+    setSelectedStoryTarget(null);
+    setEvidenceFocus(null);
+    setStarStoryFocus(null);
+    setActiveSection("intake");
+  }
+
+  function startProjectEnrichment(project: StoryEnrichmentTarget | {
     title: string;
     context?: string | null;
     problem?: string | null;
@@ -1015,22 +1090,57 @@ export function ProfileEvidenceWorkspace({
     actions?: string[];
     results?: string[];
   }) {
-    setProjectNoteTitle(`${project.title} enrichment notes`);
+    const isTarget = isStoryEnrichmentTarget(project);
+    const target = isTarget ? project : null;
+    const title = isTarget ? project.targetTitle : project.title;
+    const fields = {
+      ...emptyGuidedMaterialFields,
+      actions: project.actions?.join("\n") ?? "",
+      businessImpact: project.results?.join("\n") ?? "",
+      companyOrContext: project.context ?? "",
+      ownership: project.role ?? "",
+      problem: project.problem ?? "",
+      projectOrInitiativeTitle: title,
+      roleAndTimeframe: project.role ?? "",
+    };
+    setGuidedMaterialFields(fields);
+    setSelectedStoryTarget(target);
+    setProjectSourceMode("guided");
+    setProjectNoteTitle(`${title} enrichment notes`);
     setProjectNoteText(
-      [
-        project.title,
-        project.context ? `Context: ${project.context}` : "Context: ",
-        project.problem ? `Problem: ${project.problem}` : "Problem: ",
-        project.role ? `Role: ${project.role}` : "Role: ",
-        project.actions?.length ? `Actions: ${project.actions.join("; ")}` : "Actions: ",
-        project.results?.length ? `Results: ${project.results.join("; ")}` : "Results: ",
-        "Metrics: ",
-        "Additional details to add: ",
-      ].join("\n"),
+      buildGuidedMaterialMarkdown(fields, target
+        ? {
+            missingFields: target.missingFields,
+            targetTitle: target.targetTitle,
+            targetType: target.targetType,
+          }
+        : { targetTitle: title }),
     );
+    setProjectSourceDocumentId(undefined);
     setSelectedEntryIntent("scratch");
-    setStatus(`Add more context for ${project.title}, then run Project Library Builder.`);
+    setEvidenceFocus(null);
+    setStarStoryFocus(null);
+    setStatus(`Answer guided prompts for ${title}, edit the preview, then enrich the story.`);
     setActiveSection("intake");
+  }
+
+  function reviewClaimsForStory(target: StoryEnrichmentTarget) {
+    setEvidenceFocus({
+      targetId: target.targetId,
+      targetType: target.targetType,
+      title: target.targetTitle,
+    });
+    setReviewTab("unlinked");
+  }
+
+  function reviewStarStoryForStory(target: StoryEnrichmentTarget) {
+    setEvidenceFocus(null);
+    setStarStoryFocus({
+      targetId: target.targetId,
+      targetType: target.targetType,
+      title: target.targetTitle,
+    });
+    setReviewTab("stories");
   }
 
   async function updateEvidence(
@@ -1375,6 +1485,26 @@ export function ProfileEvidenceWorkspace({
             <p className="panel__note">
               {entryGuidance.enrichmentHint}
             </p>
+            <ProjectSourceModePicker
+              activeMode={projectSourceMode}
+              onSelect={(mode) => {
+                setProjectSourceMode(mode);
+                setFileStatus(null);
+              }}
+            />
+            {selectedStoryTarget ? (
+              <section className="guided-target-card">
+                <span>Target-aware enrichment</span>
+                <strong>{selectedStoryTarget.targetTitle}</strong>
+                <p>
+                  Guided answers will be saved as source material and linked back to this{" "}
+                  {selectedStoryTarget.targetType.replace(/_/g, " ")} when extracted evidence is safe to associate.
+                </p>
+                {selectedStoryTarget.missingFields?.length ? (
+                  <small>Missing: {selectedStoryTarget.missingFields.join(", ")}</small>
+                ) : null}
+              </section>
+            ) : null}
             <div className="source-controls">
               <label className="source-field">
                 <span>Project source title</span>
@@ -1385,6 +1515,7 @@ export function ProfileEvidenceWorkspace({
                   onChange={(event) => setProjectNoteTitle(event.target.value)}
                 />
               </label>
+              {projectSourceMode === "upload" ? (
               <label className="file-import">
                 <span>Import project files</span>
                 <input
@@ -1397,11 +1528,54 @@ export function ProfileEvidenceWorkspace({
                   }}
                 />
               </label>
+              ) : null}
             </div>
             {parseCard ? <SourceParseStatusCard card={parseCard} /> : null}
+            {projectSourceMode === "guided" ? (
+              <GuidedMaterialBuilder
+                fields={guidedMaterialFields}
+                onChange={(fields) => {
+                  setGuidedMaterialFields(fields);
+                  setProjectSourceDocumentId(undefined);
+                  setProjectNoteText(
+                    buildGuidedMaterialMarkdown(fields, selectedStoryTarget
+                      ? {
+                          missingFields: selectedStoryTarget.missingFields,
+                          targetTitle: selectedStoryTarget.targetTitle,
+                          targetType: selectedStoryTarget.targetType,
+                        }
+                      : { targetTitle: fields.projectOrInitiativeTitle }),
+                  );
+                  if (!projectNoteTitle.trim() && fields.projectOrInitiativeTitle.trim()) {
+                    setProjectNoteTitle(`${fields.projectOrInitiativeTitle.trim()} guided source`);
+                  }
+                }}
+                onUseTemplate={() => {
+                  const markdown = buildGuidedMaterialMarkdown(
+                    guidedMaterialFields,
+                    selectedStoryTarget
+                      ? {
+                          missingFields: selectedStoryTarget.missingFields,
+                          targetTitle: selectedStoryTarget.targetTitle,
+                          targetType: selectedStoryTarget.targetType,
+                        }
+                      : { targetTitle: guidedMaterialFields.projectOrInitiativeTitle },
+                  );
+                  setProjectNoteText(markdown);
+                  setProjectSourceDocumentId(undefined);
+                  setStatus("Structured guided source preview is ready. Edit it if needed, then enrich.");
+                }}
+              />
+            ) : null}
             <label className="source-field source-field--textarea">
-              <span>Project or story source</span>
-              <small>Paste text or import multiple PDF, DOCX, TXT, or Markdown files. Each file must be under 8 MB.</small>
+              <span>{projectSourceMode === "guided" ? "Editable guided source preview" : "Project or story source"}</span>
+              <small>
+                {projectSourceMode === "guided"
+                  ? "Guided answers become a source document first, then evidence candidates. Edit this preview before enrichment."
+                  : projectSourceMode === "upload"
+                    ? "Imported files append here. Edit or combine the parsed source before enrichment."
+                    : "Paste project notes, work summaries, performance review excerpts, or STAR notes here."}
+              </small>
               <textarea
                 aria-label="Project note source text"
                 className="jd-input jd-input--compact"
@@ -1421,10 +1595,16 @@ export function ProfileEvidenceWorkspace({
                 type="button"
                 onClick={runProjectEnrichment}
               >
-                {isProjectEnriching ? "Enriching..." : "Enrich Project Note"}
+                {isProjectEnriching
+                  ? "Enriching..."
+                  : selectedStoryTarget
+                    ? "Enrich selected story"
+                    : "Enrich Project Note"}
               </button>
               <span className="status">
-                {status}
+                {projectSourceMode === "guided" && !projectNoteIsReady
+                  ? guidedReadiness.missingReason ?? "Add real guided answers before enrichment."
+                  : status}
               </span>
             </div>
             <FormStatePill state={projectFormState} />
@@ -1478,7 +1658,7 @@ export function ProfileEvidenceWorkspace({
             <button
               className="secondary-button"
               type="button"
-              onClick={() => setActiveSection("intake")}
+              onClick={openGenericSourceIntake}
             >
               Add source
             </button>
@@ -1496,7 +1676,7 @@ export function ProfileEvidenceWorkspace({
             onOpenClaims={() => setReviewTab("unlinked")}
             onOpenStories={() => setReviewTab("stories")}
             onOpenStoryTargets={() => setReviewTab("projects")}
-            onReturnToIntake={() => setActiveSection("intake")}
+            onReturnToIntake={openGenericSourceIntake}
             enrichmentTaskCount={
               enrichmentTasks.filter((task) => task.status === "open" || task.status === "answered")
                 .length
@@ -1523,9 +1703,12 @@ export function ProfileEvidenceWorkspace({
             <button
               data-active={reviewTab === "unlinked"}
               type="button"
-              onClick={() => setReviewTab("unlinked")}
+              onClick={() => {
+                setEvidenceFocus(null);
+                setReviewTab("unlinked");
+              }}
             >
-              Unlinked Evidence ({unlinkedEvidenceItems.length})
+              {evidenceFocus ? "Focused Claims" : "Unlinked Evidence"} ({focusedEvidenceItems.length})
             </button>
             <button
               data-active={reviewTab === "cleanup"}
@@ -1555,20 +1738,48 @@ export function ProfileEvidenceWorkspace({
               evidenceItems={evidenceItems}
               initiatives={initiatives}
               onEnrichStory={startProjectEnrichment}
+              onReviewClaims={reviewClaimsForStory}
+              onReviewStarStory={reviewStarStoryForStory}
               portfolioProjects={portfolioProjects}
               workExperiences={workExperiences}
             />
           ) : null}
           {reviewTab === "unlinked" ? (
+            <>
+            {evidenceFocus ? (
+              <section className="focused-claims-banner">
+                <div>
+                  <span>Story claims focus</span>
+                  <strong>{evidenceFocus.title}</strong>
+                  <p>Review claims linked to this story target, then approve, edit, or mark public-safe as needed.</p>
+                </div>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => setEvidenceFocus(null)}
+                >
+                  Show unlinked only
+                </button>
+              </section>
+            ) : null}
             <EvidenceList
-              description="These evidence claims are not attached to a work experience, initiative, or portfolio project yet. Link them to a story target or keep them as standalone profile facts."
-              emptyMessage="All current evidence is attached to story targets."
-              items={unlinkedEvidenceItems}
+              description={
+                evidenceFocus
+                  ? "These claims are already linked to the selected story target. Review truth, sensitivity, public-safe wording, and resume usage."
+                  : "These evidence claims are not attached to a work experience, initiative, or portfolio project yet. Link them to a story target or keep them as standalone profile facts."
+              }
+              emptyMessage={
+                evidenceFocus
+                  ? "No claims are linked to this story target yet. Use Enrich story to add source context."
+                  : "All current evidence is attached to story targets."
+              }
+              items={focusedEvidenceItems}
               onUpdate={updateEvidence}
               projects={projectCards}
               linkTargets={linkTargets}
-              title="Unlinked Evidence Claims"
+              title={evidenceFocus ? `Claims for ${evidenceFocus.title}` : "Unlinked Evidence Claims"}
             />
+            </>
           ) : null}
           {reviewTab === "cleanup" ? (
             <DedupePanel
@@ -1582,6 +1793,7 @@ export function ProfileEvidenceWorkspace({
           ) : null}
           {reviewTab === "stories" ? (
             <StarStoryPanel
+              focus={starStoryFocus}
               onImproveStory={startProjectEnrichment}
               stories={starStories}
               onRefresh={() => void loadStarStories()}
@@ -1830,6 +2042,189 @@ function ResumeSourcePicker({
           </option>
         ))}
       </select>
+    </section>
+  );
+}
+
+function ProjectSourceModePicker({
+  activeMode,
+  onSelect,
+}: {
+  activeMode: ProjectSourceMode;
+  onSelect: (mode: ProjectSourceMode) => void;
+}) {
+  const modes: Array<{
+    body: string;
+    label: string;
+    mode: ProjectSourceMode;
+  }> = [
+    {
+      body: "Parse PDF, DOCX, TXT, or Markdown source files before enrichment.",
+      label: "Upload files",
+      mode: "upload",
+    },
+    {
+      body: "Paste rough notes, project docs, or performance review excerpts.",
+      label: "Paste notes",
+      mode: "paste",
+    },
+    {
+      body: "Answer structured prompts when you do not have prepared source docs.",
+      label: "Guide me",
+      mode: "guided",
+    },
+  ];
+  return (
+    <div className="project-source-modes" role="tablist" aria-label="Project source input mode">
+      {modes.map((mode) => (
+        <button
+          aria-selected={activeMode === mode.mode}
+          data-active={activeMode === mode.mode}
+          key={mode.mode}
+          role="tab"
+          type="button"
+          onClick={() => onSelect(mode.mode)}
+        >
+          <span>{mode.label}</span>
+          <small>{mode.body}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function GuidedMaterialBuilder({
+  fields,
+  onChange,
+  onUseTemplate,
+}: {
+  fields: GuidedMaterialFields;
+  onChange: (fields: GuidedMaterialFields) => void;
+  onUseTemplate: () => void;
+}) {
+  const fieldConfig: Array<{
+    key: keyof GuidedMaterialFields;
+    label: string;
+    placeholder: string;
+    textarea?: boolean;
+  }> = [
+    {
+      key: "projectOrInitiativeTitle",
+      label: "Project / initiative",
+      placeholder: "Activation dashboard redesign",
+    },
+    {
+      key: "companyOrContext",
+      label: "Company / context",
+      placeholder: "B2B onboarding, growth team, school project, open-source project...",
+    },
+    {
+      key: "roleAndTimeframe",
+      label: "Role and timeframe",
+      placeholder: "Product analyst, Q2-Q3 2025",
+    },
+    {
+      key: "problem",
+      label: "Problem",
+      placeholder: "What problem did it solve?",
+      textarea: true,
+    },
+    {
+      key: "ownership",
+      label: "My ownership",
+      placeholder: "What did you personally own?",
+      textarea: true,
+    },
+    {
+      key: "actions",
+      label: "Actions",
+      placeholder: "What did you do? One action per line is fine.",
+      textarea: true,
+    },
+    {
+      key: "metricsBefore",
+      label: "Metrics before",
+      placeholder: "Baseline, before state, or unknown.",
+    },
+    {
+      key: "metricsAfter",
+      label: "Metrics after",
+      placeholder: "Measured result, after state, or directional result.",
+    },
+    {
+      key: "businessImpact",
+      label: "Business impact",
+      placeholder: "Revenue, activation, retention, cost, speed, quality, risk...",
+      textarea: true,
+    },
+    {
+      key: "userOrCustomerImpact",
+      label: "User / customer impact",
+      placeholder: "Who benefited and how?",
+      textarea: true,
+    },
+    {
+      key: "toolsAndDomainKnowledge",
+      label: "Tools / domain knowledge",
+      placeholder: "SQL, experimentation, LLM workflows, fintech, healthcare...",
+    },
+    {
+      key: "difficultyOrTradeoff",
+      label: "Difficulty / tradeoff",
+      placeholder: "What made it hard? What did you trade off?",
+      textarea: true,
+    },
+    {
+      key: "publicSafeWording",
+      label: "Public-safe wording",
+      placeholder: "What can be said safely in public?",
+      textarea: true,
+    },
+    {
+      key: "confidentialDetailsToAvoid",
+      label: "Confidential details to avoid",
+      placeholder: "Client names, internal code names, exact private metrics...",
+      textarea: true,
+    },
+  ];
+  return (
+    <section className="guided-material-builder">
+      <div className="guided-material-builder__top">
+        <div>
+          <span>Guided Material Builder</span>
+          <p>
+            Answer what you know. The preview becomes source material, then JobDesk
+            extracts evidence candidates for review.
+          </p>
+        </div>
+        <button className="secondary-button" type="button" onClick={onUseTemplate}>
+          Use structured template
+        </button>
+      </div>
+      <div className="guided-material-builder__grid">
+        {fieldConfig.map((field) => {
+          const commonProps = {
+            placeholder: field.placeholder,
+            value: fields[field.key],
+            onChange: (
+              event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+            ) => onChange({ ...fields, [field.key]: event.target.value }),
+          };
+          return (
+            <label
+              className={field.textarea ? "source-field source-field--wide" : "source-field"}
+              key={field.key}
+            >
+              <span>{field.label}</span>
+              {field.textarea ? (
+                <textarea className="source-input source-input--guided" {...commonProps} />
+              ) : (
+                <input className="source-input" type="text" {...commonProps} />
+              )}
+            </label>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -2468,6 +2863,37 @@ function getStoryReadiness(
   };
 }
 
+function getStoryMissingFields(
+  project: ProjectCardItem | InitiativeItem | PortfolioProjectItem,
+) {
+  const missing = [];
+  if (!project.context) missing.push("context");
+  if (!project.problem) missing.push("problem");
+  if (!project.role) missing.push("ownership / role");
+  if (project.actions.filter(Boolean).length === 0) missing.push("actions");
+  if (project.results.filter(Boolean).length === 0) missing.push("results");
+  if ((project.metrics ?? []).length === 0) missing.push("metrics");
+  if ("public_safe_summary" in project && !project.public_safe_summary) {
+    missing.push("public-safe wording");
+  } else if ("external_safe_summary" in project && !project.external_safe_summary) {
+    missing.push("public-safe wording");
+  }
+  return missing;
+}
+
+function isStoryEnrichmentTarget(
+  project: StoryEnrichmentTarget | {
+    title: string;
+    context?: string | null;
+    problem?: string | null;
+    role?: string | null;
+    actions?: string[];
+    results?: string[];
+  },
+): project is StoryEnrichmentTarget {
+  return "targetType" in project && Boolean(project.targetId);
+}
+
 function getEvidenceReadiness(item: EvidenceCardItem) {
   if (isResumeReadyEvidence(item)) {
     return {
@@ -2660,6 +3086,20 @@ function estimateLinkedEvidenceCount(project: ProjectCardItem, evidenceItems: Ev
 function getProjectEvidence(project: ProjectCardItem, evidenceItems: EvidenceCardItem[]) {
   if (!project.id) return [];
   return evidenceItems.filter((item) => item.related_project_id === project.id);
+}
+
+function evidenceMatchesFocus(item: EvidenceCardItem, focus: NonNullable<EvidenceFocus>) {
+  if (focus.targetType === "initiative") {
+    return item.related_initiative_id === focus.targetId;
+  }
+  if (focus.targetType === "portfolio_project") {
+    return item.related_portfolio_project_id === focus.targetId;
+  }
+  return item.related_project_id === focus.targetId;
+}
+
+function starStoryMatchesFocus(story: StarStory, focus: NonNullable<StarStoryFocus>) {
+  return story.story_target_type === focus.targetType && story.story_target_id === focus.targetId;
 }
 
 function getUnlinkedEvidenceItems(
@@ -3066,18 +3506,33 @@ function EvidenceOverlapSummary({
 }
 
 function StarStoryPanel({
+  focus,
   onImproveStory,
   onRefresh,
   stories,
 }: {
+  focus: StarStoryFocus;
   onImproveStory: (project: ProjectCardItem) => void;
   onRefresh: () => void;
   stories: StarStory[];
 }) {
+  const focusedStories = focus
+    ? stories.filter((story) => starStoryMatchesFocus(story, focus))
+    : [];
+  const visibleStories = focus
+    ? [...focusedStories, ...stories.filter((story) => !starStoryMatchesFocus(story, focus))]
+    : stories;
   return (
     <section className="section-block">
       <div className="requirement__top">
-        <h3>STAR story bank</h3>
+        <div>
+          <h3>STAR story bank</h3>
+          {focus ? (
+            <p className="requirement__quote">
+              Focus: {focus.title} · {focusedStories.length > 0 ? "matched story first" : "no generated STAR story yet"}
+            </p>
+          ) : null}
+        </div>
         <button className="secondary-button" type="button" onClick={onRefresh}>
           Refresh stories
         </button>
@@ -3088,8 +3543,12 @@ function StarStoryPanel({
         </p>
       ) : (
         <div className="result-stack result-stack--inner">
-          {stories.slice(0, 4).map((story) => (
-            <article className="requirement" key={story.id}>
+          {visibleStories.slice(0, 4).map((story) => (
+            <article
+              className="requirement"
+              data-focused={focus ? starStoryMatchesFocus(story, focus) : undefined}
+              key={story.id}
+            >
               <div className="requirement__top">
                 <p className="requirement__text">{story.title}</p>
                 <span className="requirement__type">
@@ -3706,19 +4165,16 @@ function StoryMaterialList({
   evidenceItems,
   initiatives,
   onEnrichStory,
+  onReviewClaims,
+  onReviewStarStory,
   portfolioProjects,
   workExperiences,
 }: {
   evidenceItems: EvidenceCardItem[];
   initiatives: InitiativeItem[];
-  onEnrichStory: (project: {
-    title: string;
-    context?: string | null;
-    problem?: string | null;
-    role?: string | null;
-    actions?: string[];
-    results?: string[];
-  }) => void;
+  onEnrichStory: (project: StoryEnrichmentTarget) => void;
+  onReviewClaims: (target: StoryEnrichmentTarget) => void;
+  onReviewStarStory: (target: StoryEnrichmentTarget) => void;
   portfolioProjects: PortfolioProjectItem[];
   workExperiences: WorkExperienceItem[];
 }) {
@@ -3793,8 +4249,11 @@ function StoryMaterialList({
                     key={initiative.id ?? initiative.internal_title}
                     kind="Work initiative"
                     onEnrichStory={onEnrichStory}
+                    onReviewClaims={onReviewClaims}
+                    onReviewStarStory={onReviewStarStory}
                     story={initiative}
                     title={initiative.external_safe_title ?? initiative.internal_title}
+                    targetType="initiative"
                   />
                 ))}
               </article>
@@ -3813,8 +4272,11 @@ function StoryMaterialList({
               key={project.id ?? project.title}
               kind={formatPortfolioProjectType(project.project_type)}
               onEnrichStory={onEnrichStory}
+              onReviewClaims={onReviewClaims}
+              onReviewStarStory={onReviewStarStory}
               story={project}
               title={project.external_safe_title ?? project.title}
+              targetType="portfolio_project"
             />
           ))}
         </div>
@@ -3827,31 +4289,43 @@ function StoryTargetRow({
   evidenceItems,
   kind,
   onEnrichStory,
+  onReviewClaims,
+  onReviewStarStory,
   story,
+  targetType,
   title,
 }: {
   evidenceItems: EvidenceCardItem[];
   kind: string;
-  onEnrichStory: (project: {
-    title: string;
-    context?: string | null;
-    problem?: string | null;
-    role?: string | null;
-    actions?: string[];
-    results?: string[];
-  }) => void;
+  onEnrichStory: (project: StoryEnrichmentTarget) => void;
+  onReviewClaims: (target: StoryEnrichmentTarget) => void;
+  onReviewStarStory: (target: StoryEnrichmentTarget) => void;
   story: InitiativeItem | PortfolioProjectItem;
+  targetType: Exclude<StoryEnrichmentTargetType, "legacy_project">;
   title: string;
 }) {
   const readiness = getStoryReadiness(story);
   const metrics = story.metrics?.map((metric) => metric.value) ?? [];
-  const primaryAction =
+  const primaryAction: "Review STAR story" | "Review claims" | "Enrich story" =
     readiness.state === "story_ready"
-      ? "Generate STAR story"
+      ? "Review STAR story"
       : evidenceItems.length > 0
         ? "Review claims"
-        : "Enrich";
-  const actionLabel = `${primaryAction} ${compactStoryTitle(title)}`;
+        : "Enrich story";
+  const missingFields = getStoryMissingFields(story);
+  const target: StoryEnrichmentTarget | null = story.id
+    ? {
+        actions: story.actions,
+        context: story.context,
+        missingFields,
+        problem: story.problem,
+        results: story.results,
+        role: story.role,
+        targetId: story.id,
+        targetTitle: title,
+        targetType,
+      }
+    : null;
   const meta = [
     story.status,
     story.sensitivity_level,
@@ -3874,19 +4348,20 @@ function StoryTargetRow({
         <small>{evidenceItems.length} claims</small>
         <button
           className="story-target-row__action"
+          disabled={!target}
           type="button"
-          onClick={() =>
-            onEnrichStory({
-              title,
-              context: story.context,
-              problem: story.problem,
-              role: story.role,
-              actions: story.actions,
-              results: story.results,
-            })
-          }
+          onClick={() => {
+            if (!target) return;
+            if (primaryAction === "Review STAR story") {
+              onReviewStarStory(target);
+            } else if (primaryAction === "Review claims") {
+              onReviewClaims(target);
+            } else {
+              onEnrichStory(target);
+            }
+          }}
         >
-          {actionLabel}
+          {primaryAction}
         </button>
       </div>
       <div className="story-target-row__meta">
