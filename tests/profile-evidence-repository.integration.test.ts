@@ -159,6 +159,30 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
 
     const library = await getRecentEvidenceLibrary(10);
     expect(library.profile?.displayName).toBe("Jane Doe");
+    const profileJson = library.profile?.profile as
+      | {
+          contact?: {
+            name?: { verified?: boolean; source_offset?: number | null };
+          };
+          experience?: Array<{
+            employer?: { verified?: boolean; source_offset?: number | null };
+            title?: { verified?: boolean; source_offset?: number | null };
+            start_date?: { verified?: boolean; source_offset?: number | null } | null;
+          }>;
+          skills?: Array<{ verified?: boolean; source_offset?: number | null }>;
+        }
+      | undefined;
+    expect(profileJson?.contact?.name).toMatchObject({
+      verified: true,
+      source_offset: sampleSourceText.indexOf("Jane Doe"),
+    });
+    expect(profileJson?.experience?.[0]?.employer?.verified).toBe(true);
+    expect(profileJson?.experience?.[0]?.title?.verified).toBe(true);
+    expect(profileJson?.experience?.[0]?.start_date?.verified).toBe(true);
+    expect(profileJson?.skills?.[0]).toMatchObject({
+      verified: true,
+      source_offset: sampleSourceText.indexOf("Built SQL dashboards"),
+    });
     const insertedEvidence = library.evidenceItems.filter(
       (item) => item.source_document_id === result.sourceDocumentId,
     );

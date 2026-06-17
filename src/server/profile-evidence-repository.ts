@@ -93,7 +93,7 @@ export async function persistProfileEvidenceExtraction(args: {
       throw new Error("Failed to create profile source document.");
     }
 
-    const canonicalProfile = toCanonicalProfile(args.extraction.profile);
+    const canonicalProfile = toCanonicalProfile(args.extraction.profile, args.sourceText);
     const displayName = args.extraction.profile.name.value;
     const [profile] = await tx
       .insert(profiles)
@@ -2295,34 +2295,37 @@ function mergeWorkExperienceDraft(
   };
 }
 
-function toCanonicalProfile(profile: ProfileEvidenceExtraction["profile"]) {
+function toCanonicalProfile(
+  profile: ProfileEvidenceExtraction["profile"],
+  sourceText: string,
+) {
   return {
     contact: {
-      name: toField(profile.name, "critical"),
-      email: profile.email ? toField(profile.email, "critical") : null,
-      phone: profile.phone ? toField(profile.phone, "important") : null,
-      location: profile.location ? toField(profile.location, "nice_to_have") : null,
-      links: profile.links.map((link) => toField(link, "nice_to_have")),
+      name: toField(profile.name, "critical", sourceText),
+      email: profile.email ? toField(profile.email, "critical", sourceText) : null,
+      phone: profile.phone ? toField(profile.phone, "important", sourceText) : null,
+      location: profile.location ? toField(profile.location, "nice_to_have", sourceText) : null,
+      links: profile.links.map((link) => toField(link, "nice_to_have", sourceText)),
     },
     education: profile.education.map((item) => ({
-      institution: toField(item.institution, "important"),
-      degree: toField(item.degree, "critical"),
+      institution: toField(item.institution, "important", sourceText),
+      degree: toField(item.degree, "critical", sourceText),
       field_of_study: item.field_of_study
-        ? toField(item.field_of_study, "important")
+        ? toField(item.field_of_study, "important", sourceText)
         : null,
-      start_date: item.start_date ? toField(item.start_date, "important") : null,
-      end_date: item.end_date ? toField(item.end_date, "important") : null,
+      start_date: item.start_date ? toField(item.start_date, "important", sourceText) : null,
+      end_date: item.end_date ? toField(item.end_date, "important", sourceText) : null,
     })),
     experience: profile.experience.map((item) => ({
-      employer: toField(item.employer, "critical"),
-      title: toField(item.title, "critical"),
-      start_date: item.start_date ? toField(item.start_date, "critical") : null,
-      end_date: item.end_date ? toField(item.end_date, "critical") : null,
-      bullets: item.bullets.map((bullet) => toField(bullet, "important")),
+      employer: toField(item.employer, "critical", sourceText),
+      title: toField(item.title, "critical", sourceText),
+      start_date: item.start_date ? toField(item.start_date, "critical", sourceText) : null,
+      end_date: item.end_date ? toField(item.end_date, "critical", sourceText) : null,
+      bullets: item.bullets.map((bullet) => toField(bullet, "important", sourceText)),
     })),
-    skills: profile.skills.map((skill) => toField(skill, "important")),
+    skills: profile.skills.map((skill) => toField(skill, "important", sourceText)),
     certifications: profile.certifications.map((certification) =>
-      toField(certification, "important"),
+      toField(certification, "important", sourceText),
     ),
     missing_fields: profile.missing_fields,
     low_confidence_fields: profile.low_confidence_fields,
@@ -2337,15 +2340,51 @@ function toField(
     confidence?: number;
   },
   tier: FieldTier,
+  sourceText: string,
 ) {
+  const offset = findSourceOffset(sourceText, field.source_quote);
   return {
     value: field.value,
     source_quote: field.source_quote,
-    source_offset: null,
-    verified: false,
+    source_offset: offset,
+    verified: offset !== null,
     tier,
     confidence: field.confidence ?? 0,
   };
+}
+
+function findSourceOffset(sourceText: string, sourceQuote: string) {
+  const exactOffset = sourceText.indexOf(sourceQuote);
+  if (exactOffset >= 0) return exactOffset;
+  const normalizedQuote = normalizeSourceSpan(sourceQuote);
+  if (!normalizedQuote) return null;
+  const normalizedSource = normalizeSourceSpan(sourceText);
+  const normalizedOffset = normalizedSource.indexOf(normalizedQuote);
+  if (normalizedOffset < 0) return null;
+  return mapNormalizedOffsetToSourceOffset(sourceText, normalizedOffset);
+}
+
+function normalizeSourceSpan(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function mapNormalizedOffsetToSourceOffset(sourceText: string, normalizedOffset: number) {
+  let normalizedIndex = 0;
+  let inWhitespace = false;
+  for (let sourceIndex = 0; sourceIndex < sourceText.length; sourceIndex += 1) {
+    const char = sourceText[sourceIndex];
+    if (/\s/.test(char ?? "")) {
+      if (inWhitespace) continue;
+      inWhitespace = true;
+      if (normalizedIndex === normalizedOffset) return sourceIndex;
+      normalizedIndex += 1;
+      continue;
+    }
+    inWhitespace = false;
+    if (normalizedIndex === normalizedOffset) return sourceIndex;
+    normalizedIndex += 1;
+  }
+  return null;
 }
 
 function evaluateEvidenceGuardrails(
