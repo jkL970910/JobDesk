@@ -239,6 +239,35 @@ describe.skipIf(!runIntegration)("job repository database integration", () => {
       runWithAuthContext(owner.user.id, () => getJdAnalysisById(ownerJobId)),
     ).resolves.toMatchObject({ id: ownerJobId });
   });
+
+  it("claims the existing unowned workspace for the first registered account", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const legacyJob = await runWithAuthContext(null, () =>
+      persistJdAnalysis({
+        analysis: buildAnalysis(`Legacy Workspace Role ${suffix}`, ["workspace claim"]),
+        provider: "integration-test",
+        model: "test-model",
+        usage: {},
+        retryCount: 0,
+        skill: skillRegistry.jdAnalysis,
+      }),
+    );
+    if (legacyJob.status !== "saved" || !legacyJob.jobId) {
+      throw new Error("Expected legacy unowned job to save.");
+    }
+
+    const owner = await registerUser({
+      email: `claim-owner-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") {
+      throw new Error("Expected owner user to be created.");
+    }
+
+    await expect(
+      runWithAuthContext(owner.user.id, () => getJdAnalysisById(legacyJob.jobId!)),
+    ).resolves.toMatchObject({ id: legacyJob.jobId });
+  });
 });
 
 function buildAnalysis(

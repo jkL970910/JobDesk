@@ -60,6 +60,7 @@ Run these from the JobDesk folder (where `package.json` is).
    `chat-completions` transport because the current `openrouter.icu` route
    exposes `/v1/chat/completions`.
    Set `JOBDESK_SESSION_SECRET` when running a deployed account-login environment.
+   Production account auth fails closed when this secret is missing.
    `JOBDESK_ACCESS_TOKEN` is still supported as a legacy bearer-token bypass for
    personal deployments.
 

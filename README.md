@@ -43,8 +43,9 @@ For the current OpenRouter-compatible route, use
 `JOBDESK_OPENROUTER_TRANSPORT=chat-completions`.
 Fill `DATABASE_URL` with the separate JobDesk Postgres connection string when
 you are ready to persist jobs, evidence, resumes, claims, embeddings, interview prep packs, workflow runs, users, and sessions.
-Set `JOBDESK_SESSION_SECRET` for deployed account sessions. `JOBDESK_ACCESS_TOKEN`
-is still supported as a legacy bearer-token bypass for personal deployments.
+Set `JOBDESK_SESSION_SECRET` for deployed account sessions; production account
+auth fails closed when this secret is missing. `JOBDESK_ACCESS_TOKEN` is still
+supported as a legacy bearer-token bypass for personal deployments.
 
 ## Commands
 

@@ -28,9 +28,11 @@ const AccessContext = createContext<AccessContextValue | null>(null);
 const storageKey = "jobdesk_access_token";
 
 export function AccessProvider({
+  accountAuthConfigured,
   children,
   configured,
 }: {
+  accountAuthConfigured: boolean;
   children: ReactNode;
   configured: boolean;
 }) {
@@ -42,7 +44,7 @@ export function AccessProvider({
   const [authLoading, setAuthLoading] = useState(configured);
 
   async function refreshUser() {
-    if (!configured) {
+    if (!accountAuthConfigured) {
       setUser(null);
       setAuthLoading(false);
       return;
@@ -60,7 +62,7 @@ export function AccessProvider({
 
   useEffect(() => {
     void refreshUser();
-  }, [configured]);
+  }, [accountAuthConfigured]);
 
   const value = useMemo<AccessContextValue>(() => {
     function setToken(nextToken: string) {
@@ -85,7 +87,7 @@ export function AccessProvider({
 
   return (
     <AccessContext.Provider value={value}>
-      {configured ? (
+      {accountAuthConfigured ? (
         user ? (
           <>
             <AccountPanel />
@@ -97,7 +99,10 @@ export function AccessProvider({
           <AuthPanel />
         )
       ) : (
-        children
+        <>
+          {configured ? <LegacyAccessPanel /> : null}
+          {children}
+        </>
       )}
     </AccessContext.Provider>
   );
@@ -230,6 +235,27 @@ function AccountPanel() {
           />
         </label>
       ) : null}
+    </div>
+  );
+}
+
+function LegacyAccessPanel() {
+  const { setToken, token } = useAccess();
+  return (
+    <div className="access-panel">
+      <div>
+        <span>Legacy access</span>
+        <strong>Bearer token mode</strong>
+      </div>
+      <label>
+        <span>Access token</span>
+        <input
+          onChange={(event) => setToken(event.target.value)}
+          placeholder="Enter JOBDESK_ACCESS_TOKEN"
+          type="password"
+          value={token}
+        />
+      </label>
     </div>
   );
 }

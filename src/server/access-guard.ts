@@ -66,7 +66,12 @@ async function validateSignedSessionCookie(
   if (!raw) return { ok: false as const };
   const [body, signature] = raw.split(".");
   if (!body || !signature) return { ok: false as const };
-  const expected = await signCookieBody(body, env);
+  let expected: string;
+  try {
+    expected = await signCookieBody(body, env);
+  } catch {
+    return { ok: false as const };
+  }
   if (expected !== signature) return { ok: false as const };
   try {
     const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as {
@@ -82,10 +87,7 @@ async function validateSignedSessionCookie(
 }
 
 async function signCookieBody(body: string, env: NodeJS.ProcessEnv) {
-  const secret =
-    env.JOBDESK_SESSION_SECRET?.trim() ||
-    env.JOBDESK_ACCESS_TOKEN?.trim() ||
-    "jobdesk-local-dev-session-secret";
+  const secret = getSessionSecret(env);
   const key = await globalThis.crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -99,6 +101,15 @@ async function signCookieBody(body: string, env: NodeJS.ProcessEnv) {
     new TextEncoder().encode(body),
   );
   return Buffer.from(signature).toString("base64url");
+}
+
+function getSessionSecret(env: NodeJS.ProcessEnv) {
+  const explicitSecret = env.JOBDESK_SESSION_SECRET?.trim();
+  if (explicitSecret) return explicitSecret;
+  if (env.NODE_ENV === "production" && env.DATABASE_URL?.trim()) {
+    throw new Error("JOBDESK_SESSION_SECRET is required for production account sessions.");
+  }
+  return env.JOBDESK_ACCESS_TOKEN?.trim() || "jobdesk-local-dev-session-secret";
 }
 
 function parseCookieHeader(header: string) {

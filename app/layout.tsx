@@ -14,10 +14,14 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const accountAuthConfigured = isAccountAuthConfigured();
   return (
     <html lang="en">
       <body>
-        <AccessProvider configured={isAccessTokenConfigured() || isAccountAuthConfigured()}>
+        <AccessProvider
+          accountAuthConfigured={accountAuthConfigured}
+          configured={isAccessTokenConfigured() || accountAuthConfigured}
+        >
           {children}
         </AccessProvider>
       </body>

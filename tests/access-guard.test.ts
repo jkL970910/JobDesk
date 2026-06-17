@@ -81,4 +81,23 @@ describe("access guard", () => {
       await validateRequestAccess(new Request("http://localhost/api/auth/login"), env),
     ).toEqual({ ok: true });
   });
+
+  it("rejects production account sessions when JOBDESK_SESSION_SECRET is missing", async () => {
+    const env = {
+      DATABASE_URL: "postgres://example/test",
+      NODE_ENV: "production",
+    } as NodeJS.ProcessEnv;
+    const request = new Request("http://localhost/api/jobs", {
+      headers: {
+        Cookie:
+          "jobdesk_session=eyJ1c2VySWQiOiJ1c2VyLTEiLCJleHBpcmVzQXQiOiIyMDk5LTAxLTAxVDAwOjAwOjAwLjAwMFoifQ.fake",
+      },
+    });
+
+    const result = await validateRequestAccess(request, env);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(401);
+    }
+  });
 });

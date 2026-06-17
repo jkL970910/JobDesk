@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-16
 Baseline commit: ce44458 `Build local MVP workflow baseline`
-Latest implementation commit: d770769 `fix: scope workspace-owned records`
+Latest implementation commit: pending `fix: harden account auth baseline`
 Production URL: https://jobdesk-tau.vercel.app
 Final UI reference: Figma Make `Si82hetJamO8bUqHOacgv9` — signed off as **JobDesk Final Project Reference UI v1**
 
@@ -76,7 +76,7 @@ Support workflows:
 | S5 | Personal access gate | Done, MVP | Optional `JOBDESK_ACCESS_TOKEN` protects `/api/*` through middleware and lets the workbench send the token from browser-local storage. |
 | S6 | Skills Registry audit metadata | Done, MVP | `src/ai/skills-registry.ts` binds live AI/deterministic workflows to runtime skill ids, prompt versions, schema versions, model tiers, and source skill ids. `workflow_runs` persists this metadata, and Resume Review reports now link to workflow runs. Runtime SKILL.md loader / prompt composer is not implemented yet. |
 | S7 | Workflow/system diagnostics | Done | Settings exposes read-only diagnostics for DB connectivity, AI provider status, current model, registry entry count, latest workflow runs, failed workflow count, and last workflow time without exposing API keys. |
-| S8 | Account login/register | Done, MVP | Adds `users`, `user_sessions`, httpOnly signed session cookies, login/register/logout/me APIs, account gate UI, and legacy bearer-token compatibility. New default workspaces are scoped to the signed-in user; no-session local/test paths retain the legacy unowned workspace fallback. Raw-id repository reads and writes are now guarded by the current workspace for jobs, resume reviews, generated resumes, evidence/library records, enrichment tasks, and interview prep packs. |
+| S8 | Account login/register | Done, MVP | Adds `users`, `user_sessions`, httpOnly signed session cookies, login/register/logout/me APIs, account gate UI, and legacy bearer-token compatibility. New default workspaces are scoped to the signed-in user; the first registered account claims the legacy unowned `Personal JobDesk` workspace so existing local data remains visible. Raw-id repository reads and writes are now guarded by the current workspace for jobs, resume reviews, generated resumes, evidence/library records, enrichment tasks, and interview prep packs. Production account sessions require `JOBDESK_SESSION_SECRET`; legacy token-only mode remains usable without forcing the account gate. |
 
 ## Latest Verified Local Workflow
 
@@ -105,13 +105,13 @@ Last verified on 2026-06-16:
 | Command | Status |
 |---------|--------|
 | `npm run typecheck` | Passed |
-| `npm test` | Passed, 69 passed / 6 skipped |
-| `npm run test:integration` | Passed, 4 files / 6 tests passed |
+| `npm test` | Passed, 70 passed / 7 skipped |
+| `npm run test:integration` | Passed, 4 files / 7 tests passed |
 | `npm run verify:local` | Passed; runs typecheck, unit tests, and DB integration tests |
 | `npm run build` | Passed |
 | Resume Review → Needs Enrichment UI closure | Passed; Resume Review shows evidence-gap task handoff, counts only real matching tasks, and routes directly to Evidence Library Needs Enrichment |
-| Account auth migration and middleware gate | Passed; `drizzle/0012_jobdesk_accounts.sql` applied locally, access guard tests cover signed session cookies and auth route bypass |
-| Workspace ownership guard | Passed; integration tests cover cross-user raw job ids and resume source ids returning not-found/update-denied semantics |
+| Account auth migration and middleware gate | Passed; `drizzle/0012_jobdesk_accounts.sql` applied locally, access guard tests cover signed session cookies, auth route bypass, and production missing-secret fail-closed behavior |
+| Workspace ownership guard | Passed; integration tests cover cross-user raw job ids, resume source ids returning not-found/update-denied semantics, and first-account claim of the legacy unowned workspace |
 | `npm run db:migrate` | Passed on the configured JobDesk development database through `drizzle/0012_jobdesk_accounts.sql` |
 | Guided Evidence Enrichment audit checks | Passed; source-aware dedupe and terminal-state protection verified in integration tests |
 | Main Resume Builder audit checks | Passed; success and failure workflow metadata verified in integration tests |
@@ -141,7 +141,7 @@ Integration tests use the configured JobDesk database and write temporary workfl
 - Fact Guard is intentionally conservative. A workflow can pass coverage while the resume remains `unvalidated` until unsupported or partially supported claims are reviewed.
 - OpenRouter-backed workflows can take more than one minute for longer resumes. Current workflow timeouts were raised to support realistic resume extraction and tailoring.
 - Running `next build` while `next dev` is still running can invalidate dev-server chunks in `.next`; restart the dev server after a production build.
-- Account login/register is implemented for personal accounts and per-account default workspace isolation. Raw-id repository paths are scoped to the current workspace for the implemented workflows. It is not yet a full team/workspace-sharing system, RBAC layer, password reset flow, OAuth/social-login system, or route-level test suite for every API endpoint. `JOBDESK_ACCESS_TOKEN` remains as a legacy bearer-token bypass for personal deployments.
+- Account login/register is implemented for personal accounts and per-account default workspace isolation. Raw-id repository paths are scoped to the current workspace for the implemented workflows, production account sessions require `JOBDESK_SESSION_SECRET`, and the first registered account claims the legacy unowned workspace. Middleware remains edge-safe and validates signed session cookies before requests reach route handlers; full DB-backed session revocation is enforced by auth APIs and repository workspace ownership, but there is not yet a route-level test suite for every API endpoint. It is not yet a full team/workspace-sharing system, RBAC layer, password reset flow, or OAuth/social-login system. `JOBDESK_ACCESS_TOKEN` remains as a legacy bearer-token bypass for personal deployments.
 - Evidence Library Builder MVP is implemented for project-note enrichment, project-card review, inline evidence edit/linking with related-project validation, project-level overlap merge or keep-separate review, evidence-level overlap merge or keep-separate review, basic external-safe de-identification review, computed STAR story promotion, and local embedding index reindexing. The embedding layer is a deterministic local JSONB MVP, not pgvector/ANN or provider embeddings yet.
 - Resume extraction can generate thin project/evidence cards because resumes rarely contain full project context. This is expected. The current UI surfaces readiness, shows Resume Review missing-evidence question status from real matching tasks, routes users into Needs Enrichment, and creates persistent enrichment tasks from Resume Review missing-evidence questions and extraction notes. Project-level Source Intake handoff remains available from story cards and STAR stories.
 - Project card edits still use browser prompts for some fields. Evidence edits now use inline card editing; project editing should move to the same inline/drawer pattern before production-level UX signoff.

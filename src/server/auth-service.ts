@@ -6,6 +6,7 @@ import { and, eq, gt } from "drizzle-orm";
 
 import { getDb, hasDatabaseUrl } from "../db/client";
 import { userSessions, users } from "../db/schema";
+import { claimDefaultUnownedWorkspaceForUser } from "./workspace-repository";
 
 const scryptAsync = promisify(crypto.scrypt);
 const sessionCookieName = "jobdesk_session";
@@ -60,6 +61,7 @@ export async function registerUser(args: {
       })
       .returning();
     if (!user) throw new Error("Failed to create user.");
+    await claimDefaultUnownedWorkspaceForUser(getDb(), user.id);
     const session = await createSession(user.id);
     return { status: "created" as const, session, user: toAuthUser(user) };
   } catch (error) {
@@ -170,6 +172,15 @@ export function serializeClearedSessionCookie() {
   });
 }
 
+export function requireSessionSecret(env: NodeJS.ProcessEnv = process.env) {
+  const explicitSecret = env.JOBDESK_SESSION_SECRET?.trim();
+  if (explicitSecret) return explicitSecret;
+  if (env.NODE_ENV === "production" && hasDatabaseUrl()) {
+    throw new Error("JOBDESK_SESSION_SECRET is required for production account sessions.");
+  }
+  return env.JOBDESK_ACCESS_TOKEN?.trim() || "jobdesk-local-dev-session-secret";
+}
+
 function assertDatabaseConfigured() {
   if (!hasDatabaseUrl()) {
     throw new Error("DATABASE_URL is required for account authentication.");
@@ -224,16 +235,8 @@ function decodeSessionCookie(value: string) {
 }
 
 function signCookieBody(body: string) {
-  const secret = getSessionSecret();
+  const secret = requireSessionSecret();
   return crypto.createHmac("sha256", secret).update(body).digest("base64url");
-}
-
-function getSessionSecret() {
-  return (
-    process.env.JOBDESK_SESSION_SECRET?.trim() ||
-    process.env.JOBDESK_ACCESS_TOKEN?.trim() ||
-    "jobdesk-local-dev-session-secret"
-  );
 }
 
 async function hashPassword(password: string) {
