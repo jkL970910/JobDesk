@@ -200,9 +200,23 @@ export const sourceDocuments = pgTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     sourceType: varchar("source_type", { length: 40 }).notNull(),
     title: varchar("title", { length: 240 }).notNull(),
+    originalFilename: varchar("original_filename", { length: 260 }),
+    mimeType: varchar("mime_type", { length: 160 }),
+    fileSizeBytes: integer("file_size_bytes"),
     contentText: text("content_text").notNull(),
     contentHash: varchar("content_hash", { length: 128 }),
+    parserName: varchar("parser_name", { length: 80 }),
+    parserVersion: varchar("parser_version", { length: 80 }),
+    parseStatus: varchar("parse_status", { length: 40 }),
+    parseWarnings: jsonb("parse_warnings").$type<string[]>().notNull().default([]),
+    pageCount: integer("page_count"),
+    charCount: integer("char_count"),
+    wordCount: integer("word_count"),
+    lifecycleStatus: varchar("lifecycle_status", { length: 40 }).notNull().default("parsed"),
     createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
@@ -210,6 +224,14 @@ export const sourceDocuments = pgTable(
     workspaceCreatedIdx: index("source_documents_workspace_created_idx").on(
       table.workspaceId,
       table.createdAt,
+    ),
+    workspaceHashIdx: index("source_documents_workspace_hash_idx").on(
+      table.workspaceId,
+      table.contentHash,
+    ),
+    lifecycleIdx: index("source_documents_lifecycle_idx").on(
+      table.workspaceId,
+      table.lifecycleStatus,
     ),
   }),
 );

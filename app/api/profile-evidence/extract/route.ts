@@ -14,6 +14,8 @@ import { markResumeSourceExtracted } from "../../../../src/server/resume-review-
 const requestSchema = z.object({
   sourceText: z.string().trim().min(80).max(50_000),
   sourceTitle: z.string().trim().min(1).max(240).optional(),
+  sourceDocumentId: z.string().uuid().optional(),
+  sourceType: z.enum(["profile-evidence", "jd-gap-note"]).optional(),
   resumeSourceVersionId: z.string().uuid().optional(),
 });
 
@@ -33,16 +35,32 @@ export async function POST(request: Request) {
       sourceId: "profile-evidence-ui",
       sourceText: parsed.data.sourceText,
     });
-    const persistence = await persistProfileEvidenceExtraction({
-      sourceText: parsed.data.sourceText,
-      sourceTitle: parsed.data.sourceTitle,
-      extraction: result.data,
-      provider: `openrouter-compatible:${config.transport}`,
-      model: config.model,
-      usage: result.usage,
-      retryCount: result.retryCount,
-      skill: result.skill,
-    });
+    let persistence;
+    try {
+      persistence = await persistProfileEvidenceExtraction({
+        sourceText: parsed.data.sourceText,
+        sourceTitle: parsed.data.sourceTitle,
+        sourceDocumentId: parsed.data.sourceDocumentId,
+        sourceType: parsed.data.sourceType,
+        extraction: result.data,
+        provider: `openrouter-compatible:${config.transport}`,
+        model: config.model,
+        usage: result.usage,
+        retryCount: result.retryCount,
+        skill: result.skill,
+      });
+    } catch (persistenceError) {
+      return NextResponse.json(
+        {
+          error:
+            persistenceError instanceof Error
+              ? persistenceError.message
+              : "Could not persist extracted evidence.",
+          kind: "source_document_mismatch",
+        },
+        { status: 409 },
+      );
+    }
     if (persistence.status === "saved" && parsed.data.resumeSourceVersionId) {
       await markResumeSourceExtracted(parsed.data.resumeSourceVersionId);
     }

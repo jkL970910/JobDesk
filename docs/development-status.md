@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-17
 Baseline commit: ce44458 `Build local MVP workflow baseline`
-Latest implementation commit: a5e56ca `feat: add resume refresh workflow mode`
+Latest implementation commit: pending `feat: add source document parse lifecycle`
 Production URL: https://jobdesk-tau.vercel.app
 Final UI reference: Figma Make `Si82hetJamO8bUqHOacgv9` — signed off as **JobDesk Final Project Reference UI v1**
 
@@ -10,7 +10,7 @@ This is the living implementation status file. Every future code change should u
 
 ## Workflow Count
 
-Current implementation covers **11 product workflows** and **8 support workflows** across three user goals: **Build My Evidence Library**, **Create or Update My Resume**, and **Apply to a Target Job**. Resume Review stores and scores general resume source versions before extraction. The Material Library lane does not depend on a JD; the Job Workspace lane depends on a target JD plus approved material-library evidence. Profile now owns Create/Update Resume modes: main resume, positioning-based variant, resume refresh, version review, and export. Resume Refresh is intentionally not a fourth top-level entry; it is a Main Resume generation mode that uses an old resume as structure baseline while canonical Evidence Library material remains the fact source.
+Current implementation covers **11 product workflows** and **9 support workflows** across three user goals: **Build My Evidence Library**, **Create or Update My Resume**, and **Apply to a Target Job**. Resume Review stores and scores general resume source versions before extraction. The Material Library lane does not depend on a JD; the Job Workspace lane depends on a target JD plus approved material-library evidence. Profile now owns Create/Update Resume modes: main resume, positioning-based variant, resume refresh, version review, and export. Resume Refresh is intentionally not a fourth top-level entry; it is a Main Resume generation mode that uses an old resume as structure baseline while canonical Evidence Library material remains the fact source.
 
 ## UI Reference Contract
 
@@ -78,6 +78,7 @@ Support workflows:
 | S6 | Skills Registry audit metadata and runtime prompt composer | Done, MVP | `src/ai/skills-registry.ts` binds live AI/deterministic workflows to runtime skill ids, prompt versions, schema versions, model tiers, and source skill ids. `workflow_runs` persists this metadata, and Resume Review reports now link to workflow runs. Runtime SKILL.md loader / prompt composer now loads source skill frontmatter and hard rules into runtime prompts with version checks. |
 | S7 | Workflow/system diagnostics | Done | Settings exposes read-only diagnostics for DB connectivity, AI provider status, current model, registry entry count, latest workflow runs, failed workflow count, and last workflow time without exposing API keys. |
 | S8 | Account login/register | Done, MVP | Adds `users`, `user_sessions`, httpOnly signed session cookies, login/register/logout/me APIs, account gate UI, and legacy bearer-token compatibility. New default workspaces are scoped to the signed-in user; the first registered account claims the legacy unowned `Personal JobDesk` workspace so existing local data remains visible. Raw-id repository reads and writes are now guarded by the current workspace for jobs, resume reviews, generated resumes, evidence/library records, enrichment tasks, and interview prep packs. Production account sessions require `JOBDESK_SESSION_SECRET`; legacy token-only mode remains usable without forcing the account gate. |
+| S9 | Source document parse lifecycle | Done, MVP | Shared parser service handles PDF, DOCX, TXT, and Markdown as source inputs before Resume Review or Evidence Library extraction. `source_documents` stores parser name/version, original filename, MIME type, file size, parse status, warnings, char/word/page counts, content hash, and lifecycle status without raw binary storage. `/api/profile-evidence/parse-source` accepts source intent and returns parse quality plus duplicate metadata for project/work/JD-gap sources; `/api/resume-review` uses the same parser internally for resume sources. Parsed project/work/JD-gap documents are reused during extraction through `sourceDocumentId`, so evidence provenance points to the original parsed source row instead of a second extraction-only source. Source Intake and Resume Review now show parse lifecycle cards so users can distinguish successful parsing, warnings, duplicates, and scanned/low-text files from actual evidence extraction or resume generation. |
 
 ## Latest Verified Local Workflow
 
@@ -101,13 +102,13 @@ Workflow boundary check:
 
 ## Verification Commands
 
-Last verified on 2026-06-16:
+Last verified on 2026-06-17:
 
 | Command | Status |
 |---------|--------|
 | `npm run typecheck` | Passed |
-| `npm test` | Passed, 82 passed / 10 skipped |
-| `npm run test:integration` | Passed, 5 files / 10 tests passed |
+| `npm test` | Passed, 90 passed / 14 skipped |
+| `npm run test:integration` | Passed, 6 files / 14 tests passed |
 | `npm run verify:local` | Passed; runs typecheck, unit tests, and DB integration tests |
 | `npm run build` | Passed |
 | Resume Review → Needs Enrichment UI closure | Passed; Resume Review shows evidence-gap task handoff, counts only real matching tasks, and routes directly to Evidence Library Needs Enrichment |

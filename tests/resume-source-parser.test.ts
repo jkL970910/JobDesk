@@ -3,6 +3,7 @@ import { Buffer } from "node:buffer";
 import { describe, expect, it } from "vitest";
 
 import {
+  buildParseQuality,
   normalizeExtractedText,
   parseResumeSourceFile,
   ResumeSourceParseError,
@@ -18,6 +19,10 @@ describe("resume source parser", () => {
       "Built SQL dashboards for onboarding funnel analysis and activation metrics.",
       "Led experimentation readouts for product teams and improved stakeholder reporting.",
       "Skills: SQL, product analytics, experimentation, dashboard development.",
+      "Owned weekly metric reviews, translated ambiguous product questions into reliable analysis,",
+      "and documented evidence-backed project outcomes for reusable resume and interview material.",
+      "Partnered with engineering, design, and operations stakeholders to clarify scope, risks,",
+      "and launch decisions across multiple onboarding improvements.",
     ].join("\r\n");
 
     const result = await parseResumeSourceFile({
@@ -28,8 +33,13 @@ describe("resume source parser", () => {
     expect(result).toMatchObject({
       sourceTitle: "Jane Resume.txt",
       sourceKind: "text",
-      warnings: [],
+      parseQuality: {
+        status: "warning",
+      },
+      parserName: "jobdesk-source-parser",
     });
+    expect(result.parseQuality.charCount).toBeGreaterThan(80);
+    expect(result.parseQuality.wordCount).toBeGreaterThan(20);
     expect(result.sourceText).toContain("Jane Doe\n\nSenior Product Analyst");
     expect(result.sourceText).not.toContain("\r");
   });
@@ -45,7 +55,17 @@ describe("resume source parser", () => {
     } satisfies Partial<ResumeSourceParseError>);
   });
 
-  it("rejects files without enough readable text", async () => {
+  it("marks short but readable text with parse quality warnings", async () => {
+    const result = await parseResumeSourceFile({
+      filename: "resume.md",
+      buffer: Buffer.from("Jane Doe built SQL dashboards for product analytics."),
+    });
+
+    expect(result.parseQuality.status).toBe("warning");
+    expect(result.parseQuality.warnings).toContain("low_text_density");
+  });
+
+  it("rejects files without any meaningful readable text", async () => {
     await expect(
       parseResumeSourceFile({
         filename: "resume.md",
@@ -71,5 +91,15 @@ describe("resume source parser", () => {
     expect(normalizeExtractedText(" A\t\tB \r\n\r\n\r\n C\u0000 ")).toBe(
       "A B\n\nC",
     );
+  });
+
+  it("marks low-density PDF text as needing OCR", () => {
+    const quality = buildParseQuality("Jane Doe resume text with some visible words", {
+      pageCount: 2,
+      sourceKind: "pdf",
+    });
+
+    expect(quality.status).toBe("needs_ocr");
+    expect(quality.warnings).toContain("possible_scanned_pdf");
   });
 });

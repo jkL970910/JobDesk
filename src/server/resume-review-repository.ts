@@ -26,6 +26,7 @@ import {
   upsertEnrichmentTasks,
 } from "./enrichment-task-repository";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
+import type { ResumeSourceParseResult } from "./resume-source-parser";
 
 type DbHandle = ReturnType<typeof getDb>;
 
@@ -219,6 +220,15 @@ export async function createResumeSourceVersion(args: {
   sourceTitle: string;
   sourceText: string;
   sourceKind: string;
+  parseMetadata?: Pick<
+    ResumeSourceParseResult,
+    | "originalFilename"
+    | "mimeType"
+    | "fileSizeBytes"
+    | "parserName"
+    | "parserVersion"
+    | "parseQuality"
+  >;
 }) {
   if (!hasDatabaseUrl()) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
@@ -250,9 +260,21 @@ export async function createResumeSourceVersion(args: {
         workspaceId: workspace.id,
         sourceType: "resume-review",
         title: args.sourceTitle,
+        originalFilename: args.parseMetadata?.originalFilename,
+        mimeType: args.parseMetadata?.mimeType,
+        fileSizeBytes: args.parseMetadata?.fileSizeBytes,
         contentText: args.sourceText,
         contentHash,
+        parserName: args.parseMetadata?.parserName,
+        parserVersion: args.parseMetadata?.parserVersion,
+        parseStatus: args.parseMetadata?.parseQuality.status,
+        parseWarnings: args.parseMetadata?.parseQuality.warnings ?? [],
+        pageCount: args.parseMetadata?.parseQuality.pageCount,
+        charCount: args.parseMetadata?.parseQuality.charCount ?? args.sourceText.length,
+        wordCount: args.parseMetadata?.parseQuality.wordCount,
+        lifecycleStatus: "reviewed",
         createdAt: now,
+        updatedAt: now,
       })
       .returning({ id: sourceDocuments.id });
     if (!sourceDocument) throw new Error("Failed to save resume source document.");
@@ -553,6 +575,7 @@ function toResumeSummary(
 function toResumeSourcePayload(resume: typeof resumeSourceVersions.$inferSelect) {
   return {
     id: resume.id,
+    sourceDocumentId: resume.sourceDocumentId,
     title: resume.title,
     sourceKind: resume.sourceKind,
     sourceText: resume.sourceText,

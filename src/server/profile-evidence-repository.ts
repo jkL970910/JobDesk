@@ -1,5 +1,3 @@
-import crypto from "node:crypto";
-
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
 
 import { getDb, hasDatabaseUrl } from "../db/client";
@@ -39,6 +37,8 @@ import {
   isPublicSafeText,
 } from "./deidentification-service";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
+import { buildParseQuality, sourceParserName, sourceParserVersion } from "./resume-source-parser";
+import { buildSourceContentHash } from "./source-document-repository";
 
 export type ProfileEvidencePersistenceResult =
   | {
@@ -58,12 +58,13 @@ export type ProfileEvidencePersistenceResult =
       reason: "missing_database_url";
     };
 
-type DbHandle = ReturnType<typeof getDb>;
+type SourceDocumentStore = Pick<ReturnType<typeof getDb>, "select" | "insert" | "update">;
 
 export async function persistProfileEvidenceExtraction(args: {
   sourceText: string;
   sourceTitle?: string;
-  sourceType?: "profile-evidence" | "project-note";
+  sourceType?: "profile-evidence" | "project-note" | "jd-gap-note";
+  sourceDocumentId?: string;
   extraction: ProfileEvidenceExtraction;
   provider: string;
   model: string;
@@ -79,24 +80,18 @@ export async function persistProfileEvidenceExtraction(args: {
     const workspace = await getOrCreateDefaultWorkspace(tx);
     const now = new Date();
     const title = args.sourceTitle?.trim() || inferSourceTitle(args.extraction, args.sourceText);
-    const contentHash = crypto
-      .createHash("sha256")
-      .update(args.sourceText)
-      .digest("hex");
-    const [sourceDocument] = await tx
-      .insert(sourceDocuments)
-      .values({
-        workspaceId: workspace.id,
-        sourceType: args.sourceType ?? "profile-evidence",
-        title,
-        contentText: args.sourceText,
-        contentHash,
-        createdAt: now,
-      })
-      .returning({ id: sourceDocuments.id });
-    if (!sourceDocument) {
-      throw new Error("Failed to create profile source document.");
-    }
+    const contentHash = buildSourceContentHash(args.sourceText);
+    const parseQuality = buildParseQuality(args.sourceText);
+    const sourceDocument = await resolveExtractionSourceDocument({
+      contentHash,
+      db: tx,
+      parseQuality,
+      sourceDocumentId: args.sourceDocumentId,
+      sourceText: args.sourceText,
+      sourceTitle: title,
+      sourceType: args.sourceType ?? "profile-evidence",
+      workspaceId: workspace.id,
+    });
 
     const canonicalProfile = toCanonicalProfile(args.extraction.profile, args.sourceText);
     const displayName = args.extraction.profile.name.value;
@@ -321,6 +316,79 @@ export async function persistProfileEvidenceExtraction(args: {
       workflowRunId: workflowRun.id,
     };
   });
+}
+
+async function resolveExtractionSourceDocument(args: {
+  db: SourceDocumentStore;
+  workspaceId: string;
+  sourceDocumentId?: string;
+  sourceType: "profile-evidence" | "project-note" | "jd-gap-note";
+  sourceTitle: string;
+  sourceText: string;
+  contentHash: string;
+  parseQuality: ReturnType<typeof buildParseQuality>;
+}) {
+  const now = new Date();
+  if (args.sourceDocumentId) {
+    const [existing] = await args.db
+      .select()
+      .from(sourceDocuments)
+      .where(
+        and(
+          eq(sourceDocuments.workspaceId, args.workspaceId),
+          eq(sourceDocuments.id, args.sourceDocumentId),
+        ),
+      )
+      .limit(1);
+    if (!existing) {
+      throw new Error("Source document not found for this workspace.");
+    }
+    if (existing.contentHash && existing.contentHash !== args.contentHash) {
+      throw new Error("Source document text does not match the parsed source.");
+    }
+    const [updated] = await args.db
+      .update(sourceDocuments)
+      .set({
+        sourceType: args.sourceType,
+        lifecycleStatus: "extracted",
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(sourceDocuments.workspaceId, args.workspaceId),
+          eq(sourceDocuments.id, args.sourceDocumentId),
+        ),
+      )
+      .returning({ id: sourceDocuments.id });
+    if (!updated) {
+      throw new Error("Failed to update parsed source lifecycle.");
+    }
+    return updated;
+  }
+
+  const [sourceDocument] = await args.db
+    .insert(sourceDocuments)
+    .values({
+      workspaceId: args.workspaceId,
+      sourceType: args.sourceType,
+      title: args.sourceTitle,
+      contentText: args.sourceText,
+      contentHash: args.contentHash,
+      parserName: sourceParserName,
+      parserVersion: sourceParserVersion,
+      parseStatus: args.parseQuality.status,
+      parseWarnings: args.parseQuality.warnings,
+      charCount: args.parseQuality.charCount,
+      wordCount: args.parseQuality.wordCount,
+      lifecycleStatus: "extracted",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: sourceDocuments.id });
+  if (!sourceDocument) {
+    throw new Error("Failed to create profile source document.");
+  }
+  return sourceDocument;
 }
 
 export async function persistProfileEvidenceFailure(args: {

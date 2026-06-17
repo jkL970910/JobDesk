@@ -393,6 +393,7 @@ async function createRefreshSourceResume() {
   if (!resume) throw new Error("Expected resume source version.");
   return {
     id: resume.id,
+    sourceDocumentId: resume.sourceDocumentId,
     title: resume.title,
     sourceKind: resume.sourceKind,
     sourceText: resume.sourceText,

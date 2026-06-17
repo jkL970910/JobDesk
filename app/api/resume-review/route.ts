@@ -34,15 +34,32 @@ export async function POST(request: Request) {
       mimeType: file.type,
       buffer: Buffer.from(await file.arrayBuffer()),
     });
+    if (parsed.parseQuality.status === "needs_ocr" || parsed.parseQuality.status === "failed") {
+      return NextResponse.json(
+        {
+          error:
+            "This resume file does not contain enough readable text for review. Upload a text-layer PDF/DOCX or paste the text manually.",
+          kind: parsed.parseQuality.status,
+          data: {
+            parseQuality: parsed.parseQuality,
+            sourceTitle: parsed.sourceTitle,
+            sourceKind: parsed.sourceKind,
+          },
+        },
+        { status: 422 },
+      );
+    }
     const result = await createResumeSourceVersion({
       sourceTitle: parsed.sourceTitle,
       sourceText: parsed.sourceText,
       sourceKind: parsed.sourceKind,
+      parseMetadata: parsed,
     });
     return NextResponse.json({
       data: {
         ...result,
         parseWarnings: parsed.warnings,
+        parseQuality: parsed.parseQuality,
       },
     });
   } catch (error) {
@@ -54,7 +71,15 @@ export async function POST(request: Request) {
             ? 415
             : 422;
       return NextResponse.json(
-        { error: error.message, kind: error.kind },
+        {
+          error: error.message,
+          kind: error.kind,
+          data: error.parseQuality
+            ? {
+                parseQuality: error.parseQuality,
+              }
+            : undefined,
+        },
         { status },
       );
     }

@@ -13,6 +13,7 @@ import {
 const requestSchema = z.object({
   sourceText: z.string().trim().min(80).max(50_000),
   sourceTitle: z.string().trim().min(1).max(240).optional(),
+  sourceDocumentId: z.string().uuid().optional(),
 });
 
 export async function POST(request: Request) {
@@ -32,17 +33,32 @@ export async function POST(request: Request) {
       sourceText: parsed.data.sourceText,
       sourceKind: "project_note",
     });
-    const persistence = await persistProfileEvidenceExtraction({
-      sourceText: parsed.data.sourceText,
-      sourceTitle: parsed.data.sourceTitle,
-      sourceType: "project-note",
-      extraction: result.data,
-      provider: `openrouter-compatible:${config.transport}`,
-      model: config.model,
-      usage: result.usage,
-      retryCount: result.retryCount,
-      skill: result.skill,
-    });
+    let persistence;
+    try {
+      persistence = await persistProfileEvidenceExtraction({
+        sourceText: parsed.data.sourceText,
+        sourceTitle: parsed.data.sourceTitle,
+        sourceDocumentId: parsed.data.sourceDocumentId,
+        sourceType: "project-note",
+        extraction: result.data,
+        provider: `openrouter-compatible:${config.transport}`,
+        model: config.model,
+        usage: result.usage,
+        retryCount: result.retryCount,
+        skill: result.skill,
+      });
+    } catch (persistenceError) {
+      return NextResponse.json(
+        {
+          error:
+            persistenceError instanceof Error
+              ? persistenceError.message
+              : "Could not persist project evidence.",
+          kind: "source_document_mismatch",
+        },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({
       data: result.data,
       meta: {

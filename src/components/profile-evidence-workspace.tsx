@@ -231,6 +231,29 @@ type ResumeSourceSummary = {
 type SourceDraft = {
   text: string;
   title: string;
+  sourceDocumentId?: string;
+};
+
+type ParseQuality = {
+  status: "usable" | "warning" | "needs_ocr" | "failed";
+  charCount: number;
+  wordCount: number;
+  pageCount?: number;
+  warnings: string[];
+};
+
+type SourceParseCard = {
+  filename: string;
+  sourceType: string;
+  sourceDocumentId?: string;
+  title: string;
+  parseQuality: ParseQuality;
+  duplicate?: {
+    sourceDocumentId: string;
+    title: string;
+    createdAt: string;
+  };
+  nextAction: "resume_review" | "extract" | "manual_paste";
 };
 
 type EvidenceUpdateAction =
@@ -275,7 +298,9 @@ export function ProfileEvidenceWorkspace({
   });
   const [projectNoteText, setProjectNoteText] = useState("");
   const [projectNoteTitle, setProjectNoteTitle] = useState("");
+  const [projectSourceDocumentId, setProjectSourceDocumentId] = useState<string | undefined>();
   const [fileStatus, setFileStatus] = useState<string | null>(null);
+  const [parseCard, setParseCard] = useState<SourceParseCard | null>(null);
   const [resumeSources, setResumeSources] = useState<ResumeSourceSummary[]>([]);
   const [selectedResumeSourceId, setSelectedResumeSourceId] = useState<string>(
     initialResumeSourceVersionId ?? "",
@@ -360,6 +385,7 @@ export function ProfileEvidenceWorkspace({
   const activeSourceIntent = selectedEntryIntent === "jd" ? "jd" : "resume";
   const sourceText = sourceDrafts[activeSourceIntent].text;
   const sourceTitle = sourceDrafts[activeSourceIntent].title;
+  const sourceDocumentId = sourceDrafts[activeSourceIntent].sourceDocumentId;
 
   function updateActiveSourceDraft(patch: Partial<SourceDraft>) {
     setSourceDrafts((current) => ({
@@ -447,7 +473,7 @@ export function ProfileEvidenceWorkspace({
   async function loadResumeSourceIntoIntake(resumeSourceVersionId: string) {
     if (!resumeSourceVersionId) {
       setSelectedResumeSourceId("");
-      updateSourceDraft("resume", { text: "", title: "" });
+      updateSourceDraft("resume", { text: "", title: "", sourceDocumentId: undefined });
       setFileStatus(null);
       setStatus("Ready for a new resume source. Select a reviewed resume, upload a file, or paste resume text.");
       return;
@@ -462,6 +488,7 @@ export function ProfileEvidenceWorkspace({
               status: string;
               resume?: {
                 id: string;
+                sourceDocumentId?: string;
                 title: string;
                 sourceText: string;
               };
@@ -471,7 +498,7 @@ export function ProfileEvidenceWorkspace({
         | null;
       if (response.status === 404) {
         setSelectedResumeSourceId("");
-        updateSourceDraft("resume", { text: "", title: "" });
+        updateSourceDraft("resume", { text: "", title: "", sourceDocumentId: undefined });
         setFileStatus(null);
         setError("That reviewed resume was deleted. Select another resume or upload a new one.");
         await loadResumeSources();
@@ -484,6 +511,7 @@ export function ProfileEvidenceWorkspace({
       updateSourceDraft("resume", {
         text: payload.data.resume.sourceText,
         title: formatResumeTitle(payload.data.resume.title),
+        sourceDocumentId: payload.data.resume.sourceDocumentId,
       });
       setFileStatus(`Using reviewed resume ${formatResumeTitle(payload.data.resume.title)}`);
     } finally {
@@ -512,6 +540,8 @@ export function ProfileEvidenceWorkspace({
           body: JSON.stringify({
             sourceText,
             sourceTitle: sourceTitle.trim() || undefined,
+            sourceDocumentId,
+            sourceType: selectedEntryIntent === "jd" ? "jd-gap-note" : undefined,
             resumeSourceVersionId: selectedResumeSourceId || undefined,
           }),
         });
@@ -571,6 +601,7 @@ export function ProfileEvidenceWorkspace({
   async function importResumeFile(file: File | null) {
     setError(null);
     setFileStatus(null);
+    setParseCard(null);
     if (!file) return;
     const allowedExtensions = [".pdf", ".docx", ".txt", ".md", ".markdown"];
     const lowerName = file.name.toLowerCase();
@@ -598,6 +629,7 @@ export function ProfileEvidenceWorkspace({
               resume?: { id: string; title: string; version: number };
               existingResume?: { id: string; title: string; version: number };
               parseWarnings?: string[];
+              parseQuality?: ParseQuality;
               reason?: string;
             };
             error?: string;
@@ -615,6 +647,15 @@ export function ProfileEvidenceWorkspace({
         setFileStatus(
           `This exact resume already exists as v${payload.data.existingResume.version}. Using ${formatResumeTitle(payload.data.existingResume.title)}.`,
         );
+        if (payload.data.parseQuality) {
+          setParseCard({
+            filename: file.name,
+            sourceType: "resume",
+            title: payload.data.existingResume.title,
+            parseQuality: payload.data.parseQuality,
+            nextAction: "resume_review",
+          });
+        }
         return;
       }
       if (payload.data.status === "saved" && payload.data.resume) {
@@ -624,32 +665,28 @@ export function ProfileEvidenceWorkspace({
         setFileStatus(
           `Reviewed ${formatResumeTitle(payload.data.resume.title)}${payload.data.parseWarnings?.length ? ` · ${payload.data.parseWarnings.length} parser note${payload.data.parseWarnings.length === 1 ? "" : "s"}` : ""}`,
         );
+        if (payload.data.parseQuality) {
+          setParseCard({
+            filename: file.name,
+            sourceType: "resume",
+            title: payload.data.resume.title,
+            parseQuality: payload.data.parseQuality,
+            nextAction: "resume_review",
+          });
+        }
         return;
       }
       setError(payload.data.reason ?? "Resume review storage is not configured.");
       return;
     }
 
-    if (
-      lowerName.endsWith(".txt") ||
-      lowerName.endsWith(".md") ||
-      lowerName.endsWith(".markdown")
-    ) {
-      const text = await file.text();
-      if (text.trim().length < 80) {
-        setError("Resume source file does not contain enough readable text.");
-        return;
-      }
-    updateActiveSourceDraft({ text, title: file.name });
-      setFileStatus(
-        `Imported ${file.name}`,
-      );
-      return;
-    }
-
     setFileStatus(`Reading ${file.name}...`);
     const formData = new FormData();
     formData.append("file", file);
+    formData.append(
+      "sourceIntent",
+      selectedEntryIntent === "jd" ? "jd_gap_note" : "generic_source",
+    );
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 30_000);
     let response: Response;
@@ -679,7 +716,11 @@ export function ProfileEvidenceWorkspace({
             sourceTitle: string;
             sourceText: string;
             sourceKind: string;
+            sourceType: string;
+            sourceDocumentId?: string;
+            parseQuality: ParseQuality;
             warnings: string[];
+            duplicate?: SourceParseCard["duplicate"];
           };
           error?: string;
           kind?: string;
@@ -690,11 +731,39 @@ export function ProfileEvidenceWorkspace({
       setError(payload?.error ?? "Resume source parsing failed.");
       return;
     }
+    const parseNextAction =
+      payload.data.parseQuality.status === "needs_ocr" ||
+      payload.data.parseQuality.status === "failed"
+        ? "manual_paste"
+        : "extract";
+    if (parseNextAction === "manual_paste") {
+      setParseCard({
+        filename: file.name,
+        sourceType: payload.data.sourceType,
+        sourceDocumentId: payload.data.sourceDocumentId,
+        title: payload.data.sourceTitle,
+        parseQuality: payload.data.parseQuality,
+        duplicate: payload.data.duplicate,
+        nextAction: parseNextAction,
+      });
+      setFileStatus("This file needs manual text input before extraction.");
+      return;
+    }
     updateActiveSourceDraft({
       text: payload.data.sourceText,
       title: payload.data.sourceTitle,
+      sourceDocumentId: payload.data.sourceDocumentId,
     });
     setSelectedResumeSourceId("");
+    setParseCard({
+      filename: file.name,
+      sourceType: payload.data.sourceType,
+      sourceDocumentId: payload.data.sourceDocumentId,
+      title: payload.data.sourceTitle,
+      parseQuality: payload.data.parseQuality,
+      duplicate: payload.data.duplicate,
+      nextAction: parseNextAction,
+    });
     setFileStatus(
       `Imported ${payload.data.sourceTitle}${payload.data.warnings.length > 0 ? ` · ${payload.data.warnings.length} note${payload.data.warnings.length === 1 ? "" : "s"} to review` : ""}`,
     );
@@ -710,24 +779,9 @@ export function ProfileEvidenceWorkspace({
       throw new Error(`${file.name}: file is too large; keep each file under 8 MB`);
     }
 
-    if (
-      lowerName.endsWith(".txt") ||
-      lowerName.endsWith(".md") ||
-      lowerName.endsWith(".markdown")
-    ) {
-      const text = await file.text();
-      if (text.trim().length < 80) {
-        throw new Error(`${file.name}: not enough readable text`);
-      }
-      return {
-        sourceTitle: file.name,
-        sourceText: text.trim(),
-        warnings: [] as string[],
-      };
-    }
-
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("sourceIntent", "project_note");
     const response = await fetchJson("/api/profile-evidence/parse-source", {
       method: "POST",
       body: formData,
@@ -737,6 +791,8 @@ export function ProfileEvidenceWorkspace({
           data?: {
             sourceTitle: string;
             sourceText: string;
+            sourceDocumentId?: string;
+            parseQuality: ParseQuality;
             warnings: string[];
           };
           error?: string;
@@ -745,7 +801,13 @@ export function ProfileEvidenceWorkspace({
     if (!response.ok || !payload?.data) {
       throw new Error(`${file.name}: ${payload?.error ?? "source parsing failed"}`);
     }
-    return payload.data;
+    if (
+      payload.data.parseQuality.status === "needs_ocr" ||
+      payload.data.parseQuality.status === "failed"
+    ) {
+      throw new Error(`${file.name}: needs manual text input before extraction`);
+    }
+    return { ...payload.data, filename: file.name };
   }
 
   async function importProjectNoteFiles(files: FileList | null) {
@@ -783,6 +845,30 @@ export function ProfileEvidenceWorkspace({
       (count, source) => count + source.warnings.length,
       0,
     );
+    const firstParsedSource = parsedSources[0];
+    if (firstParsedSource) {
+      setProjectSourceDocumentId(
+        parsedSources.length === 1 ? firstParsedSource.sourceDocumentId : undefined,
+      );
+      setParseCard({
+        filename:
+          parsedSources.length === 1
+            ? firstParsedSource.filename
+            : `${parsedSources.length} project source files`,
+        sourceType: "project_note",
+        title:
+          parsedSources.length === 1
+            ? firstParsedSource.sourceTitle
+            : `${parsedSources.length} project source files`,
+        parseQuality: firstParsedSource.parseQuality,
+        sourceDocumentId:
+          parsedSources.length === 1 ? firstParsedSource.sourceDocumentId : undefined,
+        nextAction:
+          firstParsedSource.parseQuality.status === "needs_ocr"
+            ? "manual_paste"
+            : "extract",
+      });
+    }
     setFileStatus(
       `Imported ${parsedSources.length} project source file${parsedSources.length === 1 ? "" : "s"}${warningCount ? ` · ${warningCount} parser note${warningCount === 1 ? "" : "s"}` : ""}${failures.length ? ` · ${failures.length} failed` : ""}`,
     );
@@ -800,6 +886,7 @@ export function ProfileEvidenceWorkspace({
           body: JSON.stringify({
             sourceText: projectNoteText,
             sourceTitle: projectNoteTitle.trim() || undefined,
+            sourceDocumentId: projectSourceDocumentId,
           }),
         });
         const payload = (await response.json()) as ExtractionResponse;
@@ -1234,6 +1321,7 @@ export function ProfileEvidenceWorkspace({
                 />
               ) : null}
               {fileStatus ? <p className="source-status">{fileStatus}</p> : null}
+              {parseCard ? <SourceParseStatusCard card={parseCard} /> : null}
               <label className="source-field source-field--textarea">
                 <span>{selectedEntryIntent === "jd" ? "JD gap source text" : "Resume source text"}</span>
                 <small>{selectedEntryIntent === "jd" ? "Paste evidence-gap notes from a JD review, or route to Jobs for full JD analysis later." : "Paste resume text or load a reviewed resume version."}</small>
@@ -1247,7 +1335,10 @@ export function ProfileEvidenceWorkspace({
                   }
                   value={sourceText}
                   onChange={(event) => {
-                    updateActiveSourceDraft({ text: event.target.value });
+                    updateActiveSourceDraft({
+                      sourceDocumentId: undefined,
+                      text: event.target.value,
+                    });
                     setFileStatus(null);
                   }}
                   spellCheck={false}
@@ -1307,6 +1398,7 @@ export function ProfileEvidenceWorkspace({
                 />
               </label>
             </div>
+            {parseCard ? <SourceParseStatusCard card={parseCard} /> : null}
             <label className="source-field source-field--textarea">
               <span>Project or story source</span>
               <small>Paste text or import multiple PDF, DOCX, TXT, or Markdown files. Each file must be under 8 MB.</small>
@@ -1315,7 +1407,10 @@ export function ProfileEvidenceWorkspace({
                 className="jd-input jd-input--compact"
                 placeholder="Paste project notes, design docs, project summaries, performance review excerpts, or guided STAR notes here..."
                 value={projectNoteText}
-                onChange={(event) => setProjectNoteText(event.target.value)}
+                onChange={(event) => {
+                  setProjectNoteText(event.target.value);
+                  setProjectSourceDocumentId(undefined);
+                }}
                 spellCheck={false}
               />
             </label>
@@ -4085,6 +4180,72 @@ function SectionList({ title, items }: { title: string; items: string[] }) {
       </ul>
     </div>
   );
+}
+
+function SourceParseStatusCard({ card }: { card: SourceParseCard }) {
+  const quality = card.parseQuality;
+  const statusLabel =
+    quality.status === "needs_ocr"
+      ? "Needs OCR"
+      : quality.status === "warning"
+        ? "Parse warning"
+        : quality.status === "failed"
+          ? "Parse failed"
+          : card.duplicate
+            ? "Duplicate source"
+            : card.nextAction === "resume_review"
+              ? "Ready to review"
+              : "Ready to extract";
+  const nextCopy =
+    quality.status === "needs_ocr" || quality.status === "failed"
+      ? "Paste text manually or upload a DOCX/text-layer PDF."
+      : card.nextAction === "resume_review"
+        ? "Continue in Resume Review, then extract approved material to Evidence Library."
+        : "Review the extracted text, then extract it into reusable Evidence Library candidates.";
+  return (
+    <article className="source-parse-card" data-status={quality.status}>
+      <div className="source-parse-card__top">
+        <div>
+          <span className="eyebrow">Parsed source</span>
+          <h3>{card.title}</h3>
+          <p>{card.filename}</p>
+        </div>
+        <strong>{statusLabel}</strong>
+      </div>
+      <div className="source-parse-card__metrics">
+        <span>{card.sourceType.replace(/_/g, " ")}</span>
+        <span>{quality.charCount.toLocaleString()} chars</span>
+        <span>{quality.wordCount.toLocaleString()} words</span>
+        {typeof quality.pageCount === "number" ? <span>{quality.pageCount} pages</span> : null}
+      </div>
+      {card.duplicate ? (
+        <p className="source-parse-card__warning">
+          Duplicate of {card.duplicate.title}. Reuse it or decide whether to re-extract.
+        </p>
+      ) : null}
+      {quality.warnings.length > 0 ? (
+        <ul className="source-parse-card__warnings">
+          {quality.warnings.map((warning) => (
+            <li key={warning}>{formatParseWarning(warning)}</li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="source-parse-card__next">{nextCopy}</p>
+    </article>
+  );
+}
+
+function formatParseWarning(warning: string) {
+  const copy: Record<string, string> = {
+    formatting_not_preserved: "Formatting is not preserved; review section breaks before extraction.",
+    low_text_density: "Extracted text is short; the source may be incomplete.",
+    low_word_count: "Extracted word count is low for AI review or extraction.",
+    possible_header_footer_noise: "Repeated header/footer text may add noise.",
+    possible_scanned_pdf: "This PDF appears image-based or has too little text.",
+    replacement_characters_detected: "Some unreadable replacement characters were found.",
+    text_extraction_failed: "No reliable text layer could be extracted.",
+  };
+  return copy[warning] ?? warning.replace(/_/g, " ");
 }
 
 function formatResumeTitle(title: string) {

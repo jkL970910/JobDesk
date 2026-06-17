@@ -14,12 +14,30 @@ const importRuntimeModule = new Function(
 ) as <T>(specifier: string) => Promise<T>;
 
 export const resumeSourceMaxBytes = 8 * 1024 * 1024;
+export const sourceParserName = "jobdesk-source-parser" as const;
+export const sourceParserVersion = "document-lifecycle-v1" as const;
+
+export type ParseQualityStatus = "usable" | "warning" | "needs_ocr" | "failed";
+
+export type ParseQuality = {
+  status: ParseQualityStatus;
+  charCount: number;
+  wordCount: number;
+  pageCount?: number;
+  warnings: string[];
+};
 
 export type ResumeSourceParseResult = {
   sourceTitle: string;
   sourceText: string;
   sourceKind: "text" | "markdown" | "docx" | "pdf";
   warnings: string[];
+  parseQuality: ParseQuality;
+  parserName: typeof sourceParserName;
+  parserVersion: typeof sourceParserVersion;
+  originalFilename: string;
+  mimeType?: string;
+  fileSizeBytes: number;
 };
 
 export class ResumeSourceParseError extends Error {
@@ -31,6 +49,7 @@ export class ResumeSourceParseError extends Error {
       | "unsupported_file_type"
       | "encrypted_or_unreadable_pdf"
       | "no_readable_text",
+    readonly parseQuality?: ParseQuality,
   ) {
     super(message);
     this.name = "ResumeSourceParseError";
@@ -55,26 +74,40 @@ export async function parseResumeSourceFile(args: {
 
   const extension = inferExtension(sourceTitle);
   if (extension === ".txt") {
+    const sourceText = normalizeExtractedText(decodeText(args.buffer));
+    assertReadableText(sourceText);
     return {
-      sourceTitle,
+      ...baseResultMetadata(args, sourceTitle, "text"),
       sourceKind: "text",
-      sourceText: requireReadableText(decodeText(args.buffer)),
-      warnings: [],
+      sourceText,
+      ...qualityFields(sourceText),
     };
   }
   if (extension === ".md" || extension === ".markdown") {
+    const sourceText = normalizeExtractedText(decodeText(args.buffer));
+    assertReadableText(sourceText);
     return {
-      sourceTitle,
+      ...baseResultMetadata(args, sourceTitle, "markdown"),
       sourceKind: "markdown",
-      sourceText: requireReadableText(decodeText(args.buffer)),
-      warnings: [],
+      sourceText,
+      ...qualityFields(sourceText),
     };
   }
   if (extension === ".docx") {
-    return parseDocx({ buffer: args.buffer, sourceTitle });
+    return parseDocx({
+      buffer: args.buffer,
+      filename: args.filename,
+      mimeType: args.mimeType,
+      sourceTitle,
+    });
   }
   if (extension === ".pdf") {
-    return parsePdf({ buffer: args.buffer, sourceTitle });
+    return parsePdf({
+      buffer: args.buffer,
+      filename: args.filename,
+      mimeType: args.mimeType,
+      sourceTitle,
+    });
   }
 
   throw new ResumeSourceParseError(
@@ -86,21 +119,32 @@ export async function parseResumeSourceFile(args: {
 async function parseDocx(args: {
   buffer: Buffer;
   sourceTitle: string;
+  filename?: string;
+  mimeType?: string;
 }): Promise<ResumeSourceParseResult> {
   const mammoth = await import("mammoth");
   const result = await mammoth.extractRawText({ buffer: args.buffer });
-  const sourceText = requireReadableText(result.value);
+  const sourceText = normalizeExtractedText(result.value);
+  assertReadableText(sourceText);
+  const parserWarnings = result.messages.map((message) => message.message);
   return {
+    ...baseResultMetadata(
+      { filename: args.filename ?? args.sourceTitle, mimeType: args.mimeType, buffer: args.buffer },
+      args.sourceTitle,
+      "docx",
+    ),
     sourceTitle: args.sourceTitle,
     sourceKind: "docx",
     sourceText,
-    warnings: result.messages.map((message) => message.message),
+    ...qualityFields(sourceText, { warnings: parserWarnings }),
   };
 }
 
 async function parsePdf(args: {
   buffer: Buffer;
   sourceTitle: string;
+  filename?: string;
+  mimeType?: string;
 }): Promise<ResumeSourceParseResult> {
   try {
     const { PDFParse } =
@@ -109,33 +153,50 @@ async function parsePdf(args: {
     const parser = new PDFParse({ data: args.buffer });
     try {
       const result = await parser.getText();
+      const sourceText = normalizeExtractedText(result.text);
+      const pageCount = extractPdfPageCount(result);
+      const quality = buildParseQuality(sourceText, { pageCount, sourceKind: "pdf" });
+      if (quality.status === "failed") {
+        throw new ResumeSourceParseError(
+          "PDF source file does not contain enough readable text.",
+          "no_readable_text",
+          quality,
+        );
+      }
       return {
+        ...baseResultMetadata(
+          { filename: args.filename ?? args.sourceTitle, mimeType: args.mimeType, buffer: args.buffer },
+          args.sourceTitle,
+          "pdf",
+        ),
         sourceTitle: args.sourceTitle,
         sourceKind: "pdf",
-        sourceText: requireReadableText(result.text),
-        warnings: [],
+        sourceText,
+        warnings: quality.warnings,
+        parseQuality: quality,
       };
     } finally {
       await parser.destroy();
     }
   } catch (error) {
     if (error instanceof ResumeSourceParseError) throw error;
+    const fallbackQuality = buildParseQuality("", { sourceKind: "pdf" });
     throw new ResumeSourceParseError(
       "Could not extract readable text from this PDF. If it is scanned or password-protected, export it to text or DOCX first.",
       "encrypted_or_unreadable_pdf",
+      fallbackQuality,
     );
   }
 }
 
-function requireReadableText(text: string) {
-  const normalized = normalizeExtractedText(text);
-  if (normalized.length < 80) {
+function assertReadableText(normalized: string) {
+  if (normalized.length < 20) {
     throw new ResumeSourceParseError(
       "Resume source file does not contain enough readable text.",
       "no_readable_text",
+      buildParseQuality(normalized),
     );
   }
-  return normalized;
 }
 
 export function normalizeExtractedText(text: string) {
@@ -166,4 +227,123 @@ function sanitizeFilename(filename: string) {
       .trim()
       .slice(0, 240) || "Resume source"
   );
+}
+
+function baseResultMetadata(
+  args: { filename: string; mimeType?: string; buffer: Buffer },
+  sourceTitle: string,
+  sourceKind: ResumeSourceParseResult["sourceKind"],
+): Pick<
+  ResumeSourceParseResult,
+  | "sourceTitle"
+  | "sourceKind"
+  | "parserName"
+  | "parserVersion"
+  | "originalFilename"
+  | "mimeType"
+  | "fileSizeBytes"
+> {
+  return {
+    sourceTitle,
+    sourceKind,
+    parserName: sourceParserName,
+    parserVersion: sourceParserVersion,
+    originalFilename: args.filename,
+    mimeType: args.mimeType,
+    fileSizeBytes: args.buffer.length,
+  };
+}
+
+function qualityFields(
+  sourceText: string,
+  options: { warnings?: string[]; pageCount?: number; sourceKind?: ResumeSourceParseResult["sourceKind"] } = {},
+) {
+  const parseQuality = buildParseQuality(sourceText, options);
+  return {
+    warnings: parseQuality.warnings,
+    parseQuality,
+  };
+}
+
+export function buildParseQuality(
+  sourceText: string,
+  options: {
+    warnings?: string[];
+    pageCount?: number;
+    sourceKind?: ResumeSourceParseResult["sourceKind"];
+  } = {},
+): ParseQuality {
+  const charCount = sourceText.length;
+  const wordCount = countWords(sourceText);
+  const warnings = [...(options.warnings ?? [])];
+  const replacementCount = (sourceText.match(/\uFFFD/g) ?? []).length;
+
+  if (charCount < 20) {
+    return {
+      status: "failed",
+      charCount,
+      wordCount,
+      pageCount: options.pageCount,
+      warnings: uniqueWarnings([...warnings, "text_extraction_failed"]),
+    };
+  }
+
+  if (charCount < 300) warnings.push("low_text_density");
+  if (wordCount < 80) warnings.push("low_word_count");
+  if (replacementCount > Math.max(3, charCount * 0.01)) {
+    warnings.push("replacement_characters_detected");
+  }
+  if (hasRepeatedLineNoise(sourceText)) warnings.push("possible_header_footer_noise");
+  if (
+    options.sourceKind === "pdf" &&
+    typeof options.pageCount === "number" &&
+    options.pageCount > 0 &&
+    (charCount < 300 || wordCount < 80)
+  ) {
+    warnings.push("possible_scanned_pdf");
+    return {
+      status: "needs_ocr",
+      charCount,
+      wordCount,
+      pageCount: options.pageCount,
+      warnings: uniqueWarnings(warnings),
+    };
+  }
+
+  return {
+    status: warnings.length ? "warning" : "usable",
+    charCount,
+    wordCount,
+    pageCount: options.pageCount,
+    warnings: uniqueWarnings(warnings),
+  };
+}
+
+function countWords(text: string) {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function uniqueWarnings(warnings: string[]) {
+  return [...new Set(warnings.filter(Boolean))];
+}
+
+function hasRepeatedLineNoise(text: string) {
+  const counts = new Map<string, number>();
+  for (const line of text.split("\n")) {
+    const normalized = line.trim().toLowerCase();
+    if (normalized.length < 8 || normalized.length > 120) continue;
+    counts.set(normalized, (counts.get(normalized) ?? 0) + 1);
+  }
+  return [...counts.values()].some((count) => count >= 4);
+}
+
+function extractPdfPageCount(result: unknown) {
+  if (!result || typeof result !== "object") return undefined;
+  const candidates = [
+    (result as { total?: unknown }).total,
+    (result as { numpages?: unknown }).numpages,
+    (result as { pages?: unknown[] }).pages?.length,
+  ];
+  const pageCount = candidates.find((candidate) => typeof candidate === "number");
+  return typeof pageCount === "number" && Number.isFinite(pageCount) ? pageCount : undefined;
 }

@@ -69,6 +69,20 @@ type EnrichmentTaskSummary = {
 
 type ReviewQuestionStatus = EnrichmentTaskSummary["status"] | "not_created";
 
+type ParseQuality = {
+  status: "usable" | "warning" | "needs_ocr" | "failed";
+  charCount: number;
+  wordCount: number;
+  pageCount?: number;
+  warnings: string[];
+};
+
+type ResumeParseStatus = {
+  filename: string;
+  title: string;
+  parseQuality: ParseQuality;
+};
+
 export function ResumeReviewWorkspace({
   onExtractToEvidence,
   onOpenEvidenceReview,
@@ -85,6 +99,7 @@ export function ResumeReviewWorkspace({
   const [uploadElapsedSeconds, setUploadElapsedSeconds] = useState(0);
   const [activeOperation, setActiveOperation] = useState<string | null>(null);
   const [duplicateResume, setDuplicateResume] = useState<ResumeSourceReviewSummary | null>(null);
+  const [parseStatus, setParseStatus] = useState<ResumeParseStatus | null>(null);
   const [enrichmentTasks, setEnrichmentTasks] = useState<EnrichmentTaskSummary[]>([]);
   const selectedResume = isUploading
     ? null
@@ -147,6 +162,7 @@ export function ResumeReviewWorkspace({
   async function uploadResume(file: File | null) {
     setError(null);
     setDuplicateResume(null);
+    setParseStatus(null);
     if (!file) return;
     setIsUploading(true);
     setUploadElapsedSeconds(0);
@@ -166,6 +182,7 @@ export function ResumeReviewWorkspace({
               resume?: ResumeSourceReviewSummary;
               existingResume?: ResumeSourceReviewSummary;
               parseWarnings?: string[];
+              parseQuality?: ParseQuality;
               reason?: string;
             };
             error?: string;
@@ -173,11 +190,25 @@ export function ResumeReviewWorkspace({
           }
         | null;
       if (!response.ok || !payload?.data) {
+        if (payload?.data?.parseQuality) {
+          setParseStatus({
+            filename: file.name,
+            title: file.name,
+            parseQuality: payload.data.parseQuality,
+          });
+        }
         setError(payload?.error ?? "Resume review failed.");
         return;
       }
       if (payload.data.status === "duplicate" && payload.data.existingResume) {
         setDuplicateResume(payload.data.existingResume);
+        if (payload.data.parseQuality) {
+          setParseStatus({
+            filename: file.name,
+            title: payload.data.existingResume.title,
+            parseQuality: payload.data.parseQuality,
+          });
+        }
         setSelectedId(payload.data.existingResume.id);
         setStatus("This exact resume has already been reviewed.");
         await loadResumes(payload.data.existingResume.id);
@@ -185,6 +216,13 @@ export function ResumeReviewWorkspace({
         return;
       }
       if (payload.data.status === "saved" && payload.data.resume) {
+        if (payload.data.parseQuality) {
+          setParseStatus({
+            filename: file.name,
+            title: payload.data.resume.title,
+            parseQuality: payload.data.parseQuality,
+          });
+        }
         setStatus(
           `Reviewed ${formatResumeTitle(payload.data.resume.title)}${payload.data.parseWarnings?.length ? ` · ${payload.data.parseWarnings.length} parser note${payload.data.parseWarnings.length === 1 ? "" : "s"}` : ""}`,
         );
@@ -288,6 +326,7 @@ export function ResumeReviewWorkspace({
           <small>JobDesk will run a general resume review, save a version, then offer evidence extraction.</small>
         </label>
         <span className={error ? "status status--error" : "status"}>{error ?? status}</span>
+        {parseStatus ? <ResumeParseStatusCard status={parseStatus} /> : null}
         {!selectedResume && !isUploading ? (
           <section className="resume-empty-steps" aria-label="Resume Review workflow">
             <article>
@@ -1300,6 +1339,60 @@ function isFallbackResume(resume: ResumeSourceReviewSummary) {
     ? resume.latestReview.rubric.find((item) => item.key === "review_metadata")
     : null;
   return metadata?.provider === "deterministic-fallback";
+}
+
+function ResumeParseStatusCard({ status }: { status: ResumeParseStatus }) {
+  const quality = status.parseQuality;
+  const label =
+    quality.status === "needs_ocr"
+      ? "Needs OCR"
+      : quality.status === "warning"
+        ? "Parse warning"
+        : quality.status === "failed"
+          ? "Parse failed"
+          : "Ready to review";
+  return (
+    <article className="source-parse-card" data-status={quality.status}>
+      <div className="source-parse-card__top">
+        <div>
+          <span className="eyebrow">Resume source parsed</span>
+          <h3>{formatResumeTitle(status.title)}</h3>
+          <p>{status.filename}</p>
+        </div>
+        <strong>{label}</strong>
+      </div>
+      <div className="source-parse-card__metrics">
+        <span>{quality.charCount.toLocaleString()} chars</span>
+        <span>{quality.wordCount.toLocaleString()} words</span>
+        {typeof quality.pageCount === "number" ? <span>{quality.pageCount} pages</span> : null}
+      </div>
+      {quality.warnings.length > 0 ? (
+        <ul className="source-parse-card__warnings">
+          {quality.warnings.map((warning) => (
+            <li key={warning}>{formatParseWarning(warning)}</li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="source-parse-card__next">
+        {quality.status === "needs_ocr" || quality.status === "failed"
+          ? "This file cannot be reviewed reliably. Paste text manually or upload a DOCX/text-layer PDF."
+          : "Resume Review evaluates this uploaded source. It does not update your final resume until you generate one from approved Evidence Library material."}
+      </p>
+    </article>
+  );
+}
+
+function formatParseWarning(warning: string) {
+  const copy: Record<string, string> = {
+    formatting_not_preserved: "Formatting is not preserved; review section breaks before extraction.",
+    low_text_density: "Extracted text is short; the source may be incomplete.",
+    low_word_count: "Extracted word count is low for AI review.",
+    possible_header_footer_noise: "Repeated header/footer text may add noise.",
+    possible_scanned_pdf: "This PDF appears image-based or has too little text.",
+    replacement_characters_detected: "Some unreadable replacement characters were found.",
+    text_extraction_failed: "No reliable text layer could be extracted.",
+  };
+  return copy[warning] ?? warning.replace(/_/g, " ");
 }
 
 function ReviewList({ items, title }: { items: string[]; title: string }) {
