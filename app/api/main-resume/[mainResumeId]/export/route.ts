@@ -3,8 +3,10 @@ import { z } from "zod";
 
 import { getMainResumeExportBlocker } from "../../../../../src/server/main-resume-export-policy";
 import {
+  applyResumePagePolicy,
   buildResumeExportViewModel,
   getResumeExportContentType,
+  makeResumeTrimHeaders,
   makeResumeExportFilename,
   parseResumeExportFormat,
   parseResumeExportTemplate,
@@ -85,12 +87,15 @@ export async function GET(
     resumeMarkdown: resume.resume_markdown,
     title: resume.title,
   });
+  const { trim } = applyResumePagePolicy(viewModel, pagePolicy);
+  const trimHeaders = makeResumeTrimHeaders(trim);
 
   if (format === "html") {
     return new NextResponse(renderPlainAtsHtml({ pagePolicy, template, viewModel }), {
       headers: {
         "Content-Disposition": `inline; filename="${filename}"`,
         "Content-Type": getResumeExportContentType(format),
+        ...trimHeaders,
       },
     });
   }
@@ -100,6 +105,7 @@ export async function GET(
     headers: {
       "Content-Disposition": `attachment; filename="${filename}"`,
       "Content-Type": getResumeExportContentType(format),
+      ...trimHeaders,
     },
   });
 }

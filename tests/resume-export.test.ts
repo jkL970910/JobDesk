@@ -4,6 +4,7 @@ import { getMainResumeExportBlocker } from "../src/server/main-resume-export-pol
 import {
   applyResumePagePolicy,
   buildResumeExportViewModel,
+  makeResumeTrimHeaders,
   renderPlainAtsDocx,
   renderPlainAtsHtml,
 } from "../src/server/resume-export-renderer";
@@ -86,7 +87,34 @@ describe("resume export coverage assumptions", () => {
     const onePage = applyResumePagePolicy(viewModel, "one_page");
 
     expect(viewModel.sections[0]?.bullets).toHaveLength(5);
-    expect(onePage.sections[0]?.bullets).toEqual(["One", "Two", "Three", "Four"]);
+    expect(onePage.viewModel.sections[0]?.bullets).toEqual(["One", "Two", "Three", "Four"]);
+    expect(onePage.trim).toMatchObject({
+      hiddenBullets: 1,
+      hiddenSections: 0,
+      pagePolicy: "one_page",
+      wasTrimmed: true,
+    });
+    expect(makeResumeTrimHeaders(onePage.trim)).toMatchObject({
+      "X-Resume-Export-Hidden-Bullets": "1",
+      "X-Resume-Export-Page-Policy": "one_page",
+      "X-Resume-Export-Trimmed": "true",
+    });
+  });
+
+  it("keeps full export content untrimmed by default", () => {
+    const viewModel = buildResumeExportViewModel({
+      resumeJson: null,
+      resumeMarkdown: "## Experience\n- One\n- Two\n- Three\n- Four\n- Five",
+      title: "Fallback Resume",
+    });
+    const unrestricted = applyResumePagePolicy(viewModel, "unrestricted");
+
+    expect(unrestricted.viewModel.sections[0]?.bullets).toHaveLength(5);
+    expect(unrestricted.trim).toMatchObject({
+      hiddenBullets: 0,
+      pagePolicy: "unrestricted",
+      wasTrimmed: false,
+    });
   });
 
   it("renders printable ATS HTML", () => {
@@ -99,6 +127,7 @@ describe("resume export coverage assumptions", () => {
 
     expect(html).toContain("<!doctype html>");
     expect(html).toContain("@page");
+    expect(html).toContain("letter-spacing: 0");
     expect(html).toContain("Built evidence-backed resume workflow.");
   });
 

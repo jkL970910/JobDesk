@@ -927,7 +927,7 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
   const [exportTemplate, setExportTemplate] = useState<"plain_ats">("plain_ats");
   const [exportPagePolicy, setExportPagePolicy] = useState<
     "one_page" | "two_page" | "unrestricted"
-  >("one_page");
+  >("unrestricted");
 
   useEffect(() => {
     let cancelled = false;
@@ -1043,6 +1043,7 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
   const latestMainResumeClaimStats = latestMainResume
     ? getMainResumeClaimStats(latestMainResume)
     : null;
+  const exportUsesLengthConstraint = exportPagePolicy !== "unrestricted";
 
   async function generatePositioningReport() {
     setIsGeneratingPositioning(true);
@@ -1757,6 +1758,15 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
                     JSON audit
                   </button>
                 </div>
+                {exportUsesLengthConstraint ? (
+                  <p className="final-export-controls__note">
+                    Length-constrained export can omit lower-priority sections or bullets. The draft preview below remains the full generated resume.
+                  </p>
+                ) : (
+                  <p className="final-export-controls__note">
+                    Full length export matches the draft content below. Choose one or two pages only when you want a compact ATS version.
+                  </p>
+                )}
               </div>
             </div>
             <div className="guardrail-banner" data-state={latestMainResume.status}>

@@ -2189,6 +2189,15 @@ strong,
   margin-top: 0;
 }
 
+.final-export-controls__note {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.38;
+  margin: 0;
+  max-width: 520px;
+  text-align: right;
+}
+
 .final-export-controls__selectors {
   display: grid;
   gap: 8px;
@@ -5258,6 +5267,11 @@ select:focus {
   .final-export-controls {
     justify-items: stretch;
     min-width: 0;
+  }
+
+  .final-export-controls__note {
+    max-width: none;
+    text-align: left;
   }
 
   .final-export-controls .actions,

@@ -27,6 +27,19 @@ export type ResumeExportViewModel = {
   sections: ResumeExportSection[];
 };
 
+export type ResumeExportTrimMetadata = {
+  hiddenBodyLines: number;
+  hiddenBullets: number;
+  hiddenSections: number;
+  pagePolicy: ResumePagePolicy;
+  wasTrimmed: boolean;
+};
+
+export type ResumePagePolicyResult = {
+  trim: ResumeExportTrimMetadata;
+  viewModel: ResumeExportViewModel;
+};
+
 const defaultTemplate: ResumeExportTemplate = "plain_ats";
 const defaultPagePolicy: ResumePagePolicy = "unrestricted";
 
@@ -79,18 +92,61 @@ export function buildResumeExportViewModel(args: ResumeExportInput): ResumeExpor
 export function applyResumePagePolicy(
   viewModel: ResumeExportViewModel,
   pagePolicy: ResumePagePolicy,
-): ResumeExportViewModel {
-  if (pagePolicy === "unrestricted") return viewModel;
+): ResumePagePolicyResult {
+  if (pagePolicy === "unrestricted") {
+    return {
+      trim: {
+        hiddenBodyLines: 0,
+        hiddenBullets: 0,
+        hiddenSections: 0,
+        pagePolicy,
+        wasTrimmed: false,
+      },
+      viewModel,
+    };
+  }
   const maxBulletsPerSection = pagePolicy === "one_page" ? 4 : 7;
   const maxBodyLinesPerSection = pagePolicy === "one_page" ? 2 : 4;
   const maxSections = pagePolicy === "one_page" ? 5 : 8;
+  let hiddenBodyLines = 0;
+  let hiddenBullets = 0;
+  const keptSections = viewModel.sections.slice(0, maxSections);
+  const hiddenSections = viewModel.sections.slice(maxSections);
+  for (const section of keptSections) {
+    hiddenBodyLines += Math.max(section.body.length - maxBodyLinesPerSection, 0);
+    hiddenBullets += Math.max(section.bullets.length - maxBulletsPerSection, 0);
+  }
+  for (const section of hiddenSections) {
+    hiddenBodyLines += section.body.length;
+    hiddenBullets += section.bullets.length;
+  }
+  const trim = {
+    hiddenBodyLines,
+    hiddenBullets,
+    hiddenSections: hiddenSections.length,
+    pagePolicy,
+    wasTrimmed: hiddenSections.length > 0 || hiddenBodyLines > 0 || hiddenBullets > 0,
+  };
   return {
-    ...viewModel,
-    sections: viewModel.sections.slice(0, maxSections).map((section) => ({
-      ...section,
-      body: section.body.slice(0, maxBodyLinesPerSection),
-      bullets: section.bullets.slice(0, maxBulletsPerSection),
-    })),
+    trim,
+    viewModel: {
+      ...viewModel,
+      sections: keptSections.map((section) => ({
+        ...section,
+        body: section.body.slice(0, maxBodyLinesPerSection),
+        bullets: section.bullets.slice(0, maxBulletsPerSection),
+      })),
+    },
+  };
+}
+
+export function makeResumeTrimHeaders(trim: ResumeExportTrimMetadata) {
+  return {
+    "X-Resume-Export-Hidden-Body-Lines": String(trim.hiddenBodyLines),
+    "X-Resume-Export-Hidden-Bullets": String(trim.hiddenBullets),
+    "X-Resume-Export-Hidden-Sections": String(trim.hiddenSections),
+    "X-Resume-Export-Page-Policy": trim.pagePolicy,
+    "X-Resume-Export-Trimmed": trim.wasTrimmed ? "true" : "false",
   };
 }
 
@@ -99,7 +155,7 @@ export function renderPlainAtsHtml(args: {
   pagePolicy?: ResumePagePolicy;
   template?: ResumeExportTemplate;
 }) {
-  const viewModel = applyResumePagePolicy(args.viewModel, args.pagePolicy ?? defaultPagePolicy);
+  const { viewModel } = applyResumePagePolicy(args.viewModel, args.pagePolicy ?? defaultPagePolicy);
   const body = viewModel.sections
     .map((section) => {
       const bodyLines = section.body.map((line) => `<p>${escapeHtml(line)}</p>`).join("");
@@ -119,8 +175,8 @@ export function renderPlainAtsHtml(args: {
     :root { color-scheme: light; }
     body { color: #111827; font-family: Arial, Helvetica, sans-serif; line-height: 1.35; margin: 0; }
     main { margin: 0 auto; max-width: 760px; padding: 36px 42px; }
-    h1 { font-size: 24px; letter-spacing: -0.02em; margin: 0 0 18px; text-align: center; }
-    h2 { border-bottom: 1px solid #d1d5db; font-size: 13px; letter-spacing: 0.06em; margin: 18px 0 8px; padding-bottom: 4px; text-transform: uppercase; }
+    h1 { font-size: 24px; letter-spacing: 0; margin: 0 0 18px; text-align: center; }
+    h2 { border-bottom: 1px solid #d1d5db; font-size: 13px; letter-spacing: 0; margin: 18px 0 8px; padding-bottom: 4px; text-transform: uppercase; }
     p { margin: 0 0 6px; }
     ul { margin: 0; padding-left: 18px; }
     li { margin: 0 0 5px; }
@@ -146,7 +202,7 @@ export async function renderPlainAtsDocx(args: {
   pagePolicy?: ResumePagePolicy;
   template?: ResumeExportTemplate;
 }) {
-  const viewModel = applyResumePagePolicy(args.viewModel, args.pagePolicy ?? defaultPagePolicy);
+  const { viewModel } = applyResumePagePolicy(args.viewModel, args.pagePolicy ?? defaultPagePolicy);
   const children: Paragraph[] = [
     new Paragraph({
       alignment: AlignmentType.CENTER,
