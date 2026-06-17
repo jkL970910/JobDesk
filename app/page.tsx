@@ -1694,12 +1694,18 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
                         : "Approve at least one resume-safe evidence item first."}
                     </p>
                   </li>
-                  <li data-state={latestMainResumeClaimStats?.needsReview === 0 ? "ready" : "blocked"}>
+                  <li
+                    data-state={
+                      latestMainResumeClaimStats && latestMainResumeClaimStats.total > 0 && latestMainResumeClaimStats.needsReview === 0
+                        ? "ready"
+                        : "blocked"
+                    }
+                  >
                     <strong>Claim support</strong>
                     <p>
-                      {latestMainResumeClaimStats
+                      {latestMainResumeClaimStats && latestMainResumeClaimStats.total > 0
                         ? `${latestMainResumeClaimStats.supported}/${latestMainResumeClaimStats.total} generated claims supported.`
-                        : "No claim ledger generated yet."}
+                        : "No claim ledger was generated. Fact Guard cannot finalize this resume yet."}
                     </p>
                   </li>
                   <li data-state={latestMainResume.status === "validated" ? "ready" : "blocked"}>
@@ -1720,7 +1726,9 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
                     : "0/0"}
                 </strong>
                 <p>
-                  {latestMainResumeClaimStats?.needsReview
+                  {latestMainResumeClaimStats && latestMainResumeClaimStats.total === 0
+                    ? "No claim ledger was generated. Fact Guard cannot finalize this resume yet."
+                    : latestMainResumeClaimStats?.needsReview
                     ? `${latestMainResumeClaimStats.needsReview} claim${latestMainResumeClaimStats.needsReview === 1 ? "" : "s"} still need better evidence or wording.`
                     : "Every generated claim is currently supported."}
                 </p>
