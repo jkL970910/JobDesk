@@ -202,8 +202,7 @@ function AuthPanel() {
 }
 
 function AccountPanel() {
-  const { refreshUser, setToken, token, user } = useAccess();
-  const [showLegacyToken, setShowLegacyToken] = useState(false);
+  const { refreshUser, user } = useAccess();
 
   async function logout() {
     await fetch("/api/auth/logout", { credentials: "include", method: "POST" });
@@ -217,24 +216,10 @@ function AccountPanel() {
         <strong>{user?.displayName || user?.email}</strong>
       </div>
       <div className="access-panel__actions">
-        <button className="ghost-button" type="button" onClick={() => setShowLegacyToken((value) => !value)}>
-          Legacy token
-        </button>
         <button className="secondary-button" type="button" onClick={() => void logout()}>
           Sign out
         </button>
       </div>
-      {showLegacyToken ? (
-        <label>
-          <span>Access token</span>
-          <input
-            onChange={(event) => setToken(event.target.value)}
-            placeholder="Enter JOBDESK_ACCESS_TOKEN"
-            type="password"
-            value={token}
-          />
-        </label>
-      ) : null}
     </div>
   );
 }
