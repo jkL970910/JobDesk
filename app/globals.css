@@ -419,6 +419,25 @@ textarea:focus-visible {
   padding: 10px 14px;
 }
 
+.next-action-card__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.next-action-card .next-action-card__secondary {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  color: var(--ink-soft);
+}
+
+.next-action-card .next-action-card__secondary:hover {
+  background: var(--primary-soft);
+  border-color: rgba(111, 124, 255, 0.28);
+  color: var(--primary-strong);
+}
+
 .workflow-rail {
   background: rgba(5, 8, 14, 0.34);
   border: 1px solid var(--line);

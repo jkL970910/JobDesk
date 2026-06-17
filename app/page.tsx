@@ -686,6 +686,8 @@ function DashboardView({
       ? {
           detail: "Checking Resume Review and Evidence Library before recommending the next action.",
           label: "Loading workspace",
+          secondaryLabel: null,
+          secondaryTarget: null,
           title: "Loading workspace state.",
           view: "dashboard" as View,
         }
@@ -808,13 +810,25 @@ function DashboardView({
           <p className="panel-kicker">Next best action</p>
           <h2>{displayNextAction.title}</h2>
           <p>{displayNextAction.detail}</p>
-          <button
-            disabled={dashboardLoadState === "loading"}
-            type="button"
-            onClick={() => onNavigate(displayNextAction.view)}
-          >
-            {displayNextAction.label}
-          </button>
+          <div className="next-action-card__actions">
+            <button
+              disabled={dashboardLoadState === "loading"}
+              type="button"
+              onClick={() => onNavigate(displayNextAction.view)}
+            >
+              {displayNextAction.label}
+            </button>
+            {displayNextAction.secondaryLabel && displayNextAction.secondaryTarget ? (
+              <button
+                className="next-action-card__secondary"
+                disabled={dashboardLoadState === "loading"}
+                type="button"
+                onClick={() => onStartMaterialPath(displayNextAction.secondaryTarget)}
+              >
+                {displayNextAction.secondaryLabel}
+              </button>
+            ) : null}
+          </div>
         </article>
 
         <div className="workflow-rail" aria-label="Current workflow readiness">
@@ -916,9 +930,11 @@ function determineDashboardNextAction({
 }) {
   if (state === "no_resume") {
     return {
-      detail: "Fastest path: upload a general resume. If you do not have one, open Evidence Library and start from project notes or guided answers.",
+      detail: "Upload a resume for the fastest start, or add project notes, work summaries, and guided answers if you do not have one yet.",
       label: "Upload Resume",
-      title: "Start with a resume, or build evidence from sources.",
+      secondaryLabel: "No resume? Add source material",
+      secondaryTarget: "scratch" as MaterialEntryIntent,
+      title: "Start your evidence library.",
       view: "resumeReview" as View,
     };
   }
