@@ -546,6 +546,14 @@ textarea:focus-visible {
   color: var(--primary-strong);
 }
 
+.workflow-row__hint {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .hero-panel__steps,
 .profile-card__facts {
   display: flex;
@@ -4695,6 +4703,17 @@ select:focus {
   .panel__header {
     margin: 0 -14px 12px;
     padding: 0 14px 12px;
+  }
+
+  .workflow-row {
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .workflow-row button,
+  .workflow-row__hint {
+    grid-column: 2;
+    justify-self: end;
   }
 
   .source-controls,

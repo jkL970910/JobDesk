@@ -610,8 +610,8 @@ function DashboardView({
         ? formatResumeTitle(latestResume.title)
         : hasExtractedMaterial
           ? `${library?.profile?.displayName ?? "Evidence Library"} has extracted material.`
-          : "Upload a general resume first.",
-      action: latestResume ? "Review findings" : "Upload resume",
+          : "Use the Next Best Action card above to upload a resume.",
+      action: latestResume ? "Review findings" : null,
       view: "resumeReview" as View,
       state: latestResume?.latestReview || hasExtractedMaterial ? "ready" : "blocked",
       phase: "primary",
@@ -830,13 +830,17 @@ function DashboardView({
                 <p>{row.note}</p>
               </div>
               <strong>{row.value}</strong>
-              <button
-                disabled={dashboardLoadState === "loading"}
-                type="button"
-                onClick={() => onNavigate(row.view)}
-              >
-                {row.action}
-              </button>
+              {row.action ? (
+                <button
+                  disabled={dashboardLoadState === "loading"}
+                  type="button"
+                  onClick={() => onNavigate(row.view)}
+                >
+                  {row.action}
+                </button>
+              ) : (
+                <small className="workflow-row__hint">Current focus</small>
+              )}
             </article>
           ))}
           <section className="workflow-later" data-open={showLaterWorkflows}>
