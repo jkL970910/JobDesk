@@ -1898,7 +1898,7 @@ function EvidencePriorityQueue({
     },
     {
       action: summary.evidenceNeedingReview > 0 ? onOpenClaims : onReturnToIntake,
-      button: summary.evidenceNeedingReview > 0 ? "Review claims" : "Add source material",
+      button: summary.evidenceNeedingReview > 0 ? "Review claims" : "Waiting for source",
       count: summary.evidenceNeedingReview,
       detail: "Claims must be approved before they are safe for resume generation.",
       label: "2. Claims awaiting review",
@@ -1906,7 +1906,7 @@ function EvidencePriorityQueue({
     },
     {
       action: summary.projectsNeedingContext > 0 ? onOpenStoryTargets : onReturnToIntake,
-      button: summary.projectsNeedingContext > 0 ? "Enrich thin projects" : "Add project/source docs",
+      button: summary.projectsNeedingContext > 0 ? "Enrich thin projects" : "Waiting for source",
       count: summary.projectsNeedingContext,
       detail: "Thin story targets need problem, role, actions, results, metrics, and external-safe context.",
       label: "3. Thin projects needing context",
@@ -1947,8 +1947,9 @@ function EvidencePriorityQueue({
           <button
             data-state={item.state}
             key={item.label}
-            onClick={item.action}
+            onClick={item.state === "active" ? item.action : undefined}
             type="button"
+            disabled={item.state !== "active"}
           >
             <span>{item.label}</span>
             <strong>{item.count}</strong>

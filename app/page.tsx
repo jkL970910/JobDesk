@@ -781,8 +781,8 @@ function DashboardView({
     {
       action: "Build library",
       body:
-        "Import resumes, project notes, performance excerpts, or guided answers into canonical evidence, stories, and enrichment tasks.",
-      target: () => onStartMaterialPath(hasExtractedMaterial ? "scratch" : "resume"),
+        "No resume required. Start from project notes, work summaries, performance excerpts, guided answers, or a reviewed resume.",
+      target: () => onStartMaterialPath("scratch"),
       title: "Build My Evidence Library",
     },
     {
@@ -916,9 +916,9 @@ function determineDashboardNextAction({
 }) {
   if (state === "no_resume") {
     return {
-      detail: "Upload a general resume before building reusable evidence.",
+      detail: "Fastest path: upload a general resume. If you do not have one, open Evidence Library and start from project notes or guided answers.",
       label: "Upload Resume",
-      title: "Upload or review a resume.",
+      title: "Start with a resume, or build evidence from sources.",
       view: "resumeReview" as View,
     };
   }

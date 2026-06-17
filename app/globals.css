@@ -2879,6 +2879,7 @@ select:focus {
 }
 
 .evidence-priority-queue__items button[data-state="empty"] {
+  cursor: default;
   opacity: 0.58;
 }
 
@@ -2887,6 +2888,12 @@ select:focus {
   background: rgba(255, 255, 255, 0.045);
   border-color: rgba(111, 124, 255, 0.3);
   outline: none;
+}
+
+.evidence-priority-queue__items button:disabled:hover,
+.evidence-priority-queue__items button:disabled:focus-visible {
+  background: rgba(255, 255, 255, 0.026);
+  border-color: var(--line);
 }
 
 .evidence-priority-queue__items strong {
