@@ -9,6 +9,7 @@ import {
   updateEvidenceItem,
 } from "../src/server/profile-evidence-repository";
 import {
+  getMainResumeById,
   getRecentMainResumes,
   getRecentTailoredResumes,
   persistMainResume,
@@ -250,6 +251,11 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
     expect(mainResume?.claims[0]).toMatchObject({
       claim_text: "Built SQL dashboards for onboarding funnel analysis.",
       evidence_ids: [evidenceId],
+    });
+    const exportedMainResume = await getMainResumeById(mainResumeResult.mainResumeVersionId);
+    expect(exportedMainResume).toMatchObject({
+      id: mainResumeResult.mainResumeVersionId,
+      title: "General integration resume",
     });
     const mainGuard = await runFactGuardForMainResume(
       mainResumeResult.mainResumeVersionId,

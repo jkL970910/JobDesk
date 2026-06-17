@@ -361,6 +361,23 @@ export async function getTailoredResumeById(resumeVersionId: string) {
   return resume ? toTailoredResumeDto(db, resume) : null;
 }
 
+export async function getMainResumeById(mainResumeVersionId: string) {
+  if (!hasDatabaseUrl()) return null;
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [resume] = await db
+    .select()
+    .from(mainResumeVersions)
+    .where(
+      and(
+        eq(mainResumeVersions.workspaceId, workspace.id),
+        eq(mainResumeVersions.id, mainResumeVersionId),
+      ),
+    )
+    .limit(1);
+  return resume ? toMainResumeDto(db, resume) : null;
+}
+
 async function toTailoredResumeDto(
   db: Pick<DbHandle, "select">,
   resume: typeof resumeVersions.$inferSelect,

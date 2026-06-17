@@ -1121,6 +1121,29 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
     }
   }
 
+  async function exportMainResume(
+    resumeId: string,
+    format: "markdown" | "json",
+  ) {
+    const response = await fetchJson(
+      `/api/main-resume/${resumeId}/export?format=${format}`,
+    );
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      setMainResumeStatus(payload?.error ?? "Main resume export failed.");
+      return;
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const fileName =
+      disposition.match(/filename="([^"]+)"/)?.[1] ??
+      `jobdesk-main-resume.${format === "json" ? "json" : "md"}`;
+    downloadBlob(fileName, blob);
+    setMainResumeStatus(`Exported ${format === "json" ? "JSON" : "Markdown"} main resume.`);
+  }
+
   if (loadState === "loading") {
     return (
       <div className="profile-reference">
@@ -1288,6 +1311,22 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
         {latestMainResume ? (
           <details className="main-resume-builder__preview">
             <summary>{latestMainResume.title}</summary>
+            <div className="actions actions--compact">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void exportMainResume(latestMainResume.id, "markdown")}
+              >
+                Export Markdown
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void exportMainResume(latestMainResume.id, "json")}
+              >
+                Export JSON
+              </button>
+            </div>
             <pre>{latestMainResume.resume_markdown}</pre>
             {latestMainResume.missing_evidence_questions.length > 0 ? (
               <div>
@@ -1601,4 +1640,15 @@ function formatDateTime(value: string | null) {
   } catch {
     return value;
   }
+}
+
+function downloadBlob(fileName: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
