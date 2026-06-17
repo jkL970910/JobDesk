@@ -170,7 +170,7 @@ type MaterialReviewTab = "enrichment" | "projects" | "unlinked" | "cleanup" | "s
 
 const topNavItems: Array<{ id: View; label: string; description: string }> = [
   { id: "dashboard", label: "Dashboard", description: "Current next step" },
-  { id: "profile", label: "Resume", description: "Create or update" },
+  { id: "profile", label: "Profile", description: "Resume builder" },
   { id: "evidence", label: "Evidence", description: "Reusable proof" },
   { id: "jobs", label: "Jobs", description: "Target applications" },
   { id: "interview", label: "Interview", description: "Practice packs" },
@@ -185,9 +185,9 @@ const pageCopy = {
   },
   profile: {
     eyebrow: "Career Identity",
-    title: "Profile",
+    title: "Profile & Resume",
     subtitle:
-      "Your factual career skeleton: identity, experience frame, skills, source coverage, and resume versions.",
+      "Your factual career skeleton plus the place to generate, refresh, and export main resume versions.",
   },
   resumeReview: {
     eyebrow: "General Resume",
@@ -416,7 +416,6 @@ function DashboardView({
   const [jobs, setJobs] = useState<RecentJobSummary[]>([]);
   const [prepPacks, setPrepPacks] = useState<InterviewPrepSummary[]>([]);
   const [dashboardLoadState, setDashboardLoadState] = useState<"loading" | "ready" | "error">("loading");
-  const [showLaterWorkflows, setShowLaterWorkflows] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -468,8 +467,6 @@ function DashboardView({
   }, [fetchJson]);
 
   const latestResume = resumes[0] ?? null;
-  const approvedClaims =
-    library?.evidenceItems.filter((item) => item.status === "approved").length ?? 0;
   const resumeReadyClaims = countResumeReadyClaims(library?.evidenceItems ?? []);
   const claimsNeedingReview =
     library?.evidenceItems.filter((item) => !isResumeReadyClaim(item)).length ?? 0;
@@ -496,87 +493,6 @@ function DashboardView({
     storyTargets,
     thinStories,
   });
-  const workflowRows = [
-    {
-      label: "1. Review resume",
-      value: latestResume
-        ? latestResume.latestReview
-          ? `Score ${latestResume.latestReview.overallScore}`
-          : "Needs review"
-        : hasExtractedMaterial
-          ? "Source extracted"
-          : "Not uploaded",
-      note: latestResume
-        ? formatResumeTitle(latestResume.title)
-        : hasExtractedMaterial
-          ? `${library?.profile?.displayName ?? "Evidence Library"} has extracted material.`
-          : "Use the Next Best Action card above to upload a resume.",
-      action: latestResume ? "Review findings" : null,
-      view: "resumeReview" as View,
-      state: latestResume?.latestReview || hasExtractedMaterial ? "ready" : "blocked",
-      phase: "primary",
-    },
-    {
-      label: "2. Build evidence library",
-      value:
-        resumeReadyClaims > 0
-          ? `${resumeReadyClaims} resume-ready claims`
-          : claimsNeedingReview > 0
-            ? `${claimsNeedingReview} claims await approval`
-            : hasExtractedMaterial
-              ? "Evidence extracted"
-              : "No extracted evidence yet",
-      note:
-        claimsNeedingReview > 0
-          ? `${claimsNeedingReview} claims awaiting review · ${storyTargets} story targets`
-          : storyTargets > 0
-            ? `${storyTargets} story targets need enrichment`
-            : "Extract resume evidence before JD-specific work.",
-      action: "Open library",
-      view: "evidence" as View,
-      state: resumeReadyClaims > 0 ? "ready" : hasExtractedMaterial ? "needs-review" : "blocked",
-      phase: "primary",
-    },
-    {
-      label: "3. Analyze JD",
-      value: `${jobs.length} analyzed`,
-      note: jobs[0]?.title ?? "Create a job workspace from a target JD.",
-      action: "Open JD workspace",
-      view: "jobs" as View,
-      state: jobs.length > 0 ? "ready" : "blocked",
-      phase: resumeReadyClaims > 0 ? "primary" : "secondary",
-    },
-    {
-      label: "4. Tailor resume",
-      value: resumeReadyClaims > 0 && jobs.length > 0 ? "Ready" : "Blocked",
-      note:
-        resumeReadyClaims > 0 && jobs.length > 0
-          ? "Use resume-ready evidence against a JD."
-          : "Needs analyzed JD and resume-ready evidence.",
-      action: "Open resume",
-      view: "jobs" as View,
-      state: resumeReadyClaims > 0 && jobs.length > 0 ? "ready" : "blocked",
-      phase: resumeReadyClaims > 0 && jobs.length > 0 ? "primary" : "secondary",
-    },
-    {
-      label: "5. Prepare interview",
-      value: prepPacks.length > 0 ? "Ready" : jobs.length > 0 ? "Available" : "Blocked",
-      note: prepPacks.length > 0 ? `${prepPacks.length} prep packs saved` : "Requires an analyzed JD.",
-      action: "Open prep",
-      view: "interview" as View,
-      state: jobs.length > 0 ? "ready" : "blocked",
-      phase: resumeReadyClaims > 0 && jobs.length > 0 ? "primary" : "secondary",
-    },
-    {
-      label: "6. Track application",
-      value: `${activeApplications} active`,
-      note: `${interviewJobs} interview-stage jobs`,
-      action: "Open tracker",
-      view: "applications" as View,
-      state: jobs.length > 0 ? "ready" : "blocked",
-      phase: jobs.length > 0 ? "primary" : "secondary",
-    },
-  ];
   const nextAction = determineDashboardNextAction({
     latestResume,
     state: resumePrepState,
@@ -592,30 +508,6 @@ function DashboardView({
           view: "dashboard" as View,
         }
       : nextAction;
-  const resumePrepRows =
-    dashboardLoadState === "loading"
-      ? [
-          {
-            action: "Checking",
-            label: "1. Review resume",
-            note: "Checking the latest Resume Review state.",
-            phase: "primary",
-            state: "needs-review",
-            value: "Loading",
-            view: "dashboard" as View,
-          },
-          {
-            action: "Checking",
-            label: "2. Build evidence library",
-            note: "Checking extracted evidence and story targets.",
-            phase: "primary",
-            state: "needs-review",
-            value: "Loading",
-            view: "dashboard" as View,
-          },
-        ]
-      : workflowRows.slice(0, 2);
-  const laterWorkflowRows = workflowRows.slice(2);
   const summaryCards =
     dashboardLoadState === "loading"
       ? [
