@@ -1250,10 +1250,10 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
       const response = await fetchJson("/api/main-resume", {
         body: usePositioning || useRefresh
           ? JSON.stringify({
-              generationMode: mode,
+              mode,
               positioningReportId: latestPositioningReport?.id,
               positioningDirectionId: selectedPositioningDirection?.id,
-              refreshSourceResumeId: useRefresh ? refreshSourceResumeId : undefined,
+              sourceResumeVersionId: useRefresh ? refreshSourceResumeId : undefined,
               refreshMode: useRefresh ? refreshMode : undefined,
               styleConstraints: useRefresh
                 ? {

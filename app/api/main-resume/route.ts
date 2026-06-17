@@ -6,10 +6,12 @@ import { JobDeskAiError } from "../../../src/ai/errors";
 import { generateMainResumeWithAi } from "../../../src/ai/main-resume";
 import { skillRegistry } from "../../../src/ai/skills-registry";
 import {
-  MainResumeGenerationMode,
-  ResumeRefreshMode,
-  ResumeRefreshStyleConstraints,
-} from "../../../src/schemas/main-resume";
+  getMainResumeRefreshSourceId,
+  inferMainResumeGenerationMode,
+  MainResumePostRequest,
+  MainResumeRequestError,
+  validateMainResumeModeSelection,
+} from "../../../src/server/main-resume-request";
 import { getResumeTailoringContext } from "../../../src/server/profile-evidence-repository";
 import { getProfilePositioningReportById } from "../../../src/server/profile-positioning-repository";
 import { getResumeSourceVersion } from "../../../src/server/resume-review-repository";
@@ -23,17 +25,6 @@ import {
   TailoredResumeGuardrailError,
   validateTailoredResumeDraft,
 } from "../../../src/server/tailored-resume-guardrails";
-
-const postSchema = z
-  .object({
-    generationMode: MainResumeGenerationMode.optional(),
-    positioningReportId: z.string().uuid().optional(),
-    positioningDirectionId: z.string().trim().min(1).optional(),
-    refreshSourceResumeId: z.string().uuid().optional(),
-    refreshMode: ResumeRefreshMode.optional(),
-    styleConstraints: ResumeRefreshStyleConstraints.optional(),
-  })
-  .optional();
 
 export async function GET() {
   try {
@@ -56,7 +47,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const config = resolveJobDeskAiConfig();
   try {
-    const parsed = postSchema.safeParse(await request.json().catch(() => undefined));
+    const parsed = MainResumePostRequest.safeParse(await request.json().catch(() => undefined));
     if (!parsed.success) {
       return NextResponse.json(
         { error: "Invalid main resume generation request.", kind: "invalid_request" },
@@ -81,8 +72,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const generationMode = parsed.data?.generationMode ?? inferGenerationMode(parsed.data);
-    const positioning = await resolvePositioningSelection(parsed.data);
+    const generationMode = validateMainResumeModeSelection(
+      parsed.data,
+      inferMainResumeGenerationMode(parsed.data),
+    );
+    const positioning = await resolvePositioningSelection(parsed.data, generationMode);
     const refresh = await resolveRefreshSelection(parsed.data, generationMode);
 
     const result = await generateMainResumeWithAi({
@@ -139,7 +133,7 @@ export async function POST(request: Request) {
           : null,
         refresh: refresh
           ? {
-              sourceResumeId: refresh.sourceResume.id,
+              sourceResumeVersionId: refresh.sourceResume.id,
               sourceResumeTitle: refresh.sourceResume.title,
               mode: refresh.mode,
               styleConstraints: refresh.styleConstraints,
@@ -188,7 +182,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (error instanceof MainResumeSelectionError) {
+    if (error instanceof MainResumeSelectionError || error instanceof MainResumeRequestError) {
       await persistFailureRun({
         provider: `openrouter-compatible:${config.transport}`,
         model: config.model,
@@ -228,7 +222,15 @@ async function resolvePositioningSelection(
         positioningDirectionId?: string;
       }
     | undefined,
+  generationMode: ReturnType<typeof inferMainResumeGenerationMode>,
 ) {
+  if (generationMode === "positioning_variant") {
+    if (!selection?.positioningReportId || !selection.positioningDirectionId) {
+      throw new MainResumeSelectionError(
+        "Select both a positioning report and a direction before generating a variant.",
+      );
+    }
+  }
   if (!selection?.positioningReportId && !selection?.positioningDirectionId) {
     return null;
   }
@@ -258,20 +260,18 @@ async function resolvePositioningSelection(
 }
 
 async function resolveRefreshSelection(
-  selection:
-    | {
-        refreshSourceResumeId?: string;
-        refreshMode?: z.infer<typeof ResumeRefreshMode>;
-        styleConstraints?: z.infer<typeof ResumeRefreshStyleConstraints>;
-      }
-    | undefined,
-  generationMode: z.infer<typeof MainResumeGenerationMode>,
+  selection: MainResumePostRequest,
+  generationMode: ReturnType<typeof inferMainResumeGenerationMode>,
 ) {
   if (generationMode !== "resume_refresh") return null;
-  if (!selection?.refreshSourceResumeId) {
+  const sourceResumeVersionId = getMainResumeRefreshSourceId(selection);
+  if (!sourceResumeVersionId) {
     throw new MainResumeSelectionError("Select an old resume before refreshing it.");
   }
-  const sourceResume = await getResumeSourceVersion(selection.refreshSourceResumeId);
+  if (!selection?.refreshMode) {
+    throw new MainResumeSelectionError("Select a refresh mode before refreshing a resume.");
+  }
+  const sourceResume = await getResumeSourceVersion(sourceResumeVersionId);
   if (sourceResume.status !== "ready") {
     throw new MainResumeSelectionError(
       sourceResume.status === "not_found"
@@ -281,25 +281,9 @@ async function resolveRefreshSelection(
   }
   return {
     sourceResume: sourceResume.resume,
-    mode: selection.refreshMode ?? "balanced_rewrite",
+    mode: selection.refreshMode,
     styleConstraints: selection.styleConstraints ?? {},
   };
-}
-
-function inferGenerationMode(
-  selection:
-    | {
-        positioningReportId?: string;
-        positioningDirectionId?: string;
-        refreshSourceResumeId?: string;
-      }
-    | undefined,
-) {
-  if (selection?.refreshSourceResumeId) return "resume_refresh" as const;
-  if (selection?.positioningReportId || selection?.positioningDirectionId) {
-    return "positioning_variant" as const;
-  }
-  return "main_resume" as const;
 }
 
 class MainResumeSelectionError extends Error {
