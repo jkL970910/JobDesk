@@ -924,6 +924,10 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
   >("concise");
   const [refreshPreserveSectionOrder, setRefreshPreserveSectionOrder] = useState(true);
   const [refreshAtsFriendly, setRefreshAtsFriendly] = useState(true);
+  const [exportTemplate, setExportTemplate] = useState<"plain_ats">("plain_ats");
+  const [exportPagePolicy, setExportPagePolicy] = useState<
+    "one_page" | "two_page" | "unrestricted"
+  >("one_page");
 
   useEffect(() => {
     let cancelled = false;
@@ -1203,10 +1207,15 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
 
   async function exportMainResume(
     resumeId: string,
-    format: "markdown" | "json",
+    format: "markdown" | "json" | "docx",
   ) {
+    const exportParams = new URLSearchParams({
+      format,
+      pagePolicy: exportPagePolicy,
+      template: exportTemplate,
+    });
     const response = await fetchJson(
-      `/api/main-resume/${resumeId}/export?format=${format}`,
+      `/api/main-resume/${resumeId}/export?${exportParams.toString()}`,
     );
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as
@@ -1219,9 +1228,40 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
     const disposition = response.headers.get("content-disposition") ?? "";
     const fileName =
       disposition.match(/filename="([^"]+)"/)?.[1] ??
-      `jobdesk-main-resume.${format === "json" ? "json" : "md"}`;
+      `jobdesk-main-resume.${format === "markdown" ? "md" : format}`;
     downloadBlob(fileName, blob);
-    setMainResumeStatus(`Exported ${format === "json" ? "JSON" : "Markdown"} main resume.`);
+    setMainResumeStatus(`Exported ${formatLabel(format)} main resume.`);
+  }
+
+  async function openPrintableMainResume(resumeId: string) {
+    const exportParams = new URLSearchParams({
+      format: "html",
+      pagePolicy: exportPagePolicy,
+      template: exportTemplate,
+    });
+    const response = await fetchJson(
+      `/api/main-resume/${resumeId}/export?${exportParams.toString()}`,
+    );
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      setMainResumeStatus(payload?.error ?? "Printable resume export failed.");
+      return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    if (!opened) {
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const fileName =
+        disposition.match(/filename="([^"]+)"/)?.[1] ?? "jobdesk-main-resume.html";
+      downloadBlob(fileName, blob);
+      setMainResumeStatus("Downloaded printable HTML because the browser blocked the preview tab.");
+      return;
+    }
+    setMainResumeStatus("Opened printable resume. Use browser print to save PDF.");
   }
 
   if (loadState === "loading") {
@@ -1647,27 +1687,76 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
                   {formatMainResumeMode(latestMainResume)} · {formatDateTime(latestMainResume.updatedAt)}
                 </p>
               </div>
-              <div className="actions actions--compact">
-                <button
-                  className="secondary-button"
-                  disabled={latestMainResume.status !== "validated"}
-                  type="button"
-                  onClick={() => void exportMainResume(latestMainResume.id, "markdown")}
-                  title={
-                    latestMainResume.status === "validated"
-                      ? "Export final Markdown resume"
-                      : "Blocked until Fact Guard supports every generated claim"
-                  }
-                >
-                  Export Markdown
-                </button>
-                <button
-                  className="secondary-button secondary-button--quiet"
-                  type="button"
-                  onClick={() => void exportMainResume(latestMainResume.id, "json")}
-                >
-                  Export JSON audit
-                </button>
+              <div className="final-export-controls">
+                <div className="final-export-controls__selectors" aria-label="Resume export settings">
+                  <label>
+                    <span>Template</span>
+                    <select
+                      value={exportTemplate}
+                      onChange={(event) =>
+                        setExportTemplate(event.target.value as typeof exportTemplate)
+                      }
+                    >
+                      <option value="plain_ats">Plain ATS</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Length</span>
+                    <select
+                      value={exportPagePolicy}
+                      onChange={(event) =>
+                        setExportPagePolicy(event.target.value as typeof exportPagePolicy)
+                      }
+                    >
+                      <option value="one_page">One page</option>
+                      <option value="two_page">Two page</option>
+                      <option value="unrestricted">Full length</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="actions actions--compact">
+                  <button
+                    className="primary-button"
+                    disabled={latestMainResume.status !== "validated"}
+                    type="button"
+                    onClick={() => void exportMainResume(latestMainResume.id, "docx")}
+                    title={
+                      latestMainResume.status === "validated"
+                        ? "Download ATS-friendly DOCX"
+                        : "Blocked until Fact Guard supports every generated claim"
+                    }
+                  >
+                    Export DOCX
+                  </button>
+                  <button
+                    className="secondary-button"
+                    disabled={latestMainResume.status !== "validated"}
+                    type="button"
+                    onClick={() => void openPrintableMainResume(latestMainResume.id)}
+                    title={
+                      latestMainResume.status === "validated"
+                        ? "Open printable resume for browser PDF"
+                        : "Blocked until Fact Guard supports every generated claim"
+                    }
+                  >
+                    Print / Save PDF
+                  </button>
+                  <button
+                    className="secondary-button secondary-button--quiet"
+                    disabled={latestMainResume.status !== "validated"}
+                    type="button"
+                    onClick={() => void exportMainResume(latestMainResume.id, "markdown")}
+                  >
+                    Markdown
+                  </button>
+                  <button
+                    className="secondary-button secondary-button--quiet"
+                    type="button"
+                    onClick={() => void exportMainResume(latestMainResume.id, "json")}
+                  >
+                    JSON audit
+                  </button>
+                </div>
               </div>
             </div>
             <div className="guardrail-banner" data-state={latestMainResume.status}>
@@ -1678,7 +1767,7 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
               </strong>
               <p>
                 {latestMainResume.status === "validated"
-                  ? "Every generated claim is supported by approved evidence. Markdown export is enabled."
+                  ? "Every generated claim is supported by approved evidence. DOCX, Markdown, and printable PDF export are enabled."
                 : `${latestMainResumeClaimStats?.supported ?? 0}/${latestMainResumeClaimStats?.total ?? 0} claims supported. Fix unsupported claims or add evidence before using this as a final resume.`}
               </p>
             </div>
@@ -1712,8 +1801,8 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
                     <strong>Final export</strong>
                     <p>
                       {latestMainResume.status === "validated"
-                        ? "Markdown export is ready."
-                        : "Markdown export stays locked until Fact Guard passes."}
+                        ? "DOCX, Markdown, and printable PDF export are ready."
+                        : "Final exports stay locked until Fact Guard passes. JSON audit stays available."}
                     </p>
                   </li>
                 </ul>
@@ -1813,6 +1902,12 @@ function formatFactGuardSummary(
   if (resume.status === "validated") return "Exportable";
   if (!stats || stats.total === 0) return "Needs review";
   return `${stats.needsReview} to review`;
+}
+
+function formatLabel(format: "markdown" | "json" | "docx") {
+  if (format === "docx") return "DOCX";
+  if (format === "json") return "JSON audit";
+  return "Markdown";
 }
 
 function extractFactValue(value: unknown): string | null {

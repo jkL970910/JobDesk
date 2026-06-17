@@ -2176,6 +2176,43 @@ strong,
   padding-bottom: 14px;
 }
 
+.final-export-controls {
+  align-items: flex-end;
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+  min-width: min(100%, 520px);
+}
+
+.final-export-controls .actions {
+  justify-content: flex-end;
+  margin-top: 0;
+}
+
+.final-export-controls__selectors {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  width: 100%;
+}
+
+.final-export-controls__selectors label {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.72rem;
+  font-weight: 760;
+  gap: 5px;
+}
+
+.final-export-controls__selectors select {
+  background: rgba(8, 12, 20, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  min-height: 36px;
+  padding: 8px 10px;
+}
+
 .main-resume-builder__preview-header span {
   color: var(--primary-strong);
   display: block;
@@ -5210,11 +5247,23 @@ select:focus {
   .positioning-engine__header,
   .positioning-variant-callout,
   .final-review-panel__header,
+  .final-export-controls,
   .final-resume-preview > div,
   .workspace-band--tabbed {
     align-items: stretch;
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .final-export-controls {
+    justify-items: stretch;
+    min-width: 0;
+  }
+
+  .final-export-controls .actions,
+  .final-export-controls__selectors {
+    grid-template-columns: 1fr;
+    justify-content: stretch;
   }
 
   .resume-review-report__hero {

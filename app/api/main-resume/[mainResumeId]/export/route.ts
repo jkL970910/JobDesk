@@ -2,13 +2,23 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getMainResumeExportBlocker } from "../../../../../src/server/main-resume-export-policy";
+import {
+  buildResumeExportViewModel,
+  getResumeExportContentType,
+  makeResumeExportFilename,
+  parseResumeExportFormat,
+  parseResumeExportTemplate,
+  parseResumePagePolicy,
+  renderPlainAtsDocx,
+  renderPlainAtsHtml,
+} from "../../../../../src/server/resume-export-renderer";
 import { getMainResumeById } from "../../../../../src/server/resume-repository";
+
+export const runtime = "nodejs";
 
 const paramsSchema = z.object({
   mainResumeId: z.string().uuid(),
 });
-
-const formatSchema = z.enum(["markdown", "json"]).default("markdown");
 
 export async function GET(
   request: Request,
@@ -23,8 +33,8 @@ export async function GET(
   }
 
   const url = new URL(request.url);
-  const format = formatSchema.safeParse(url.searchParams.get("format") ?? undefined);
-  if (!format.success) {
+  const format = parseResumeExportFormat(url.searchParams.get("format") ?? "markdown");
+  if (!format) {
     return NextResponse.json(
       { error: "Unsupported export format.", kind: "unsupported_format" },
       { status: 400 },
@@ -39,7 +49,7 @@ export async function GET(
     );
   }
   const exportBlocker = getMainResumeExportBlocker({
-    format: format.data,
+    format,
     status: resume.status,
   });
   if (exportBlocker) {
@@ -49,30 +59,47 @@ export async function GET(
     );
   }
 
-  const filename = makeExportFilename(resume.title, format.data);
-  if (format.data === "json") {
+  const filename = makeResumeExportFilename(resume.title, format);
+  if (format === "json") {
     return new NextResponse(JSON.stringify(resume, null, 2), {
       headers: {
         "Content-Disposition": `attachment; filename="${filename}"`,
-        "Content-Type": "application/json; charset=utf-8",
+        "Content-Type": getResumeExportContentType(format),
       },
     });
   }
 
-  return new NextResponse(resume.resume_markdown, {
+  if (format === "markdown") {
+    return new NextResponse(resume.resume_markdown, {
+      headers: {
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Type": getResumeExportContentType(format),
+      },
+    });
+  }
+
+  const template = parseResumeExportTemplate(url.searchParams.get("template"));
+  const pagePolicy = parseResumePagePolicy(url.searchParams.get("pagePolicy"));
+  const viewModel = buildResumeExportViewModel({
+    resumeJson: resume.resume_json,
+    resumeMarkdown: resume.resume_markdown,
+    title: resume.title,
+  });
+
+  if (format === "html") {
+    return new NextResponse(renderPlainAtsHtml({ pagePolicy, template, viewModel }), {
+      headers: {
+        "Content-Disposition": `inline; filename="${filename}"`,
+        "Content-Type": getResumeExportContentType(format),
+      },
+    });
+  }
+
+  const buffer = await renderPlainAtsDocx({ pagePolicy, template, viewModel });
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Disposition": `attachment; filename="${filename}"`,
-      "Content-Type": "text/markdown; charset=utf-8",
+      "Content-Type": getResumeExportContentType(format),
     },
   });
-}
-
-function makeExportFilename(title: string, format: "markdown" | "json") {
-  const safeTitle =
-    title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 80) || "main-resume";
-  return `${safeTitle}.${format === "markdown" ? "md" : "json"}`;
 }
