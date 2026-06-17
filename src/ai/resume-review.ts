@@ -1,6 +1,7 @@
 import { ResumeReview } from "../schemas/resume-review";
 import { resolveJobDeskAiConfig } from "./config";
 import { OpenRouterResponsesAdapter } from "./openrouter-adapter";
+import { composeSkillPrompt } from "./skill-prompt-composer";
 import { skillRegistry } from "./skills-registry";
 import type { FetchLike } from "./types";
 
@@ -28,7 +29,7 @@ export async function reviewResumeWithAi(params: {
 }
 
 export function buildResumeReviewInstructions() {
-  return [
+  return composeSkillPrompt(skillRegistry.resumeReviewGeneral, [
     "You are JobDesk's HR Screening Reviewer using the skills/hr-screening-review methodology, adapted for a general uploaded resume.",
     "Review only. Do not rewrite the resume and do not return a replacement resume.",
     "This is a general resume review with no target JD. Do not produce a JD match score. Assess baseline resume quality, evidence strength, project depth, ATS readability, clarity, and material-library readiness.",
@@ -44,5 +45,5 @@ export function buildResumeReviewInstructions() {
     "Calibrate strictly: 100 means no meaningful improvement opportunities were found, which should be extremely rare. Scores above 90 require exceptional quantified impact, clear scope, strong readability, and strong evidence depth. Most good resumes should land around 70-88; thin or vague resumes should be lower.",
     "If the resume has any missing metrics, vague responsibilities, unclear project ownership, weak ATS readability, or missing evidence questions, do not return 100 overall and do not give every rubric item full marks.",
     "fairness_check must include applied=true, note, and signals_not_penalized.",
-  ].join("\n");
+  ]);
 }

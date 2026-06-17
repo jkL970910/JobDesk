@@ -2,6 +2,7 @@ import { MainResumeDraft } from "../schemas/main-resume";
 import type { TailoredResumeEvidenceContext } from "./tailored-resume";
 import { resolveJobDeskAiConfig } from "./config";
 import { OpenRouterResponsesAdapter } from "./openrouter-adapter";
+import { composeSkillPrompt } from "./skill-prompt-composer";
 import { skillRegistry } from "./skills-registry";
 import type { FetchLike } from "./types";
 
@@ -39,7 +40,7 @@ function toExternalFacingEvidence(item: TailoredResumeEvidenceContext) {
 }
 
 export function buildMainResumeInstructions() {
-  return [
+  return composeSkillPrompt(skillRegistry.mainResume, [
     "You are JobDesk's Main Resume Builder.",
     "Return only a valid JSON object. Do not return markdown fences.",
     "Use exactly these top-level keys: title, resume_json, resume_markdown, claims, missing_evidence_questions.",
@@ -54,5 +55,5 @@ export function buildMainResumeInstructions() {
     "resume_json may be a simple object with sections and bullet arrays.",
     "claims items must use exactly these keys: claim_text, section, evidence_ids, source_quotes, risk_level.",
     "risk_level should be high when a claim is broad, aggregated, or only indirectly supported; otherwise use low or medium.",
-  ].join("\n");
+  ]);
 }

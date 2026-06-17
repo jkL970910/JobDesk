@@ -1,6 +1,7 @@
 import { JDAnalysis } from "../schemas/jd-analysis";
 import { resolveJobDeskAiConfig } from "./config";
 import { OpenRouterResponsesAdapter } from "./openrouter-adapter";
+import { composeSkillPrompt } from "./skill-prompt-composer";
 import { skillRegistry } from "./skills-registry";
 import type { FetchLike } from "./types";
 
@@ -25,7 +26,7 @@ export async function analyzeJobDescriptionWithAi(params: {
 }
 
 export function buildJdAnalysisInstructions() {
-  return [
+  return composeSkillPrompt(skillRegistry.jdAnalysis, [
     "You are JobDesk's JD Analyst.",
     "Convert one job description into a structured requirement matrix.",
     "Return only a valid JSON object. Do not return markdown.",
@@ -49,7 +50,7 @@ export function buildJdAnalysisInstructions() {
     "When unsure, classify the requirement as soft.",
     "Set verified=false for every requirement; deterministic code verifies quotes later.",
     "Example requirement: {\"text\":\"SQL\",\"source_quote\":\"Requires SQL.\",\"requirement_type\":\"hard\",\"importance\":0.9,\"keywords\":[\"sql\"],\"verified\":false}.",
-  ].join("\n");
+  ]);
 }
 
 function buildJdAnalysisInput(jobId: string, jdText: string) {

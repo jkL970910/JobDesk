@@ -1,6 +1,7 @@
 import { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
 import { resolveJobDeskAiConfig } from "./config";
 import { OpenRouterResponsesAdapter } from "./openrouter-adapter";
+import { composeSkillPrompt } from "./skill-prompt-composer";
 import { getProfileEvidenceSkillForSource } from "./skills-registry";
 import type { FetchLike } from "./types";
 
@@ -33,7 +34,7 @@ export async function extractProfileEvidenceWithAi(params: {
 export function buildProfileEvidenceInstructions(
   sourceKind: "resume" | "project_note" = "resume",
 ) {
-  return [
+  return composeSkillPrompt(getProfileEvidenceSkillForSource(sourceKind), [
     "You are JobDesk's Profile Intake and Evidence Curator.",
     sourceKind === "project_note"
       ? "Convert one project note, work summary, or career-note source into reusable evidence drafts, work initiatives, and portfolio projects for a personal evidence library."
@@ -73,5 +74,5 @@ export function buildProfileEvidenceInstructions(
       ? "Return at most 3 total initiatives plus portfolio_projects. Include missing metric, redaction, or specificity gaps in extraction_notes as short review prompts."
       : "Return at most 4 work_experiences, 6 initiatives, and 4 portfolio_projects.",
     "Do not include system IDs such as id, workspace_id, source_document_id, or source_offset.",
-  ].join("\n");
+  ]);
 }

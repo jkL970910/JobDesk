@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+import { composeSkillPrompt, loadSourceSkill } from "../src/ai/skill-prompt-composer";
 import { skillRegistry } from "../src/ai/skills-registry";
 
 describe("skills registry", () => {
@@ -56,5 +57,32 @@ describe("skills registry", () => {
         expect(existsSync(`skills/${sourceSkillId}/SKILL.md`)).toBe(true);
       }
     }
+  });
+
+  it("loads every source skill and composes hard rules into runtime prompts", () => {
+    for (const entry of Object.values(skillRegistry)) {
+      const prompt = composeSkillPrompt(entry, ["Base workflow instruction."]);
+      expect(prompt).toContain(`skill_id=${entry.skillId}`);
+      expect(prompt).toContain(`prompt_version=${entry.promptVersion}`);
+
+      for (const sourceSkillId of entry.sourceSkillIds) {
+        const sourceSkill = loadSourceSkill(sourceSkillId);
+        expect(sourceSkill.version).toBe(entry.skillVersion);
+        expect(prompt).toContain(`Source skill: ${sourceSkill.name}@${sourceSkill.version}`);
+        expect(prompt).toContain(sourceSkill.hardRules.slice(0, 80));
+      }
+    }
+  });
+
+  it("fails fast when a registry version does not match the skill file", () => {
+    expect(() =>
+      composeSkillPrompt(
+        {
+          ...skillRegistry.tailoredResume,
+          skillVersion: "999.0",
+        },
+        ["Base workflow instruction."],
+      ),
+    ).toThrow(/Skill version mismatch/);
   });
 });
