@@ -4,6 +4,7 @@ export type RuntimeSkillId =
   | "jd-analysis"
   | "profile-evidence-extraction-resume"
   | "profile-evidence-extraction-project-note"
+  | "profile-positioning"
   | "resume-review-general"
   | "main-resume"
   | "tailored-resume"
@@ -20,6 +21,7 @@ export type SourceSkillId =
   | "job-recommendation-ranking"
   | "jd-analysis"
   | "profile-extraction"
+  | "profile-positioning"
   | "project-deidentification"
   | "recruiting-email-classification"
   | "resume-tailoring"
@@ -87,6 +89,16 @@ export const skillRegistry = {
       "project-deidentification",
       "star-story-extraction",
     ],
+  },
+  profilePositioning: {
+    skillId: "profile-positioning",
+    skillVersion: "0.1",
+    promptVersion: "profile-positioning-v1",
+    workflowType: "profile-positioning",
+    schemaName: "ProfilePositioningReport",
+    schemaVersion: "0.1",
+    modelTier: "strong",
+    sourceSkillIds: ["profile-positioning"],
   },
   resumeReviewGeneral: {
     skillId: "resume-review-general",

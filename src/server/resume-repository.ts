@@ -16,6 +16,7 @@ import type {
 } from "../ai/types";
 import type { TailoredResumeDraft } from "../schemas/tailored-resume";
 import type { MainResumeDraft } from "../schemas/main-resume";
+import type { PositioningDirection } from "../schemas/profile-positioning";
 import { claimsMatch, validateBulletClaimCoverage } from "./tailored-resume-guardrails";
 import { workflowSkillFields } from "./workflow-run-metadata";
 import { skillRegistry } from "../ai/skills-registry";
@@ -157,6 +158,10 @@ export async function persistTailoredResume(args: {
 
 export async function persistMainResume(args: {
   draft: MainResumeDraft;
+  positioning?: {
+    reportId: string;
+    direction: PositioningDirection;
+  } | null;
   provider: string;
   model: string;
   usage: JobDeskAiUsage;
@@ -196,6 +201,9 @@ export async function persistMainResume(args: {
       .values({
         workspaceId: workspace.id,
         workflowRunId: workflowRun.id,
+        positioningReportId: args.positioning?.reportId ?? null,
+        positioningDirectionId: args.positioning?.direction.id ?? null,
+        positioningTitle: args.positioning?.direction.target_role ?? null,
         title: args.draft.title,
         resumeJson: args.draft.resume_json,
         resumeMarkdown: args.draft.resume_markdown,
@@ -328,6 +336,9 @@ async function toMainResumeDto(
   return {
     id: resume.id,
     title: resume.title,
+    positioning_report_id: resume.positioningReportId,
+    positioning_direction_id: resume.positioningDirectionId,
+    positioning_title: resume.positioningTitle,
     resume_markdown: resume.resumeMarkdown,
     resume_json: resume.resumeJson,
     missing_evidence_questions: resume.missingEvidenceQuestions,

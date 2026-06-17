@@ -66,6 +66,9 @@ type ResumeReviewSummary = {
 type MainResumeSummary = {
   id: string;
   title: string;
+  positioning_report_id?: string | null;
+  positioning_direction_id?: string | null;
+  positioning_title?: string | null;
   resume_markdown: string;
   missing_evidence_questions: string[];
   status: string;
@@ -77,6 +80,43 @@ type MainResumeSummary = {
     claim_status: string;
     risk_level: string;
   }>;
+};
+
+type ProfilePositioningReportSummary = {
+  id: string;
+  status: string;
+  evidenceSnapshotHash: string | null;
+  createdAt: string;
+  updatedAt: string;
+  report: {
+    summary: string;
+    generated_at: string;
+    global_strengths: string[];
+    global_gaps: string[];
+    directions: Array<{
+      id: string;
+      target_role: string;
+      role_family: string;
+      fit_score: number;
+      confidence: "low" | "medium" | "high";
+      positioning_angle: string;
+      evidence_strength_explanation: string;
+      supporting_evidence: Array<{
+        evidence_id: string;
+        reason: string;
+        signal_tags: string[];
+      }>;
+      missing_evidence_questions: string[];
+      resume_emphasis: {
+        summary_angle: string;
+        skills_to_emphasize: string[];
+        project_ordering_guidance: string[];
+        keywords: string[];
+        deprioritize: string[];
+      };
+      risks: string[];
+    }>;
+  };
 };
 
 type RecentJobSummary = {
@@ -995,11 +1035,17 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
   const [library, setLibrary] = useState<EvidenceLibrarySummary | null>(null);
   const [resumes, setResumes] = useState<ResumeReviewSummary[]>([]);
   const [mainResumes, setMainResumes] = useState<MainResumeSummary[]>([]);
+  const [positioningReports, setPositioningReports] = useState<ProfilePositioningReportSummary[]>([]);
+  const [selectedPositioningDirectionId, setSelectedPositioningDirectionId] = useState<string | null>(
+    null,
+  );
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
     "loading",
   );
   const [mainResumeStatus, setMainResumeStatus] = useState<string | null>(null);
+  const [positioningStatus, setPositioningStatus] = useState<string | null>(null);
   const [isGeneratingMainResume, setIsGeneratingMainResume] = useState(false);
+  const [isGeneratingPositioning, setIsGeneratingPositioning] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1007,17 +1053,25 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
     async function loadProfileSurface() {
       setLoadState("loading");
       try {
-        const [libraryResult, resumesResult, mainResumesResult] = await Promise.allSettled([
+        const [
+          libraryResult,
+          resumesResult,
+          mainResumesResult,
+          positioningResult,
+        ] = await Promise.allSettled([
           fetchJson("/api/profile-evidence/recent"),
           fetchJson("/api/resume-review"),
           fetchJson("/api/main-resume"),
+          fetchJson("/api/profile-positioning"),
         ]);
         if (cancelled) return;
         const hasLibrary = libraryResult.status === "fulfilled" && libraryResult.value.ok;
         const hasResumes = resumesResult.status === "fulfilled" && resumesResult.value.ok;
         const hasMainResumes =
           mainResumesResult.status === "fulfilled" && mainResumesResult.value.ok;
-        if (!hasLibrary && !hasResumes && !hasMainResumes) {
+        const hasPositioning =
+          positioningResult.status === "fulfilled" && positioningResult.value.ok;
+        if (!hasLibrary && !hasResumes && !hasMainResumes && !hasPositioning) {
           setLoadState("error");
           return;
         }
@@ -1032,10 +1086,22 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
               data?: { resumes?: MainResumeSummary[] };
             })
           : null;
+        const positioningPayload = hasPositioning
+          ? ((await positioningResult.value.json()) as {
+              data?: { reports?: ProfilePositioningReportSummary[] };
+            })
+          : null;
         if (cancelled) return;
         if (libraryPayload) setLibrary(libraryPayload.data ?? null);
         if (resumePayload) setResumes(resumePayload.data?.resumes ?? []);
         if (mainResumePayload) setMainResumes(mainResumePayload.data?.resumes ?? []);
+        if (positioningPayload) {
+          const reports = positioningPayload.data?.reports ?? [];
+          setPositioningReports(reports);
+          setSelectedPositioningDirectionId((current) =>
+            current ?? reports[0]?.report.directions[0]?.id ?? null,
+          );
+        }
         setLoadState("ready");
       } catch {
         if (!cancelled) setLoadState("error");
@@ -1084,13 +1150,74 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
     (hasExtractedMaterial ? "Profile facts not promoted yet" : "Profile extraction pending");
   const extractionStatus = formatResumePrepState(resumePrepState);
   const latestMainResume = mainResumes[0] ?? null;
+  const latestPositioningReport = positioningReports[0] ?? null;
+  const selectedPositioningDirection =
+    latestPositioningReport?.report.directions.find(
+      (direction) => direction.id === selectedPositioningDirectionId,
+    ) ??
+    latestPositioningReport?.report.directions[0] ??
+    null;
   const mainResumeReady = resumeEligibleEvidence > 0;
 
-  async function generateMainResume() {
+  async function generatePositioningReport() {
+    setIsGeneratingPositioning(true);
+    setPositioningStatus("Analyzing canonical evidence for target role directions...");
+    try {
+      const response = await fetchJson("/api/profile-positioning", {
+        method: "POST",
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            data?: ProfilePositioningReportSummary["report"];
+            meta?: { persistence?: { status: string; profilePositioningReportId?: string } };
+            error?: string;
+            kind?: string;
+          }
+        | null;
+      if (!response.ok) {
+        setPositioningStatus(
+          payload?.error
+            ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
+            : "Profile positioning generation failed.",
+        );
+        return;
+      }
+      const reportResponse = await fetchJson("/api/profile-positioning");
+      if (reportResponse.ok) {
+        const reportPayload = (await reportResponse.json()) as {
+          data?: { reports?: ProfilePositioningReportSummary[] };
+        };
+        const reports = reportPayload.data?.reports ?? [];
+        setPositioningReports(reports);
+        setSelectedPositioningDirectionId(reports[0]?.report.directions[0]?.id ?? null);
+      }
+      setPositioningStatus("Positioning report generated. Select a direction to create a variant.");
+    } catch (error) {
+      setPositioningStatus(
+        error instanceof Error ? error.message : "Profile positioning generation failed.",
+      );
+    } finally {
+      setIsGeneratingPositioning(false);
+    }
+  }
+
+  async function generateMainResume(options?: { useSelectedPositioning?: boolean }) {
     setIsGeneratingMainResume(true);
-    setMainResumeStatus("Generating main resume from resume-safe evidence...");
+    const usePositioning = Boolean(options?.useSelectedPositioning && selectedPositioningDirection);
+    setMainResumeStatus(
+      usePositioning
+        ? `Generating ${selectedPositioningDirection?.target_role} resume variant...`
+        : "Generating main resume from resume-safe evidence...",
+    );
     try {
       const response = await fetchJson("/api/main-resume", {
+        body: usePositioning
+          ? JSON.stringify({
+              positioningReportId: latestPositioningReport?.id,
+              positioningDirectionId: selectedPositioningDirection?.id,
+            })
+          : undefined,
+        headers: usePositioning ? { "content-type": "application/json" } : undefined,
         method: "POST",
       });
       const payload = (await response.json().catch(() => null)) as
@@ -1118,8 +1245,12 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
       }
       setMainResumeStatus(
         payload?.meta?.factGuard?.status === "validated"
-          ? "Main resume generated and Fact Guard completed."
-          : "Main resume generated. Review claim support before export.",
+          ? usePositioning
+            ? "Positioned main resume variant generated and Fact Guard completed."
+            : "Main resume generated and Fact Guard completed."
+          : usePositioning
+            ? "Positioned main resume variant generated. Review claim support before export."
+            : "Main resume generated. Review claim support before export.",
       );
     } catch (error) {
       setMainResumeStatus(
@@ -1280,6 +1411,110 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
         </button>
       </section>
 
+      <section className="positioning-engine">
+        <div className="positioning-engine__header">
+          <div>
+            <p className="panel-kicker">Profile Positioning Engine</p>
+            <h3>Find role directions your evidence actually supports.</h3>
+            <p>
+              Uses canonical profile facts and resume-safe evidence only. It does
+              not require a JD and does not make unsupported career claims.
+            </p>
+          </div>
+          <button
+            className="primary-button"
+            disabled={!mainResumeReady || isGeneratingPositioning}
+            type="button"
+            onClick={() => void generatePositioningReport()}
+          >
+            {isGeneratingPositioning ? "Analyzing..." : "Analyze positioning"}
+          </button>
+        </div>
+        <div className="main-resume-builder__metrics">
+          <article>
+            <span>Directions</span>
+            <strong>{latestPositioningReport?.report.directions.length ?? 0}</strong>
+            <p>{latestPositioningReport ? "Role hypotheses are evidence-backed." : "Generate a report from approved evidence."}</p>
+          </article>
+          <article>
+            <span>Evidence basis</span>
+            <strong>{resumeEligibleEvidence}</strong>
+            <p>{mainResumeReady ? "Resume-safe evidence can support positioning." : "Approve resume-safe evidence first."}</p>
+          </article>
+          <article>
+            <span>Latest report</span>
+            <strong>{latestPositioningReport ? latestPositioningReport.status : "None"}</strong>
+            <p>{latestPositioningReport ? formatDateTime(latestPositioningReport.updatedAt) : "No positioning report generated yet."}</p>
+          </article>
+        </div>
+        {positioningStatus ? <p className="status">{positioningStatus}</p> : null}
+        {latestPositioningReport ? (
+          <div className="positioning-engine__body">
+            <div className="positioning-engine__summary">
+              <strong>{latestPositioningReport.report.summary}</strong>
+              <p>
+                Strengths: {latestPositioningReport.report.global_strengths.slice(0, 3).join(", ") || "None captured yet."}
+              </p>
+              <p>
+                Gaps: {latestPositioningReport.report.global_gaps.slice(0, 3).join(", ") || "No major gaps listed."}
+              </p>
+            </div>
+            <div className="positioning-direction-grid" role="list">
+              {latestPositioningReport.report.directions.map((direction) => {
+                const selected = direction.id === selectedPositioningDirection?.id;
+                return (
+                  <button
+                    aria-pressed={selected}
+                    className="positioning-direction-card"
+                    data-selected={selected}
+                    key={direction.id}
+                    onClick={() => setSelectedPositioningDirectionId(direction.id)}
+                    role="listitem"
+                    type="button"
+                  >
+                    <span>{direction.role_family}</span>
+                    <strong>{direction.target_role}</strong>
+                    <em>{direction.fit_score}/100 · {direction.confidence}</em>
+                    <p>{direction.positioning_angle}</p>
+                  </button>
+                );
+              })}
+            </div>
+            {selectedPositioningDirection ? (
+              <div className="positioning-direction-detail">
+                <div>
+                  <p className="panel-kicker">Selected direction</p>
+                  <h4>{selectedPositioningDirection.target_role}</h4>
+                  <p>{selectedPositioningDirection.evidence_strength_explanation}</p>
+                </div>
+                <div className="positioning-detail-grid">
+                  <article>
+                    <span>Evidence cited</span>
+                    <strong>{selectedPositioningDirection.supporting_evidence.length}</strong>
+                    <p>
+                      {selectedPositioningDirection.supporting_evidence
+                        .slice(0, 2)
+                        .map((item) => item.reason)
+                        .join(" ")}
+                    </p>
+                  </article>
+                  <article>
+                    <span>Keywords</span>
+                    <strong>{selectedPositioningDirection.resume_emphasis.keywords.length}</strong>
+                    <p>{selectedPositioningDirection.resume_emphasis.keywords.slice(0, 8).join(", ")}</p>
+                  </article>
+                  <article>
+                    <span>Missing proof</span>
+                    <strong>{selectedPositioningDirection.missing_evidence_questions.length}</strong>
+                    <p>{selectedPositioningDirection.missing_evidence_questions[0] ?? "No missing evidence question listed."}</p>
+                  </article>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+
       <section className="main-resume-builder">
         <div className="main-resume-builder__header">
           <div>
@@ -1299,6 +1534,25 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
             {isGeneratingMainResume ? "Generating..." : "Generate main resume"}
           </button>
         </div>
+        {selectedPositioningDirection ? (
+          <div className="positioning-variant-callout">
+            <div>
+              <strong>{selectedPositioningDirection.target_role} variant ready</strong>
+              <p>
+                Generate a Main Resume variant using this positioning angle. Fact
+                Guard will still validate the generated claims.
+              </p>
+            </div>
+            <button
+              className="secondary-button"
+              disabled={!mainResumeReady || isGeneratingMainResume}
+              type="button"
+              onClick={() => void generateMainResume({ useSelectedPositioning: true })}
+            >
+              Generate this variant
+            </button>
+          </div>
+        ) : null}
         <div className="main-resume-builder__metrics">
           <article>
             <span>Resume-safe evidence</span>
@@ -1307,7 +1561,7 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
           </article>
           <article>
             <span>Latest main resume</span>
-            <strong>{latestMainResume ? latestMainResume.status : "None"}</strong>
+            <strong>{latestMainResume?.positioning_title ?? (latestMainResume ? latestMainResume.status : "None")}</strong>
             <p>{latestMainResume ? formatDateTime(latestMainResume.updatedAt) : "No generated main resume yet."}</p>
           </article>
           <article>

@@ -722,6 +722,12 @@ export const mainResumeVersions = pgTable(
     workflowRunId: uuid("workflow_run_id").references(() => workflowRuns.id, {
       onDelete: "set null",
     }),
+    positioningReportId: uuid("positioning_report_id").references(
+      () => profilePositioningReports.id,
+      { onDelete: "set null" },
+    ),
+    positioningDirectionId: varchar("positioning_direction_id", { length: 120 }),
+    positioningTitle: varchar("positioning_title", { length: 240 }),
     title: varchar("title", { length: 240 }).notNull(),
     resumeJson: jsonb("resume_json")
       .$type<Record<string, unknown>>()
@@ -747,6 +753,47 @@ export const mainResumeVersions = pgTable(
       table.updatedAt,
     ),
     workflowRunIdx: index("main_resume_versions_workflow_run_idx").on(
+      table.workflowRunId,
+    ),
+    positioningIdx: index("main_resume_versions_positioning_idx").on(
+      table.positioningReportId,
+      table.positioningDirectionId,
+    ),
+  }),
+);
+
+export const profilePositioningReports = pgTable(
+  "profile_positioning_reports",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+    workflowRunId: uuid("workflow_run_id").references(() => workflowRuns.id, {
+      onDelete: "set null",
+    }),
+    status: workflowStatusEnum("status").notNull().default("succeeded"),
+    reportJson: jsonb("report_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    evidenceSnapshotHash: varchar("evidence_snapshot_hash", { length: 128 }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workspaceUpdatedIdx: index("profile_positioning_reports_workspace_updated_idx").on(
+      table.workspaceId,
+      table.updatedAt,
+    ),
+    workflowRunIdx: index("profile_positioning_reports_workflow_run_idx").on(
       table.workflowRunId,
     ),
   }),
@@ -1005,6 +1052,7 @@ export const workspaceRelations = relations(workspaces, ({ many, one }) => ({
   resumeReviewReports: many(resumeReviewReports),
   resumeVersions: many(resumeVersions),
   mainResumeVersions: many(mainResumeVersions),
+  profilePositioningReports: many(profilePositioningReports),
   generatedClaims: many(generatedClaims),
   enrichmentTasks: many(enrichmentTasks),
   embeddings: many(embeddings),
@@ -1088,7 +1136,30 @@ export const mainResumeVersionRelations = relations(
       fields: [mainResumeVersions.workflowRunId],
       references: [workflowRuns.id],
     }),
+    positioningReport: one(profilePositioningReports, {
+      fields: [mainResumeVersions.positioningReportId],
+      references: [profilePositioningReports.id],
+    }),
     claims: many(generatedClaims),
+  }),
+);
+
+export const profilePositioningReportRelations = relations(
+  profilePositioningReports,
+  ({ many, one }) => ({
+    workspace: one(workspaces, {
+      fields: [profilePositioningReports.workspaceId],
+      references: [workspaces.id],
+    }),
+    profile: one(profiles, {
+      fields: [profilePositioningReports.profileId],
+      references: [profiles.id],
+    }),
+    workflowRun: one(workflowRuns, {
+      fields: [profilePositioningReports.workflowRunId],
+      references: [workflowRuns.id],
+    }),
+    mainResumeVersions: many(mainResumeVersions),
   }),
 );
 

@@ -5,10 +5,12 @@ import { OpenRouterResponsesAdapter } from "./openrouter-adapter";
 import { composeSkillPrompt } from "./skill-prompt-composer";
 import { skillRegistry } from "./skills-registry";
 import type { FetchLike } from "./types";
+import type { PositioningDirection } from "../schemas/profile-positioning";
 
 export async function generateMainResumeWithAi(params: {
   profile: Record<string, unknown>;
   evidenceItems: TailoredResumeEvidenceContext[];
+  positioningDirection?: PositioningDirection | null;
   fetchFn?: FetchLike;
 }) {
   const adapter = new OpenRouterResponsesAdapter({
@@ -23,10 +25,27 @@ export async function generateMainResumeWithAi(params: {
     input: JSON.stringify({
       profile: params.profile,
       approved_resume_evidence: params.evidenceItems.map(toExternalFacingEvidence),
+      positioning_direction: params.positioningDirection
+        ? toPositioningDirectionInput(params.positioningDirection)
+        : null,
     }),
     maxOutputTokens: 3200,
     timeoutMs: 180_000,
   });
+}
+
+function toPositioningDirectionInput(direction: PositioningDirection) {
+  return {
+    id: direction.id,
+    target_role: direction.target_role,
+    role_family: direction.role_family,
+    fit_score: direction.fit_score,
+    confidence: direction.confidence,
+    positioning_angle: direction.positioning_angle,
+    supporting_evidence: direction.supporting_evidence,
+    resume_emphasis: direction.resume_emphasis,
+    risks: direction.risks,
+  };
 }
 
 function toExternalFacingEvidence(item: TailoredResumeEvidenceContext) {
@@ -45,6 +64,8 @@ export function buildMainResumeInstructions() {
     "Return only a valid JSON object. Do not return markdown fences.",
     "Use exactly these top-level keys: title, resume_json, resume_markdown, claims, missing_evidence_questions.",
     "Generate a general-purpose recruiter/networking resume, not a JD-tailored resume.",
+    "If positioning_direction is provided, generate a direction-specific Main Resume variant for that role direction while staying evidence-bounded.",
+    "If positioning_direction is provided, follow its summary angle, skills emphasis, project ordering guidance, keywords, and deprioritize guidance only where supplied evidence supports the wording.",
     "Use only the provided profile and approved_resume_evidence. Do not use outside knowledge and do not invent facts.",
     "For external-facing resume wording, prefer public_safe_summary when present; never expose private company, client, or internal system names from source_quote.",
     "Every substantive resume bullet must have a matching claim in claims.",

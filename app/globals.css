@@ -1725,24 +1725,147 @@ textarea:focus-visible {
   padding: 16px;
 }
 
-.main-resume-builder__header {
+.positioning-engine {
+  background:
+    linear-gradient(135deg, rgba(111, 124, 255, 0.1), rgba(49, 208, 170, 0.055)),
+    rgba(255, 255, 255, 0.024);
+  border: 1px solid rgba(111, 124, 255, 0.2);
+  border-radius: 14px;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.main-resume-builder__header,
+.positioning-engine__header {
   align-items: center;
   display: grid;
   gap: 16px;
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.main-resume-builder__header h3 {
+.main-resume-builder__header h3,
+.positioning-engine__header h3 {
   color: var(--ink);
   font-size: 1.05rem;
   margin: 0 0 6px;
 }
 
-.main-resume-builder__header p {
+.main-resume-builder__header p,
+.positioning-engine__header p {
   color: var(--muted);
   font-size: 0.84rem;
   line-height: 1.45;
   margin: 0;
+}
+
+.positioning-engine__body {
+  display: grid;
+  gap: 12px;
+}
+
+.positioning-engine__summary,
+.positioning-direction-detail,
+.positioning-variant-callout {
+  background: rgba(8, 12, 20, 0.36);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.positioning-engine__summary strong,
+.positioning-variant-callout strong,
+.positioning-direction-detail h4 {
+  color: var(--ink);
+}
+
+.positioning-engine__summary p,
+.positioning-variant-callout p,
+.positioning-direction-detail p {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.42;
+  margin: 6px 0 0;
+}
+
+.positioning-direction-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.positioning-direction-card {
+  background: rgba(8, 12, 20, 0.36);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  text-align: left;
+}
+
+.positioning-direction-card[data-selected="true"] {
+  border-color: rgba(111, 124, 255, 0.72);
+  box-shadow: 0 0 0 1px rgba(111, 124, 255, 0.24);
+}
+
+.positioning-direction-card span,
+.positioning-detail-grid span {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.positioning-direction-card strong {
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
+.positioning-direction-card em {
+  color: var(--primary-strong);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.positioning-direction-card p {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.38;
+  margin: 0;
+}
+
+.positioning-detail-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.positioning-detail-grid article {
+  background: rgba(255, 255, 255, 0.028);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+}
+
+.positioning-detail-grid strong {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.positioning-variant-callout {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .main-resume-builder__metrics {
@@ -4199,6 +4322,8 @@ select:focus {
   .pipeline-funnel,
   .intake-stage-bar,
   .profile-fact-grid,
+  .positioning-detail-grid,
+  .positioning-direction-grid,
   .review-top-fixes__grid,
   .review-finding-grid,
   .evidence-priority-queue__items {
@@ -4262,6 +4387,8 @@ select:focus {
   .intake-stage-bar,
   .pipeline-funnel,
   .profile-fact-grid,
+  .positioning-detail-grid,
+  .positioning-direction-grid,
   .review-top-fixes__grid,
   .review-finding-grid,
   .evidence-priority-queue__items,
@@ -4319,6 +4446,8 @@ select:focus {
   .review-switcher,
   .library-readiness,
   .profile-fact-grid,
+  .positioning-detail-grid,
+  .positioning-direction-grid,
   .review-detail-tabs,
   .review-top-fixes__grid,
   .review-finding-grid,
@@ -4341,6 +4470,8 @@ select:focus {
   .profile-tabs-preview,
   .profile-live-summary__grid,
   .profile-fact-grid,
+  .positioning-detail-grid,
+  .positioning-direction-grid,
   .review-detail-tabs,
   .review-top-fixes__grid,
   .review-finding-grid,
@@ -4380,6 +4511,8 @@ select:focus {
   .overlap-project-grid,
   .merge-review__facts,
   .handoff-panel,
+  .positioning-engine__header,
+  .positioning-variant-callout,
   .workspace-band--tabbed {
     align-items: stretch;
     display: grid;

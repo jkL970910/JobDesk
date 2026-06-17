@@ -9,6 +9,7 @@ import { Profile } from "../src/schemas/profile";
 import { EvidenceItem } from "../src/schemas/evidence";
 import { JDAnalysis } from "../src/schemas/jd-analysis";
 import { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
+import { ProfilePositioningReport } from "../src/schemas/profile-positioning";
 import { ResumeReview } from "../src/schemas/resume-review";
 import { GeneratedClaim, TailoredResumeDraft } from "../src/schemas/tailored-resume";
 
@@ -226,6 +227,46 @@ describe("ResumeReview", () => {
     expect(parsed.ats_notes).toEqual(["Headings are parseable."]);
     expect(parsed.missing_evidence_questions).toEqual(["Which metrics are safe to disclose?"]);
     expect(parsed.risk_flags).toEqual(["Some internal Amazon language may need context."]);
+  });
+});
+
+describe("ProfilePositioningReport", () => {
+  it("parses an evidence-backed positioning report", () => {
+    const parsed = ProfilePositioningReport.parse({
+      summary: "Product/data directions are best supported by the current evidence.",
+      generated_at: new Date().toISOString(),
+      directions: [
+        {
+          id: "data-pm",
+          target_role: "Data Product Manager",
+          role_family: "data",
+          fit_score: 76,
+          confidence: "medium",
+          positioning_angle: "Lead with analytics automation and product execution.",
+          supporting_evidence: [
+            {
+              evidence_id: "evidence-1",
+              reason: "Shows analytics execution and measurable onboarding impact.",
+              signal_tags: ["analytics", "activation"],
+            },
+          ],
+          evidence_strength_explanation: "Strong analytics signal, thinner PM scope signal.",
+          missing_evidence_questions: ["Which stakeholders used the dashboard?"],
+          resume_emphasis: {
+            summary_angle: "Analytics-driven product operator.",
+            skills_to_emphasize: ["SQL", "experimentation"],
+            project_ordering_guidance: ["Put onboarding analytics first."],
+            keywords: ["activation", "dashboard"],
+            deprioritize: ["generic coursework"],
+          },
+          risks: ["Needs stronger product strategy evidence."],
+        },
+      ],
+      global_strengths: ["Analytics delivery"],
+      global_gaps: ["Product strategy scope"],
+    });
+
+    expect(parsed.directions[0]?.target_role).toBe("Data Product Manager");
   });
 });
 

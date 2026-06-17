@@ -37,6 +37,12 @@ describe("skills registry", () => {
       schemaName: "ResumeReview",
       modelTier: "strong",
     });
+    expect(skillRegistry.profilePositioning).toMatchObject({
+      skillId: "profile-positioning",
+      workflowType: "profile-positioning",
+      schemaName: "ProfilePositioningReport",
+      modelTier: "strong",
+    });
     expect(skillRegistry.mainResume).toMatchObject({
       skillId: "main-resume",
       workflowType: "main-resume",

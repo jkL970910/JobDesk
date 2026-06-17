@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
 import { resolveJobDeskAiConfig } from "../../../src/ai/config";
 import { JobDeskAiError } from "../../../src/ai/errors";
 import { generateMainResumeWithAi } from "../../../src/ai/main-resume";
 import { skillRegistry } from "../../../src/ai/skills-registry";
 import { getResumeTailoringContext } from "../../../src/server/profile-evidence-repository";
+import { getProfilePositioningReportById } from "../../../src/server/profile-positioning-repository";
 import {
   getRecentMainResumes,
   persistMainResume,
@@ -15,6 +17,13 @@ import {
   TailoredResumeGuardrailError,
   validateTailoredResumeDraft,
 } from "../../../src/server/tailored-resume-guardrails";
+
+const postSchema = z
+  .object({
+    positioningReportId: z.string().uuid().optional(),
+    positioningDirectionId: z.string().trim().min(1).optional(),
+  })
+  .optional();
 
 export async function GET() {
   try {
@@ -34,9 +43,16 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   const config = resolveJobDeskAiConfig();
   try {
+    const parsed = postSchema.safeParse(await request.json().catch(() => undefined));
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid main resume generation request.", kind: "invalid_request" },
+        { status: 400 },
+      );
+    }
     const context = await getResumeTailoringContext(null);
     if (!context.profile) {
       return NextResponse.json(
@@ -55,9 +71,12 @@ export async function POST() {
       );
     }
 
+    const positioning = await resolvePositioningSelection(parsed.data);
+
     const result = await generateMainResumeWithAi({
       profile: context.profile.profile,
       evidenceItems: context.evidenceItems,
+      positioningDirection: positioning?.direction ?? null,
     });
     validateTailoredResumeDraft({
       draft: result.data,
@@ -75,6 +94,7 @@ export async function POST() {
       usage: result.usage,
       retryCount: result.retryCount,
       skill: result.skill,
+      positioning,
     });
     const factGuard =
       persistence.status === "saved"
@@ -88,6 +108,13 @@ export async function POST() {
         retryCount: result.retryCount,
         skill: result.skill,
         evidenceCount: context.evidenceItems.length,
+        positioning: positioning
+          ? {
+              reportId: positioning.reportId,
+              directionId: positioning.direction.id,
+              targetRole: positioning.direction.target_role,
+            }
+          : null,
         persistence,
         factGuard,
       },
@@ -131,6 +158,24 @@ export async function POST() {
       );
     }
 
+    if (error instanceof MainResumeSelectionError) {
+      await persistFailureRun({
+        provider: `openrouter-compatible:${config.transport}`,
+        model: config.model,
+        errorKind: "contract_invalid",
+        errorMessage: error.message,
+        retryCount: 0,
+        skill: skillRegistry.mainResume,
+      });
+      return NextResponse.json(
+        {
+          error: error.message,
+          kind: "invalid_positioning_selection",
+        },
+        { status: 422 },
+      );
+    }
+
     await persistFailureRun({
       provider: `openrouter-compatible:${config.transport}`,
       model: config.model,
@@ -143,6 +188,49 @@ export async function POST() {
       { error: "Main resume generation failed.", kind: "provider_error" },
       { status: 502 },
     );
+  }
+}
+
+async function resolvePositioningSelection(
+  selection:
+    | {
+        positioningReportId?: string;
+        positioningDirectionId?: string;
+      }
+    | undefined,
+) {
+  if (!selection?.positioningReportId && !selection?.positioningDirectionId) {
+    return null;
+  }
+  if (!selection.positioningReportId || !selection.positioningDirectionId) {
+    throw new MainResumeSelectionError(
+      "Select both a positioning report and a direction before generating a variant.",
+    );
+  }
+  const report = await getProfilePositioningReportById(selection.positioningReportId);
+  if (!report) {
+    throw new MainResumeSelectionError(
+      "Selected positioning report was not found in this workspace.",
+    );
+  }
+  const direction = report.report.directions.find(
+    (candidate) => candidate.id === selection.positioningDirectionId,
+  );
+  if (!direction) {
+    throw new MainResumeSelectionError(
+      "Selected positioning direction was not found in this report.",
+    );
+  }
+  return {
+    reportId: report.id,
+    direction,
+  };
+}
+
+class MainResumeSelectionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MainResumeSelectionError";
   }
 }
 
