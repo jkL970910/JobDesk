@@ -742,7 +742,9 @@ function evaluateClaimSupport(
     evidence.some(
       (item) =>
         item &&
-        (claimsMatch(item.sourceQuote, quote) || claimsMatch(item.text, quote)),
+        (claimsMatch(item.sourceQuote, quote) ||
+          claimsMatch(item.text, quote) ||
+          Boolean(item.publicSafeSummary && claimsMatch(item.publicSafeSummary, quote))),
     ),
   );
   if (!quoteSupported) {
@@ -754,6 +756,7 @@ function evaluateClaimSupport(
       item &&
       (claimsMatch(item.text, claim.claimText) ||
         claimsMatch(item.sourceQuote, claim.claimText) ||
+        Boolean(item.publicSafeSummary && claimsMatch(item.publicSafeSummary, claim.claimText)) ||
         claim.sourceQuotes.some((quote) => claimsMatch(claim.claimText, quote))),
   );
 

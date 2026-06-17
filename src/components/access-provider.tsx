@@ -227,16 +227,16 @@ function AccountPanel() {
 function LegacyAccessPanel() {
   const { setToken, token } = useAccess();
   return (
-    <div className="access-panel">
+    <div className="access-panel access-panel--legacy">
       <div>
-        <span>Legacy access</span>
-        <strong>Bearer token mode</strong>
+        <span>Private access</span>
+        <strong>Workspace access token</strong>
       </div>
       <label>
-        <span>Access token</span>
+        <span>Token</span>
         <input
           onChange={(event) => setToken(event.target.value)}
-          placeholder="Enter JOBDESK_ACCESS_TOKEN"
+          placeholder="Enter private workspace token"
           type="password"
           value={token}
         />
@@ -255,10 +255,10 @@ function AuthShell({
   return (
     <main className="auth-shell">
       <section className="auth-card">
-        <p className="panel-kicker">Account</p>
+        <p className="panel-kicker">JobDesk account</p>
         <h1>{title}</h1>
         <p>
-          Keep resume sources, evidence, generated resumes, and job workspaces scoped to your account.
+          Build a private evidence library, generate grounded resumes, and keep every source scoped to your workspace.
         </p>
         {children}
       </section>

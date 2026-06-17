@@ -320,6 +320,40 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
       supportedCount: 1,
       resumeStatus: "validated",
     });
+
+    const publicSafeSummaryResult = await persistMainResume({
+      draft: {
+        ...buildResumeDraft(evidenceId),
+        claims: [
+          {
+            claim_text: "Built dashboard analysis for onboarding funnel metrics.",
+            evidence_ids: [evidenceId],
+            risk_level: "low",
+            section: "Experience",
+            source_quotes: ["Built dashboard analysis for onboarding funnel metrics."],
+          },
+        ],
+        resume_markdown:
+          "## Experience\n- Built dashboard analysis for onboarding funnel metrics.",
+        title: "Public-safe summary main resume",
+      },
+      provider: "integration-test",
+      model: "test-model",
+      usage: { totalTokens: 55 },
+      retryCount: 0,
+      skill: skillRegistry.mainResume,
+    });
+    if (publicSafeSummaryResult.status !== "saved") {
+      throw new Error("Expected saved public-safe summary main resume.");
+    }
+    const publicSafeSummaryGuard = await runFactGuardForMainResume(
+      publicSafeSummaryResult.mainResumeVersionId,
+    );
+    expect(publicSafeSummaryGuard).toMatchObject({
+      status: "validated",
+      supportedCount: 1,
+      resumeStatus: "validated",
+    });
   }, 12_000);
 
   it("does not retrieve another workspace's approved resume evidence", async () => {
@@ -452,6 +486,12 @@ async function createApprovedResumeEvidence() {
     skill: skillRegistry.profileEvidenceExtractionResume,
   });
   const libraryEvidence = await getLatestSqlEvidenceFromRecentLibrary();
+  await updateEvidenceItem({
+    evidenceId: libraryEvidence.id,
+    action: "edit",
+    publicSafeSummary: "Built dashboard analysis for onboarding funnel metrics.",
+    sensitivityLevel: "public_safe",
+  });
   await updateEvidenceItem({
     evidenceId: libraryEvidence.id,
     action: "approve_for_resume",

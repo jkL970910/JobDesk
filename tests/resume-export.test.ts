@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { getMainResumeExportBlocker } from "../src/server/main-resume-export-policy";
 import { validateBulletClaimCoverage } from "../src/server/tailored-resume-guardrails";
 
 describe("resume export coverage assumptions", () => {
@@ -13,5 +14,15 @@ describe("resume export coverage assumptions", () => {
     });
 
     expect(result).toEqual({ passed: true, reason: null });
+  });
+
+  it("blocks final Markdown export until a main resume is Fact Guard validated", () => {
+    expect(
+      getMainResumeExportBlocker({ format: "markdown", status: "unvalidated" }),
+    ).toMatchObject({
+      kind: "resume_not_validated",
+    });
+    expect(getMainResumeExportBlocker({ format: "json", status: "unvalidated" })).toBeNull();
+    expect(getMainResumeExportBlocker({ format: "markdown", status: "validated" })).toBeNull();
   });
 });

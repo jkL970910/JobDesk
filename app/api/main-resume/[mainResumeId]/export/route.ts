@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getMainResumeExportBlocker } from "../../../../../src/server/main-resume-export-policy";
 import { getMainResumeById } from "../../../../../src/server/resume-repository";
 
 const paramsSchema = z.object({
@@ -35,6 +36,16 @@ export async function GET(
     return NextResponse.json(
       { error: "Main resume not found.", kind: "not_found" },
       { status: 404 },
+    );
+  }
+  const exportBlocker = getMainResumeExportBlocker({
+    format: format.data,
+    status: resume.status,
+  });
+  if (exportBlocker) {
+    return NextResponse.json(
+      exportBlocker,
+      { status: 409 },
     );
   }
 
