@@ -30,9 +30,10 @@ export async function POST(request: Request) {
       { headers: { "Set-Cookie": serializeSessionCookie(result.session) } },
     );
   } catch (error) {
+    console.error("JobDesk account login failed", error);
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Login failed.",
+        error: "Unable to sign in. Please try again or contact support.",
         kind: "login_failed",
       },
       { status: 500 },

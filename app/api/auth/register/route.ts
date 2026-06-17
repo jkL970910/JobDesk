@@ -34,9 +34,10 @@ export async function POST(request: Request) {
       { headers: { "Set-Cookie": serializeSessionCookie(result.session) } },
     );
   } catch (error) {
+    console.error("JobDesk account registration failed", error);
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Registration failed.",
+        error: "Unable to create account. Please try again or contact support.",
         kind: "registration_failed",
       },
       { status: 500 },
