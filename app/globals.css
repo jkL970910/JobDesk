@@ -2160,11 +2160,20 @@ strong,
   padding: 16px;
 }
 
+.final-review-panel {
+  gap: 16px;
+}
+
 .main-resume-builder__preview-header {
   align-items: flex-start;
   display: flex;
   gap: 16px;
   justify-content: space-between;
+}
+
+.final-review-panel__header {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
 }
 
 .main-resume-builder__preview-header span {
@@ -2215,6 +2224,117 @@ strong,
   margin: 0;
 }
 
+.final-review-panel__grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+}
+
+.final-review-checklist,
+.claim-review-summary,
+.missing-evidence-panel,
+.final-resume-preview {
+  background: rgba(255, 255, 255, 0.026);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 18px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.final-review-checklist > span,
+.claim-review-summary > span,
+.final-resume-preview > div > span {
+  color: var(--primary-strong);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.final-review-checklist ul,
+.missing-evidence-panel ul {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.final-review-checklist li {
+  background: rgba(255, 255, 255, 0.026);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warning);
+  border-radius: 12px;
+  padding: 10px 11px;
+}
+
+.final-review-checklist li[data-state="ready"] {
+  border-left-color: var(--success);
+}
+
+.final-review-checklist strong,
+.claim-review-summary strong,
+.missing-evidence-panel strong {
+  color: var(--ink);
+  margin: 0;
+}
+
+.final-review-checklist p,
+.claim-review-summary p,
+.claim-review-list p,
+.final-resume-preview p,
+.missing-evidence-panel li {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.42;
+  margin: 0;
+}
+
+.claim-review-summary > strong {
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  letter-spacing: -0.08em;
+  line-height: 0.9;
+}
+
+.claim-review-list {
+  display: grid;
+  gap: 8px;
+}
+
+.claim-review-list div {
+  background: rgba(255, 255, 255, 0.026);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+}
+
+.claim-review-list div[data-state="ready"] {
+  border-color: rgba(125, 223, 179, 0.24);
+}
+
+.claim-review-list i {
+  color: var(--warning);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.claim-review-list div[data-state="ready"] i {
+  color: var(--success);
+}
+
+.final-resume-preview {
+  gap: 10px;
+}
+
+.final-resume-preview > div {
+  align-items: flex-end;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+}
+
 .main-resume-builder__preview pre {
   background: rgba(255, 255, 255, 0.026);
   border: 1px solid rgba(255, 255, 255, 0.07);
@@ -2233,6 +2353,10 @@ strong,
   color: var(--ink);
   display: block;
   margin-top: 12px;
+}
+
+.missing-evidence-panel strong {
+  margin-top: 0;
 }
 
 .settings-panel--quiet {
@@ -4850,6 +4974,7 @@ select:focus {
   .profile-fact-grid,
   .positioning-detail-grid,
   .positioning-direction-grid,
+  .final-review-panel__grid,
   .resume-refresh-grid,
   .review-top-fixes__grid,
   .review-finding-grid,
@@ -4930,6 +5055,7 @@ select:focus {
   .profile-fact-grid,
   .positioning-detail-grid,
   .positioning-direction-grid,
+  .final-review-panel__grid,
   .resume-refresh-grid,
   .review-top-fixes__grid,
   .review-finding-grid,
@@ -5008,6 +5134,7 @@ select:focus {
   .profile-fact-grid,
   .positioning-detail-grid,
   .positioning-direction-grid,
+  .final-review-panel__grid,
   .resume-refresh-grid,
   .review-detail-tabs,
   .review-top-fixes__grid,
@@ -5030,6 +5157,7 @@ select:focus {
   .profile-fact-grid,
   .positioning-detail-grid,
   .positioning-direction-grid,
+  .final-review-panel__grid,
   .review-detail-tabs,
   .review-top-fixes__grid,
   .review-finding-grid,
@@ -5081,6 +5209,8 @@ select:focus {
   .handoff-panel,
   .positioning-engine__header,
   .positioning-variant-callout,
+  .final-review-panel__header,
+  .final-resume-preview > div,
   .workspace-band--tabbed {
     align-items: stretch;
     display: grid;

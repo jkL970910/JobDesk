@@ -1638,13 +1638,13 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
         </div>
         {mainResumeStatus ? <p className="status">{mainResumeStatus}</p> : null}
         {latestMainResume ? (
-          <section className="main-resume-builder__preview" aria-label="Latest main resume draft">
-            <div className="main-resume-builder__preview-header">
+          <section className="main-resume-builder__preview final-review-panel" aria-label="Main resume final review">
+            <div className="main-resume-builder__preview-header final-review-panel__header">
               <div>
                 <span>{latestMainResume.status === "validated" ? "Ready to export" : "Draft under review"}</span>
-                <h4>{latestMainResume.title}</h4>
+                <h4>Final review: {latestMainResume.title}</h4>
                 <p>
-                  {formatMainResumeMode(latestMainResume)} · {latestMainResumeClaimStats?.supported ?? 0}/{latestMainResumeClaimStats?.total ?? 0} claims supported
+                  {formatMainResumeMode(latestMainResume)} · {formatDateTime(latestMainResume.updatedAt)}
                 </p>
               </div>
               <div className="actions actions--compact">
@@ -1682,9 +1682,73 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
                 : `${latestMainResumeClaimStats?.supported ?? 0}/${latestMainResumeClaimStats?.total ?? 0} claims supported. Fix unsupported claims or add evidence before using this as a final resume.`}
               </p>
             </div>
-            <pre>{latestMainResume.resume_markdown}</pre>
-            {latestMainResume.missing_evidence_questions.length > 0 ? (
+            <div className="final-review-panel__grid">
+              <article className="final-review-checklist">
+                <span>Finalization checklist</span>
+                <ul>
+                  <li data-state={resumeEligibleEvidence > 0 ? "ready" : "blocked"}>
+                    <strong>Resume-safe evidence</strong>
+                    <p>
+                      {resumeEligibleEvidence > 0
+                        ? `${resumeEligibleEvidence} approved evidence item${resumeEligibleEvidence === 1 ? "" : "s"} available.`
+                        : "Approve at least one resume-safe evidence item first."}
+                    </p>
+                  </li>
+                  <li data-state={latestMainResumeClaimStats?.needsReview === 0 ? "ready" : "blocked"}>
+                    <strong>Claim support</strong>
+                    <p>
+                      {latestMainResumeClaimStats
+                        ? `${latestMainResumeClaimStats.supported}/${latestMainResumeClaimStats.total} generated claims supported.`
+                        : "No claim ledger generated yet."}
+                    </p>
+                  </li>
+                  <li data-state={latestMainResume.status === "validated" ? "ready" : "blocked"}>
+                    <strong>Final export</strong>
+                    <p>
+                      {latestMainResume.status === "validated"
+                        ? "Markdown export is ready."
+                        : "Markdown export stays locked until Fact Guard passes."}
+                    </p>
+                  </li>
+                </ul>
+              </article>
+              <article className="claim-review-summary">
+                <span>Claim review</span>
+                <strong>
+                  {latestMainResumeClaimStats
+                    ? `${latestMainResumeClaimStats.supported}/${latestMainResumeClaimStats.total}`
+                    : "0/0"}
+                </strong>
+                <p>
+                  {latestMainResumeClaimStats?.needsReview
+                    ? `${latestMainResumeClaimStats.needsReview} claim${latestMainResumeClaimStats.needsReview === 1 ? "" : "s"} still need better evidence or wording.`
+                    : "Every generated claim is currently supported."}
+                </p>
+                {latestMainResume.claims.length > 0 ? (
+                  <div className="claim-review-list">
+                    {latestMainResume.claims.slice(0, 5).map((claim) => {
+                      const isSupported =
+                        claim.support_status === "supported" || claim.claim_status === "supported";
+                      return (
+                        <div data-state={isSupported ? "ready" : "blocked"} key={claim.id}>
+                          <i>{isSupported ? "Supported" : "Needs review"}</i>
+                          <p>{claim.claim_text}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </article>
+            </div>
+            <div className="final-resume-preview">
               <div>
+                <span>Resume preview</span>
+                <p>Read this as a draft artifact until Fact Guard passes.</p>
+              </div>
+              <pre>{latestMainResume.resume_markdown}</pre>
+            </div>
+            {latestMainResume.missing_evidence_questions.length > 0 ? (
+              <div className="missing-evidence-panel">
                 <strong>Missing evidence questions</strong>
                 <ul>
                   {latestMainResume.missing_evidence_questions.map((question) => (
