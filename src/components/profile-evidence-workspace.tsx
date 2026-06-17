@@ -3414,6 +3414,10 @@ function EvidenceCard({
             if (blocker.action === "edit") {
               setIsEditing((current) => !current);
             } else if (blocker.action === "mark_external_safe") {
+              if (!item.public_safe_summary) {
+                setIsEditing(true);
+                return;
+              }
               onUpdate(item, "mark_external_safe");
             } else {
               onUpdate(item, "approve_for_resume");
@@ -3487,7 +3491,13 @@ function EvidenceCard({
             className="secondary-button"
             disabled={isUpdating}
             type="button"
-            onClick={() => onUpdate(item, "mark_external_safe")}
+            onClick={() => {
+              if (!item.public_safe_summary) {
+                setIsEditing(true);
+                return;
+              }
+              onUpdate(item, "mark_external_safe");
+            }}
           >
             Mark external-safe
           </button>

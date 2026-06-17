@@ -33,6 +33,7 @@ import {
   buildExtractionNoteEnrichmentTasks,
   upsertEnrichmentTasks,
 } from "./enrichment-task-repository";
+import { buildRedactionReport, isPublicSafeText } from "./deidentification-service";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 
 export type ProfileEvidencePersistenceResult =
@@ -1246,6 +1247,7 @@ export async function updateProjectCard(args: {
   const patch: Partial<typeof projectCards.$inferInsert> = {
     updatedAt: new Date(),
   };
+  let redactionReport = null;
   if (args.action === "approve") {
     patch.status = "approved";
   } else if (args.action === "reject") {
@@ -1257,9 +1259,26 @@ export async function updateProjectCard(args: {
     if (args.role !== undefined) patch.role = args.role?.trim() || null;
     if (args.publicSafeSummary !== undefined) {
       patch.publicSafeSummary = args.publicSafeSummary?.trim() || null;
+      if (patch.publicSafeSummary && !isPublicSafeText(patch.publicSafeSummary)) {
+        return {
+          status: "invalid" as const,
+          reason: "public_safe_summary_contains_blocked_terms" as const,
+          redactionReport: buildRedactionReport({
+            text: [args.title, args.context, args.problem, args.role].filter(Boolean).join(" "),
+            fallbackSummary: patch.publicSafeSummary,
+          }),
+        };
+      }
     }
     if (args.sensitivityLevel !== undefined) {
       patch.sensitivityLevel = args.sensitivityLevel;
+    }
+    redactionReport = buildRedactionReport({
+      text: [args.title, args.context, args.problem, args.role].filter(Boolean).join(" "),
+      fallbackSummary: patch.publicSafeSummary,
+    });
+    if (patch.publicSafeSummary && !redactionReport.hasBlockedTerms) {
+      patch.sensitivityLevel = args.sensitivityLevel ?? "public_safe";
     }
   }
 
@@ -1281,7 +1300,7 @@ export async function updateProjectCard(args: {
     });
 
   return project
-    ? ({ status: "saved" as const, projectCard: project })
+    ? ({ status: "saved" as const, projectCard: project, redactionReport })
     : ({ status: "not_found" as const });
 }
 
@@ -1397,6 +1416,7 @@ export async function updateEvidenceItem(args: {
   const patch: Partial<typeof evidenceItems.$inferInsert> = {
     updatedAt: new Date(),
   };
+  let redactionReport = null;
   if (args.action === "edit" && args.relatedProjectId) {
     const validation = await validateEvidenceProjectLink({
       db,
@@ -1454,12 +1474,29 @@ export async function updateEvidenceItem(args: {
     if (args.text != null) patch.text = args.text.trim();
     if (args.publicSafeSummary !== undefined) {
       patch.publicSafeSummary = args.publicSafeSummary?.trim() || null;
+      if (patch.publicSafeSummary && !isPublicSafeText(patch.publicSafeSummary)) {
+        return {
+          status: "invalid" as const,
+          reason: "public_safe_summary_contains_blocked_terms" as const,
+          redactionReport: buildRedactionReport({
+            text: args.text ?? "",
+            fallbackSummary: patch.publicSafeSummary,
+          }),
+        };
+      }
     }
     if (args.allowedUsage !== undefined) {
       patch.allowedUsage = Array.from(new Set(args.allowedUsage));
     }
     if (args.sensitivityLevel !== undefined) {
       patch.sensitivityLevel = args.sensitivityLevel;
+    }
+    redactionReport = buildRedactionReport({
+      text: args.text ?? "",
+      fallbackSummary: patch.publicSafeSummary,
+    });
+    if (patch.publicSafeSummary && !redactionReport.hasBlockedTerms) {
+      patch.sensitivityLevel = args.sensitivityLevel ?? "public_safe";
     }
     const storyTargetWasProvided =
       args.relatedWorkExperienceId !== undefined ||
@@ -1505,6 +1542,7 @@ export async function updateEvidenceItem(args: {
       ...item,
       needsUserConfirmation: item.needsUserConfirmation === 1,
     },
+    redactionReport,
   };
 }
 

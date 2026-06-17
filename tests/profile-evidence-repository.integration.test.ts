@@ -202,6 +202,19 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(inferredEvidence).toMatchObject({
       needs_user_confirmation: true,
     });
+    if (!internalEvidence) throw new Error("Expected internal evidence.");
+    const unsafeExternalSummary = await updateEvidenceItem({
+      evidenceId: internalEvidence.id,
+      action: "edit",
+      publicSafeSummary: "Built confidential reporting for Acme Finance.",
+    });
+    expect(unsafeExternalSummary).toMatchObject({
+      status: "invalid",
+      reason: "public_safe_summary_contains_blocked_terms",
+      redactionReport: {
+        hasBlockedTerms: true,
+      },
+    });
     const onboardingProject = library.projectCards.find(
       (project) => project.title === "Onboarding analytics",
     );

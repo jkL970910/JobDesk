@@ -53,7 +53,11 @@ export async function PATCH(
   }
   if (result.status === "invalid") {
     return NextResponse.json(
-      { error: result.reason, kind: "invalid_evidence_update" },
+      {
+        error: result.reason,
+        kind: "invalid_evidence_update",
+        redactionReport: "redactionReport" in result ? result.redactionReport : undefined,
+      },
       { status: 409 },
     );
   }
