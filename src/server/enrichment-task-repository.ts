@@ -2,15 +2,23 @@ import crypto from "node:crypto";
 
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
+import { resolveJobDeskAiConfig } from "../ai/config";
+import { JobDeskAiError } from "../ai/errors";
+import { extractProfileEvidenceWithAi } from "../ai/profile-evidence-extraction";
+import { skillRegistry } from "../ai/skills-registry";
+import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
+import type { JobDeskAiFailureKind, JobDeskAiSkillBinding } from "../ai/types";
 import { getDb, hasDatabaseUrl } from "../db/client";
 import {
   enrichmentTasks,
   evidenceItems,
   sourceDocuments,
+  workflowRuns,
   type enrichmentTaskSourceTypeEnum,
   type enrichmentTaskStatusEnum,
   type enrichmentTaskTypeEnum,
 } from "../db/schema";
+import { workflowSkillFields } from "./workflow-run-metadata";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 
 type DbHandle = ReturnType<typeof getDb>;
@@ -174,6 +182,7 @@ export async function updateEnrichmentTask(args: {
   taskId: string;
   action: "answer" | "dismiss" | "reopen" | "convert";
   userAnswer?: string;
+  useAiExtraction?: boolean;
 }) {
   if (!hasDatabaseUrl()) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
@@ -190,7 +199,11 @@ export async function updateEnrichmentTask(args: {
   if (!existing) return { status: "not_found" as const };
 
   if (args.action === "convert") {
-    return convertEnrichmentTaskToEvidenceCandidate(db, { task: existing, now });
+    return convertEnrichmentTaskToEvidenceCandidate(db, {
+      task: existing,
+      now,
+      useAiExtraction: args.useAiExtraction ?? false,
+    });
   }
 
   const patch: Partial<typeof enrichmentTasks.$inferInsert> = {
@@ -226,6 +239,7 @@ async function convertEnrichmentTaskToEvidenceCandidate(
   args: {
     task: typeof enrichmentTasks.$inferSelect;
     now: Date;
+    useAiExtraction: boolean;
   },
 ) {
   if (!args.task.userAnswer?.trim()) {
@@ -239,8 +253,15 @@ async function convertEnrichmentTaskToEvidenceCandidate(
     };
   }
 
+  const content = args.task.userAnswer?.trim() ?? "";
+  const aiExtraction = args.useAiExtraction
+    ? await extractEnrichmentAnswerEvidence({
+        sourceId: args.task.id,
+        sourceText: buildEnrichmentAnswerSourceText(args.task, content),
+      })
+    : null;
+
   return db.transaction(async (tx) => {
-    const content = args.task.userAnswer?.trim() ?? "";
     const [sourceDocument] = await tx
       .insert(sourceDocuments)
       .values({
@@ -256,34 +277,58 @@ async function convertEnrichmentTaskToEvidenceCandidate(
       throw new Error("Failed to create enrichment answer source document.");
     }
 
-    const [evidence] = await tx
+    const evidenceDrafts = aiExtraction?.extraction.evidence_items.length
+      ? aiExtraction.extraction.evidence_items
+      : [buildFallbackEvidenceDraft(content)];
+    const insertedEvidence = await tx
       .insert(evidenceItems)
-      .values({
-        workspaceId: args.task.workspaceId,
-        sourceDocumentId: sourceDocument.id,
-        text: content,
-        sourceQuote: content,
-        evidenceType: "user_confirmed",
-        metrics: [],
-        sensitivityLevel: "private",
-        allowedUsage: ["resume", "interview", "cover_letter"],
-        publicSafeSummary: null,
-        status: "pending",
-        relatedWorkExperienceId: args.task.workExperienceId,
-        relatedInitiativeId: args.task.initiativeId,
-        relatedPortfolioProjectId: args.task.portfolioProjectId,
-        needsUserConfirmation: 1,
-        createdAt: args.now,
-        updatedAt: args.now,
-      })
+      .values(
+        evidenceDrafts.map((item) => ({
+          workspaceId: args.task.workspaceId,
+          sourceDocumentId: sourceDocument.id,
+          text: item.text,
+          sourceQuote: item.source_quote,
+          evidenceType: item.evidence_type,
+          metrics: item.metrics as Array<Record<string, unknown>>,
+          sensitivityLevel: item.sensitivity_level,
+          allowedUsage: item.allowed_usage,
+          publicSafeSummary: item.public_safe_summary,
+          status: item.status,
+          relatedWorkExperienceId: args.task.workExperienceId,
+          relatedInitiativeId: args.task.initiativeId,
+          relatedPortfolioProjectId: args.task.portfolioProjectId,
+          needsUserConfirmation: item.needs_user_confirmation ? 1 : 0,
+          createdAt: args.now,
+          updatedAt: args.now,
+        })),
+      )
       .returning({ id: evidenceItems.id });
-    if (!evidence) throw new Error("Failed to create evidence from enrichment answer.");
+    if (insertedEvidence.length === 0) {
+      throw new Error("Failed to create evidence from enrichment answer.");
+    }
+
+    if (aiExtraction) {
+      await tx.insert(workflowRuns).values({
+        workspaceId: args.task.workspaceId,
+        workflowType: "profile-evidence-extraction",
+        status: "succeeded",
+        provider: aiExtraction.provider,
+        model: aiExtraction.model,
+        ...workflowSkillFields(aiExtraction.skill),
+        inputTokens: aiExtraction.usage.inputTokens ?? null,
+        outputTokens: aiExtraction.usage.outputTokens ?? null,
+        totalTokens: aiExtraction.usage.totalTokens ?? null,
+        retryCount: aiExtraction.retryCount,
+        startedAt: args.now,
+        finishedAt: args.now,
+      });
+    }
 
     const [updated] = await tx
       .update(enrichmentTasks)
       .set({
         status: "converted",
-        evidenceItemId: evidence.id,
+        evidenceItemId: insertedEvidence[0]?.id ?? null,
         updatedAt: args.now,
         convertedAt: args.now,
       })
@@ -294,9 +339,106 @@ async function convertEnrichmentTaskToEvidenceCandidate(
     return {
       status: "saved" as const,
       task: toEnrichmentTaskPayload(updated),
-      evidenceItemId: evidence.id,
+      evidenceItemId: insertedEvidence[0]?.id ?? null,
+      evidenceCount: insertedEvidence.length,
+      conversionMode: aiExtraction ? "ai_extraction" as const : "fallback" as const,
     };
   });
+}
+
+async function extractEnrichmentAnswerEvidence(args: {
+  sourceId: string;
+  sourceText: string;
+}) {
+  const config = resolveJobDeskAiConfig();
+  if (!config.providerEnabled || !config.apiKey) return null;
+
+  try {
+    const result = await extractProfileEvidenceWithAi({
+      sourceId: args.sourceId,
+      sourceText: args.sourceText,
+      sourceKind: "project_note",
+    });
+    return {
+      extraction: result.data,
+      provider: `openrouter-compatible:${config.transport}`,
+      model: config.model,
+      usage: result.usage,
+      retryCount: result.retryCount,
+      skill: result.skill,
+    };
+  } catch (error) {
+    await persistEnrichmentExtractionFailure({
+      provider: `openrouter-compatible:${config.transport}`,
+      model: config.model,
+      errorKind: error instanceof JobDeskAiError ? error.kind : "unknown",
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown enrichment extraction error.",
+      retryCount: error instanceof JobDeskAiError ? error.retryCount : 0,
+      skill: skillRegistry.profileEvidenceExtractionProjectNote,
+    });
+    return null;
+  }
+}
+
+async function persistEnrichmentExtractionFailure(args: {
+  provider: string;
+  model: string;
+  errorKind: JobDeskAiFailureKind | "unknown";
+  errorMessage: string;
+  retryCount: number;
+  skill: JobDeskAiSkillBinding;
+}) {
+  if (!hasDatabaseUrl()) return;
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const now = new Date();
+  await db.insert(workflowRuns).values({
+    workspaceId: workspace.id,
+    workflowType: "profile-evidence-extraction",
+    status: "failed",
+    provider: args.provider,
+    model: args.model,
+    ...workflowSkillFields(args.skill),
+    retryCount: args.retryCount,
+    errorKind: args.errorKind,
+    errorMessage: args.errorMessage.replace(/sk-[A-Za-z0-9_-]+/g, "sk-***"),
+    startedAt: now,
+    finishedAt: now,
+  });
+}
+
+function buildEnrichmentAnswerSourceText(
+  task: typeof enrichmentTasks.$inferSelect,
+  answer: string,
+) {
+  return [
+    `Source label: ${task.sourceLabel}`,
+    `Task type: ${task.taskType}`,
+    `Prompt: ${task.prompt}`,
+    "User answer:",
+    answer,
+  ].join("\n");
+}
+
+function buildFallbackEvidenceDraft(
+  content: string,
+): ProfileEvidenceExtraction["evidence_items"][number] {
+  return {
+    text: content,
+    source_quote: content,
+    evidence_type: "user_confirmed",
+    metrics: [],
+    sensitivity_level: "private",
+    allowed_usage: ["resume", "interview", "cover_letter"],
+    public_safe_summary: null,
+    status: "pending",
+    related_project_id: null,
+    related_work_experience_id: null,
+    related_initiative_id: null,
+    related_portfolio_project_id: null,
+    needs_user_confirmation: true,
+  };
 }
 
 export async function getOpenEnrichmentTaskCountsByEvidenceIds(evidenceIds: string[]) {

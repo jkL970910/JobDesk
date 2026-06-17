@@ -33,6 +33,7 @@ export async function PATCH(
   const result = await updateEnrichmentTask({
     taskId: params.data.taskId,
     ...body.data,
+    useAiExtraction: body.data.action === "convert",
   });
   if (result.status === "not_found") {
     return NextResponse.json(

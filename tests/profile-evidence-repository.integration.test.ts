@@ -132,6 +132,10 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       action: "convert",
     });
     expect(converted.status).toBe("saved");
+    expect(converted).toMatchObject({
+      conversionMode: "fallback",
+      evidenceCount: 1,
+    });
     await upsertEnrichmentTasks(getDb(), {
       workspaceId: result.workspaceId,
       tasks: [
