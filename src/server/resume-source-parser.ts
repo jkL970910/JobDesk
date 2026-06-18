@@ -182,7 +182,7 @@ async function parsePdf(args: {
     if (error instanceof ResumeSourceParseError) throw error;
     const fallbackQuality = buildParseQuality("", { sourceKind: "pdf" });
     throw new ResumeSourceParseError(
-      "Could not extract readable text from this PDF. If it is scanned or password-protected, export it to text or DOCX first.",
+      "Could not parse this PDF. It may use an unsupported PDF structure, be damaged, or require a password. Export it to DOCX/text, or paste the resume text manually.",
       "encrypted_or_unreadable_pdf",
       fallbackQuality,
     );
@@ -278,6 +278,25 @@ export function buildParseQuality(
   const warnings = [...(options.warnings ?? [])];
   const replacementCount = (sourceText.match(/\uFFFD/g) ?? []).length;
 
+  if (
+    options.sourceKind === "pdf" &&
+    typeof options.pageCount === "number" &&
+    options.pageCount > 0 &&
+    (charCount < 300 || wordCount < 80)
+  ) {
+    if (charCount < 20) warnings.push("text_extraction_failed");
+    if (charCount < 300) warnings.push("low_text_density");
+    if (wordCount < 80) warnings.push("low_word_count");
+    warnings.push("possible_scanned_pdf");
+    return {
+      status: "needs_ocr",
+      charCount,
+      wordCount,
+      pageCount: options.pageCount,
+      warnings: uniqueWarnings(warnings),
+    };
+  }
+
   if (charCount < 20) {
     return {
       status: "failed",
@@ -294,21 +313,6 @@ export function buildParseQuality(
     warnings.push("replacement_characters_detected");
   }
   if (hasRepeatedLineNoise(sourceText)) warnings.push("possible_header_footer_noise");
-  if (
-    options.sourceKind === "pdf" &&
-    typeof options.pageCount === "number" &&
-    options.pageCount > 0 &&
-    (charCount < 300 || wordCount < 80)
-  ) {
-    warnings.push("possible_scanned_pdf");
-    return {
-      status: "needs_ocr",
-      charCount,
-      wordCount,
-      pageCount: options.pageCount,
-      warnings: uniqueWarnings(warnings),
-    };
-  }
 
   return {
     status: warnings.length ? "warning" : "usable",

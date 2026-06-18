@@ -102,4 +102,16 @@ describe("resume source parser", () => {
     expect(quality.status).toBe("needs_ocr");
     expect(quality.warnings).toContain("possible_scanned_pdf");
   });
+
+  it("marks PDF pages with no extracted text as needing OCR instead of password protection", () => {
+    const quality = buildParseQuality("", {
+      pageCount: 1,
+      sourceKind: "pdf",
+    });
+
+    expect(quality.status).toBe("needs_ocr");
+    expect(quality.charCount).toBe(0);
+    expect(quality.warnings).toContain("text_extraction_failed");
+    expect(quality.warnings).toContain("possible_scanned_pdf");
+  });
 });

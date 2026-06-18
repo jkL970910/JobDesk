@@ -1400,8 +1400,10 @@ function ResumeParseStatusCard({ status }: { status: ResumeParseStatus }) {
         </ul>
       ) : null}
       <p className="source-parse-card__next">
-        {quality.status === "needs_ocr" || quality.status === "failed"
-          ? "This file cannot be reviewed reliably. Paste text manually or upload a DOCX/text-layer PDF."
+        {quality.status === "needs_ocr"
+          ? "This PDF has no reliable text layer. Paste text manually, upload a DOCX, or export the PDF with selectable text."
+          : quality.status === "failed"
+            ? "This file cannot be reviewed reliably. Paste text manually or upload a DOCX/text-layer PDF."
           : "Resume Review evaluates this uploaded source. It does not update your final resume until you generate one from approved Evidence Library material."}
       </p>
     </article>
@@ -1414,7 +1416,7 @@ function formatParseWarning(warning: string) {
     low_text_density: "Extracted text is short; the source may be incomplete.",
     low_word_count: "Extracted word count is low for AI review.",
     possible_header_footer_noise: "Repeated header/footer text may add noise.",
-    possible_scanned_pdf: "This PDF appears image-based or has too little text.",
+    possible_scanned_pdf: "This PDF appears image-based or does not expose selectable text.",
     replacement_characters_detected: "Some unreadable replacement characters were found.",
     text_extraction_failed: "No reliable text layer could be extracted.",
   };
