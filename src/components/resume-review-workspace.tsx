@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type DragEvent } from "react";
 
 import { useAccess } from "./access-provider";
 
@@ -96,6 +96,7 @@ export function ResumeReviewWorkspace({
   const [status, setStatus] = useState("Upload a resume to create a reviewed source version.");
   const [error, setError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDragActive, setIsDragActive] = useState(false);
   const [uploadElapsedSeconds, setUploadElapsedSeconds] = useState(0);
   const [activeOperation, setActiveOperation] = useState<string | null>(null);
   const [duplicateResume, setDuplicateResume] = useState<ResumeSourceReviewSummary | null>(null);
@@ -236,6 +237,26 @@ export function ResumeReviewWorkspace({
     }
   }
 
+  function handleResumeDrag(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!isUploading) setIsDragActive(true);
+  }
+
+  function handleResumeDragEnd(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragActive(false);
+  }
+
+  function handleResumeDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragActive(false);
+    if (isUploading) return;
+    void uploadResume(event.dataTransfer.files?.[0] ?? null);
+  }
+
   async function deleteResume(resume: ResumeSourceReviewSummary) {
     if (
       !window.confirm(
@@ -311,7 +332,15 @@ export function ResumeReviewWorkspace({
             </p>
           </div>
         </div>
-        <label className="resume-upload-zone" data-disabled={isUploading}>
+        <label
+          className="resume-upload-zone"
+          data-disabled={isUploading}
+          data-drag-active={isDragActive}
+          onDragEnter={handleResumeDrag}
+          onDragLeave={handleResumeDragEnd}
+          onDragOver={handleResumeDrag}
+          onDrop={handleResumeDrop}
+        >
           <input
             accept=".pdf,.docx,.txt,.md,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
             disabled={isUploading}
