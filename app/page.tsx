@@ -187,6 +187,7 @@ const hashViewMap = Object.fromEntries(
 
 const topNavItems: Array<{ id: View; label: string; description: string }> = [
   { id: "dashboard", label: "Dashboard", description: "Current next step" },
+  { id: "resumeReview", label: "Review", description: "Resume intake" },
   { id: "profile", label: "Profile", description: "Resume builder" },
   { id: "evidence", label: "Evidence", description: "Reusable proof" },
   { id: "jobs", label: "Jobs", description: "Target applications" },

@@ -951,24 +951,47 @@ strong,
   background: rgba(255, 255, 255, 0.026);
   border: 1px solid var(--line);
   border-radius: 18px;
+  display: grid;
+  gap: 14px;
   grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  overflow: hidden;
   padding: 14px;
 }
 
 .resume-empty-steps--handoff article {
   background: transparent;
   border: 0;
+  min-width: 0;
   padding: 0;
 }
 
 .resume-empty-steps--handoff span {
+  align-items: initial;
   background: transparent;
   border-radius: 0;
   color: var(--primary-strong);
   display: block;
+  font-size: 0.76rem;
+  font-weight: 850;
   height: auto;
+  justify-content: initial;
+  line-height: 1.2;
   margin: 0 0 6px;
   width: auto;
+}
+
+.resume-empty-steps--handoff strong,
+.resume-empty-steps--handoff p {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.resume-empty-steps--handoff button {
+  max-width: 100%;
+  white-space: normal;
 }
 
 .resume-empty-steps article,
@@ -5277,6 +5300,7 @@ select:focus {
 
   .source-controls,
   .resume-source-picker,
+  .resume-empty-steps--handoff,
   .review-handoff,
   .inline-editor__grid,
   .overlap-project-grid,
