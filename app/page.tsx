@@ -168,6 +168,23 @@ type ResumePrepWorkflowState =
 
 type MaterialReviewTab = "enrichment" | "projects" | "unlinked" | "cleanup" | "stories";
 
+const viewHashMap = {
+  applications: "applications",
+  dashboard: "dashboard",
+  evidence: "evidence",
+  growth: "growth",
+  interview: "interview",
+  jobs: "jobs",
+  profile: "profile",
+  recommendations: "recommendations",
+  resumeReview: "resume-review",
+  settings: "settings",
+} satisfies Record<View, string>;
+
+const hashViewMap = Object.fromEntries(
+  Object.entries(viewHashMap).map(([view, hash]) => [hash, view]),
+) as Record<string, View>;
+
 const topNavItems: Array<{ id: View; label: string; description: string }> = [
   { id: "dashboard", label: "Dashboard", description: "Current next step" },
   { id: "profile", label: "Profile", description: "Resume builder" },
@@ -240,7 +257,7 @@ const pageCopy = {
 } satisfies Record<View, { eyebrow: string; title: string; subtitle: string }>;
 
 export default function HomePage() {
-  const [activeView, setActiveView] = useState<View>("dashboard");
+  const [activeView, setActiveView] = useState<View>(() => getViewFromLocationHash());
   const [materialEntryIntent, setMaterialEntryIntent] =
     useState<MaterialEntryIntent>("resume");
   const [materialInitialSection, setMaterialInitialSection] =
@@ -250,38 +267,57 @@ export default function HomePage() {
   const [selectedResumeSourceVersionId, setSelectedResumeSourceVersionId] =
     useState<string | null>(null);
   const activeCopy = pageCopy[activeView];
+
+  useEffect(() => {
+    syncLocationHash(activeView, "replace");
+    function handleHistoryChange() {
+      setActiveView(getViewFromLocationHash());
+    }
+    window.addEventListener("hashchange", handleHistoryChange);
+    window.addEventListener("popstate", handleHistoryChange);
+    return () => {
+      window.removeEventListener("hashchange", handleHistoryChange);
+      window.removeEventListener("popstate", handleHistoryChange);
+    };
+  }, []);
+
+  function setAppView(view: View, historyMode: "push" | "replace" = "push") {
+    setActiveView(view);
+    syncLocationHash(view, historyMode);
+  }
+
   function navigateToMaterial(intent: MaterialEntryIntent) {
     if (intent === "resume") {
-      setActiveView("resumeReview");
+      setAppView("resumeReview");
       return;
     }
     if (intent === "jd") {
-      setActiveView("jobs");
+      setAppView("jobs");
       return;
     }
     setMaterialEntryIntent(intent);
     setMaterialInitialSection("intake");
     setMaterialReviewTab("enrichment");
-    setActiveView("evidence");
+    setAppView("evidence");
   }
   function extractResumeToEvidence(resumeSourceVersionId: string) {
     setSelectedResumeSourceVersionId(resumeSourceVersionId);
     setMaterialEntryIntent("resume");
     setMaterialInitialSection("intake");
     setMaterialReviewTab("enrichment");
-    setActiveView("evidence");
+    setAppView("evidence");
   }
   function openEvidenceReview(tab: MaterialReviewTab = "enrichment") {
     setMaterialInitialSection("review");
     setMaterialReviewTab(tab);
-    setActiveView("evidence");
+    setAppView("evidence");
   }
   function navigateToView(view: View) {
     if (view === "evidence") {
       setMaterialInitialSection("review");
       setMaterialReviewTab("enrichment");
     }
-    setActiveView(view);
+    setAppView(view);
   }
 
   return (
@@ -349,12 +385,12 @@ export default function HomePage() {
           <div className="app-content__body">
             {activeView === "dashboard" ? (
               <DashboardView
-                onNavigate={setActiveView}
+                onNavigate={setAppView}
                 onStartMaterialPath={navigateToMaterial}
               />
             ) : null}
             {activeView === "profile" ? (
-              <ProfileReferenceView onNavigate={setActiveView} />
+              <ProfileReferenceView onNavigate={setAppView} />
             ) : null}
             {activeView === "resumeReview" ? (
               <ResumeReviewWorkspace
@@ -2202,6 +2238,24 @@ function formatDateTime(value: string | null) {
   } catch {
     return value;
   }
+}
+
+function getViewFromLocationHash(): View {
+  if (typeof window === "undefined") return "dashboard";
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  return hashViewMap[hash] ?? "dashboard";
+}
+
+function syncLocationHash(view: View, mode: "push" | "replace") {
+  if (typeof window === "undefined") return;
+  const hash = `#${viewHashMap[view]}`;
+  if (window.location.hash === hash) return;
+  const nextUrl = `${window.location.pathname}${window.location.search}${hash}`;
+  if (mode === "replace") {
+    window.history.replaceState({ view }, "", nextUrl);
+    return;
+  }
+  window.history.pushState({ view }, "", nextUrl);
 }
 
 function downloadBlob(fileName: string, blob: Blob) {
