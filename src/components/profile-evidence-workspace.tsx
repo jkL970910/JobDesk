@@ -336,6 +336,8 @@ export function ProfileEvidenceWorkspace({
   const [guidedMaterialFields, setGuidedMaterialFields] = useState<GuidedMaterialFields>(
     emptyGuidedMaterialFields,
   );
+  const [guidedPreviewState, setGuidedPreviewState] =
+    useState<"synced" | "edited" | "stale">("synced");
   const [selectedStoryTarget, setSelectedStoryTarget] =
     useState<StoryEnrichmentTarget | null>(null);
   const [evidenceFocus, setEvidenceFocus] = useState<EvidenceFocus>(null);
@@ -1057,6 +1059,23 @@ export function ProfileEvidenceWorkspace({
   });
   const entryGuidance = getEntryGuidance(selectedEntryIntent);
 
+  function buildGuidedPreview(fields: GuidedMaterialFields) {
+    return buildGuidedMaterialMarkdown(fields, selectedStoryTarget
+      ? {
+          missingFields: selectedStoryTarget.missingFields,
+          targetTitle: selectedStoryTarget.targetTitle,
+          targetType: selectedStoryTarget.targetType,
+        }
+      : { targetTitle: fields.projectOrInitiativeTitle });
+  }
+
+  function syncGuidedPreview(fields = guidedMaterialFields) {
+    setProjectNoteText(buildGuidedPreview(fields));
+    setProjectSourceDocumentId(undefined);
+    setGuidedPreviewState("synced");
+    setStatus("Guided answers are synced into the source preview.");
+  }
+
   function selectEntryIntent(intent: MaterialEntryIntent) {
     setSelectedEntryIntent(intent);
     setFileStatus(null);
@@ -1070,6 +1089,7 @@ export function ProfileEvidenceWorkspace({
     } else {
       setSelectedResumeSourceId("");
       setProjectSourceMode("guided");
+      setGuidedPreviewState("synced");
       setSelectedStoryTarget(null);
       setStatus("Story material path selected. Add notes, files, or guided answers to strengthen your evidence.");
     }
@@ -1116,6 +1136,7 @@ export function ProfileEvidenceWorkspace({
           }
         : { targetTitle: title }),
     );
+    setGuidedPreviewState("synced");
     setProjectSourceDocumentId(undefined);
     setSelectedEntryIntent("scratch");
     setEvidenceFocus(null);
@@ -1387,14 +1408,22 @@ export function ProfileEvidenceWorkspace({
           </div>
           <IntakeStageHeader
             activeIntent={selectedEntryIntent}
-            onExplain={(message) => setStatus(message)}
             projectFormState={projectFormState}
             sourceFormState={sourceFormState}
           />
-          <OnboardingPaths
-            activeIntent={selectedEntryIntent}
-            onSelect={selectEntryIntent}
-          />
+          <section className="material-type-picker" aria-labelledby="material-type-picker-title">
+            <div className="material-type-picker__header">
+              <span>Step 1</span>
+              <div>
+                <h3 id="material-type-picker-title">Choose material type</h3>
+                <p>Select the source you want to add. This controls the form below.</p>
+              </div>
+            </div>
+            <OnboardingPaths
+              activeIntent={selectedEntryIntent}
+              onSelect={selectEntryIntent}
+            />
+          </section>
           {selectedEntryIntent !== "scratch" ? (
             <section className="source-active-form">
               <div className="source-controls">
@@ -1537,41 +1566,28 @@ export function ProfileEvidenceWorkspace({
                 onChange={(fields) => {
                   setGuidedMaterialFields(fields);
                   setProjectSourceDocumentId(undefined);
-                  setProjectNoteText(
-                    buildGuidedMaterialMarkdown(fields, selectedStoryTarget
-                      ? {
-                          missingFields: selectedStoryTarget.missingFields,
-                          targetTitle: selectedStoryTarget.targetTitle,
-                          targetType: selectedStoryTarget.targetType,
-                        }
-                      : { targetTitle: fields.projectOrInitiativeTitle }),
-                  );
+                  if (guidedPreviewState === "synced") {
+                    setProjectNoteText(buildGuidedPreview(fields));
+                  } else {
+                    setGuidedPreviewState("stale");
+                  }
                   if (!projectNoteTitle.trim() && fields.projectOrInitiativeTitle.trim()) {
                     setProjectNoteTitle(`${fields.projectOrInitiativeTitle.trim()} guided material`);
                   }
                 }}
-                onUseTemplate={() => {
-                  const markdown = buildGuidedMaterialMarkdown(
-                    guidedMaterialFields,
-                    selectedStoryTarget
-                      ? {
-                          missingFields: selectedStoryTarget.missingFields,
-                          targetTitle: selectedStoryTarget.targetTitle,
-                          targetType: selectedStoryTarget.targetType,
-                        }
-                      : { targetTitle: guidedMaterialFields.projectOrInitiativeTitle },
-                  );
-                  setProjectNoteText(markdown);
-                  setProjectSourceDocumentId(undefined);
-                  setStatus("Guided material preview is ready. Edit it if needed, then add it to the library.");
-                }}
+                onSyncPreview={() => syncGuidedPreview()}
+                syncState={guidedPreviewState}
               />
             ) : null}
             <label className="source-field source-field--textarea">
-              <span>{projectSourceMode === "guided" ? "Editable guided material" : "Work story material"}</span>
+              <span>{projectSourceMode === "guided" ? "Generated source preview" : "Work story material"}</span>
               <small>
                 {projectSourceMode === "guided"
-                  ? "Guided answers become reusable material first. Edit this preview before adding it to the library."
+                  ? guidedPreviewState === "stale"
+                    ? "Guided answers changed after manual edits. Update the preview when you want to replace it with the structured answers."
+                    : guidedPreviewState === "edited"
+                      ? "This preview has manual edits and will be sent to extraction as written."
+                      : "Guided answers sync here as the final material sent to extraction. Edit only if you want to adjust the source wording."
                   : projectSourceMode === "upload"
                     ? "Imported files append here. Edit or combine the parsed material before adding it."
                     : "Paste project notes, work summaries, performance review excerpts, or STAR notes here."}
@@ -1584,6 +1600,9 @@ export function ProfileEvidenceWorkspace({
                 onChange={(event) => {
                   setProjectNoteText(event.target.value);
                   setProjectSourceDocumentId(undefined);
+                  if (projectSourceMode === "guided") {
+                    setGuidedPreviewState("edited");
+                  }
                 }}
                 spellCheck={false}
               />
@@ -2096,11 +2115,13 @@ function ProjectSourceModePicker({
 function GuidedMaterialBuilder({
   fields,
   onChange,
-  onUseTemplate,
+  onSyncPreview,
+  syncState,
 }: {
   fields: GuidedMaterialFields;
   onChange: (fields: GuidedMaterialFields) => void;
-  onUseTemplate: () => void;
+  onSyncPreview: () => void;
+  syncState: "synced" | "edited" | "stale";
 }) {
   const fieldConfig: Array<{
     key: keyof GuidedMaterialFields;
@@ -2197,9 +2218,21 @@ function GuidedMaterialBuilder({
             extracts evidence candidates for review.
           </p>
         </div>
-        <button className="secondary-button" type="button" onClick={onUseTemplate}>
-          Use structured template
-        </button>
+        <div className="guided-sync-status" data-state={syncState} aria-live="polite">
+          <i aria-hidden="true" />
+          <span>
+            {syncState === "synced"
+              ? "Preview syncs as you type"
+              : syncState === "stale"
+                ? "Structured answers changed"
+                : "Preview edited manually"}
+          </span>
+          {syncState === "stale" ? (
+            <button type="button" onClick={onSyncPreview}>
+              Update preview
+            </button>
+          ) : null}
+        </div>
       </div>
       <div className="guided-material-builder__grid">
         {fieldConfig.map((field) => {
@@ -2539,12 +2572,10 @@ function EnrichmentTaskQueue({
 
 function IntakeStageHeader({
   activeIntent,
-  onExplain,
   projectFormState,
   sourceFormState,
 }: {
   activeIntent: MaterialEntryIntent;
-  onExplain: (message: string) => void;
   projectFormState: LocalFormState;
   sourceFormState: LocalFormState;
 }) {
@@ -2554,52 +2585,40 @@ function IntakeStageHeader({
   const isRunning = activeFormState === "extracting";
   const steps = [
     {
-      label: "Choose material type",
-      message: `Selected path: ${formatIntakeIntent(activeIntent)}.`,
+      label: "Material type selected",
       state: "complete",
     },
     {
       label: "Add material",
-      message: sourceReady
-        ? "Material is ready to process."
-        : "Add a title and at least 80 characters first.",
       state: sourceReady ? "complete" : "current",
     },
     {
       label: activeIntent === "scratch" ? "Strengthen story" : "Create library items",
-      message: sourceReady
-        ? "Run the primary action near the active form."
-        : "Blocked until this material is ready.",
       state: isRunning ? "current" : sourceComplete ? "complete" : sourceReady ? "current" : "blocked",
     },
     {
       label: "Review material",
-      message: sourceComplete
-        ? "Switch to Review Material to approve claims and inspect story targets."
-        : "Blocked until JobDesk finishes processing this material.",
       state: sourceComplete ? "current" : "blocked",
     },
     {
       label: "Approve for resume",
-      message: "Approve claims from Review Material after JobDesk creates reviewable cards.",
       state: sourceComplete ? "blocked" : "blocked",
     },
-  ] satisfies Array<{ label: string; message: string; state: "complete" | "current" | "blocked" }>;
+  ] satisfies Array<{ label: string; state: "complete" | "current" | "blocked" }>;
   return (
-    <section className="intake-stage-bar" aria-label="Add Material workflow">
+    <ol className="intake-stage-bar" aria-label="Add Material workflow">
       {steps.map((step, index) => (
-        <button
+        <li
+          aria-current={step.state === "current" ? "step" : undefined}
           data-state={step.state}
           key={step.label}
-          onClick={() => onExplain(step.message)}
-          type="button"
         >
           <span>{index + 1}</span>
           <strong>{step.label}</strong>
           {index === 0 ? <small>{formatIntakeIntent(activeIntent)}</small> : null}
-        </button>
+        </li>
       ))}
-    </section>
+    </ol>
   );
 }
 
