@@ -984,6 +984,7 @@ function ResumeWorkspaceView({
       ) : null}
       {activeTab === "profile_facts" || activeTab === "build_export" ? (
         <ProfileReferenceView
+          focus={activeTab === "profile_facts" ? "facts" : "builder"}
           onNavigate={onNavigate}
           onNavigateResume={onTabChange}
         />
@@ -1014,9 +1015,11 @@ function formatPositioningSupportLevel(
 }
 
 function ProfileReferenceView({
+  focus,
   onNavigate,
   onNavigateResume,
 }: {
+  focus: "facts" | "builder";
   onNavigate: (view: View) => void;
   onNavigateResume: (tab: ResumeWorkspaceTab) => void;
 }) {
@@ -1426,99 +1429,105 @@ function ProfileReferenceView({
 
   return (
     <div className="profile-reference">
-      <section className="profile-card">
-        <p className="panel-kicker">Factual snapshot</p>
-        <h2>{profileDisplayName}</h2>
-        <p>{profileSnapshotCopy(resumePrepState)}</p>
-        <div className="profile-card__facts">
-          <span>{profileFacts.email ?? "Email pending"}</span>
-          <span>{profileFacts.phone ?? "Phone pending"}</span>
-          <span>{profileFacts.skills.length ? `${profileFacts.skills.length} skills` : "Skills pending"}</span>
-          <span>{displayedRoleCount ? `${displayedRoleCount} roles` : "Roles pending"}</span>
-        </div>
-      </section>
+      {focus === "facts" ? (
+        <>
+          <section className="profile-card">
+            <p className="panel-kicker">Factual snapshot</p>
+            <h2>{profileDisplayName}</h2>
+            <p>{profileSnapshotCopy(resumePrepState)}</p>
+            <div className="profile-card__facts">
+              <span>{profileFacts.email ?? "Email pending"}</span>
+              <span>{profileFacts.phone ?? "Phone pending"}</span>
+              <span>{profileFacts.skills.length ? `${profileFacts.skills.length} skills` : "Skills pending"}</span>
+              <span>{displayedRoleCount ? `${displayedRoleCount} roles` : "Roles pending"}</span>
+            </div>
+          </section>
 
-      <section className="profile-live-summary" data-state={loadState}>
-        <div className="profile-live-summary__header">
-          <div>
-            <p className="panel-kicker">Profile completeness</p>
-            <h3>
-              {extractionStatus}
-            </h3>
-          </div>
-          <span>{loadState}</span>
-        </div>
-        <div className="profile-live-summary__grid">
-          <article>
-            <span>Contact</span>
-            <strong>{profileFacts.name || profileFacts.email ? "Present" : "Pending"}</strong>
-            <p>{[profileFacts.email, profileFacts.phone].filter(Boolean).join(" · ") || "Name, email, and phone are not fully extracted."}</p>
-          </article>
-          <article>
-            <span>Roles</span>
-            <strong>{displayedRoleCount}</strong>
-            <p>{displayedRoleCount ? "Work history facts exist in the library." : "Work history pending extraction."}</p>
-          </article>
-          <article>
-            <span>Education</span>
-            <strong>{profileFacts.education.length}</strong>
-            <p>{profileFacts.education.length ? "Education facts extracted." : "Education pending extraction."}</p>
-          </article>
-          <article>
-            <span>Skills</span>
-            <strong>{profileFacts.skills.length}</strong>
-            <p>{profileFacts.skills.length ? "Skill signals extracted." : "Skills pending extraction."}</p>
-          </article>
-        </div>
-      </section>
+          <section className="profile-live-summary" data-state={loadState}>
+            <div className="profile-live-summary__header">
+              <div>
+                <p className="panel-kicker">Profile completeness</p>
+                <h3>
+                  {extractionStatus}
+                </h3>
+              </div>
+              <span>{loadState}</span>
+            </div>
+            <div className="profile-live-summary__grid">
+              <article>
+                <span>Contact</span>
+                <strong>{profileFacts.name || profileFacts.email ? "Present" : "Pending"}</strong>
+                <p>{[profileFacts.email, profileFacts.phone].filter(Boolean).join(" · ") || "Name, email, and phone are not fully extracted."}</p>
+              </article>
+              <article>
+                <span>Roles</span>
+                <strong>{displayedRoleCount}</strong>
+                <p>{displayedRoleCount ? "Work history facts exist in the library." : "Work history pending extraction."}</p>
+              </article>
+              <article>
+                <span>Education</span>
+                <strong>{profileFacts.education.length}</strong>
+                <p>{profileFacts.education.length ? "Education facts extracted." : "Education pending extraction."}</p>
+              </article>
+              <article>
+                <span>Skills</span>
+                <strong>{profileFacts.skills.length}</strong>
+                <p>{profileFacts.skills.length ? "Skill signals extracted." : "Skills pending extraction."}</p>
+              </article>
+            </div>
+          </section>
 
-      <section className="profile-fact-grid">
-        <article>
-          <span>Contact facts</span>
-          <strong>{profileFacts.name ?? library?.profile?.displayName ?? (hasExtractedMaterial ? "Pending promotion" : "Pending")}</strong>
-          <p>{[profileFacts.email, profileFacts.phone].filter(Boolean).join(" · ") || "Run resume extraction to populate contact facts."}</p>
-        </article>
-        <article>
-          <span>Roles</span>
-          <strong>{displayedRoleCount ? `${displayedRoleCount} extracted` : "Pending"}</strong>
-          <p>{profileFacts.experience.slice(0, 2).join(" · ") || (displayedRoleCount ? "Work experience records are present in Evidence Library." : "Extract a resume or source document to populate work history.")}</p>
-        </article>
-        <article>
-          <span>Education</span>
-          <strong>{profileFacts.education.length ? `${profileFacts.education.length} entries` : "Pending"}</strong>
-          <p>{profileFacts.education.slice(0, 2).join(" · ") || "Education facts are not extracted yet."}</p>
-        </article>
-        <article>
-          <span>Skills</span>
-          <strong>{profileFacts.skills.length ? `${profileFacts.skills.length} signals` : "Pending"}</strong>
-          <p>{profileFacts.skills.slice(0, 8).join(", ") || "Skills will appear after profile extraction."}</p>
-        </article>
-      </section>
+          <section className="profile-fact-grid">
+            <article>
+              <span>Contact facts</span>
+              <strong>{profileFacts.name ?? library?.profile?.displayName ?? (hasExtractedMaterial ? "Pending promotion" : "Pending")}</strong>
+              <p>{[profileFacts.email, profileFacts.phone].filter(Boolean).join(" · ") || "Run resume extraction to populate contact facts."}</p>
+            </article>
+            <article>
+              <span>Roles</span>
+              <strong>{displayedRoleCount ? `${displayedRoleCount} extracted` : "Pending"}</strong>
+              <p>{profileFacts.experience.slice(0, 2).join(" · ") || (displayedRoleCount ? "Work experience records are present in Evidence Library." : "Extract a resume or source document to populate work history.")}</p>
+            </article>
+            <article>
+              <span>Education</span>
+              <strong>{profileFacts.education.length ? `${profileFacts.education.length} entries` : "Pending"}</strong>
+              <p>{profileFacts.education.slice(0, 2).join(" · ") || "Education facts are not extracted yet."}</p>
+            </article>
+            <article>
+              <span>Skills</span>
+              <strong>{profileFacts.skills.length ? `${profileFacts.skills.length} signals` : "Pending"}</strong>
+              <p>{profileFacts.skills.slice(0, 8).join(", ") || "Skills will appear after profile extraction."}</p>
+            </article>
+          </section>
 
-      <section className="handoff-panel">
-        <div>
-          <p className="panel-kicker">Missing profile areas</p>
-          <h3>{hasExtractedMaterial ? "Improve coverage from Evidence Library." : "Extract source material to populate Profile."}</h3>
-          <p>
-            {hasExtractedMaterial
-              ? `${displayedEvidenceCount} evidence item${displayedEvidenceCount === 1 ? "" : "s"} and ${displayedStoryCount} story target${displayedStoryCount === 1 ? "" : "s"} exist. If facts look thin here, promote or enrich them from Evidence Library.`
-              : "Profile stays read-only until Resume Review or Add Material creates extracted facts."}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() =>
-            resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
-              ? onNavigateResume("intake_review")
-              : onNavigate("evidence")
-          }
-        >
-          {resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
-            ? "Open Resume Review"
-            : "Open Evidence Library"}
-        </button>
-      </section>
+          <section className="handoff-panel">
+            <div>
+              <p className="panel-kicker">Missing profile areas</p>
+              <h3>{hasExtractedMaterial ? "Improve coverage from Evidence Library." : "Extract source material to populate Profile."}</h3>
+              <p>
+                {hasExtractedMaterial
+                  ? `${displayedEvidenceCount} evidence item${displayedEvidenceCount === 1 ? "" : "s"} and ${displayedStoryCount} story target${displayedStoryCount === 1 ? "" : "s"} exist. If facts look thin here, promote or enrich them from Evidence Library.`
+                  : "Profile stays read-only until Resume Review or Add Material creates extracted facts."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
+                  ? onNavigateResume("intake_review")
+                  : onNavigate("evidence")
+              }
+            >
+              {resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
+                ? "Open Resume Review"
+                : "Open Evidence Library"}
+            </button>
+          </section>
+        </>
+      ) : null}
 
+      {focus === "builder" ? (
+        <>
       <section className="positioning-engine">
         <div className="positioning-engine__header">
           <div>
@@ -1994,6 +2003,8 @@ function ProfileReferenceView({
           </section>
         ) : null}
       </section>
+        </>
+      ) : null}
     </div>
   );
 }
