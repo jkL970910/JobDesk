@@ -1064,52 +1064,66 @@ strong,
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.resume-empty-steps--handoff {
+.resume-alternative-path {
   align-items: center;
-  background: rgba(255, 255, 255, 0.026);
-  border: 1px solid var(--line);
-  border-radius: 18px;
+  background: rgba(79, 140, 255, 0.06);
+  border: 1px solid rgba(79, 140, 255, 0.14);
+  border-radius: 16px;
   display: grid;
-  gap: 14px;
+  gap: 16px;
   grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
   overflow: hidden;
-  padding: 14px;
+  padding: 14px 16px;
 }
 
-.resume-empty-steps--handoff article {
-  background: transparent;
-  border: 0;
+.resume-alternative-path > div {
   min-width: 0;
-  padding: 0;
 }
 
-.resume-empty-steps--handoff span {
-  align-items: initial;
-  background: transparent;
-  border-radius: 0;
+.resume-alternative-path span {
   color: var(--primary-strong);
   display: block;
-  font-size: 0.76rem;
-  font-weight: 850;
-  height: auto;
-  justify-content: initial;
+  font-size: 0.72rem;
+  font-weight: 820;
   line-height: 1.2;
-  margin: 0 0 6px;
-  width: auto;
+  margin: 0 0 4px;
 }
 
-.resume-empty-steps--handoff strong,
-.resume-empty-steps--handoff p {
+.resume-alternative-path strong,
+.resume-alternative-path p {
   display: block;
   max-width: 100%;
   overflow-wrap: anywhere;
   text-wrap: pretty;
 }
 
-.resume-empty-steps--handoff button {
+.resume-alternative-path strong {
+  color: var(--ink);
+  font-size: 0.98rem;
+}
+
+.resume-alternative-path p {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 4px 0 0;
+}
+
+.resume-alternative-path button {
   max-width: 100%;
   white-space: normal;
+}
+
+.resume-version-note {
+  background: rgba(255, 255, 255, 0.024);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin-top: 12px;
+  padding: 11px 13px;
 }
 
 .resume-empty-steps article,
@@ -5418,7 +5432,7 @@ select:focus {
 
   .source-controls,
   .resume-source-picker,
-  .resume-empty-steps--handoff,
+  .resume-alternative-path,
   .review-handoff,
   .inline-editor__grid,
   .overlap-project-grid,

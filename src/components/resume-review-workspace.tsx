@@ -357,14 +357,14 @@ export function ResumeReviewWorkspace({
         <span className={error ? "status status--error" : "status"}>{error ?? status}</span>
         {parseStatus ? <ResumeParseStatusCard status={parseStatus} /> : null}
         {!selectedResume && !isUploading ? (
-          <section className="resume-empty-steps resume-empty-steps--handoff" aria-label="No resume path">
-            <article>
+          <section className="resume-alternative-path" aria-label="No resume path">
+            <div>
               <span>Alternative path</span>
               <strong>No resume yet? Build Evidence Library directly.</strong>
               <p>
                 Use guided project questions, work notes, or performance summaries to create reusable evidence without uploading a resume first.
               </p>
-            </article>
+            </div>
             <button
               className="secondary-button"
               type="button"
@@ -482,8 +482,8 @@ export function ResumeReviewWorkspace({
             ))}
           </div>
         ) : (
-          <div className="empty-state empty-state--compact">
-            No resume versions yet. Upload a PDF, DOCX, TXT, or Markdown resume.
+          <div className="resume-version-note">
+            No reviewed resume versions yet. Your uploaded resume will appear here after review.
           </div>
         )}
       </div>
