@@ -227,21 +227,26 @@ strong,
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.055);
   border-radius: 18px;
-  display: grid;
+  display: flex;
   gap: 3px;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
   justify-self: center;
-  max-width: 760px;
+  max-width: 940px;
+  overflow-x: auto;
   padding: 4px;
+  scrollbar-width: none;
   width: 100%;
 }
 
-.app-topnav__item,
-.quiet-nav-button {
+.app-topnav::-webkit-scrollbar {
+  display: none;
+}
+
+.app-topnav__item {
   background: transparent;
   border: 1px solid transparent;
   border-radius: 14px;
   color: var(--muted);
+  flex: 1 0 118px;
   min-width: 0;
   padding: 9px 11px;
   text-align: left;
@@ -257,9 +262,7 @@ strong,
 }
 
 .app-topnav__item:hover,
-.app-topnav__item[data-active="true"],
-.quiet-nav-button:hover,
-.quiet-nav-button[data-active="true"] {
+.app-topnav__item[data-active="true"] {
   background: rgba(79, 140, 255, 0.13);
   border-color: rgba(79, 140, 255, 0.22);
   color: var(--ink);
@@ -271,14 +274,6 @@ strong,
   display: flex;
   gap: 8px;
   justify-content: flex-end;
-}
-
-.quiet-nav-button {
-  color: var(--ink-soft);
-  font-size: 0.82rem;
-  font-weight: 760;
-  padding: 11px 13px;
-  text-align: center;
 }
 
 .account-menu {
@@ -5318,9 +5313,6 @@ select:focus {
 
   .app-topnav {
     grid-column: 1 / -1;
-    grid-auto-columns: minmax(128px, max-content);
-    grid-auto-flow: column;
-    grid-template-columns: none;
     overflow-x: auto;
     justify-self: stretch;
     max-width: none;
@@ -5334,11 +5326,6 @@ select:focus {
   .app-topbar__actions {
     align-self: center;
     justify-content: flex-end;
-  }
-
-  .quiet-nav-button {
-    min-height: 40px;
-    padding: 9px 11px;
   }
 
   .app-content__header {

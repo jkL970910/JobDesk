@@ -191,6 +191,7 @@ const topNavItems: Array<{ id: View; label: string; description: string }> = [
   { id: "profile", label: "Resume", description: "Builder & export" },
   { id: "evidence", label: "Evidence", description: "Reusable proof" },
   { id: "jobs", label: "Jobs", description: "Target applications" },
+  { id: "applications", label: "Applications", description: "Pipeline" },
   { id: "interview", label: "Interview", description: "Practice packs" },
 ];
 
@@ -355,14 +356,6 @@ export default function HomePage() {
           </nav>
 
           <div className="app-topbar__actions">
-            <button
-              className="quiet-nav-button"
-              data-active={activeView === "applications"}
-              onClick={() => navigateToView("applications")}
-              type="button"
-            >
-              Applications
-            </button>
             <AccountMenu onNavigateSettings={() => navigateToView("settings")} />
           </div>
         </header>
