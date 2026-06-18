@@ -6,6 +6,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type FormEvent,
   type ReactNode,
 } from "react";
 
@@ -16,8 +17,10 @@ type AuthUser = {
 };
 
 type AccessContextValue = {
+  accountAuthConfigured: boolean;
   configured: boolean;
   fetchJson: typeof fetch;
+  logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   setToken: (token: string) => void;
   token: string;
@@ -82,27 +85,35 @@ export function AccessProvider({
       return fetch(input, { ...init, credentials: "include", headers });
     };
 
-    return { configured, fetchJson, refreshUser, setToken, token, user };
-  }, [configured, token, user]);
+    async function logout() {
+      await fetch("/api/auth/logout", { credentials: "include", method: "POST" });
+      await refreshUser();
+    }
+
+    return {
+      accountAuthConfigured,
+      configured,
+      fetchJson,
+      logout,
+      refreshUser,
+      setToken,
+      token,
+      user,
+    };
+  }, [accountAuthConfigured, configured, token, user]);
 
   return (
     <AccessContext.Provider value={value}>
       {accountAuthConfigured ? (
         user ? (
-          <>
-            <AccountPanel />
-            {children}
-          </>
+          children
         ) : authLoading ? (
           <AuthShell title="Loading account..." />
         ) : (
           <AuthPanel />
         )
       ) : (
-        <>
-          {configured ? <LegacyAccessPanel /> : null}
-          {children}
-        </>
+        children
       )}
     </AccessContext.Provider>
   );
@@ -201,48 +212,97 @@ function AuthPanel() {
   );
 }
 
-function AccountPanel() {
-  const { refreshUser, user } = useAccess();
+export function AccountMenu({
+  onNavigateSettings,
+}: {
+  onNavigateSettings: () => void;
+}) {
+  const { accountAuthConfigured, configured, logout, setToken, token, user } = useAccess();
+  const [open, setOpen] = useState(false);
+  const displayName = user?.displayName || user?.email || "Workspace";
+  const initials = makeInitials(displayName);
 
-  async function logout() {
-    await fetch("/api/auth/logout", { credentials: "include", method: "POST" });
-    await refreshUser();
+  function submitLegacyToken(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setOpen(false);
   }
 
   return (
-    <div className="access-panel">
-      <div>
-        <span>Signed in</span>
-        <strong>{user?.displayName || user?.email}</strong>
-      </div>
-      <div className="access-panel__actions">
-        <button className="secondary-button" type="button" onClick={() => void logout()}>
-          Sign out
-        </button>
-      </div>
+    <div className="account-menu">
+      <button
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label="Open account menu"
+        className="account-menu__trigger"
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        <span aria-hidden="true">{initials}</span>
+      </button>
+      {open ? (
+        <div className="account-menu__popover" role="menu">
+          <div className="account-menu__identity">
+            <span aria-hidden="true">{initials}</span>
+            <div>
+              <strong>{displayName}</strong>
+              <p>{accountAuthConfigured ? user?.email : "Legacy private access"}</p>
+            </div>
+          </div>
+          {!accountAuthConfigured && configured ? (
+            <form className="account-menu__token" onSubmit={submitLegacyToken}>
+              <label>
+                <span>Access token</span>
+                <input
+                  onChange={(event) => setToken(event.target.value)}
+                  placeholder="Private workspace token"
+                  type="password"
+                  value={token}
+                />
+              </label>
+              <button className="secondary-button secondary-button--quiet" type="submit">
+                Save
+              </button>
+            </form>
+          ) : null}
+          <button
+            className="account-menu__item"
+            onClick={() => {
+              setOpen(false);
+              onNavigateSettings();
+            }}
+            role="menuitem"
+            type="button"
+          >
+            Settings
+          </button>
+          {accountAuthConfigured ? (
+            <button
+              className="account-menu__item account-menu__item--danger"
+              onClick={() => {
+                setOpen(false);
+                void logout();
+              }}
+              role="menuitem"
+              type="button"
+            >
+              Sign out
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function LegacyAccessPanel() {
-  const { setToken, token } = useAccess();
-  return (
-    <div className="access-panel access-panel--legacy">
-      <div>
-        <span>Private access</span>
-        <strong>Workspace access token</strong>
-      </div>
-      <label>
-        <span>Token</span>
-        <input
-          onChange={(event) => setToken(event.target.value)}
-          placeholder="Enter private workspace token"
-          type="password"
-          value={token}
-        />
-      </label>
-    </div>
-  );
+function makeInitials(value: string) {
+  const parts = value
+    .replace(/@.+$/, "")
+    .split(/[\s._-]+/)
+    .filter(Boolean);
+  const letters = parts.length > 1
+    ? `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`
+    : value.slice(0, 2);
+  return letters.toUpperCase();
 }
 
 function AuthShell({

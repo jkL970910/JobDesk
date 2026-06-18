@@ -11,7 +11,7 @@ import {
 } from "../src/components/profile-evidence-workspace";
 import { ResumeReviewWorkspace } from "../src/components/resume-review-workspace";
 import { TailoredResumeWorkspace } from "../src/components/tailored-resume-workspace";
-import { useAccess } from "../src/components/access-provider";
+import { AccountMenu, useAccess } from "../src/components/access-provider";
 
 type View =
   | "dashboard"
@@ -188,7 +188,7 @@ const hashViewMap = Object.fromEntries(
 const topNavItems: Array<{ id: View; label: string; description: string }> = [
   { id: "dashboard", label: "Dashboard", description: "Current next step" },
   { id: "resumeReview", label: "Review", description: "Resume intake" },
-  { id: "profile", label: "Profile", description: "Resume builder" },
+  { id: "profile", label: "Resume", description: "Builder & export" },
   { id: "evidence", label: "Evidence", description: "Reusable proof" },
   { id: "jobs", label: "Jobs", description: "Target applications" },
   { id: "interview", label: "Interview", description: "Practice packs" },
@@ -363,14 +363,7 @@ export default function HomePage() {
             >
               Applications
             </button>
-            <button
-              className="quiet-nav-button"
-              data-active={activeView === "settings"}
-              onClick={() => navigateToView("settings")}
-              type="button"
-            >
-              Settings
-            </button>
+            <AccountMenu onNavigateSettings={() => navigateToView("settings")} />
           </div>
         </header>
 
