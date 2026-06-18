@@ -16,7 +16,6 @@ import { AccountMenu, useAccess } from "../src/components/access-provider";
 type View =
   | "dashboard"
   | "profile"
-  | "resumeReview"
   | "evidence"
   | "jobs"
   | "applications"
@@ -167,6 +166,16 @@ type ResumePrepWorkflowState =
   | "profile_ready";
 
 type MaterialReviewTab = "enrichment" | "projects" | "unlinked" | "cleanup" | "stories";
+type ResumeWorkspaceTab = "intake_review" | "profile_facts" | "build_export";
+type DashboardNextAction = {
+  detail: string;
+  label: string;
+  resumeTab?: ResumeWorkspaceTab;
+  secondaryLabel?: string | null;
+  secondaryTarget?: MaterialEntryIntent | null;
+  title: string;
+  view: View;
+};
 
 const viewHashMap = {
   applications: "applications",
@@ -177,7 +186,6 @@ const viewHashMap = {
   jobs: "jobs",
   profile: "profile",
   recommendations: "recommendations",
-  resumeReview: "resume-review",
   settings: "settings",
 } satisfies Record<View, string>;
 
@@ -187,8 +195,7 @@ const hashViewMap = Object.fromEntries(
 
 const topNavItems: Array<{ id: View; label: string; description: string }> = [
   { id: "dashboard", label: "Dashboard", description: "Current next step" },
-  { id: "resumeReview", label: "Review", description: "Resume intake" },
-  { id: "profile", label: "Resume", description: "Builder & export" },
+  { id: "profile", label: "Resume", description: "Intake to export" },
   { id: "evidence", label: "Evidence", description: "Reusable proof" },
   { id: "jobs", label: "Jobs", description: "Target applications" },
   { id: "applications", label: "Applications", description: "Pipeline" },
@@ -203,16 +210,10 @@ const pageCopy = {
       "Your job-search command center: prepare material, create job workspaces, tailor resumes, prep interviews, and track outcomes.",
   },
   profile: {
-    eyebrow: "Career Identity",
-    title: "Profile & Resume",
+    eyebrow: "Resume Workspace",
+    title: "Resume",
     subtitle:
-      "Your factual career skeleton plus the place to generate, refresh, and export main resume versions.",
-  },
-  resumeReview: {
-    eyebrow: "General Resume",
-    title: "Resume Review",
-    subtitle:
-      "Upload, score, and version a general resume before extracting reusable evidence into the material library.",
+      "Upload and review old resumes, inspect profile facts, generate variants, and export final resume artifacts.",
   },
   evidence: {
     eyebrow: "Material Library",
@@ -266,6 +267,12 @@ export default function HomePage() {
     useState<"review" | "intake">("review");
   const [materialReviewTab, setMaterialReviewTab] =
     useState<MaterialReviewTab>("enrichment");
+  const [resumeWorkspaceTab, setResumeWorkspaceTab] =
+    useState<ResumeWorkspaceTab>(() =>
+      typeof window !== "undefined" && window.location.hash.replace(/^#\/?/, "") === "resume-review"
+        ? "intake_review"
+        : "build_export",
+    );
   const [selectedResumeSourceVersionId, setSelectedResumeSourceVersionId] =
     useState<string | null>(null);
   const activeCopy = pageCopy[activeView];
@@ -273,6 +280,8 @@ export default function HomePage() {
   useEffect(() => {
     syncLocationHash(activeView, "replace");
     function handleHistoryChange() {
+      const hash = window.location.hash.replace(/^#\/?/, "");
+      if (hash === "resume-review") setResumeWorkspaceTab("intake_review");
       setActiveView(getViewFromLocationHash());
     }
     window.addEventListener("hashchange", handleHistoryChange);
@@ -290,7 +299,7 @@ export default function HomePage() {
 
   function navigateToMaterial(intent: MaterialEntryIntent) {
     if (intent === "resume") {
-      setAppView("resumeReview");
+      navigateToResume("intake_review");
       return;
     }
     if (intent === "jd") {
@@ -320,6 +329,10 @@ export default function HomePage() {
       setMaterialReviewTab("enrichment");
     }
     setAppView(view);
+  }
+  function navigateToResume(tab: ResumeWorkspaceTab = "build_export") {
+    setResumeWorkspaceTab(tab);
+    setAppView("profile");
   }
 
   return (
@@ -373,16 +386,17 @@ export default function HomePage() {
             {activeView === "dashboard" ? (
               <DashboardView
                 onNavigate={setAppView}
+                onNavigateResume={navigateToResume}
                 onStartMaterialPath={navigateToMaterial}
               />
             ) : null}
             {activeView === "profile" ? (
-              <ProfileReferenceView onNavigate={setAppView} />
-            ) : null}
-            {activeView === "resumeReview" ? (
-              <ResumeReviewWorkspace
-                onExtractToEvidence={extractResumeToEvidence}
+              <ResumeWorkspaceView
+                activeTab={resumeWorkspaceTab}
+                onExtractResumeToEvidence={extractResumeToEvidence}
+                onNavigate={setAppView}
                 onOpenEvidenceReview={openEvidenceReview}
+                onTabChange={setResumeWorkspaceTab}
               />
             ) : null}
             {activeView === "evidence" ? (
@@ -428,9 +442,11 @@ export default function HomePage() {
 
 function DashboardView({
   onNavigate,
+  onNavigateResume,
   onStartMaterialPath,
 }: {
   onNavigate: (view: View) => void;
+  onNavigateResume: (tab: ResumeWorkspaceTab) => void;
   onStartMaterialPath: (intent: MaterialEntryIntent) => void;
 }) {
   const { fetchJson } = useAccess();
@@ -520,11 +536,12 @@ function DashboardView({
     latestResume,
     state: resumePrepState,
   });
-  const displayNextAction =
+  const displayNextAction: DashboardNextAction =
     dashboardLoadState === "loading"
       ? {
           detail: "Checking Resume Review and Evidence Library before recommending the next action.",
           label: "Loading workspace",
+          resumeTab: undefined,
           secondaryLabel: null,
           secondaryTarget: null,
           title: "Loading workspace state.",
@@ -606,7 +623,7 @@ function DashboardView({
       action: "Create or update",
       body:
         "Generate main resumes, positioning variants, refresh an old resume, review versions, and export final artifacts.",
-      target: () => onNavigate("profile"),
+      target: () => onNavigateResume("build_export"),
       title: "Create or Update My Resume",
     },
     {
@@ -632,7 +649,7 @@ function DashboardView({
       label: "Resume review",
       metric: latestResume?.latestReview ? `Score ${latestResume.latestReview.overallScore}` : latestResume ? "Saved" : "Optional",
       state: latestResume?.latestReview || hasExtractedMaterial ? "complete" : latestResume ? "active" : "blocked",
-      target: () => onNavigate("resumeReview"),
+      target: () => onNavigateResume("intake_review"),
     },
     {
       action: "Open evidence",
@@ -658,7 +675,7 @@ function DashboardView({
       label: "Main resume",
       metric: resumeReadyClaims > 0 ? "Ready" : "Blocked",
       state: resumeReadyClaims > 0 ? "active" : "blocked",
-      target: () => onNavigate("profile"),
+      target: () => onNavigateResume("build_export"),
     },
   ];
   const downstreamWorkflows = [
@@ -696,20 +713,28 @@ function DashboardView({
             <button
               disabled={dashboardLoadState === "loading"}
               type="button"
-              onClick={() => onNavigate(displayNextAction.view)}
+              onClick={() =>
+                displayNextAction.resumeTab
+                  ? onNavigateResume(displayNextAction.resumeTab)
+                  : onNavigate(displayNextAction.view)
+              }
             >
               {displayNextAction.label}
             </button>
-            {displayNextAction.secondaryLabel && displayNextAction.secondaryTarget ? (
-              <button
-                className="next-action-card__secondary"
-                disabled={dashboardLoadState === "loading"}
-                type="button"
-                onClick={() => onStartMaterialPath(displayNextAction.secondaryTarget)}
-              >
-                {displayNextAction.secondaryLabel}
-              </button>
-            ) : null}
+            {(() => {
+              const secondaryTarget = displayNextAction.secondaryTarget;
+              if (!displayNextAction.secondaryLabel || !secondaryTarget) return null;
+              return (
+                <button
+                  className="next-action-card__secondary"
+                  disabled={dashboardLoadState === "loading"}
+                  type="button"
+                  onClick={() => onStartMaterialPath(secondaryTarget)}
+                >
+                  {displayNextAction.secondaryLabel}
+                </button>
+              );
+            })()}
           </div>
         </article>
 
@@ -784,7 +809,7 @@ function determineDashboardNextAction({
 }: {
   latestResume: ResumeReviewSummary | null;
   state: ResumePrepWorkflowState;
-}) {
+}): DashboardNextAction {
   if (state === "no_resume") {
     return {
       detail: "Use a resume if you have one. If not, build the Evidence Library directly from guided project answers, work notes, or performance summaries.",
@@ -792,7 +817,8 @@ function determineDashboardNextAction({
       secondaryLabel: "No resume? Build evidence directly",
       secondaryTarget: "scratch" as MaterialEntryIntent,
       title: "Start from your strongest source material.",
-      view: "resumeReview" as View,
+      resumeTab: "intake_review" as ResumeWorkspaceTab,
+      view: "profile" as View,
     };
   }
   if (state === "resume_uploaded") {
@@ -800,7 +826,8 @@ function determineDashboardNextAction({
       detail: `${latestResume ? formatResumeTitle(latestResume.title) : "The resume"} is saved but still needs review findings.`,
       label: "Review Findings",
       title: "Review the saved resume.",
-      view: "resumeReview" as View,
+      resumeTab: "intake_review" as ResumeWorkspaceTab,
+      view: "profile" as View,
     };
   }
   if (state === "resume_reviewed") {
@@ -808,7 +835,8 @@ function determineDashboardNextAction({
       detail: "The resume is reviewed. Continue to Evidence to create reusable claims and story targets.",
       label: "Continue to Evidence",
       title: "Turn this review into reusable evidence.",
-      view: "resumeReview" as View,
+      resumeTab: "intake_review" as ResumeWorkspaceTab,
+      view: "profile" as View,
     };
   }
   if (state === "claims_review_pending" || state === "evidence_extracted") {
@@ -898,6 +926,72 @@ function hasExternalSafeDisclosure(item: {
   return item.sensitivity_level === "public_safe" || Boolean(item.public_safe_summary?.trim());
 }
 
+function ResumeWorkspaceView({
+  activeTab,
+  onExtractResumeToEvidence,
+  onNavigate,
+  onOpenEvidenceReview,
+  onTabChange,
+}: {
+  activeTab: ResumeWorkspaceTab;
+  onExtractResumeToEvidence: (resumeSourceVersionId: string) => void;
+  onNavigate: (view: View) => void;
+  onOpenEvidenceReview: (tab?: MaterialReviewTab) => void;
+  onTabChange: (tab: ResumeWorkspaceTab) => void;
+}) {
+  const tabs = [
+    {
+      body: "Upload old resumes, parse source text, score quality, and send useful material to Evidence.",
+      id: "intake_review",
+      label: "Intake & Review",
+    },
+    {
+      body: "Inspect the factual career snapshot built from reviewed resumes and Evidence Library material.",
+      id: "profile_facts",
+      label: "Profile Facts",
+    },
+    {
+      body: "Generate main resumes, refresh old versions, review claim support, and export final artifacts.",
+      id: "build_export",
+      label: "Build & Export",
+    },
+  ] satisfies Array<{ body: string; id: ResumeWorkspaceTab; label: string }>;
+
+  return (
+    <div className="resume-workspace">
+      <div className="resume-workspace__tabs" role="tablist" aria-label="Resume workspace sections">
+        {tabs.map((tab) => (
+          <button
+            aria-selected={activeTab === tab.id}
+            className="resume-workspace__tab"
+            data-active={activeTab === tab.id}
+            key={tab.id}
+            onClick={() => onTabChange(tab.id)}
+            role="tab"
+            type="button"
+          >
+            <span>{tab.label}</span>
+            <small>{tab.body}</small>
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "intake_review" ? (
+        <ResumeReviewWorkspace
+          onExtractToEvidence={onExtractResumeToEvidence}
+          onOpenEvidenceReview={onOpenEvidenceReview}
+        />
+      ) : null}
+      {activeTab === "profile_facts" || activeTab === "build_export" ? (
+        <ProfileReferenceView
+          onNavigate={onNavigate}
+          onNavigateResume={onTabChange}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function formatResumePrepState(state: ResumePrepWorkflowState) {
   const copy = {
     claims_review_pending: "Claims review pending",
@@ -919,7 +1013,13 @@ function formatPositioningSupportLevel(
   return "Aspirational / evidence gap";
 }
 
-function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void }) {
+function ProfileReferenceView({
+  onNavigate,
+  onNavigateResume,
+}: {
+  onNavigate: (view: View) => void;
+  onNavigateResume: (tab: ResumeWorkspaceTab) => void;
+}) {
   const { fetchJson } = useAccess();
   const [library, setLibrary] = useState<EvidenceLibrarySummary | null>(null);
   const [resumes, setResumes] = useState<ResumeReviewSummary[]>([]);
@@ -1407,7 +1507,11 @@ function ProfileReferenceView({ onNavigate }: { onNavigate: (view: View) => void
         </div>
         <button
           type="button"
-          onClick={() => onNavigate(resumePrepState === "no_resume" || resumePrepState === "resume_uploaded" ? "resumeReview" : "evidence")}
+          onClick={() =>
+            resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
+              ? onNavigateResume("intake_review")
+              : onNavigate("evidence")
+          }
         >
           {resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
             ? "Open Resume Review"
@@ -2230,6 +2334,7 @@ function formatDateTime(value: string | null) {
 function getViewFromLocationHash(): View {
   if (typeof window === "undefined") return "dashboard";
   const hash = window.location.hash.replace(/^#\/?/, "");
+  if (hash === "resume-review") return "profile";
   return hashViewMap[hash] ?? "dashboard";
 }
 

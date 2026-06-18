@@ -280,6 +280,53 @@ strong,
   position: relative;
 }
 
+.resume-workspace {
+  display: grid;
+  gap: 18px;
+}
+
+.resume-workspace__tabs {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 6px;
+}
+
+.resume-workspace__tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  color: var(--muted);
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.resume-workspace__tab:hover,
+.resume-workspace__tab[data-active="true"] {
+  background: rgba(79, 140, 255, 0.12);
+  border-color: rgba(79, 140, 255, 0.22);
+  color: var(--ink);
+}
+
+.resume-workspace__tab span {
+  color: inherit;
+  font-size: 0.92rem;
+  font-weight: 820;
+  letter-spacing: -0.01em;
+}
+
+.resume-workspace__tab small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
 .account-menu__trigger {
   align-items: center;
   background: linear-gradient(135deg, rgba(79, 140, 255, 0.22), rgba(255, 255, 255, 0.06));
@@ -5331,6 +5378,10 @@ select:focus {
   .app-content__header {
     display: grid;
     padding: 18px 4px 4px;
+  }
+
+  .resume-workspace__tabs {
+    grid-template-columns: 1fr;
   }
 
   .app-content__body {
