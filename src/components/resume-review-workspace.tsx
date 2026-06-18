@@ -1414,9 +1414,11 @@ function formatParseWarning(warning: string) {
   const copy: Record<string, string> = {
     formatting_not_preserved: "Formatting is not preserved; review section breaks before extraction.",
     low_text_density: "Extracted text is short; the source may be incomplete.",
+    low_text_quality: "Text was extracted, but quality is lower than expected; review the parsed content.",
     low_word_count: "Extracted word count is low for AI review.",
     possible_header_footer_noise: "Repeated header/footer text may add noise.",
     possible_scanned_pdf: "This PDF appears image-based or does not expose selectable text.",
+    pdf_text_content_fallback_used: "A secondary PDF text extractor was used for this file.",
     replacement_characters_detected: "Some unreadable replacement characters were found.",
     text_extraction_failed: "No reliable text layer could be extracted.",
   };

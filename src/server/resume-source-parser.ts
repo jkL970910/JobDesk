@@ -13,6 +13,18 @@ const importRuntimeModule = new Function(
   "return import(specifier)",
 ) as <T>(specifier: string) => Promise<T>;
 
+type PdfParseInstance = {
+  getText: (params?: PdfParseParams) => Promise<unknown>;
+};
+
+type PdfParseParams = {
+  cellSeparator?: string;
+  disableNormalization?: boolean;
+  itemJoiner?: string;
+  lineEnforce?: boolean;
+  pageJoiner?: string;
+};
+
 export const resumeSourceMaxBytes = 8 * 1024 * 1024;
 export const sourceParserName = "jobdesk-source-parser" as const;
 export const sourceParserVersion = "document-lifecycle-v1" as const;
@@ -27,6 +39,14 @@ export type ParseQuality = {
   warnings: string[];
 };
 
+export type ParseAttempt = {
+  extractor: "pdf-parse" | "pdfjs-text-content";
+  status: "success" | "failed";
+  charCount: number;
+  warnings: string[];
+  errorKind?: string;
+};
+
 export type ResumeSourceParseResult = {
   sourceTitle: string;
   sourceText: string;
@@ -38,6 +58,7 @@ export type ResumeSourceParseResult = {
   originalFilename: string;
   mimeType?: string;
   fileSizeBytes: number;
+  parseAttempts?: ParseAttempt[];
 };
 
 export class ResumeSourceParseError extends Error {
@@ -48,6 +69,7 @@ export class ResumeSourceParseError extends Error {
       | "file_too_large"
       | "unsupported_file_type"
       | "encrypted_or_unreadable_pdf"
+      | "parser_failed"
       | "no_readable_text",
     readonly parseQuality?: ParseQuality,
   ) {
@@ -146,19 +168,42 @@ async function parsePdf(args: {
   filename?: string;
   mimeType?: string;
 }): Promise<ResumeSourceParseResult> {
+  const attempts: ParseAttempt[] = [];
   try {
     const { PDFParse } =
       await importRuntimeModule<typeof import("pdf-parse")>(pdfParseModuleUrl);
     PDFParse.setWorker(pdfParseWorkerUrl);
     const parser = new PDFParse({ data: args.buffer });
     try {
-      const result = await parser.getText();
-      const sourceText = normalizeExtractedText(result.text);
-      const pageCount = extractPdfPageCount(result);
-      const quality = buildParseQuality(sourceText, { pageCount, sourceKind: "pdf" });
-      if (quality.status === "failed") {
+      const primary = await parsePdfWithGetText(parser, {
+        extractor: "pdf-parse",
+      });
+      attempts.push(primary.attempt);
+      let selected = primary;
+
+      if (shouldTryPdfTextContentFallback(primary.quality)) {
+        const fallback = await parsePdfWithGetText(parser, {
+          extractor: "pdfjs-text-content",
+          params: {
+            cellSeparator: " ",
+            itemJoiner: " ",
+            lineEnforce: false,
+            pageJoiner: "",
+          },
+          warning: "pdf_text_content_fallback_used",
+        });
+        attempts.push(fallback.attempt);
+        if (isBetterPdfExtraction(fallback.quality, primary.quality)) {
+          selected = fallback;
+        }
+      }
+
+      const quality = selected.quality;
+      if (quality.status === "failed" || quality.status === "needs_ocr") {
         throw new ResumeSourceParseError(
-          "PDF source file does not contain enough readable text.",
+          quality.status === "needs_ocr"
+            ? "PDF source file appears to have too little extractable text. It may need OCR or a pasted text version."
+            : "PDF source file does not contain enough readable text.",
           "no_readable_text",
           quality,
         );
@@ -171,21 +216,80 @@ async function parsePdf(args: {
         ),
         sourceTitle: args.sourceTitle,
         sourceKind: "pdf",
-        sourceText,
+        sourceText: selected.sourceText,
         warnings: quality.warnings,
         parseQuality: quality,
+        parseAttempts: attempts,
       };
     } finally {
       await parser.destroy();
     }
   } catch (error) {
     if (error instanceof ResumeSourceParseError) throw error;
-    const fallbackQuality = buildParseQuality("", { sourceKind: "pdf" });
+    attempts.push({
+      extractor: "pdf-parse",
+      status: "failed",
+      charCount: 0,
+      warnings: ["parser_failed"],
+      errorKind: classifyPdfParseError(error),
+    });
+    const fallbackQuality = buildParseQuality("", {
+      sourceKind: "pdf",
+      warnings: ["parser_failed"],
+    });
     throw new ResumeSourceParseError(
-      "Could not parse this PDF. It may use an unsupported PDF structure, be damaged, or require a password. Export it to DOCX/text, or paste the resume text manually.",
-      "encrypted_or_unreadable_pdf",
+      "Could not parse this PDF with the available text extractors. It may use an unsupported PDF structure, be damaged, or require a password. Export it to DOCX/text, or paste the resume text manually.",
+      classifyPdfParseError(error) === "password_required"
+        ? "encrypted_or_unreadable_pdf"
+        : "parser_failed",
       fallbackQuality,
     );
+  }
+}
+
+async function parsePdfWithGetText(
+  parser: PdfParseInstance,
+  options: {
+    extractor: ParseAttempt["extractor"];
+    params?: PdfParseParams;
+    warning?: string;
+  },
+) {
+  try {
+    const result = await parser.getText(options.params);
+    const sourceText = normalizeExtractedText(getPdfTextResultText(result));
+    const pageCount = extractPdfPageCount(result);
+    const quality = buildParseQuality(sourceText, {
+      pageCount,
+      sourceKind: "pdf",
+      warnings: options.warning ? [options.warning] : undefined,
+    });
+    return {
+      sourceText,
+      quality,
+      attempt: {
+        extractor: options.extractor,
+        status: "success",
+        charCount: quality.charCount,
+        warnings: quality.warnings,
+      } satisfies ParseAttempt,
+    };
+  } catch (error) {
+    const quality = buildParseQuality("", {
+      sourceKind: "pdf",
+      warnings: ["parser_failed"],
+    });
+    return {
+      sourceText: "",
+      quality,
+      attempt: {
+        extractor: options.extractor,
+        status: "failed",
+        charCount: 0,
+        warnings: quality.warnings,
+        errorKind: classifyPdfParseError(error),
+      } satisfies ParseAttempt,
+    };
   }
 }
 
@@ -278,26 +382,20 @@ export function buildParseQuality(
   const warnings = [...(options.warnings ?? [])];
   const replacementCount = (sourceText.match(/\uFFFD/g) ?? []).length;
 
-  if (
-    options.sourceKind === "pdf" &&
-    typeof options.pageCount === "number" &&
-    options.pageCount > 0 &&
-    (charCount < 300 || wordCount < 80)
-  ) {
-    if (charCount < 20) warnings.push("text_extraction_failed");
-    if (charCount < 300) warnings.push("low_text_density");
-    if (wordCount < 80) warnings.push("low_word_count");
-    warnings.push("possible_scanned_pdf");
-    return {
-      status: "needs_ocr",
-      charCount,
-      wordCount,
-      pageCount: options.pageCount,
-      warnings: uniqueWarnings(warnings),
-    };
-  }
-
   if (charCount < 20) {
+    if (options.sourceKind === "pdf" && typeof options.pageCount === "number" && options.pageCount > 0) {
+      return {
+        status: "needs_ocr",
+        charCount,
+        wordCount,
+        pageCount: options.pageCount,
+        warnings: uniqueWarnings([
+          ...warnings,
+          "text_extraction_failed",
+          "possible_scanned_pdf",
+        ]),
+      };
+    }
     return {
       status: "failed",
       charCount,
@@ -309,6 +407,14 @@ export function buildParseQuality(
 
   if (charCount < 300) warnings.push("low_text_density");
   if (wordCount < 80) warnings.push("low_word_count");
+  if (
+    options.sourceKind === "pdf" &&
+    typeof options.pageCount === "number" &&
+    options.pageCount > 0 &&
+    (charCount < 300 || wordCount < 80)
+  ) {
+    warnings.push("low_text_quality");
+  }
   if (replacementCount > Math.max(3, charCount * 0.01)) {
     warnings.push("replacement_characters_detected");
   }
@@ -331,6 +437,34 @@ function uniqueWarnings(warnings: string[]) {
   return [...new Set(warnings.filter(Boolean))];
 }
 
+function shouldTryPdfTextContentFallback(quality: ParseQuality) {
+  return (
+    quality.status === "failed" ||
+    quality.status === "needs_ocr" ||
+    quality.warnings.includes("low_text_quality") ||
+    quality.warnings.includes("parser_failed")
+  );
+}
+
+function isBetterPdfExtraction(candidate: ParseQuality, current: ParseQuality) {
+  if (candidate.status === "failed") return false;
+  if (current.status === "failed") return true;
+  if (current.status === "needs_ocr" && candidate.status !== "needs_ocr") return true;
+  return candidate.charCount > current.charCount * 1.25 && candidate.wordCount >= current.wordCount;
+}
+
+function classifyPdfParseError(error: unknown) {
+  const name = error instanceof Error ? error.name.toLowerCase() : "";
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  if (name.includes("password") || message.includes("password") || message.includes("encrypted")) {
+    return "password_required";
+  }
+  if (name.includes("invalid") || message.includes("invalid pdf") || message.includes("damaged")) {
+    return "invalid_pdf";
+  }
+  return "unsupported_pdf_structure";
+}
+
 function hasRepeatedLineNoise(text: string) {
   const counts = new Map<string, number>();
   for (const line of text.split("\n")) {
@@ -339,6 +473,12 @@ function hasRepeatedLineNoise(text: string) {
     counts.set(normalized, (counts.get(normalized) ?? 0) + 1);
   }
   return [...counts.values()].some((count) => count >= 4);
+}
+
+function getPdfTextResultText(result: unknown) {
+  if (!result || typeof result !== "object") return "";
+  const text = (result as { text?: unknown }).text;
+  return typeof text === "string" ? text : "";
 }
 
 function extractPdfPageCount(result: unknown) {

@@ -93,14 +93,15 @@ describe("resume source parser", () => {
     );
   });
 
-  it("marks low-density PDF text as needing OCR", () => {
+  it("marks low-density PDF text as a quality warning before OCR", () => {
     const quality = buildParseQuality("Jane Doe resume text with some visible words", {
       pageCount: 2,
       sourceKind: "pdf",
     });
 
-    expect(quality.status).toBe("needs_ocr");
-    expect(quality.warnings).toContain("possible_scanned_pdf");
+    expect(quality.status).toBe("warning");
+    expect(quality.warnings).toContain("low_text_quality");
+    expect(quality.warnings).not.toContain("possible_scanned_pdf");
   });
 
   it("marks PDF pages with no extracted text as needing OCR instead of password protection", () => {
