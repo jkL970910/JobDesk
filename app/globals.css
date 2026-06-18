@@ -453,6 +453,7 @@ strong,
   box-shadow: none;
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .next-action-card button {
@@ -463,7 +464,9 @@ strong,
   font-weight: 880;
   justify-self: flex-start;
   margin-top: 4px;
+  max-width: 100%;
   padding: 10px 14px;
+  white-space: normal;
 }
 
 .next-action-card__actions {
@@ -471,6 +474,7 @@ strong,
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  min-width: 0;
 }
 
 .next-action-card .next-action-card__secondary {
@@ -699,13 +703,20 @@ strong,
   border-radius: var(--radius);
   display: grid;
   gap: 8px;
+  min-width: 0;
+  overflow: hidden;
   padding: 14px;
 }
 
 .entry-path-board span {
   color: var(--ink);
+  display: block;
   font-size: 0.92rem;
   font-weight: 860;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 .entry-path-board p {
@@ -713,6 +724,7 @@ strong,
   font-size: 0.82rem;
   line-height: 1.4;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .status-card,
@@ -744,7 +756,9 @@ strong,
   font-weight: 820;
   justify-self: flex-start;
   margin-top: 2px;
+  max-width: 100%;
   padding: 7px 10px;
+  white-space: normal;
 }
 
 .profile-reference {
@@ -5171,6 +5185,10 @@ select:focus {
   }
 
   .settings-panel__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .entry-path-board {
     grid-template-columns: 1fr;
   }
 
