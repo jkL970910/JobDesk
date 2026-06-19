@@ -4939,6 +4939,87 @@ select:focus {
   gap: 8px;
 }
 
+.enrichment-focus-pane--source-section {
+  background:
+    linear-gradient(180deg, rgba(79, 140, 255, 0.055), rgba(255, 255, 255, 0.014)),
+    rgba(8, 12, 20, 0.46);
+}
+
+.source-section-review {
+  border-block: 1px solid rgba(255, 255, 255, 0.075);
+  display: grid;
+  gap: 14px;
+  padding-block: 14px;
+}
+
+.source-section-review__summary {
+  display: grid;
+  gap: 5px;
+}
+
+.source-section-review__summary span {
+  color: var(--primary-strong);
+  font-size: var(--type-meta);
+  font-weight: 780;
+}
+
+.source-section-review__summary strong {
+  color: var(--ink);
+  font-size: 1.08rem;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.source-section-review__summary p {
+  color: var(--muted);
+  font-size: var(--type-body);
+  line-height: 1.55;
+  margin: 0;
+  max-width: 72ch;
+  text-wrap: pretty;
+}
+
+.source-section-review__meta {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+}
+
+.source-section-review__meta div {
+  align-items: start;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(130px, 0.28fr) minmax(0, 1fr);
+  padding: 11px 0;
+}
+
+.source-section-review__meta dt {
+  color: var(--muted);
+  font-size: var(--type-meta);
+  font-weight: 780;
+}
+
+.source-section-review__meta dd {
+  color: var(--ink-soft);
+  font-size: var(--type-body);
+  font-weight: 650;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.source-section-review__actions,
+.source-section-review__customize {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.source-section-review__customize {
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  padding-top: 12px;
+}
+
 .enrichment-task-card {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--line);
@@ -7212,6 +7293,11 @@ select:focus {
 
   .enrichment-focus-pane__nav {
     justify-content: flex-start;
+  }
+
+  .source-section-review__meta div {
+    grid-template-columns: 1fr;
+    gap: 5px;
   }
 
   .enrichment-task-controls {

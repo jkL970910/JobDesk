@@ -70,6 +70,10 @@ export type EnrichmentTaskDraft = {
   sourceType: EnrichmentTaskSourceType;
   sourceLabel: string;
   prompt: string;
+  targetScope?: EnrichmentTaskTargetScope;
+  targetConfidence?: EnrichmentTaskTargetConfidence;
+  targetReason?: string | null;
+  expectedOutcome?: EnrichmentTaskExpectedOutcome;
   evidenceItemId?: string | null;
   workExperienceId?: string | null;
   initiativeId?: string | null;
@@ -224,12 +228,27 @@ export function buildExtractionNoteEnrichmentTasks(args: {
   sourceTitle: string;
   notes: string[];
 }) {
-  return args.notes.map((note) => ({
-    taskType: classifyEnrichmentTask(note),
-    sourceType: "extraction_note" as const,
-    sourceLabel: args.sourceTitle,
-    prompt: note,
-  }));
+  return args.notes.map((note) => {
+    if (isSourceSectionExtractionNote(note)) {
+      return {
+        taskType: "source_section_review" as const,
+        sourceType: "extraction_note" as const,
+        sourceLabel: args.sourceTitle,
+        prompt: note,
+        targetScope: "source_material" as const,
+        targetConfidence: "high" as const,
+        targetReason:
+          "This is an extraction note for an imported source section, not a missing-information question.",
+        expectedOutcome: "review_imported_material" as const,
+      };
+    }
+    return {
+      taskType: classifyEnrichmentTask(note),
+      sourceType: "extraction_note" as const,
+      sourceLabel: args.sourceTitle,
+      prompt: note,
+    };
+  });
 }
 
 export async function updateEnrichmentTask(args: {
@@ -832,6 +851,9 @@ function buildEnrichmentDedupeKey(task: EnrichmentTaskDraft) {
 }
 
 function classifyEnrichmentTask(prompt: string): EnrichmentTaskType {
+  if (isSourceSectionExtractionNote(prompt)) {
+    return "source_section_review";
+  }
   const text = prompt.toLowerCase();
   if (/\b(metric|measure|number|percent|%|revenue|cost|latency|volume)\b/.test(text)) {
     return "metric";
@@ -855,6 +877,14 @@ function classifyEnrichmentTask(prompt: string): EnrichmentTaskType {
     return "public_safe_wording";
   }
   return "star";
+}
+
+function isSourceSectionExtractionNote(prompt: string) {
+  const text = normalizeText(prompt);
+  return (
+    /\b(entries|items|details)\s+were\s+extracted\s+from\s+the\s+.+\s+section\b/.test(text) ||
+    /\b.+\s+was\s+extracted\s+from\s+the\s+.+\s+section\b/.test(text)
+  );
 }
 
 function normalizeText(value: string) {
@@ -938,7 +968,7 @@ function buildTargetRows(
 }
 
 function deriveTaskTargetMetadata(
-  anchor: ReusableLibraryAnchor,
+  task: EnrichmentTaskDraft | ReusableLibraryAnchor,
   reason?: string,
 ): {
   targetScope: EnrichmentTaskTargetScope;
@@ -946,6 +976,18 @@ function deriveTaskTargetMetadata(
   targetReason: string;
   expectedOutcome: EnrichmentTaskExpectedOutcome;
 } {
+  if ("taskType" in task && task.taskType === "source_section_review") {
+    return {
+      targetScope: task.targetScope ?? "source_material",
+      targetConfidence: task.targetConfidence ?? "high",
+      targetReason:
+        task.targetReason ??
+        reason ??
+        "This is an extraction note for imported source material, not a missing-information question.",
+      expectedOutcome: task.expectedOutcome ?? "review_imported_material",
+    };
+  }
+  const anchor = task;
   if (anchor.evidenceItemId) {
     return {
       targetScope: "evidence_detail",

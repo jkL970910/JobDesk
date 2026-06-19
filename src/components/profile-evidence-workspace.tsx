@@ -170,7 +170,8 @@ type EnrichmentTaskItem = {
     | "update_evidence"
     | "update_story"
     | "update_role"
-    | "clarify_assignment";
+    | "clarify_assignment"
+    | "review_imported_material";
   targets: Array<{
     target_kind: "evidence" | "initiative" | "portfolio_project" | "work_experience";
     target_id: string;
@@ -2078,7 +2079,11 @@ export function ProfileEvidenceWorkspace({
             onOpenStoryTargets={() => openLibraryAssetView("stories")}
             onReturnToIntake={openGenericSourceIntake}
             enrichmentTaskCount={
-              enrichmentTasks.filter((task) => task.status === "open" || task.status === "answered")
+              enrichmentTasks.filter(
+                (task) =>
+                  (task.status === "open" || task.status === "answered") &&
+                  !isSourceSectionReviewTask(task),
+              )
                 .length
             }
             summary={libraryReadiness}
@@ -2192,7 +2197,13 @@ export function ProfileEvidenceWorkspace({
               type="button"
               onClick={() => openWorkQueueView("enrichment")}
             >
-              Needs Enrichment ({enrichmentTasks.filter((task) => task.status === "open" || task.status === "answered").length})
+              Needs Enrichment ({
+                enrichmentTasks.filter(
+                  (task) =>
+                    (task.status === "open" || task.status === "answered") &&
+                    !isSourceSectionReviewTask(task),
+                ).length
+              })
             </button>
             <button
               data-active={workQueueView === "claims"}
@@ -2228,6 +2239,7 @@ export function ProfileEvidenceWorkspace({
               initiatives={initiatives}
               linkTargets={linkTargets}
               onCreateLibraryItems={openCreateLibraryItemsForTask}
+              onReviewImportedMaterial={() => openLibraryAssetView("stories")}
               onReturnToIntake={() => setActiveSection("intake")}
               onUpdate={updateEnrichmentTask}
               portfolioProjects={portfolioProjects}
@@ -3411,6 +3423,7 @@ function EnrichmentTaskQueue({
   initiatives,
   linkTargets,
   onCreateLibraryItems,
+  onReviewImportedMaterial,
   onReturnToIntake,
   onUpdate,
   portfolioProjects,
@@ -3422,6 +3435,7 @@ function EnrichmentTaskQueue({
   initiatives: InitiativeItem[];
   linkTargets: EvidenceLinkTargets;
   onCreateLibraryItems: (task: EnrichmentTaskItem) => void;
+  onReviewImportedMaterial: () => void;
   onReturnToIntake: () => void;
   onUpdate: (
     taskId: string,
@@ -3440,6 +3454,10 @@ function EnrichmentTaskQueue({
   const actionableTasks = tasks.filter(
     (task) => task.status === "open" || task.status === "answered",
   );
+  const questionTaskCount = actionableTasks.filter(
+    (task) => !isSourceSectionReviewTask(task),
+  ).length;
+  const sourceSectionTaskCount = actionableTasks.length - questionTaskCount;
   const convertedCount = tasks.filter((task) => task.status === "converted").length;
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [batchPending, setBatchPending] = useState(false);
@@ -3461,7 +3479,12 @@ function EnrichmentTaskQueue({
     ? filteredTasks.findIndex((task) => task.id === selectedTask.id)
     : -1;
   const selectedBatchIds = filteredTasks
-    .filter((task) => task.status === "open" && !taskHasReusableLibraryAnchor(task))
+    .filter(
+      (task) =>
+        task.status === "open" &&
+        !taskHasReusableLibraryAnchor(task) &&
+        !isSourceSectionReviewTask(task),
+    )
     .slice(0, 10)
     .map((task) => task.id);
   const taskFilterOptions = buildEnrichmentTaskFilterOptions(actionableTasks);
@@ -3535,7 +3558,9 @@ function EnrichmentTaskQueue({
           </p>
         </div>
         <span>
-          {actionableTasks.length} active · {convertedCount} converted
+          {questionTaskCount} questions
+          {sourceSectionTaskCount > 0 ? ` · ${sourceSectionTaskCount} imported sections` : ""}
+          {convertedCount > 0 ? ` · ${convertedCount} converted` : ""}
         </span>
       </div>
       {queueStatus === "skipped" ? (
@@ -3630,6 +3655,7 @@ function EnrichmentTaskQueue({
                 setAnswers((current) => ({ ...current, [selectedTask.id]: answer }))
               }
               onCreateLibraryItems={() => onCreateLibraryItems(selectedTask)}
+              onReviewImportedMaterial={onReviewImportedMaterial}
               onDismiss={() => void handleUpdate(selectedTask, { action: "dismiss" })}
               onLink={(anchor) =>
                 void handleUpdate(selectedTask, {
@@ -3677,6 +3703,7 @@ function EnrichmentTaskFocusPane({
   onLink,
   onNext,
   onPrevious,
+  onReviewImportedMaterial,
   onSaveAnswer,
   portfolioProjects,
   task,
@@ -3699,6 +3726,7 @@ function EnrichmentTaskFocusPane({
   onLink: (anchor: EnrichmentTaskAnchorPatch) => void;
   onNext: () => void;
   onPrevious: () => void;
+  onReviewImportedMaterial: () => void;
   onSaveAnswer: (answer: string) => void;
   portfolioProjects: PortfolioProjectItem[];
   task: EnrichmentTaskItem;
@@ -3709,6 +3737,24 @@ function EnrichmentTaskFocusPane({
   const hasLibraryAnchor = taskHasReusableLibraryAnchor(task);
   const linkedLabel = formatEnrichmentTaskAnchor(task, evidenceItems, linkTargets);
   const parentLabel = formatEnrichmentTaskParent(task, linkTargets);
+  if (isSourceSectionReviewTask(task)) {
+    return (
+      <SourceSectionReviewPane
+        canGoNext={canGoNext}
+        canGoPrevious={canGoPrevious}
+        isPending={isPending}
+        message={message}
+        onCreateLibraryItems={onCreateLibraryItems}
+        onDismiss={onDismiss}
+        onNext={onNext}
+        onPrevious={onPrevious}
+        onReviewImportedMaterial={onReviewImportedMaterial}
+        task={task}
+        taskIndex={taskIndex}
+        taskTotal={taskTotal}
+      />
+    );
+  }
   return (
     <article className="enrichment-focus-pane">
       <div className="enrichment-focus-pane__top">
@@ -3829,6 +3875,164 @@ function EnrichmentTaskFocusPane({
           >
             Dismiss
           </button>
+          {message ? (
+            <span className={message.ok ? "status" : "status status--error"}>
+              {message.text}
+            </span>
+          ) : null}
+        </div>
+        <div className="enrichment-focus-pane__nav">
+          <button
+            className="secondary-button"
+            disabled={!canGoPrevious}
+            type="button"
+            onClick={onPrevious}
+          >
+            Previous
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canGoNext}
+            type="button"
+            onClick={onNext}
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function SourceSectionReviewPane({
+  canGoNext,
+  canGoPrevious,
+  isPending,
+  message,
+  onCreateLibraryItems,
+  onDismiss,
+  onNext,
+  onPrevious,
+  onReviewImportedMaterial,
+  task,
+  taskIndex,
+  taskTotal,
+}: {
+  canGoNext: boolean;
+  canGoPrevious: boolean;
+  isPending: boolean;
+  message?: { ok: boolean; text: string };
+  onCreateLibraryItems: () => void;
+  onDismiss: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
+  onReviewImportedMaterial: () => void;
+  task: EnrichmentTaskItem;
+  taskIndex: number;
+  taskTotal: number;
+}) {
+  const [customizing, setCustomizing] = useState(false);
+  const sectionName = extractSourceSectionName(task.prompt);
+  return (
+    <article className="enrichment-focus-pane enrichment-focus-pane--source-section">
+      <div className="enrichment-focus-pane__top">
+        <div>
+          <span>
+            Task {taskIndex} of {taskTotal} · Imported material review
+          </span>
+          <h3>{sectionName ? `${sectionName} section imported` : "Imported source section"}</h3>
+          <p>
+            Source: {task.source_label} · {formatEnrichmentSourceType(task.source_type)}
+          </p>
+        </div>
+        <em data-state={task.status}>{formatEnrichmentStatus(task.status)}</em>
+      </div>
+      <div className="source-section-review">
+        <div className="source-section-review__summary">
+          <span>Extraction note</span>
+          <strong>This is not a question to answer.</strong>
+          <p>
+            JobDesk found a source section during import. Review the roles and stories
+            created from it, or choose a different handling path if this section should
+            become specific claims instead.
+          </p>
+        </div>
+        <dl className="source-section-review__meta">
+          <div>
+            <dt>Imported section</dt>
+            <dd>{sectionName ?? "Source section"}</dd>
+          </div>
+          <div>
+            <dt>Why this appears</dt>
+            <dd>{formatEnrichmentTargetReason(task)}</dd>
+          </div>
+          <div>
+            <dt>Recommended action</dt>
+            <dd>Review extracted roles and stories before creating more evidence.</dd>
+          </div>
+        </dl>
+        <div className="source-section-review__actions">
+          <button
+            className="primary-action"
+            disabled={isPending}
+            type="button"
+            onClick={onReviewImportedMaterial}
+          >
+            Review extracted roles/stories
+          </button>
+          <button
+            className="secondary-button"
+            disabled={isPending}
+            type="button"
+            onClick={() => setCustomizing((value) => !value)}
+          >
+            Customize handling
+          </button>
+          <button
+            className="ghost-button enrichment-task-card__dismiss"
+            disabled={isPending}
+            type="button"
+            onClick={onDismiss}
+          >
+            Dismiss note
+          </button>
+        </div>
+        {customizing ? (
+          <div className="source-section-review__customize">
+            <button
+              className="secondary-button secondary-button--quiet"
+              type="button"
+              onClick={onReviewImportedMaterial}
+            >
+              Review roles and stories from this section
+            </button>
+            <button
+              className="secondary-button secondary-button--quiet"
+              type="button"
+              onClick={onCreateLibraryItems}
+            >
+              Add specific claim material
+            </button>
+            <button
+              className="secondary-button secondary-button--quiet"
+              type="button"
+              onClick={onCreateLibraryItems}
+            >
+              Add a more specific guided answer
+            </button>
+            <button
+              className="secondary-button secondary-button--quiet"
+              disabled={isPending}
+              type="button"
+              onClick={onDismiss}
+            >
+              Ignore this section note
+            </button>
+          </div>
+        ) : null}
+      </div>
+      <div className="enrichment-focus-pane__footer">
+        <div className="actions actions--compact">
           {message ? (
             <span className={message.ok ? "status" : "status status--error"}>
               {message.text}
@@ -4256,6 +4460,7 @@ function formatEnrichmentTaskType(type: string) {
     ownership: "Ownership",
     public_safe_wording: "Public-safe wording",
     scope: "Scope",
+    source_section_review: "Imported section",
     stakeholder: "Stakeholder",
     star: "STAR detail",
     technical_depth: "Technical depth",
@@ -4268,7 +4473,7 @@ function formatEnrichmentTaskScope(scope: EnrichmentTaskItem["target_scope"]) {
     assign_later: "Target needs review",
     evidence_detail: "Evidence detail",
     role_context: "Role context",
-    source_material: "Source material",
+    source_material: "Imported material",
     story_context: "Story context",
   };
   return labels[scope];
@@ -4287,10 +4492,19 @@ function formatEnrichmentSourceType(type: string) {
 }
 
 function formatEnrichmentTargetReason(task: EnrichmentTaskItem) {
+  if (isSourceSectionReviewTask(task)) {
+    return (
+      task.target_reason ||
+      "This source section was imported as structured material. It is not a missing-information question."
+    );
+  }
   return task.target_reason || "This question needs a target before the answer can be reused safely.";
 }
 
 function formatEnrichmentExpectedOutcome(task: EnrichmentTaskItem) {
+  if (isSourceSectionReviewTask(task)) {
+    return "be reviewed as imported material before it becomes specific evidence or story updates.";
+  }
   if (task.target_scope === "assign_later") {
     return "be assigned before it creates or strengthens reusable material.";
   }
@@ -4320,6 +4534,31 @@ function taskHasReusableLibraryAnchor(task: EnrichmentTaskItem) {
       task.initiative_id ||
       task.portfolio_project_id,
   );
+}
+
+function isSourceSectionReviewTask(task: EnrichmentTaskItem) {
+  return (
+    task.task_type === "source_section_review" ||
+    task.expected_outcome === "review_imported_material" ||
+    (task.source_type === "extraction_note" &&
+      task.target_scope === "source_material" &&
+      looksLikeSourceSectionNote(task.prompt))
+  );
+}
+
+function looksLikeSourceSectionNote(prompt: string) {
+  const normalized = prompt.trim().toLowerCase().replace(/\s+/g, " ");
+  return (
+    /\b(entries|items|details)\s+were\s+extracted\s+from\s+the\s+.+\s+section\b/.test(normalized) ||
+    /\b.+\s+was\s+extracted\s+from\s+the\s+.+\s+section\b/.test(normalized)
+  );
+}
+
+function extractSourceSectionName(prompt: string) {
+  const match =
+    prompt.match(/from the\s+(.+?)\s+section/i) ??
+    prompt.match(/from\s+(.+?)\s+section/i);
+  return match?.[1]?.replace(/[.。]+$/, "").trim() || null;
 }
 
 function toEnrichmentTaskAnchorValue(task: EnrichmentTaskItem) {
@@ -4406,6 +4645,8 @@ function truncateOptionText(value: string, maxLength = 96) {
 }
 
 function groupEnrichmentTasks(tasks: EnrichmentTaskItem[]) {
+  const sourceSectionTasks = tasks.filter(isSourceSectionReviewTask);
+  const normalTasks = tasks.filter((task) => !isSourceSectionReviewTask(task));
   const order = ["resume_review", "extraction_note", "evidence", "jd_gap", "story_target", "user_input"];
   const labels: Record<string, string> = {
     evidence: "From Evidence Card",
@@ -4415,13 +4656,21 @@ function groupEnrichmentTasks(tasks: EnrichmentTaskItem[]) {
     story_target: "From Story Target",
     user_input: "From User Input",
   };
-  return order
+  const groups = order
     .map((key) => ({
       key,
       label: labels[key] ?? key,
-      tasks: tasks.filter((task) => task.source_type === key),
+      tasks: normalTasks.filter((task) => task.source_type === key),
     }))
     .filter((group) => group.tasks.length > 0);
+  if (sourceSectionTasks.length > 0) {
+    groups.unshift({
+      key: "source_section_review",
+      label: "Imported Material to Review",
+      tasks: sourceSectionTasks,
+    });
+  }
+  return groups;
 }
 
 function filterEnrichmentTasks(

@@ -109,6 +109,7 @@ export const enrichmentTaskTypeEnum = pgEnum("enrichment_task_type", [
   "impact",
   "star",
   "public_safe_wording",
+  "source_section_review",
 ]);
 export const enrichmentTaskStatusEnum = pgEnum("enrichment_task_status", [
   "open",
@@ -143,6 +144,7 @@ export const enrichmentTaskExpectedOutcomeEnum = pgEnum(
     "update_story",
     "update_role",
     "clarify_assignment",
+    "review_imported_material",
   ],
 );
 export const enrichmentTaskTargetKindEnum = pgEnum("enrichment_task_target_kind", [

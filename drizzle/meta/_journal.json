@@ -120,6 +120,20 @@
       "when": 1782014400000,
       "tag": "0016_enrichment_target_chain",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1781906830542,
+      "tag": "0017_source_section_enrichment_tasks",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1781907174083,
+      "tag": "0018_backfill_source_section_enrichment_tasks",
+      "breakpoints": true
     }
   ]
 }
