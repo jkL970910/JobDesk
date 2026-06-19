@@ -5004,9 +5004,10 @@ function StoryTargetRow({
   const [isAssigning, setIsAssigning] = useState(false);
   const [newRoleDraft, setNewRoleDraft] = useState({
     employer: "",
+    endDate: "",
     roleTitle: "",
-    timeframe: "",
     summary: "",
+    startDate: "",
   });
   const readiness = getStoryReadiness(story);
   const metrics = story.metrics?.map((metric) => metric.value) ?? [];
@@ -5077,12 +5078,13 @@ function StoryTargetRow({
         targetType: "initiative",
         employer,
         roleTitle,
-        startDate: newRoleDraft.timeframe.trim() || null,
+        startDate: newRoleDraft.startDate.trim() || null,
+        endDate: newRoleDraft.endDate.trim() || null,
         summary: newRoleDraft.summary.trim() || null,
       });
       setAssignmentMessage({ ok: result.ok, text: result.message });
       if (result.ok) {
-        setNewRoleDraft({ employer: "", roleTitle: "", timeframe: "", summary: "" });
+        setNewRoleDraft({ employer: "", endDate: "", roleTitle: "", startDate: "", summary: "" });
         setAssignmentMode("existing");
       }
     } finally {
@@ -5186,13 +5188,23 @@ function StoryTargetRow({
                 />
               </label>
               <label>
-                <span>Timeframe</span>
+                <span>Start date</span>
                 <input
-                  value={newRoleDraft.timeframe}
+                  value={newRoleDraft.startDate}
                   onChange={(event) =>
-                    setNewRoleDraft((draft) => ({ ...draft, timeframe: event.target.value }))
+                    setNewRoleDraft((draft) => ({ ...draft, startDate: event.target.value }))
                   }
-                  placeholder="Optional, can stay unknown"
+                  placeholder="Optional"
+                />
+              </label>
+              <label>
+                <span>End date</span>
+                <input
+                  value={newRoleDraft.endDate}
+                  onChange={(event) =>
+                    setNewRoleDraft((draft) => ({ ...draft, endDate: event.target.value }))
+                  }
+                  placeholder="Optional, e.g. Present"
                 />
               </label>
               <label>

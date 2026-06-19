@@ -104,6 +104,11 @@ export function TailoredResumeWorkspace() {
   const [latestResume, setLatestResume] = useState<RecentResume | null>(null);
   const [readiness, setReadiness] = useState<ResumeReadiness>(emptyReadiness);
   const [draft, setDraft] = useState<TailoredResumeDraft | null>(null);
+  const [draftMeta, setDraftMeta] = useState<{
+    id?: string;
+    status: string;
+    claims?: ResumeClaim[];
+  } | null>(null);
   const [status, setStatus] = useState(
     "Select a role workspace and approved material-library evidence.",
   );
@@ -190,7 +195,6 @@ export function TailoredResumeWorkspace() {
           return;
         }
         const factGuard = payload.meta.factGuard;
-        setDraft(payload.data);
         setStatus(buildGenerationStatus(payload));
         void loadReadiness();
         const resumes = await loadRecentResumes();
@@ -198,6 +202,17 @@ export function TailoredResumeWorkspace() {
         const savedResume = savedResumeId
           ? resumes.find((resume) => resume.id === savedResumeId)
           : null;
+        setDraft(payload.data);
+        setDraftMeta({
+          id: savedResumeId,
+          status:
+            factGuard?.status === "validated"
+              ? factGuard.resumeStatus ?? savedResume?.status ?? "validated"
+              : savedResume?.status && savedResume.id === savedResumeId
+                ? savedResume.status
+                : "unvalidated",
+          claims: factGuard?.claims,
+        });
         if (savedResume) {
           setLatestResume(
             factGuard?.status === "validated"
@@ -209,6 +224,7 @@ export function TailoredResumeWorkspace() {
               : savedResume,
           );
           if (factGuard?.status === "validated") setDraft(null);
+          if (factGuard?.status === "validated") setDraftMeta(null);
         }
       } catch (caught) {
         setError(
@@ -262,6 +278,7 @@ export function TailoredResumeWorkspace() {
           : current,
       );
       setDraft(null);
+      setDraftMeta(null);
       void loadRecentResumes();
     });
   }
@@ -273,12 +290,12 @@ export function TailoredResumeWorkspace() {
     readiness.approvedResumeEvidenceCount > 0;
   const displayResume = draft
     ? {
-        id: latestResume?.id,
+        id: draftMeta?.id,
         title: draft.title,
         resume_markdown: draft.resume_markdown,
         missing_evidence_questions: draft.missing_evidence_questions,
-        status: latestResume?.status,
-        claims: draft.claims.map((claim, index) => ({
+        status: draftMeta?.status ?? "unvalidated",
+        claims: draftMeta?.claims ?? draft.claims.map((claim, index) => ({
           id: `${claim.claim_text}-${index}`,
           claim_text: claim.claim_text,
           section: claim.section,

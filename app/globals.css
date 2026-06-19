@@ -5309,11 +5309,13 @@ select:focus {
   display: grid;
   gap: 8px;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .story-new-role-form button {
   align-self: end;
+  grid-column: 1 / -1;
+  justify-self: flex-start;
 }
 
 .story-target-row__assignment > .status,
