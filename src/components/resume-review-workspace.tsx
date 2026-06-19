@@ -323,37 +323,43 @@ export function ResumeReviewWorkspace({
 
   return (
     <section className="resume-review-workspace">
+      {selectedResume?.latestReview ? (
+        <ResumeReviewReportCard
+          onContinueToEvidence={() =>
+            selectedResumeIsExtracted
+              ? onOpenEvidenceReview("enrichment")
+              : onExtractToEvidence(selectedResume.id)
+          }
+          onOpenEvidenceTasks={() => onOpenEvidenceReview("enrichment")}
+          onRetry={() => void rerunReview(selectedResume)}
+          enrichmentTasks={enrichmentTasks}
+          retryDisabled={Boolean(activeOperation)}
+          retryLabel={reviewActionLabel(selectedResume, activeOperation)}
+          resume={selectedResume}
+        />
+      ) : null}
       <div className="panel">
         <div className="panel__header">
           <div>
             <h2 className="panel__title">Resume Review</h2>
             <p className="panel__note">
-              Upload, score, and version a general resume before extracting reusable evidence.
+              {selectedResume?.latestReview
+                ? "Review the saved result first. Upload only when you want to compare a new resume version."
+                : "Upload, score, and version a general resume before extracting reusable evidence."}
             </p>
           </div>
         </div>
-        <label
-          className="resume-upload-zone"
-          data-disabled={isUploading}
-          data-drag-active={isDragActive}
-          onDragEnter={handleResumeDrag}
-          onDragLeave={handleResumeDragEnd}
-          onDragOver={handleResumeDrag}
-          onDrop={handleResumeDrop}
-        >
-          <input
-            accept=".pdf,.docx,.txt,.md,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
-            disabled={isUploading}
-            type="file"
-            onChange={(event) => {
-              void uploadResume(event.target.files?.[0] ?? null);
-              event.currentTarget.value = "";
-            }}
+        {!selectedResume?.latestReview || isUploading ? (
+          <ResumeUploadZone
+            isDragActive={isDragActive}
+            isUploading={isUploading}
+            status={status}
+            onChange={uploadResume}
+            onDrag={handleResumeDrag}
+            onDragEnd={handleResumeDragEnd}
+            onDrop={handleResumeDrop}
           />
-          <span>{isUploading ? "Reviewing resume..." : "Upload resume"}</span>
-          <strong>Drop in or choose a PDF, DOCX, TXT, or Markdown resume.</strong>
-          <small>JobDesk will run a general resume review, save a version, then offer evidence extraction.</small>
-        </label>
+        ) : null}
         <span className={error ? "status status--error" : "status"}>{error ?? status}</span>
         {parseStatus ? <ResumeParseStatusCard status={parseStatus} /> : null}
         {!selectedResume && !isUploading ? (
@@ -465,24 +471,78 @@ export function ResumeReviewWorkspace({
             No reviewed resume versions yet. Your uploaded resume will appear here after review.
           </div>
         )}
+        {selectedResume?.latestReview && !isUploading ? (
+          <details className="resume-secondary-upload">
+            <summary>Upload another resume version</summary>
+            <ResumeUploadZone
+              compact
+              isDragActive={isDragActive}
+              isUploading={isUploading}
+              status={status}
+              onChange={uploadResume}
+              onDrag={handleResumeDrag}
+              onDragEnd={handleResumeDragEnd}
+              onDrop={handleResumeDrop}
+            />
+          </details>
+        ) : null}
       </div>
-
-      {selectedResume?.latestReview ? (
-        <ResumeReviewReportCard
-          onContinueToEvidence={() =>
-            selectedResumeIsExtracted
-              ? onOpenEvidenceReview("enrichment")
-              : onExtractToEvidence(selectedResume.id)
-          }
-          onOpenEvidenceTasks={() => onOpenEvidenceReview("enrichment")}
-          onRetry={() => void rerunReview(selectedResume)}
-          enrichmentTasks={enrichmentTasks}
-          retryDisabled={Boolean(activeOperation)}
-          retryLabel={reviewActionLabel(selectedResume, activeOperation)}
-          resume={selectedResume}
-        />
-      ) : null}
     </section>
+  );
+}
+
+function ResumeUploadZone({
+  compact = false,
+  isDragActive,
+  isUploading,
+  onChange,
+  onDrag,
+  onDragEnd,
+  onDrop,
+  status,
+}: {
+  compact?: boolean;
+  isDragActive: boolean;
+  isUploading: boolean;
+  onChange: (file: File | null) => void;
+  onDrag: (event: DragEvent<HTMLLabelElement>) => void;
+  onDragEnd: (event: DragEvent<HTMLLabelElement>) => void;
+  onDrop: (event: DragEvent<HTMLLabelElement>) => void;
+  status: string;
+}) {
+  return (
+    <label
+      className="resume-upload-zone"
+      data-compact={compact}
+      data-disabled={isUploading}
+      data-drag-active={isDragActive}
+      onDragEnter={onDrag}
+      onDragLeave={onDragEnd}
+      onDragOver={onDrag}
+      onDrop={onDrop}
+    >
+      <input
+        accept=".pdf,.docx,.txt,.md,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+        disabled={isUploading}
+        type="file"
+        onChange={(event) => {
+          onChange(event.target.files?.[0] ?? null);
+          event.currentTarget.value = "";
+        }}
+      />
+      <span>{isUploading ? "Reviewing resume..." : compact ? "Upload another version" : "Upload resume"}</span>
+      <strong>
+        {compact
+          ? "Compare a changed resume version."
+          : "Drop in or choose a PDF, DOCX, TXT, or Markdown resume."}
+      </strong>
+      <small>
+        {compact
+          ? "Use this only when the resume file changed. Existing review results stay available above."
+          : "JobDesk will run a general resume review, save a version, then offer evidence extraction."}
+        {isUploading ? ` ${fileNameFromStatus(status)}` : ""}
+      </small>
+    </label>
   );
 }
 

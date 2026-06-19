@@ -1073,6 +1073,24 @@ strong,
   opacity: 0.72;
 }
 
+.resume-upload-zone[data-compact="true"] {
+  background: rgba(255, 255, 255, 0.024);
+  border-color: rgba(255, 255, 255, 0.09);
+  border-radius: 14px;
+  box-shadow: none;
+  margin: 10px 0 0;
+  padding: 14px 16px;
+}
+
+.resume-upload-zone[data-compact="true"]::after {
+  display: none;
+}
+
+.resume-upload-zone[data-compact="true"] strong {
+  font-size: 1rem;
+  letter-spacing: -0.02em;
+}
+
 .resume-upload-zone input {
   height: 1px;
   opacity: 0;
@@ -1172,6 +1190,19 @@ strong,
   line-height: 1.45;
   margin-top: 12px;
   padding: 11px 13px;
+}
+
+.resume-secondary-upload {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.resume-secondary-upload summary {
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 780;
 }
 
 .resume-empty-steps article,
