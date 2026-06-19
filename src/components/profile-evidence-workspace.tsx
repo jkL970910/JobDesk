@@ -3145,7 +3145,7 @@ function EnrichmentTaskQueue({
                         placeholder={
                           hasLibraryAnchor
                             ? "Add concrete numbers, scope, ownership, actions, results, or public-safe wording..."
-                            : "Create library items first so this answer has a reusable evidence destination."
+                            : "Choose the claim, story, or role this answer should strengthen before answering."
                         }
                         value={answer}
                       />
@@ -3153,21 +3153,21 @@ function EnrichmentTaskQueue({
                     {!hasLibraryAnchor ? (
                       <div className="enrichment-task-card__gate">
                         <div>
-                          <strong>Create library items first</strong>
+                          <strong>Choose a target before answering</strong>
                           <p>
-                            This prompt came from Resume Review, but it is not attached to a reusable evidence or story item yet.
+                            This prompt came from Resume Review. Attach it to a specific claim, project/story, or role so the answer strengthens the right material.
                           </p>
                         </div>
                         <button
-                          className="secondary-button"
+                          className="secondary-button secondary-button--quiet"
                           type="button"
                           onClick={() => onCreateLibraryItems(task)}
                         >
-                          Create library items
+                          Create new material instead
                         </button>
                       </div>
                     ) : null}
-                    <details className="enrichment-task-card__target-picker">
+                    <details className="enrichment-task-card__target-picker" open={!hasLibraryAnchor}>
                       <summary>{hasLibraryAnchor ? "Change target" : "Choose target"}</summary>
                       <div className="enrichment-task-card__target-grid">
                         <label className="source-field enrichment-task-card__destination">
@@ -3286,7 +3286,7 @@ function EnrichmentTaskQueue({
                         Convert to evidence candidate
                       </button>
                       <button
-                        className="ghost-button"
+                        className="ghost-button enrichment-task-card__dismiss"
                         disabled={isPending}
                         type="button"
                         onClick={() => void handleUpdate(task, { action: "dismiss" })}
