@@ -278,7 +278,7 @@ export type MaterialReviewTab =
   | "stories";
 type EvidenceLibraryMode = "library" | "work_queue";
 type EvidenceAssetView = "ready" | "all" | "stories" | "interview_stories";
-type EvidenceWorkQueueView = "enrichment" | "claims" | "unlinked" | "cleanup";
+type EvidenceWorkQueueView = "enrichment" | "imported" | "claims" | "unlinked" | "cleanup";
 type EvidenceLibraryFilters = {
   hasMetricOnly: boolean;
   query: string;
@@ -1202,6 +1202,13 @@ export function ProfileEvidenceWorkspace({
   const initiatives = result?.initiatives ?? library?.initiatives ?? [];
   const portfolioProjects = result?.portfolio_projects ?? library?.portfolioProjects ?? [];
   const projectCards = result?.project_cards ?? library?.projectCards ?? [];
+  const activeEnrichmentTasks = enrichmentTasks.filter(
+    (task) => task.status === "open" || task.status === "answered",
+  );
+  const importedMaterialTasks = activeEnrichmentTasks.filter(isSourceSectionReviewTask);
+  const answerEnrichmentTasks = activeEnrichmentTasks.filter(
+    (task) => !isSourceSectionReviewTask(task),
+  );
   const linkTargets = {
     initiatives,
     portfolioProjects,
@@ -2078,14 +2085,7 @@ export function ProfileEvidenceWorkspace({
             onOpenStories={() => openLibraryAssetView("interview_stories")}
             onOpenStoryTargets={() => openLibraryAssetView("stories")}
             onReturnToIntake={openGenericSourceIntake}
-            enrichmentTaskCount={
-              enrichmentTasks.filter(
-                (task) =>
-                  (task.status === "open" || task.status === "answered") &&
-                  !isSourceSectionReviewTask(task),
-              )
-                .length
-            }
+            enrichmentTaskCount={answerEnrichmentTasks.length}
             summary={libraryReadiness}
           />
           <LibraryOverviewSummary
@@ -2197,13 +2197,14 @@ export function ProfileEvidenceWorkspace({
               type="button"
               onClick={() => openWorkQueueView("enrichment")}
             >
-              Needs Enrichment ({
-                enrichmentTasks.filter(
-                  (task) =>
-                    (task.status === "open" || task.status === "answered") &&
-                    !isSourceSectionReviewTask(task),
-                ).length
-              })
+              Needs Enrichment ({answerEnrichmentTasks.length})
+            </button>
+            <button
+              data-active={workQueueView === "imported"}
+              type="button"
+              onClick={() => openWorkQueueView("imported")}
+            >
+              Imported Material ({importedMaterialTasks.length})
             </button>
             <button
               data-active={workQueueView === "claims"}
@@ -2244,7 +2245,24 @@ export function ProfileEvidenceWorkspace({
               onUpdate={updateEnrichmentTask}
               portfolioProjects={portfolioProjects}
               queueStatus={enrichmentTaskQueueStatus}
-              tasks={enrichmentTasks}
+              tasks={answerEnrichmentTasks}
+              variant="questions"
+              workExperiences={workExperiences}
+            />
+          ) : null}
+          {workQueueView === "imported" ? (
+            <EnrichmentTaskQueue
+              evidenceItems={evidenceItems}
+              initiatives={initiatives}
+              linkTargets={linkTargets}
+              onCreateLibraryItems={openCreateLibraryItemsForTask}
+              onReviewImportedMaterial={() => openLibraryAssetView("stories")}
+              onReturnToIntake={() => setActiveSection("intake")}
+              onUpdate={updateEnrichmentTask}
+              portfolioProjects={portfolioProjects}
+              queueStatus={enrichmentTaskQueueStatus}
+              tasks={importedMaterialTasks}
+              variant="imported"
               workExperiences={workExperiences}
             />
           ) : null}
@@ -3429,6 +3447,7 @@ function EnrichmentTaskQueue({
   portfolioProjects,
   queueStatus,
   tasks,
+  variant,
   workExperiences,
 }: {
   evidenceItems: EvidenceCardItem[];
@@ -3449,8 +3468,10 @@ function EnrichmentTaskQueue({
   portfolioProjects: PortfolioProjectItem[];
   queueStatus: "ready" | "skipped" | "error";
   tasks: EnrichmentTaskItem[];
+  variant?: "questions" | "imported";
   workExperiences: WorkExperienceItem[];
 }) {
+  const queueVariant = variant ?? "questions";
   const actionableTasks = tasks.filter(
     (task) => task.status === "open" || task.status === "answered",
   );
@@ -3550,16 +3571,17 @@ function EnrichmentTaskQueue({
     <section className="section-block enrichment-queue">
       <div className="section-block__top">
         <div>
-          <h3>Needs Enrichment</h3>
+          <h3>{queueVariant === "imported" ? "Imported Material" : "Needs Enrichment"}</h3>
           <p>
-            These prompts come from resume review findings and extraction notes. Answer
-            them to create stronger pending evidence candidates, then approve only the
-            claims that are accurate and reusable.
+            {queueVariant === "imported"
+              ? "These are imported source-section notes, not questions. Review the roles and stories created from each source section, customize handling, or dismiss notes that are no longer useful."
+              : "These prompts come from resume review findings and concrete extraction gaps. Answer them to strengthen reusable evidence candidates, then approve only the claims that are accurate and reusable."}
           </p>
         </div>
         <span>
-          {questionTaskCount} questions
-          {sourceSectionTaskCount > 0 ? ` · ${sourceSectionTaskCount} imported sections` : ""}
+          {queueVariant === "imported"
+            ? `${sourceSectionTaskCount} imported sections`
+            : `${questionTaskCount} questions`}
           {convertedCount > 0 ? ` · ${convertedCount} converted` : ""}
         </span>
       </div>
@@ -3586,8 +3608,16 @@ function EnrichmentTaskQueue({
       ) : actionableTasks.length === 0 ? (
         <div className="empty-state-row">
           <div>
-            <strong>No enrichment tasks are open.</strong>
-            <p>Add material or rerun Resume Review to surface new gaps.</p>
+            <strong>
+              {queueVariant === "imported"
+                ? "No imported material notes need review."
+                : "No enrichment questions are open."}
+            </strong>
+            <p>
+              {queueVariant === "imported"
+                ? "When a resume/source import creates section-level notes, they will appear here instead of the question queue."
+                : "Add material or rerun Resume Review to surface concrete evidence gaps."}
+            </p>
           </div>
           <button className="secondary-button" type="button" onClick={onReturnToIntake}>
             Add guided material
