@@ -14,7 +14,22 @@ const ConfidenceValue = z.preprocess((value) => {
     const trimmed = value.trim();
     if (!trimmed) return undefined;
     const numeric = Number.parseFloat(trimmed.replace("%", ""));
-    if (!Number.isFinite(numeric)) return value;
+    if (!Number.isFinite(numeric)) {
+      const normalized = trimmed.toLowerCase().replace(/[_-]+/g, " ");
+      if (normalized.includes("high")) {
+        return normalized.includes("very") ? 0.95 : 0.9;
+      }
+      if (normalized.includes("medium") || normalized.includes("moderate")) {
+        return 0.6;
+      }
+      if (normalized.includes("low")) {
+        return normalized.includes("very") ? 0.15 : 0.3;
+      }
+      if (["unknown", "uncertain", "n/a", "na"].includes(normalized)) {
+        return 0;
+      }
+      return value;
+    }
     return trimmed.includes("%") || numeric > 1 ? numeric / 100 : numeric;
   }
   return value;

@@ -321,16 +321,19 @@ export async function persistProfileEvidenceExtraction(args: {
             enrichmentTarget?.targetType === "legacy_project"
               ? enrichmentTarget.targetId
               : mappedProjectId;
-          const preferredInitiativeId =
+          const candidateInitiativeId =
             enrichmentTarget?.targetType === "initiative"
               ? enrichmentTarget.targetId
               : mappedInitiativeId;
-          const preferredPortfolioProjectId =
+          const candidatePortfolioProjectId =
             enrichmentTarget?.targetType === "portfolio_project"
               ? enrichmentTarget.targetId
               : mappedPortfolioProjectId;
+          const preferredInitiativeId = candidateInitiativeId;
+          const preferredPortfolioProjectId = preferredInitiativeId
+            ? null
+            : candidatePortfolioProjectId;
           const preferredWorkExperienceId =
-            enrichmentTarget &&
             (preferredProjectId || preferredInitiativeId || preferredPortfolioProjectId)
               ? null
               : mappedWorkExperienceId;

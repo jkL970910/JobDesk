@@ -417,27 +417,6 @@ export function ResumeReviewWorkspace({
               <strong>{selectedReview ? selectedReview.overallScore : "Pending"}</strong>
               <p>{selectedReview ? "Review findings available" : "Review still needed"}</p>
             </div>
-          <button
-            aria-label={
-              selectedReview
-                ? selectedResumeIsExtracted
-                  ? "Continue in Evidence Library"
-                  : "Extract this reviewed resume into Evidence Library"
-                : "Resume review is still pending"
-            }
-            className="primary-button"
-            disabled={!selectedReview}
-            type="button"
-              onClick={() =>
-                selectedResumeIsExtracted
-                  ? onOpenEvidenceReview("enrichment")
-                  : onExtractToEvidence(selectedResume.id)
-              }
-            >
-              {selectedReview
-                ? "Continue to Evidence"
-                : "Review pending"}
-            </button>
           </section>
         ) : null}
         {resumes.length > 0 ? (
@@ -490,8 +469,12 @@ export function ResumeReviewWorkspace({
 
       {selectedResume?.latestReview ? (
         <ResumeReviewReportCard
-          onExtract={() => onExtractToEvidence(selectedResume.id)}
-          onOpenEnrichment={() => onOpenEvidenceReview("enrichment")}
+          onContinueToEvidence={() =>
+            selectedResumeIsExtracted
+              ? onOpenEvidenceReview("enrichment")
+              : onExtractToEvidence(selectedResume.id)
+          }
+          onOpenEvidenceTasks={() => onOpenEvidenceReview("enrichment")}
           onRetry={() => void rerunReview(selectedResume)}
           enrichmentTasks={enrichmentTasks}
           retryDisabled={Boolean(activeOperation)}
@@ -602,16 +585,16 @@ function formatResumeTitle(title: string) {
 
 function ResumeReviewReportCard({
   enrichmentTasks,
-  onExtract,
-  onOpenEnrichment,
+  onContinueToEvidence,
+  onOpenEvidenceTasks,
   onRetry,
   resume,
   retryDisabled,
   retryLabel,
 }: {
   enrichmentTasks: EnrichmentTaskSummary[];
-  onExtract: () => void;
-  onOpenEnrichment: () => void;
+  onContinueToEvidence: () => void;
+  onOpenEvidenceTasks: () => void;
   onRetry: () => void;
   resume: ResumeSourceReviewSummary;
   retryDisabled: boolean;
@@ -620,6 +603,7 @@ function ResumeReviewReportCard({
   const review = resume.latestReview;
   if (!review) return null;
   const [activeDetailTab, setActiveDetailTab] = useState<ReviewDetailTab>("summary");
+  const [showAllEvidenceTasks, setShowAllEvidenceTasks] = useState(false);
   const reviewRubric = Array.isArray(review.rubric) ? review.rubric : [];
   const metadata = reviewRubric.find(
     (item): item is ReviewMetadata => item.key === "review_metadata",
@@ -638,6 +622,10 @@ function ResumeReviewReportCard({
     resume,
     tasks: enrichmentTasks,
   });
+  const visibleQuestionStatuses = showAllEvidenceTasks
+    ? questionStatuses
+    : questionStatuses.slice(0, 5);
+  const hiddenQuestionCount = Math.max(0, questionStatuses.length - visibleQuestionStatuses.length);
   const activeQuestionCount = questionStatuses.filter(
     (item) => item.taskId && (item.status === "open" || item.status === "answered"),
   ).length;
@@ -694,18 +682,42 @@ function ResumeReviewReportCard({
       {metadata ? (
         <section className="resume-review-meta">
           <article>
-            <span>Reviewer</span>
-            <strong>{metadata.provider ?? "unknown"}</strong>
-            <p>
-              {metadata.model ?? "model unknown"}
-              {metadata.providerFailureKind ? ` · fallback after ${metadata.providerFailureKind}` : ""}
-            </p>
+            <span>Review confidence</span>
+            <strong>{Math.round((metadata.confidence ?? 0) * 100)}%</strong>
+            <p>{formatReviewConfidence(metadata.confidence)}</p>
           </article>
           <article>
-            <span>Confidence</span>
-            <strong>{Math.round((metadata.confidence ?? 0) * 100)}%</strong>
-            <p>Retry count: {metadata.retryCount ?? 0}</p>
+            <span>Review status</span>
+            <strong>{isFallback ? "Fallback estimate" : "AI review complete"}</strong>
+            <p>
+              {isFallback
+                ? "Use the retry action above for a full review."
+                : "Use this review as guidance before turning material into evidence."}
+            </p>
           </article>
+          <details className="review-technical-details">
+            <summary>Technical details</summary>
+            <dl>
+              <div>
+                <dt>Provider</dt>
+                <dd>{metadata.provider ?? "unknown"}</dd>
+              </div>
+              <div>
+                <dt>Model</dt>
+                <dd>{metadata.model ?? "model unknown"}</dd>
+              </div>
+              <div>
+                <dt>Retry count</dt>
+                <dd>{metadata.retryCount ?? 0}</dd>
+              </div>
+              {metadata.providerFailureKind ? (
+                <div>
+                  <dt>Fallback reason</dt>
+                  <dd>{metadata.providerFailureKind}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </details>
         </section>
       ) : null}
       {metadata?.tenSecondScan ? (
@@ -721,9 +733,6 @@ function ResumeReviewReportCard({
               <p className="panel-kicker">Triage</p>
               <h3>Top recommended fixes</h3>
             </div>
-            <span className="review-next-step">
-              {resume.status === "extracted" ? "Next: continue reviewing Evidence" : "Next: continue to Evidence"}
-            </span>
           </div>
           <div className="review-top-fixes__grid">
             {topFixes.map((fix) => (
@@ -737,35 +746,56 @@ function ResumeReviewReportCard({
       ) : null}
       {missingEvidenceQuestions.length ? (
         <section className="review-enrichment-handoff">
-          <div>
-            <p className="panel-kicker">Evidence tasks</p>
-            <h3>
-              {activeQuestionCount > 0
-                ? `This review created ${activeQuestionCount} active enrichment task${activeQuestionCount === 1 ? "" : "s"}.`
-                : "This review has evidence gaps ready for enrichment."}
-            </h3>
-            <p>
-              Continue to Evidence to turn these review findings into reusable,
-              source-backed material.
-            </p>
+          <div className="review-enrichment-handoff__top">
+            <div>
+              <p className="panel-kicker">Evidence tasks</p>
+              <h3>
+                {activeQuestionCount > 0
+                  ? `${activeQuestionCount} active enrichment task${activeQuestionCount === 1 ? "" : "s"}`
+                  : `${missingEvidenceQuestions.length} evidence gap${missingEvidenceQuestions.length === 1 ? "" : "s"}`}
+              </h3>
+              <p>
+                Preview the highest-priority gaps here, or open the Evidence Library queue to answer them.
+              </p>
+            </div>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={activeQuestionCount > 0 ? onOpenEvidenceTasks : onContinueToEvidence}
+            >
+              Open task queue
+            </button>
           </div>
-          <button className="secondary-button" type="button" onClick={onOpenEnrichment}>
-            Open Evidence tasks
-          </button>
           <div className="review-enrichment-status-list">
-            {questionStatuses.map((item) => (
+            {visibleQuestionStatuses.map((item) => (
               <article key={item.question}>
                 <span data-state={item.status}>{formatEnrichmentTaskStatus(item.status)}</span>
                 <p>{item.question}</p>
+                <button
+                  type="button"
+                  onClick={item.taskId ? onOpenEvidenceTasks : onContinueToEvidence}
+                >
+                  {item.taskId ? "Open task" : "Create item"}
+                </button>
               </article>
             ))}
           </div>
+          {questionStatuses.length > 5 ? (
+            <button
+              className="review-enrichment-toggle"
+              type="button"
+              onClick={() => setShowAllEvidenceTasks((current) => !current)}
+            >
+              {showAllEvidenceTasks
+                ? "Show fewer tasks"
+                : `Show ${hiddenQuestionCount} more task${hiddenQuestionCount === 1 ? "" : "s"}`}
+            </button>
+          ) : null}
         </section>
       ) : null}
       <ReviewDimensionWorkbench
         dimensions={dimensions}
         missingEvidenceQuestions={missingEvidenceQuestions}
-        onExtract={onExtract}
         onSelect={setSelectedDimensionId}
         selectedDimension={selectedDimension}
       />
@@ -774,9 +804,7 @@ function ResumeReviewReportCard({
         atsNotes={atsNotes}
         findingGroups={findingGroups}
         metadataScan={metadata?.tenSecondScan ?? ""}
-        onExtract={onExtract}
         onSelect={setActiveDetailTab}
-        resumeStatus={resume.status}
       />
       {metadata?.fairnessCheck ? (
         <section className="review-scan-card">
@@ -793,12 +821,8 @@ function ResumeReviewReportCard({
       ) : null}
       <div className="handoff-panel">
         <div>
-          <p className="panel-kicker">Evidence handoff</p>
-          <h3>
-            {resume.status === "extracted"
-              ? "Continue refining reusable material."
-              : "Continue this review in Evidence Library."}
-          </h3>
+          <p className="panel-kicker">What happens next</p>
+          <h3>Review findings become reusable evidence.</h3>
           <p>
             {resume.status === "extracted"
               ? "Use Evidence Library to review open tasks, add missing context, and keep approved evidence stable."
@@ -806,10 +830,17 @@ function ResumeReviewReportCard({
           </p>
         </div>
         <ul className="review-next-steps">
-          <li>Continue to Evidence Library and review tasks from this resume.</li>
-          <li>Approve resume-safe claims in Evidence Library.</li>
-          <li>Add more material only when the review reveals missing context.</li>
+          <li>Create library items before saving enrichment answers.</li>
+          <li>Approve only accurate, public-safe claims for resume use.</li>
+          <li>Add work notes when a finding needs deeper project context.</li>
         </ul>
+        <button
+          className="primary-button handoff-panel__action"
+          type="button"
+          onClick={onContinueToEvidence}
+        >
+          Continue to Evidence Library
+        </button>
       </div>
     </section>
   );
@@ -835,12 +866,12 @@ type ReviewDimension = {
 };
 
 type ReviewFindingGroup = {
-  ctaLabel?: string;
   items: ReviewFinding[];
   title: string;
 };
 
 type ReviewFinding = {
+  badge: string;
   detail: string;
   id: string;
   nextStep: string;
@@ -852,13 +883,11 @@ type ReviewFinding = {
 function ReviewDimensionWorkbench({
   dimensions,
   missingEvidenceQuestions,
-  onExtract,
   onSelect,
   selectedDimension,
 }: {
   dimensions: ReviewDimension[];
   missingEvidenceQuestions: string[];
-  onExtract: () => void;
   onSelect: (id: string) => void;
   selectedDimension: ReviewDimension;
 }) {
@@ -915,9 +944,9 @@ function ReviewDimensionWorkbench({
             )}
           </div>
         </div>
-        <button type="button" onClick={onExtract}>
-          Enrich supporting evidence
-        </button>
+        <p className="review-dimension-card__hint">
+          Use the main Evidence Library action for this review when you are ready to create or refine reusable material.
+        </p>
       </article>
     </section>
   );
@@ -981,8 +1010,9 @@ function ReviewRadar({
       </div>
     );
   }
-  const center = 96;
-  const radius = 74;
+  const center = 110;
+  const radius = 64;
+  const labelRadius = 78;
   const axisPoints = dimensions.map((dimension, index) => {
     const angle = -Math.PI / 2 + (index * 2 * Math.PI) / dimensions.length;
     const outerX = center + Math.cos(angle) * radius;
@@ -997,13 +1027,13 @@ function ReviewRadar({
       score: `${scoreX},${scoreY}`,
       scoreX,
       scoreY,
-      textX: center + Math.cos(angle) * (radius + 22),
-      textY: center + Math.sin(angle) * (radius + 22),
+      textX: center + Math.cos(angle) * labelRadius,
+      textY: center + Math.sin(angle) * labelRadius,
     };
   });
   const polygon = axisPoints.map((point) => point.score).join(" ");
   return (
-    <svg className="review-radar" role="img" viewBox="0 0 192 192" aria-label="Radar chart of resume review dimensions">
+    <svg className="review-radar" role="img" viewBox="0 0 220 220" aria-label="Radar chart of resume review dimensions">
       {[0.33, 0.66, 1].map((scale) => (
         <polygon
           className="review-radar__grid"
@@ -1045,11 +1075,9 @@ function ReviewRadar({
 
 function ReviewFindingBoard({
   groups,
-  onExtract,
   visibleTitles,
 }: {
   groups: ReviewFindingGroup[];
-  onExtract: () => void;
   visibleTitles?: string[];
 }) {
   const visibleGroups = groups.filter(
@@ -1070,11 +1098,6 @@ function ReviewFindingBoard({
         <div className="review-finding-group" key={group.title}>
           <div className="review-finding-group__top">
             <h4>{group.title}</h4>
-            {group.ctaLabel ? (
-              <button type="button" onClick={onExtract}>
-                {group.ctaLabel}
-              </button>
-            ) : null}
           </div>
           <div className="review-finding-grid">
             {group.items.map((item) => (
@@ -1083,21 +1106,13 @@ function ReviewFindingBoard({
                 data-tone={item.tone}
                 key={item.id}
               >
-                <span>{item.title}</span>
+                <span className="review-finding-card__badge">{item.badge}</span>
+                <strong>{item.title}</strong>
                 <p>{item.detail}</p>
-                <dl>
-                  <div>
-                    <dt>Why it matters</dt>
-                    <dd>{item.why}</dd>
-                  </div>
-                  <div>
-                    <dt>Next action</dt>
-                    <dd>{item.nextStep}</dd>
-                  </div>
-                </dl>
-                <button type="button" onClick={onExtract}>
-                  {findingCardActionLabel(item.tone)}
-                </button>
+                <div className="review-finding-card__meta">
+                  <span>{item.why}</span>
+                  <small>{item.nextStep}</small>
+                </div>
               </article>
             ))}
           </div>
@@ -1112,17 +1127,13 @@ function ReviewDetailTabs({
   atsNotes,
   findingGroups,
   metadataScan,
-  onExtract,
   onSelect,
-  resumeStatus,
 }: {
   activeTab: ReviewDetailTab;
   atsNotes: string[];
   findingGroups: ReviewFindingGroup[];
   metadataScan: string;
-  onExtract: () => void;
   onSelect: (tab: ReviewDetailTab) => void;
-  resumeStatus: string;
 }) {
   const tabs: Array<{ id: ReviewDetailTab; label: string; titles?: string[] }> = [
     { id: "summary", label: "Summary" },
@@ -1157,14 +1168,10 @@ function ReviewDetailTabs({
             <h3>{metadataScan ? "Recruiter skim result" : "Review summary"}</h3>
             <p>{metadataScan || "Use the tabs to inspect strengths, fixes, evidence gaps, rewrite suggestions, ATS notes, and privacy risks."}</p>
           </div>
-          <span className="review-next-step">
-            {resumeStatus === "extracted" ? "Next: approve resume-safe evidence" : "Next: continue to Evidence"}
-          </span>
         </section>
       ) : (
         <ReviewFindingBoard
           groups={findingGroups}
-          onExtract={onExtract}
           visibleTitles={active.titles}
         />
       )}
@@ -1239,81 +1246,77 @@ function buildReviewFindingGroups({
   return [
     {
       items: strengths.map((item, index) => ({
+        badge: "Strength",
         detail: item,
         id: `strength-${index}-${item}`,
-        nextStep: "Preserve this signal when rewriting. If it is tied to a project, make sure the supporting evidence stays approved.",
-        title: "Keep this signal",
+        nextStep: "Preserve in rewrites",
+        title: findingTitle("strength", item),
         tone: "positive",
-        why: "Strong signals should survive tailoring instead of being edited away for keyword matching.",
+        why: "Recruiter-visible signal",
       })),
       title: "Strengths to preserve",
     },
     {
-      ctaLabel: "Add evidence",
       items: weaknesses.map((item, index) => ({
+        badge: "Fix",
         detail: item,
         id: `weakness-${index}-${item}`,
-        nextStep: "Rewrite the bullet only after adding missing context, metric, scope, or outcome in Evidence Library.",
-        title: "Rewrite candidate",
+        nextStep: "Add context before rewriting",
+        title: findingTitle("weakness", item),
         tone: "warning",
-        why: "Weak sections usually need stronger proof, not just better wording.",
+        why: "Needs stronger proof",
       })),
       title: "Weaknesses to fix",
     },
     {
-      ctaLabel: "Answer questions",
       items: missingEvidenceQuestions.map((item, index) => ({
+        badge: "Evidence gap",
         detail: item,
         id: `missing-${index}-${item}`,
-        nextStep: "Use Add Material or work notes to answer this question, then approve the resulting claim.",
-        title: "Evidence needed",
+        nextStep: "Answer after library items exist",
+        title: findingTitle("evidence", item),
         tone: "warning",
-        why: "Tailored resumes work better when claims are backed by reusable source material.",
+        why: "Missing reusable source",
       })),
       title: "Evidence gaps",
     },
     {
       items: recommendedActions.map((item, index) => ({
+        badge: "Rewrite",
         detail: item,
         id: `action-${index}-${item}`,
-        nextStep: "Treat this as rewrite logic for the next generated resume draft.",
-        title: "Rewrite instruction",
+        nextStep: "Apply in next draft",
+        title: findingTitle("rewrite", item),
         tone: "neutral",
-        why: "This converts review feedback into a rule the resume generator can follow.",
+        why: "Drafting rule",
       })),
       title: "Rewrite logic",
     },
     {
       items: atsNotes.map((item, index) => ({
+        badge: "ATS",
         detail: item,
         id: `ats-${index}-${item}`,
-        nextStep: "Keep formatting parseable and avoid adding layout complexity when improving content.",
-        title: "ATS consideration",
+        nextStep: "Keep format parseable",
+        title: findingTitle("ats", item),
         tone: "neutral",
-        why: "A strong resume still needs to survive parser and recruiter skim constraints.",
+        why: "Parser-readability guardrail",
       })),
       title: "ATS notes",
     },
     {
-      ctaLabel: "Review source wording",
       items: riskFlags.map((item, index) => ({
+        badge: "Privacy",
         detail: item,
         id: `risk-${index}-${item}`,
-        nextStep: "Move sensitive details into internal notes and use external-safe wording before resume generation.",
-        title: "Confidentiality risk",
+        nextStep: "Use external-safe wording",
+        title: findingTitle("privacy", item),
         tone: "risk",
-        why: "Internal system names, sensitive metrics, or confidential context should not leak into external resumes.",
+        why: "External-use risk",
       })),
       title: "Privacy and confidentiality",
     },
   ];
-}
-
-function findingCardActionLabel(tone: ReviewFinding["tone"]) {
-  if (tone === "positive") return "Open evidence backing";
-  if (tone === "risk") return "Review source wording";
-  if (tone === "neutral") return "Use in rewrite plan";
-  return "Add missing evidence";
 }
 
 function dimensionRewriteGuidance(dimension: ReviewDimension) {
@@ -1347,9 +1350,51 @@ function normalizeScore(value: unknown, fallback: number) {
 }
 
 function shortDimensionLabel(label: string) {
+  const normalized = label.trim().toLowerCase();
+  if (normalized.includes("evidence") && normalized.includes("impact")) return "Evidence";
+  if (normalized.includes("role") || normalized.includes("ownership") || normalized.includes("depth")) return "Depth";
+  if (normalized.includes("ats")) return "ATS";
+  if (normalized.includes("clarity") || normalized.includes("scan")) return "Clarity";
+  if (normalized.includes("library")) return "Library";
+  if (normalized.includes("project")) return "Projects";
+  if (normalized.includes("privacy") || normalized.includes("confidential")) return "Privacy";
+  if (normalized.includes("metric") || normalized.includes("impact")) return "Impact";
   const trimmed = label.trim();
-  if (trimmed.length <= 14) return trimmed;
-  return `${trimmed.slice(0, 12)}...`;
+  return trimmed.length <= 10 ? trimmed : trimFindingText(trimmed, 10);
+}
+
+function findingTitle(
+  category: "ats" | "evidence" | "privacy" | "rewrite" | "strength" | "weakness",
+  item: string,
+) {
+  const subject = findingSubject(item);
+  if (subject) {
+    const subjectPrefix = trimFindingText(subject, 42);
+    if (category === "strength") return `${subjectPrefix}: preserve this signal`;
+    if (category === "weakness") return `${subjectPrefix}: strengthen the proof`;
+    if (category === "evidence") return `${subjectPrefix}: add missing evidence`;
+    if (category === "rewrite") return `${subjectPrefix}: apply rewrite logic`;
+    if (category === "ats") return `${subjectPrefix}: keep parser-readable`;
+    return `${subjectPrefix}: make wording safe`;
+  }
+  return trimFindingText(item, 78);
+}
+
+function findingSubject(item: string) {
+  const normalized = item.replace(/\s+/g, " ").trim();
+  const colonIndex = normalized.indexOf(":");
+  if (colonIndex > 0 && colonIndex <= 48) {
+    return normalized.slice(0, colonIndex).trim();
+  }
+  const firstSentence = normalized.match(/^(.+?)(?:\.|\?|!)(?:\s|$)/)?.[1]?.trim();
+  return firstSentence && firstSentence.length <= 58 ? firstSentence : "";
+}
+
+function trimFindingText(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  const trimmedAtWord = normalized.slice(0, maxLength - 1).replace(/\s+\S*$/, "");
+  return `${trimmedAtWord || normalized.slice(0, maxLength - 1)}...`;
 }
 
 function slugify(value: string) {
@@ -1358,6 +1403,15 @@ function slugify(value: string) {
 
 function normalizeReviewText(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function formatReviewConfidence(confidence: number | undefined) {
+  if (typeof confidence !== "number" || !Number.isFinite(confidence)) {
+    return "Review confidence was not provided.";
+  }
+  if (confidence >= 0.85) return "High confidence review based on the extracted resume text.";
+  if (confidence >= 0.65) return "Moderate confidence review; check the detailed findings before acting.";
+  return "Lower confidence review; use the findings as directional guidance.";
 }
 
 function isFallbackResume(resume: ResumeSourceReviewSummary) {

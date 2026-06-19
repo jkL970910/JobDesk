@@ -26,6 +26,7 @@ type ExtractionResponse =
           initiativeCount?: number;
           portfolioProjectCount?: number;
           workExperienceCount?: number;
+          sourceDocumentRecovered?: boolean;
         };
       };
     }
@@ -221,7 +222,13 @@ type ProjectCardItem = {
 };
 
 export type MaterialEntryIntent = "resume" | "scratch" | "jd";
-export type MaterialReviewTab = "enrichment" | "projects" | "unlinked" | "cleanup" | "stories";
+export type MaterialReviewTab =
+  | "enrichment"
+  | "projects"
+  | "claims"
+  | "unlinked"
+  | "cleanup"
+  | "stories";
 type ProjectSourceMode = "upload" | "paste" | "guided";
 type StoryEnrichmentTargetType = "initiative" | "portfolio_project" | "legacy_project";
 
@@ -289,6 +296,12 @@ type SourceParseCard = {
   nextAction: "resume_review" | "extract" | "manual_paste";
 };
 
+type FileProcessingState = {
+  filename: string;
+  mode: "resume-review" | "source-parse" | "project-import";
+  fileCount?: number;
+};
+
 type EvidenceUpdateAction =
   | "approve"
   | "approve_for_resume"
@@ -322,6 +335,10 @@ export function ProfileEvidenceWorkspace({
   const [activeSection, setActiveSection] = useState<"review" | "intake">(initialSection);
   const [selectedEntryIntent, setSelectedEntryIntent] =
     useState<MaterialEntryIntent>(entryIntent);
+  const [hasChosenMaterialType, setHasChosenMaterialType] = useState(
+    Boolean(initialResumeSourceVersionId),
+  );
+  const [isEditingMaterialType, setIsEditingMaterialType] = useState(false);
   const [reviewTab, setReviewTab] = useState<
     MaterialReviewTab
   >(initialReviewTab);
@@ -343,6 +360,7 @@ export function ProfileEvidenceWorkspace({
   const [evidenceFocus, setEvidenceFocus] = useState<EvidenceFocus>(null);
   const [starStoryFocus, setStarStoryFocus] = useState<StarStoryFocus>(null);
   const [fileStatus, setFileStatus] = useState<string | null>(null);
+  const [fileProcessing, setFileProcessing] = useState<FileProcessingState | null>(null);
   const [parseCard, setParseCard] = useState<SourceParseCard | null>(null);
   const [resumeSources, setResumeSources] = useState<ResumeSourceSummary[]>([]);
   const [selectedResumeSourceId, setSelectedResumeSourceId] = useState<string>(
@@ -373,6 +391,7 @@ export function ProfileEvidenceWorkspace({
   const [isProjectEnriching, setIsProjectEnriching] = useState(false);
   const [extractElapsedSeconds, setExtractElapsedSeconds] = useState(0);
   const [projectElapsedSeconds, setProjectElapsedSeconds] = useState(0);
+  const [fileProcessingElapsedSeconds, setFileProcessingElapsedSeconds] = useState(0);
 
   useEffect(() => {
     void loadLibrary();
@@ -391,7 +410,8 @@ export function ProfileEvidenceWorkspace({
 
   useEffect(() => {
     setSelectedEntryIntent(entryIntent);
-  }, [entryIntent]);
+    setHasChosenMaterialType(Boolean(initialResumeSourceVersionId) || entryIntent !== "resume");
+  }, [entryIntent, initialResumeSourceVersionId]);
 
   useEffect(() => {
     setActiveSection(initialSection);
@@ -424,6 +444,20 @@ export function ProfileEvidenceWorkspace({
     }, 1000);
     return () => window.clearInterval(timer);
   }, [isProjectEnriching]);
+
+  useEffect(() => {
+    if (!fileProcessing) {
+      setFileProcessingElapsedSeconds(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setFileProcessingElapsedSeconds(
+        Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
+      );
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [fileProcessing]);
 
   const activeSourceIntent = selectedEntryIntent === "jd" ? "jd" : "resume";
   const sourceText = sourceDrafts[activeSourceIntent].text;
@@ -659,12 +693,23 @@ export function ProfileEvidenceWorkspace({
 
     if (selectedEntryIntent === "resume") {
       setFileStatus(`Reviewing ${file.name}...`);
+      setFileProcessing({ filename: file.name, mode: "resume-review" });
       const formData = new FormData();
       formData.append("file", file);
-      const response = await fetchJson("/api/resume-review", {
-        method: "POST",
-        body: formData,
-      });
+      let response: Response;
+      try {
+        response = await fetchJson("/api/resume-review", {
+          method: "POST",
+          body: formData,
+        });
+      } catch (caught) {
+        setFileProcessing(null);
+        setFileStatus(null);
+        setError(
+          caught instanceof Error ? caught.message : "Resume review failed.",
+        );
+        return;
+      }
       const payload = (await response.json().catch(() => null)) as
         | {
             data?: {
@@ -679,6 +724,7 @@ export function ProfileEvidenceWorkspace({
           }
         | null;
       if (!response.ok || !payload?.data) {
+        setFileProcessing(null);
         setFileStatus(null);
         setError(payload?.error ?? "Resume review failed.");
         return;
@@ -690,6 +736,7 @@ export function ProfileEvidenceWorkspace({
         setFileStatus(
           `This exact resume already exists as v${payload.data.existingResume.version}. Using ${formatResumeTitle(payload.data.existingResume.title)}.`,
         );
+        setFileProcessing(null);
         if (payload.data.parseQuality) {
           setParseCard({
             filename: file.name,
@@ -708,6 +755,7 @@ export function ProfileEvidenceWorkspace({
         setFileStatus(
           `Reviewed ${formatResumeTitle(payload.data.resume.title)}${payload.data.parseWarnings?.length ? ` · ${payload.data.parseWarnings.length} parser note${payload.data.parseWarnings.length === 1 ? "" : "s"}` : ""}`,
         );
+        setFileProcessing(null);
         if (payload.data.parseQuality) {
           setParseCard({
             filename: file.name,
@@ -719,11 +767,14 @@ export function ProfileEvidenceWorkspace({
         }
         return;
       }
+      setFileProcessing(null);
+      setFileStatus(null);
       setError(payload.data.reason ?? "Resume review storage is not configured.");
       return;
     }
 
     setFileStatus(`Reading ${file.name}...`);
+    setFileProcessing({ filename: file.name, mode: "source-parse" });
     const formData = new FormData();
     formData.append("file", file);
     formData.append(
@@ -741,6 +792,7 @@ export function ProfileEvidenceWorkspace({
       });
     } catch (caught) {
       window.clearTimeout(timeoutId);
+      setFileProcessing(null);
       setFileStatus(null);
       setError(
         caught instanceof DOMException && caught.name === "AbortError"
@@ -770,6 +822,7 @@ export function ProfileEvidenceWorkspace({
         }
       | null;
     if (!response.ok || !payload?.data) {
+      setFileProcessing(null);
       setFileStatus(null);
       setError(payload?.error ?? "Resume source parsing failed.");
       return;
@@ -790,6 +843,7 @@ export function ProfileEvidenceWorkspace({
         nextAction: parseNextAction,
       });
       setFileStatus("This file needs manual text input before JobDesk can use it.");
+      setFileProcessing(null);
       return;
     }
     if (selectedEntryIntent === "scratch") {
@@ -816,6 +870,7 @@ export function ProfileEvidenceWorkspace({
     setFileStatus(
       `Imported ${payload.data.sourceTitle}${payload.data.warnings.length > 0 ? ` · ${payload.data.warnings.length} note${payload.data.warnings.length === 1 ? "" : "s"} to review` : ""}`,
     );
+    setFileProcessing(null);
   }
 
   async function parseSourceFile(file: File) {
@@ -863,9 +918,15 @@ export function ProfileEvidenceWorkspace({
     setError(null);
     if (!files || files.length === 0) return;
     setFileStatus(`Reading ${files.length} project source file${files.length === 1 ? "" : "s"}...`);
+    const fileArray = Array.from(files);
+    setFileProcessing({
+      filename: fileArray.length === 1 ? fileArray[0]?.name ?? "Project file" : `${fileArray.length} project files`,
+      mode: "project-import",
+      fileCount: fileArray.length,
+    });
     const parsedSources: Awaited<ReturnType<typeof parseSourceFile>>[] = [];
     const failures = [];
-    for (const file of Array.from(files)) {
+    for (const file of fileArray) {
       try {
         parsedSources.push(await parseSourceFile(file));
       } catch (caught) {
@@ -873,16 +934,25 @@ export function ProfileEvidenceWorkspace({
       }
     }
     if (parsedSources.length === 0) {
+      setFileProcessing(null);
       setFileStatus(null);
       setError(failures[0] ?? "No project source files could be parsed.");
       return;
     }
+    const firstParsedSource = parsedSources[0];
+    const hasExistingProjectText = projectNoteText.trim().length > 0;
+    const canBindSingleParsedSource =
+      parsedSources.length === 1 && Boolean(firstParsedSource) && !hasExistingProjectText;
     const appendedText = parsedSources
       .map((source) => [`## ${source.sourceTitle}`, source.sourceText].join("\n\n"))
       .join("\n\n---\n\n");
-    setProjectNoteText((current) =>
-      current.trim() ? `${current.trim()}\n\n---\n\n${appendedText}` : appendedText,
-    );
+    setProjectNoteText((current) => {
+      const trimmedCurrent = current.trim();
+      if (parsedSources.length === 1 && firstParsedSource && !trimmedCurrent) {
+        return firstParsedSource.sourceText;
+      }
+      return trimmedCurrent ? `${trimmedCurrent}\n\n---\n\n${appendedText}` : appendedText;
+    });
     setProjectNoteTitle((current) =>
       current.trim()
         ? current
@@ -894,10 +964,9 @@ export function ProfileEvidenceWorkspace({
       (count, source) => count + source.warnings.length,
       0,
     );
-    const firstParsedSource = parsedSources[0];
     if (firstParsedSource) {
       setProjectSourceDocumentId(
-        parsedSources.length === 1 ? firstParsedSource.sourceDocumentId : undefined,
+        canBindSingleParsedSource ? firstParsedSource.sourceDocumentId : undefined,
       );
       setParseCard({
         filename:
@@ -911,7 +980,7 @@ export function ProfileEvidenceWorkspace({
             : `${parsedSources.length} project source files`,
         parseQuality: firstParsedSource.parseQuality,
         sourceDocumentId:
-          parsedSources.length === 1 ? firstParsedSource.sourceDocumentId : undefined,
+          canBindSingleParsedSource ? firstParsedSource.sourceDocumentId : undefined,
         nextAction:
           firstParsedSource.parseQuality.status === "needs_ocr"
             ? "manual_paste"
@@ -921,6 +990,7 @@ export function ProfileEvidenceWorkspace({
     setFileStatus(
       `Imported ${parsedSources.length} project source file${parsedSources.length === 1 ? "" : "s"}${warningCount ? ` · ${warningCount} parser note${warningCount === 1 ? "" : "s"}` : ""}${failures.length ? ` · ${failures.length} failed` : ""}`,
     );
+    setFileProcessing(null);
   }
 
   function runProjectEnrichment() {
@@ -1017,6 +1087,10 @@ export function ProfileEvidenceWorkspace({
     ready: projectNoteIsReady && projectNoteTitle.trim().length > 0,
     success: Boolean(lastIntakeSummary && lastIntakeSummary.type === "project"),
   });
+  const hasActiveSourceMaterial =
+    selectedEntryIntent === "scratch"
+      ? projectNoteTitle.trim().length > 0 || projectNoteText.trim().length > 0
+      : sourceTitle.trim().length > 0 || sourceText.trim().length > 0 || Boolean(selectedResumeSourceId);
   const profile = result?.profile;
   const rawEvidenceItems = result?.evidence_items ?? library?.evidenceItems ?? [];
   const enrichmentTaskCountByEvidenceId = new Map<string, number>();
@@ -1046,6 +1120,9 @@ export function ProfileEvidenceWorkspace({
     workExperiences,
   };
   const unlinkedEvidenceItems = getUnlinkedEvidenceItems(linkTargets, evidenceItems);
+  const claimReviewEvidenceItems = evidenceItems.filter(
+    (item) => getEvidenceReadiness(item).state !== "resume_ready",
+  );
   const focusedEvidenceItems = evidenceFocus
     ? evidenceItems.filter((item) => evidenceMatchesFocus(item, evidenceFocus))
     : unlinkedEvidenceItems;
@@ -1058,6 +1135,10 @@ export function ProfileEvidenceWorkspace({
     workExperiences,
   });
   const entryGuidance = getEntryGuidance(selectedEntryIntent);
+  const selectedResumeSource =
+    resumeSources.find((resume) => resume.id === selectedResumeSourceId) ?? null;
+  const showMaterialTypePicker =
+    isEditingMaterialType || (!hasActiveSourceMaterial && !hasChosenMaterialType);
 
   function buildGuidedPreview(fields: GuidedMaterialFields) {
     return buildGuidedMaterialMarkdown(fields, selectedStoryTarget
@@ -1076,29 +1157,113 @@ export function ProfileEvidenceWorkspace({
     setStatus("Guided answers are synced into the source preview.");
   }
 
+  function clearSharedFileState() {
+    setFileStatus(null);
+    setFileProcessing(null);
+    setParseCard(null);
+  }
+
+  function resetProjectMaterialDraft() {
+    setProjectNoteText("");
+    setProjectNoteTitle("");
+    setProjectSourceDocumentId(undefined);
+    setProjectSourceMode("guided");
+    setGuidedMaterialFields(emptyGuidedMaterialFields);
+    setGuidedPreviewState("synced");
+    setSelectedStoryTarget(null);
+  }
+
+  function resetResumeSourceDraft() {
+    setSelectedResumeSourceId("");
+    updateSourceDraft("resume", { sourceDocumentId: undefined, text: "", title: "" });
+  }
+
+  function resetJdSourceDraft() {
+    updateSourceDraft("jd", { sourceDocumentId: undefined, text: "", title: "" });
+  }
+
+  function selectProjectSourceMode(mode: ProjectSourceMode) {
+    if (mode === projectSourceMode) return;
+    setError(null);
+    clearSharedFileState();
+    setProjectSourceMode(mode);
+    setProjectSourceDocumentId(undefined);
+    if (mode === "guided") {
+      const nextText = hasGuidedMaterialContent(buildGuidedPreview(guidedMaterialFields))
+        ? buildGuidedPreview(guidedMaterialFields)
+        : "";
+      setProjectNoteText(nextText);
+      setGuidedPreviewState("synced");
+      return;
+    }
+    setProjectNoteText("");
+    setProjectNoteTitle("");
+    if (mode === "paste") {
+      setGuidedPreviewState("edited");
+    }
+  }
+
   function selectEntryIntent(intent: MaterialEntryIntent) {
     setSelectedEntryIntent(intent);
-    setFileStatus(null);
+    setHasChosenMaterialType(true);
+    setIsEditingMaterialType(false);
+    setError(null);
+    clearSharedFileState();
     setEvidenceFocus(null);
     setStarStoryFocus(null);
     if (intent === "resume") {
-      setStatus("Resume path selected. Select a reviewed resume, upload a file, or paste resume text.");
+      resetProjectMaterialDraft();
+      resetJdSourceDraft();
+      setStatus("Resume path selected. Choose an already reviewed resume version.");
     } else if (intent === "jd") {
-      setSelectedResumeSourceId("");
+      resetProjectMaterialDraft();
+      resetResumeSourceDraft();
       setStatus("JD gap path selected. Add JD gap notes; resume drafts stay separate.");
     } else {
-      setSelectedResumeSourceId("");
-      setProjectSourceMode("guided");
-      setGuidedPreviewState("synced");
-      setSelectedStoryTarget(null);
+      resetResumeSourceDraft();
+      resetJdSourceDraft();
+      resetProjectMaterialDraft();
       setStatus("Story material path selected. Add notes, files, or guided answers to strengthen your evidence.");
     }
   }
 
   function openGenericSourceIntake() {
+    setHasChosenMaterialType(false);
     setSelectedStoryTarget(null);
     setEvidenceFocus(null);
     setStarStoryFocus(null);
+    setIsEditingMaterialType(false);
+    setActiveSection("intake");
+  }
+
+  function openCreateLibraryItemsForTask(task: EnrichmentTaskItem) {
+    clearSharedFileState();
+    setHasChosenMaterialType(true);
+    setSelectedStoryTarget(null);
+    setEvidenceFocus(null);
+    setStarStoryFocus(null);
+    setIsEditingMaterialType(false);
+    if (task.source_type === "resume_review") {
+      setSelectedEntryIntent("resume");
+      resetProjectMaterialDraft();
+      resetJdSourceDraft();
+      if (task.resume_source_version_id) {
+        setSelectedResumeSourceId(task.resume_source_version_id);
+        void loadResumeSourceIntoIntake(task.resume_source_version_id);
+      }
+      setStatus("Create library items from the reviewed resume before saving enrichment answers.");
+    } else if (task.source_type === "jd_gap") {
+      setSelectedEntryIntent("jd");
+      resetProjectMaterialDraft();
+      resetResumeSourceDraft();
+      setStatus("Add JD gap material before saving enrichment answers.");
+    } else {
+      setSelectedEntryIntent("scratch");
+      resetResumeSourceDraft();
+      resetJdSourceDraft();
+      resetProjectMaterialDraft();
+      setStatus("Add work story material before saving enrichment answers.");
+    }
     setActiveSection("intake");
   }
 
@@ -1139,6 +1304,10 @@ export function ProfileEvidenceWorkspace({
     setGuidedPreviewState("synced");
     setProjectSourceDocumentId(undefined);
     setSelectedEntryIntent("scratch");
+    setHasChosenMaterialType(true);
+    clearSharedFileState();
+    resetResumeSourceDraft();
+    resetJdSourceDraft();
     setEvidenceFocus(null);
     setStarStoryFocus(null);
     setStatus(`Answer guided prompts for ${title}, edit the preview, then enrich the story.`);
@@ -1151,7 +1320,7 @@ export function ProfileEvidenceWorkspace({
       targetType: target.targetType,
       title: target.targetTitle,
     });
-    setReviewTab("unlinked");
+    setReviewTab("claims");
   }
 
   function reviewStarStoryForStory(target: StoryEnrichmentTarget) {
@@ -1408,77 +1577,116 @@ export function ProfileEvidenceWorkspace({
           </div>
           <IntakeStageHeader
             activeIntent={selectedEntryIntent}
+            isChoosingMaterialType={showMaterialTypePicker}
+            onChangeMaterialType={() => setIsEditingMaterialType(true)}
+            onReviewMaterial={() => setActiveSection("review")}
+            onShowSource={() => setIsEditingMaterialType(false)}
             projectFormState={projectFormState}
             sourceFormState={sourceFormState}
           />
-          <section className="material-type-picker" aria-labelledby="material-type-picker-title">
-            <div className="material-type-picker__header">
-              <span>Step 1</span>
-              <div>
-                <h3 id="material-type-picker-title">Choose material type</h3>
-                <p>Select the source you want to add. This controls the form below.</p>
+          {showMaterialTypePicker ? (
+            <section className="material-type-picker" aria-labelledby="material-type-picker-title">
+              <div className="material-type-picker__header">
+                <span>Step 1</span>
+                <div>
+                  <h3 id="material-type-picker-title">Choose material type</h3>
+                  <p>Select the source you want to add. This controls the form below.</p>
+                </div>
               </div>
-            </div>
-            <OnboardingPaths
+              <OnboardingPaths
+                activeIntent={selectedEntryIntent}
+                onSelect={selectEntryIntent}
+              />
+            </section>
+          ) : (
+            <MaterialSelectionSummary
               activeIntent={selectedEntryIntent}
-              onSelect={selectEntryIntent}
+              onChangeType={() => setIsEditingMaterialType(true)}
+              selectedResume={selectedResumeSource}
+              sourceTitle={
+                selectedEntryIntent === "scratch"
+                  ? projectNoteTitle
+                  : sourceTitle
+              }
             />
-          </section>
+          )}
           {selectedEntryIntent !== "scratch" ? (
             <section className="source-active-form">
-              <div className="source-controls">
-                <label className="source-field">
-                  <span>{entryGuidance.primaryTitleLabel}</span>
-                  <input
-                    className="source-input"
-                    type="text"
-                    value={sourceTitle}
-                    onChange={(event) => updateActiveSourceDraft({ title: event.target.value })}
-                  />
-                </label>
-                <label className="file-import">
-                  <span>{entryGuidance.fileImportLabel}</span>
-                  <input
-                    accept=".pdf,.docx,.txt,.md,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
-                    type="file"
-                    onChange={(event) => {
-                      void importResumeFile(event.target.files?.[0] ?? null);
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                </label>
-              </div>
               {selectedEntryIntent === "resume" ? (
-                <ResumeSourcePicker
-                  isLoading={selectedResumeSourceLoading}
-                  onSelect={(resumeSourceVersionId) => {
-                    setSelectedResumeSourceId(resumeSourceVersionId);
-                    void loadResumeSourceIntoIntake(resumeSourceVersionId);
-                  }}
-                  resumes={resumeSources}
-                  selectedId={selectedResumeSourceId}
+                <>
+                  <ResumeSourcePicker
+                    isLoading={selectedResumeSourceLoading}
+                    onOpenResumeReview={() => {
+                      window.location.hash = "resume-review";
+                    }}
+                    onSelect={(resumeSourceVersionId) => {
+                      clearSharedFileState();
+                      setSelectedResumeSourceId(resumeSourceVersionId);
+                      void loadResumeSourceIntoIntake(resumeSourceVersionId);
+                    }}
+                    resumes={resumeSources}
+                    selectedId={selectedResumeSourceId}
+                  />
+                  {resumeSources.length > 0 ? (
+                    <ResumeReviewUploadRedirect
+                      onOpenResumeReview={() => {
+                        window.location.hash = "resume-review";
+                      }}
+                    />
+                  ) : null}
+                </>
+              ) : (
+                <div className="source-controls">
+                  <label className="source-field">
+                    <span>{entryGuidance.primaryTitleLabel}</span>
+                    <input
+                      className="source-input"
+                      type="text"
+                      value={sourceTitle}
+                      onChange={(event) => updateActiveSourceDraft({ title: event.target.value })}
+                    />
+                  </label>
+                  <label className="file-import">
+                    <span>{entryGuidance.fileImportLabel}</span>
+                    <input
+                      accept=".pdf,.docx,.txt,.md,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+                      type="file"
+                      onChange={(event) => {
+                        void importResumeFile(event.target.files?.[0] ?? null);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+              )}
+              {fileStatus ? <p className="source-status">{fileStatus}</p> : null}
+              {fileProcessing ? (
+                <FileProcessingNotice
+                  elapsedSeconds={fileProcessingElapsedSeconds}
+                  processing={fileProcessing}
                 />
               ) : null}
-              {fileStatus ? <p className="source-status">{fileStatus}</p> : null}
               {parseCard ? <SourceParseStatusCard card={parseCard} /> : null}
               <label className="source-field source-field--textarea">
                 <span>{selectedEntryIntent === "jd" ? "JD gap source text" : "Resume source text"}</span>
-                <small>{selectedEntryIntent === "jd" ? "Paste evidence-gap notes from a JD review, or route to Jobs for full JD analysis later." : "Paste resume text or load a reviewed resume version."}</small>
+                <small>{selectedEntryIntent === "jd" ? "Paste evidence-gap notes from a JD review, or route to Jobs for full JD analysis later." : "Read-only preview from Resume Review. Upload and review new resumes in the Resume Review workspace."}</small>
                 <textarea
                   aria-label="Resume or career source text"
                   className="jd-input jd-input--compact"
                   placeholder={
                     selectedEntryIntent === "jd"
                       ? "Paste JD gap notes or missing-evidence prompts here..."
-                      : "Paste your real resume text here, upload a file, or select a reviewed resume version..."
+                      : "Select a reviewed resume version from Resume Review..."
                   }
+                  readOnly={selectedEntryIntent === "resume"}
                   value={sourceText}
                   onChange={(event) => {
+                    if (selectedEntryIntent === "resume") return;
                     updateActiveSourceDraft({
                       sourceDocumentId: undefined,
                       text: event.target.value,
                     });
-                    setFileStatus(null);
+                    clearSharedFileState();
                   }}
                   spellCheck={false}
                 />
@@ -1516,10 +1724,7 @@ export function ProfileEvidenceWorkspace({
             </p>
             <ProjectSourceModePicker
               activeMode={projectSourceMode}
-              onSelect={(mode) => {
-                setProjectSourceMode(mode);
-                setFileStatus(null);
-              }}
+              onSelect={selectProjectSourceMode}
             />
             {selectedStoryTarget ? (
               <section className="guided-target-card">
@@ -1559,6 +1764,13 @@ export function ProfileEvidenceWorkspace({
               </label>
               ) : null}
             </div>
+            {fileStatus ? <p className="source-status">{fileStatus}</p> : null}
+            {fileProcessing ? (
+              <FileProcessingNotice
+                elapsedSeconds={fileProcessingElapsedSeconds}
+                processing={fileProcessing}
+              />
+            ) : null}
             {parseCard ? <SourceParseStatusCard card={parseCard} /> : null}
             {projectSourceMode === "guided" ? (
               <GuidedMaterialBuilder
@@ -1600,6 +1812,9 @@ export function ProfileEvidenceWorkspace({
                 onChange={(event) => {
                   setProjectNoteText(event.target.value);
                   setProjectSourceDocumentId(undefined);
+                  if (projectSourceMode !== "guided") {
+                    clearSharedFileState();
+                  }
                   if (projectSourceMode === "guided") {
                     setGuidedPreviewState("edited");
                   }
@@ -1692,7 +1907,10 @@ export function ProfileEvidenceWorkspace({
           <EvidencePriorityQueue
             onOpenEnrichment={() => setReviewTab("enrichment")}
             onOpenCleanup={() => setReviewTab("cleanup")}
-            onOpenClaims={() => setReviewTab("unlinked")}
+            onOpenClaims={() => {
+              setEvidenceFocus(null);
+              setReviewTab("claims");
+            }}
             onOpenStories={() => setReviewTab("stories")}
             onOpenStoryTargets={() => setReviewTab("projects")}
             onReturnToIntake={openGenericSourceIntake}
@@ -1717,7 +1935,17 @@ export function ProfileEvidenceWorkspace({
               type="button"
               onClick={() => setReviewTab("projects")}
             >
-              Experience & Stories ({workExperiences.length + initiatives.length + portfolioProjects.length})
+              Experience & Stories ({workExperiences.length} roles · {initiatives.length + portfolioProjects.length} stories)
+            </button>
+            <button
+              data-active={reviewTab === "claims"}
+              type="button"
+              onClick={() => {
+                setEvidenceFocus(null);
+                setReviewTab("claims");
+              }}
+            >
+              Evidence Claims ({claimReviewEvidenceItems.length})
             </button>
             <button
               data-active={reviewTab === "unlinked"}
@@ -1746,6 +1974,7 @@ export function ProfileEvidenceWorkspace({
           </div>
           {reviewTab === "enrichment" ? (
             <EnrichmentTaskQueue
+              onCreateLibraryItems={openCreateLibraryItemsForTask}
               onReturnToIntake={() => setActiveSection("intake")}
               onUpdate={updateEnrichmentTask}
               queueStatus={enrichmentTaskQueueStatus}
@@ -1762,6 +1991,43 @@ export function ProfileEvidenceWorkspace({
               portfolioProjects={portfolioProjects}
               workExperiences={workExperiences}
             />
+          ) : null}
+          {reviewTab === "claims" ? (
+            <>
+            {evidenceFocus ? (
+              <section className="focused-claims-banner">
+                <div>
+                  <span>Story claims focus</span>
+                  <strong>{evidenceFocus.title}</strong>
+                  <p>Review claims linked to this story target, then approve, edit, or mark public-safe as needed.</p>
+                </div>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => setEvidenceFocus(null)}
+                >
+                  Show all claims
+                </button>
+              </section>
+            ) : null}
+            <EvidenceList
+              description={
+                evidenceFocus
+                  ? "These claims are already linked to the selected story target. Review truth, sensitivity, public-safe wording, and resume usage."
+                  : "These evidence claims still need approval, public-safe wording, or resume-safe usage before they can support generated resumes."
+              }
+              emptyMessage={
+                evidenceFocus
+                  ? "No claims are linked to this story target yet. Use Enrich story to add source context."
+                  : "All current evidence claims are approved and resume-ready."
+              }
+              items={evidenceFocus ? focusedEvidenceItems : claimReviewEvidenceItems}
+              onUpdate={updateEvidence}
+              projects={projectCards}
+              linkTargets={linkTargets}
+              title={evidenceFocus ? "Claims for " + evidenceFocus.title : "Evidence Claims Awaiting Review"}
+            />
+            </>
           ) : null}
           {reviewTab === "unlinked" ? (
             <>
@@ -1822,6 +2088,132 @@ export function ProfileEvidenceWorkspace({
       ) : null}
     </section>
   );
+}
+
+function FileProcessingNotice({
+  elapsedSeconds,
+  processing,
+}: {
+  elapsedSeconds: number;
+  processing: FileProcessingState;
+}) {
+  const stages = getFileProcessingStages(processing.mode, processing.fileCount ?? 1);
+  const activeIndex = Math.min(stages.length - 1, Math.floor(elapsedSeconds / 5));
+  const activeStage = stages[activeIndex]!;
+  return (
+    <div className="file-processing-notice" role="status" aria-live="polite">
+      <div className="file-processing-notice__top">
+        <div>
+          <span>Processing file</span>
+          <strong>{processing.filename}</strong>
+        </div>
+        <span>{elapsedSeconds || 1}s</span>
+      </div>
+      <p>
+        {activeStage.detail}
+        {elapsedSeconds >= 25
+          ? " Larger DOCX/PDF files can take a little longer while text is extracted and reviewed."
+          : ""}
+      </p>
+      <ol className="file-processing-steps" aria-label="File processing stages">
+        {stages.map((stage, index) => (
+          <li
+            data-active={index === activeIndex}
+            data-complete={index < activeIndex}
+            key={stage.label}
+          >
+            <span>{index + 1}</span>
+            <div>
+              <strong>{stage.label}</strong>
+              <small>{stage.summary}</small>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function getFileProcessingStages(
+  mode: FileProcessingState["mode"],
+  fileCount: number,
+) {
+  if (mode === "resume-review") {
+    return [
+      {
+        label: "Upload file",
+        summary: "Send the selected resume to the review service.",
+        detail: "Uploading the file and checking that the format is supported.",
+      },
+      {
+        label: "Extract text",
+        summary: "Read the DOCX/PDF text layer and parser warnings.",
+        detail: "Extracting readable resume text, page metadata, and parser quality signals.",
+      },
+      {
+        label: "Review resume",
+        summary: "Score the resume and create recruiter-style findings.",
+        detail: "Running the resume review skill to identify strengths, fixes, gaps, and ATS notes.",
+      },
+      {
+        label: "Load source",
+        summary: "Save the reviewed version and load editable source text.",
+        detail: "Saving the reviewed resume version and loading it back into this workspace.",
+      },
+    ];
+  }
+  if (mode === "project-import") {
+    return [
+      {
+        label: fileCount > 1 ? "Read files" : "Read file",
+        summary:
+          fileCount > 1
+            ? `Prepare ${fileCount} project source files.`
+            : "Prepare the selected project source file.",
+        detail:
+          fileCount > 1
+            ? `Reading ${fileCount} project files and checking their formats.`
+            : "Reading the project file and checking that it has usable text.",
+      },
+      {
+        label: "Extract text",
+        summary: "Parse DOCX/PDF/text content into source material.",
+        detail: "Extracting project notes, parser warnings, and document quality metadata.",
+      },
+      {
+        label: "Preserve source",
+        summary: "Keep provenance only when the text still matches the file.",
+        detail: "Preparing source provenance so generated evidence can trace back to this file.",
+      },
+      {
+        label: "Prepare draft",
+        summary: "Load work-story text for library extraction.",
+        detail: "Loading the parsed material into the Work Story Builder for review before extraction.",
+      },
+    ];
+  }
+  return [
+    {
+      label: "Upload source",
+      summary: "Send the selected file to the source parser.",
+      detail: "Uploading the source file and validating the file type.",
+    },
+    {
+      label: "Extract text",
+      summary: "Read the document text layer and parser warnings.",
+      detail: "Extracting text, parser warnings, word count, and document quality signals.",
+    },
+    {
+      label: "Store source",
+      summary: "Create a reusable source document record.",
+      detail: "Saving the parsed source so future evidence can retain provenance.",
+    },
+    {
+      label: "Load editor",
+      summary: "Fill the source editor with parsed text.",
+      detail: "Loading the parsed material into the editor for review before extraction.",
+    },
+  ];
 }
 
 function ProgressNotice({
@@ -1900,8 +2292,8 @@ function getProgressStages(mode: "evidence" | "project") {
   }
   return [
     {
-      label: "Read source",
-      summary: "Use the uploaded/reviewed resume or pasted text.",
+    label: "Read source",
+      summary: "Use the selected reviewed resume or added source text.",
       detail: "Reading the source and preparing it for evidence extraction.",
     },
     {
@@ -2019,13 +2411,67 @@ function OnboardingPaths({
   );
 }
 
+function MaterialSelectionSummary({
+  activeIntent,
+  onChangeType,
+  selectedResume,
+  sourceTitle,
+}: {
+  activeIntent: MaterialEntryIntent;
+  onChangeType: () => void;
+  selectedResume: ResumeSourceSummary | null;
+  sourceTitle: string;
+}) {
+  const sourceLabel =
+    activeIntent === "scratch"
+      ? "Work notes or guided answers"
+      : activeIntent === "jd"
+        ? "JD gap notes"
+        : "Reviewed resume";
+  const title =
+    activeIntent === "resume" && selectedResume
+      ? `v${selectedResume.version} · ${formatResumeTitle(selectedResume.title)}`
+      : sourceTitle.trim() || "Source selected";
+  const detail =
+    activeIntent === "resume"
+      ? selectedResume?.status === "extracted"
+        ? "Library items already exist for this resume. You can review or add more material below."
+        : "Create library items before answering review-generated enrichment prompts."
+      : activeIntent === "jd"
+        ? "Use this only for evidence-gap material from a JD analysis."
+        : "This source will become reusable story and evidence material.";
+  return (
+    <section className="material-selection-summary" aria-label="Selected material source">
+      <article>
+        <span>Material type</span>
+        <strong>{sourceLabel}</strong>
+        <p>{detail}</p>
+      </article>
+      <article>
+        <span>Selected source</span>
+        <strong>{title}</strong>
+        <p>
+          {activeIntent === "resume" && selectedResume?.latestReview
+            ? `Resume Review score ${selectedResume.latestReview.overallScore}`
+            : "Edit the source below if the material is incomplete."}
+        </p>
+      </article>
+      <button className="secondary-button" type="button" onClick={onChangeType}>
+        Change material type
+      </button>
+    </section>
+  );
+}
+
 function ResumeSourcePicker({
   isLoading,
+  onOpenResumeReview,
   onSelect,
   resumes,
   selectedId,
 }: {
   isLoading: boolean;
+  onOpenResumeReview: () => void;
   onSelect: (resumeSourceVersionId: string) => void;
   resumes: ResumeSourceSummary[];
   selectedId: string;
@@ -2035,8 +2481,11 @@ function ResumeSourcePicker({
       <section className="resume-source-picker">
         <div>
           <span>Reviewed resumes</span>
-        <p>No reviewed resume versions yet. Upload one in Resume Review, or import an external source below for ad hoc extraction.</p>
+          <p>No reviewed resume versions yet. Upload and review a resume before creating reusable evidence from it.</p>
         </div>
+        <button className="secondary-button" type="button" onClick={onOpenResumeReview}>
+          Open Resume Review
+        </button>
       </section>
     );
   }
@@ -2052,7 +2501,7 @@ function ResumeSourcePicker({
         value={selectedId}
         onChange={(event) => onSelect(event.target.value)}
       >
-        <option value="">Upload or paste a new resume source</option>
+        <option value="">Select a reviewed resume version</option>
         {resumes.map((resume) => (
           <option key={resume.id} value={resume.id}>
             v{resume.version} · {formatResumeTitle(resume.title)}
@@ -2061,6 +2510,27 @@ function ResumeSourcePicker({
           </option>
         ))}
       </select>
+    </section>
+  );
+}
+
+function ResumeReviewUploadRedirect({
+  onOpenResumeReview,
+}: {
+  onOpenResumeReview: () => void;
+}) {
+  return (
+    <section className="source-path-handoff source-path-handoff--compact">
+      <div>
+        <span>Need a different resume?</span>
+        <p>
+          Uploading a resume here would skip the review report and blur the source lifecycle.
+          Use Resume Review first, then return here to create reusable Evidence Library items.
+        </p>
+      </div>
+      <button type="button" onClick={onOpenResumeReview}>
+        Open Resume Review
+      </button>
     </section>
   );
 }
@@ -2390,11 +2860,13 @@ function EvidencePriorityQueue({
 }
 
 function EnrichmentTaskQueue({
+  onCreateLibraryItems,
   onReturnToIntake,
   onUpdate,
   queueStatus,
   tasks,
 }: {
+  onCreateLibraryItems: (task: EnrichmentTaskItem) => void;
   onReturnToIntake: () => void;
   onUpdate: (
     taskId: string,
@@ -2494,6 +2966,7 @@ function EnrichmentTaskQueue({
               </div>
               {group.tasks.map((task) => {
                 const answer = answers[task.id] ?? task.user_answer ?? "";
+                const hasLibraryAnchor = taskHasReusableLibraryAnchor(task);
                 const isPending = pendingTaskId === task.id;
                 const message = messages[task.id];
                 return (
@@ -2512,21 +2985,46 @@ function EnrichmentTaskQueue({
                       <span>Your answer</span>
                       <textarea
                         className="jd-input jd-input--compact enrichment-task-card__answer"
-                        disabled={isPending}
+                        disabled={isPending || !hasLibraryAnchor}
                         onChange={(event) =>
                           setAnswers((current) => ({
                             ...current,
                             [task.id]: event.target.value,
                           }))
                         }
-                        placeholder="Add concrete numbers, scope, ownership, actions, results, or public-safe wording..."
+                        placeholder={
+                          hasLibraryAnchor
+                            ? "Add concrete numbers, scope, ownership, actions, results, or public-safe wording..."
+                            : "Create library items first so this answer has a reusable evidence destination."
+                        }
                         value={answer}
                       />
                     </label>
+                    {!hasLibraryAnchor ? (
+                      <div className="enrichment-task-card__gate">
+                        <div>
+                          <strong>Create library items first</strong>
+                          <p>
+                            This prompt came from Resume Review, but it is not attached to a reusable evidence or story item yet.
+                          </p>
+                        </div>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() => onCreateLibraryItems(task)}
+                        >
+                          Create library items
+                        </button>
+                      </div>
+                    ) : null}
                     <div className="actions actions--compact">
                       <button
                         className="secondary-button"
-                        disabled={isPending || answer.trim().length < 12}
+                        disabled={
+                          isPending ||
+                          !hasLibraryAnchor ||
+                          answer.trim().length < 12
+                        }
                         type="button"
                         onClick={() =>
                           void handleUpdate(task, {
@@ -2539,7 +3037,11 @@ function EnrichmentTaskQueue({
                       </button>
                       <button
                         className="secondary-button"
-                        disabled={isPending || task.status !== "answered"}
+                        disabled={
+                          isPending ||
+                          !hasLibraryAnchor ||
+                          task.status !== "answered"
+                        }
                         type="button"
                         onClick={() => void handleUpdate(task, { action: "convert" })}
                       >
@@ -2572,10 +3074,18 @@ function EnrichmentTaskQueue({
 
 function IntakeStageHeader({
   activeIntent,
+  isChoosingMaterialType,
+  onChangeMaterialType,
+  onReviewMaterial,
+  onShowSource,
   projectFormState,
   sourceFormState,
 }: {
   activeIntent: MaterialEntryIntent;
+  isChoosingMaterialType: boolean;
+  onChangeMaterialType: () => void;
+  onReviewMaterial: () => void;
+  onShowSource: () => void;
   projectFormState: LocalFormState;
   sourceFormState: LocalFormState;
 }) {
@@ -2583,39 +3093,86 @@ function IntakeStageHeader({
   const sourceComplete = activeFormState === "success";
   const sourceReady = activeFormState === "ready" || activeFormState === "extracting" || sourceComplete;
   const isRunning = activeFormState === "extracting";
+  const addMaterialState = isChoosingMaterialType
+    ? sourceReady
+      ? "complete"
+      : "blocked"
+    : sourceReady
+      ? "complete"
+      : "current";
+  const createLibraryState = isChoosingMaterialType
+    ? "blocked"
+    : isRunning
+      ? "current"
+      : sourceComplete
+        ? "complete"
+        : sourceReady
+          ? "current"
+          : "blocked";
+  const reviewMaterialState = isChoosingMaterialType
+    ? sourceComplete
+      ? "complete"
+      : "blocked"
+    : sourceComplete
+      ? "current"
+      : "blocked";
   const steps = [
     {
       label: "Material type selected",
-      state: "complete",
+      onSelect: onChangeMaterialType,
+      state: isChoosingMaterialType ? "current" : "complete",
+      summary: formatIntakeIntent(activeIntent),
     },
     {
       label: "Add material",
-      state: sourceReady ? "complete" : "current",
+      onSelect: onShowSource,
+      state: addMaterialState,
+      summary: sourceReady ? "source ready" : "add source",
     },
     {
       label: activeIntent === "scratch" ? "Strengthen story" : "Create library items",
-      state: isRunning ? "current" : sourceComplete ? "complete" : sourceReady ? "current" : "blocked",
+      state: createLibraryState,
+      summary: sourceComplete ? "created" : sourceReady ? "ready" : "waiting",
     },
     {
       label: "Review material",
-      state: sourceComplete ? "current" : "blocked",
+      onSelect: sourceComplete ? onReviewMaterial : undefined,
+      state: reviewMaterialState,
+      summary: sourceComplete ? "review queue" : "after creation",
     },
     {
       label: "Approve for resume",
       state: sourceComplete ? "blocked" : "blocked",
+      summary: "after review",
     },
-  ] satisfies Array<{ label: string; state: "complete" | "current" | "blocked" }>;
+  ] satisfies Array<{
+    label: string;
+    onSelect?: () => void;
+    state: "complete" | "current" | "blocked";
+    summary: string;
+  }>;
   return (
     <ol className="intake-stage-bar" aria-label="Add Material workflow">
       {steps.map((step, index) => (
         <li
           aria-current={step.state === "current" ? "step" : undefined}
+          data-actionable={Boolean(step.onSelect)}
           data-state={step.state}
           key={step.label}
         >
-          <span>{index + 1}</span>
-          <strong>{step.label}</strong>
-          {index === 0 ? <small>{formatIntakeIntent(activeIntent)}</small> : null}
+          {step.onSelect ? (
+            <button type="button" onClick={step.onSelect}>
+              <span>{index + 1}</span>
+              <strong>{step.label}</strong>
+              <small>{step.summary}</small>
+            </button>
+          ) : (
+            <div>
+              <span>{index + 1}</span>
+              <strong>{step.label}</strong>
+              <small>{step.summary}</small>
+            </div>
+          )}
         </li>
       ))}
     </ol>
@@ -2736,6 +3293,15 @@ function formatEnrichmentStatus(status: EnrichmentTaskItem["status"]) {
   return "open";
 }
 
+function taskHasReusableLibraryAnchor(task: EnrichmentTaskItem) {
+  return Boolean(
+    task.evidence_item_id ||
+      task.work_experience_id ||
+      task.initiative_id ||
+      task.portfolio_project_id,
+  );
+}
+
 function groupEnrichmentTasks(tasks: EnrichmentTaskItem[]) {
   const order = ["resume_review", "extraction_note", "evidence", "jd_gap", "story_target", "user_input"];
   const labels: Record<string, string> = {
@@ -2785,13 +3351,13 @@ function getEntryGuidance(intent: MaterialEntryIntent) {
   return {
     enrichmentHint:
       "Add project notes, design docs, performance reviews, or accomplishment drafts to turn thin resume signals into richer project stories and stronger evidence.",
-      fileImportLabel: "Import resume file",
+      fileImportLabel: "Reviewed resume source",
     primaryActionLabel: "Create library items",
     primaryHint:
-      "Upload or paste your current resume. Initial cards may need deeper work-story context later.",
+      "Select a resume that has already been processed in Resume Review. Upload new resumes from Resume Review first.",
       primaryTitleLabel: "Reviewed resume title",
     summary:
-      "Start from your existing resume, review weak spots, then turn it into reusable material for evidence and resume generation.",
+      "Start from an already reviewed resume, then turn it into reusable material for evidence and resume generation.",
   };
 }
 
@@ -4296,6 +4862,28 @@ function StoryMaterialList({
               </article>
             );
           })}
+        </div>
+      ) : null}
+
+      {initiatives.some((initiative) => !initiative.work_experience_id) ? (
+        <div className="story-table result-stack--inner">
+          {initiatives
+            .filter((initiative) => !initiative.work_experience_id)
+            .map((initiative) => (
+              <StoryTargetRow
+                evidenceItems={evidenceItems.filter(
+                  (item) => item.related_initiative_id === initiative.id,
+                )}
+                key={initiative.id ?? initiative.internal_title}
+                kind="Standalone initiative"
+                onEnrichStory={onEnrichStory}
+                onReviewClaims={onReviewClaims}
+                onReviewStarStory={onReviewStarStory}
+                story={initiative}
+                title={initiative.external_safe_title ?? initiative.internal_title}
+                targetType="initiative"
+              />
+            ))}
         </div>
       ) : null}
 

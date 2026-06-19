@@ -43,6 +43,7 @@ export function buildProfileEvidenceInstructions(
     "Use exactly these top-level keys: profile, work_experiences, initiatives, portfolio_projects, evidence_items, project_cards, extraction_notes.",
     "profile must use this simple shape: name, email, phone, location, links, experience, education, skills, certifications, missing_fields, low_confidence_fields, invented_field_flags.",
     "Every extracted profile field must include only value, source_quote, and confidence.",
+    "Every confidence value must be a number from 0 to 1, not a label such as high, medium, or low.",
     "Do not include verified, tier, source_offset, contact, or profile_json in the provider output.",
     "profile.name is required. If the source does not state a name, use the first non-empty line and add profile.name to low_confidence_fields.",
     "For experience dates or education fields that are not stated, return null instead of omitting required surrounding objects.",

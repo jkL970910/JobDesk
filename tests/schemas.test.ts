@@ -106,6 +106,29 @@ describe("ProfileEvidenceExtraction", () => {
     expect(parsed.profile.email?.confidence).toBe(0.88);
     expect(parsed.profile.phone?.confidence).toBe(0.75);
   });
+
+  it("normalizes verbal confidence values from provider output", () => {
+    const parsed = ProfileEvidenceExtraction.parse({
+      profile: {
+        name: { value: "Jane Doe", source_quote: "Jane Doe", confidence: "high" },
+        email: {
+          value: "jane@example.com",
+          source_quote: "jane@example.com",
+          confidence: "medium confidence",
+        },
+        phone: { value: "555-1234", source_quote: "555-1234", confidence: "low" },
+      },
+      work_experiences: [],
+      initiatives: [],
+      portfolio_projects: [],
+      evidence_items: [],
+      project_cards: [],
+    });
+
+    expect(parsed.profile.name.confidence).toBe(0.9);
+    expect(parsed.profile.email?.confidence).toBe(0.6);
+    expect(parsed.profile.phone?.confidence).toBe(0.3);
+  });
 });
 
 describe("ResumeReview", () => {

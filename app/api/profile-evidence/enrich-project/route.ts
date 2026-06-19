@@ -42,39 +42,63 @@ export async function POST(request: Request) {
       sourceKind: "project_note",
     });
     let persistence;
+    let sourceDocumentRecovered = false;
+    const persistenceArgs = {
+      sourceText: parsed.data.sourceText,
+      sourceTitle: parsed.data.sourceTitle,
+      sourceDocumentId: parsed.data.sourceDocumentId,
+      sourceType: "project-note" as const,
+      target: parsed.data.target,
+      extraction: result.data,
+      provider: `openrouter-compatible:${config.transport}`,
+      model: config.model,
+      usage: result.usage,
+      retryCount: result.retryCount,
+      skill: result.skill,
+    };
     try {
-      persistence = await persistProfileEvidenceExtraction({
-        sourceText: parsed.data.sourceText,
-        sourceTitle: parsed.data.sourceTitle,
-        sourceDocumentId: parsed.data.sourceDocumentId,
-        sourceType: "project-note",
-        target: parsed.data.target,
-        extraction: result.data,
-        provider: `openrouter-compatible:${config.transport}`,
-        model: config.model,
-        usage: result.usage,
-        retryCount: result.retryCount,
-        skill: result.skill,
-      });
+      persistence = await persistProfileEvidenceExtraction(persistenceArgs);
     } catch (persistenceError) {
-      return NextResponse.json(
-        {
-          error:
-            persistenceError instanceof Error
-              ? persistenceError.message
-              : "Could not persist project evidence.",
-          kind: "source_document_mismatch",
-        },
-        { status: 409 },
-      );
+      if (
+        parsed.data.sourceDocumentId &&
+        isRecoverableSourceDocumentError(persistenceError)
+      ) {
+        try {
+          persistence = await persistProfileEvidenceExtraction({
+            ...persistenceArgs,
+            sourceDocumentId: undefined,
+          });
+          sourceDocumentRecovered = true;
+        } catch (fallbackPersistenceError) {
+          return NextResponse.json(
+            {
+              error: persistenceErrorMessage(fallbackPersistenceError),
+              kind: "source_document_mismatch",
+            },
+            { status: 409 },
+          );
+        }
+      } else {
+        return NextResponse.json(
+          {
+            error: persistenceErrorMessage(persistenceError),
+            kind: "source_document_mismatch",
+          },
+          { status: 409 },
+        );
+      }
     }
+    const persistenceMeta =
+      sourceDocumentRecovered && persistence.status === "saved"
+        ? { ...persistence, sourceDocumentRecovered }
+        : persistence;
     return NextResponse.json({
       data: result.data,
       meta: {
         usage: result.usage,
         retryCount: result.retryCount,
         skill: result.skill,
-        persistence,
+        persistence: persistenceMeta,
       },
     });
   } catch (error) {
@@ -111,6 +135,18 @@ export async function POST(request: Request) {
       { status: 502 },
     );
   }
+}
+
+function isRecoverableSourceDocumentError(error: unknown) {
+  const message = persistenceErrorMessage(error);
+  return (
+    message === "Source document text does not match the parsed source." ||
+    message === "Source document not found for this workspace."
+  );
+}
+
+function persistenceErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Could not persist project evidence.";
 }
 
 async function persistFailureRun(
