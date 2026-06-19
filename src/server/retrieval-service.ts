@@ -153,6 +153,7 @@ export function isEvidenceEligible(
   if (
     policy.externalFacing &&
     !hasResumeSafeDisclosure({
+      text: candidate.text,
       sensitivityLevel: candidate.sensitivity_level,
       publicSafeSummary: candidate.public_safe_summary,
     })

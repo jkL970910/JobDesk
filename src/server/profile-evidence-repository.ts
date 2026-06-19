@@ -1994,6 +1994,7 @@ export async function updateEvidenceItem(args: {
     );
     if (
       !hasResumeSafeDisclosure({
+        text: existing.text,
         sensitivityLevel: existing.sensitivityLevel,
         publicSafeSummary: existing.publicSafeSummary,
       })

@@ -129,6 +129,35 @@ describe("ProfileEvidenceExtraction", () => {
     expect(parsed.profile.email?.confidence).toBe(0.6);
     expect(parsed.profile.phone?.confidence).toBe(0.3);
   });
+
+  it("drops invalid top-level extraction entities and records repair notes", () => {
+    const parsed = ProfileEvidenceExtraction.parse({
+      profile: {
+        name: { value: "Jane Doe", source_quote: "Jane Doe", confidence: 1 },
+      },
+      work_experiences: [
+        null,
+        123,
+        {
+          employer: "Acme",
+          role_title: "Product Analyst",
+          summary: "Worked on onboarding analytics.",
+        },
+      ],
+      initiatives: ["bad initiative"],
+      portfolio_projects: [],
+      evidence_items: [],
+      project_cards: [],
+      extraction_notes: ["source parsed"],
+    });
+
+    expect(parsed.work_experiences).toHaveLength(1);
+    expect(parsed.work_experiences[0]?.employer).toBe("Acme");
+    expect(parsed.extraction_notes).toContain("source parsed");
+    expect(parsed.extraction_notes).toContain("Dropped invalid work_experiences item at index 0.");
+    expect(parsed.extraction_notes).toContain("Dropped invalid work_experiences item at index 1.");
+    expect(parsed.extraction_notes).toContain("Dropped invalid initiatives item at index 0.");
+  });
 });
 
 describe("ResumeReview", () => {

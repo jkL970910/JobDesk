@@ -45,10 +45,13 @@ export function isPublicSafeText(text: string) {
 }
 
 export function hasResumeSafeDisclosure(input: {
+  text?: string | null;
   sensitivityLevel?: string | null;
   publicSafeSummary?: string | null;
 }) {
-  if (input.sensitivityLevel === "public_safe") return true;
+  if (input.sensitivityLevel === "public_safe") {
+    return isPublicSafeText(input.publicSafeSummary?.trim() || input.text || "");
+  }
   const summary = input.publicSafeSummary?.trim();
   return Boolean(summary && isPublicSafeText(summary));
 }

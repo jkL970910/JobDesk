@@ -3561,7 +3561,27 @@ function isResumeReadyEvidence(item: EvidenceCardItem) {
 }
 
 function hasExternalSafeDisclosure(item: EvidenceCardItem) {
-  return item.sensitivity_level === "public_safe" || Boolean(item.public_safe_summary?.trim());
+  return Boolean(getPublicSafeSummaryCandidate(item));
+}
+
+function getPublicSafeSummaryCandidate(item: EvidenceCardItem) {
+  const summary = item.public_safe_summary?.trim();
+  if (summary) return summary;
+  if (item.sensitivity_level === "public_safe" && isClientPublicSafeText(item.text)) {
+    return item.text;
+  }
+  return "";
+}
+
+function isClientPublicSafeText(text: string) {
+  return ![
+    /\bconfidential\b/i,
+    /\binternal[-\s]?only\b/i,
+    /\bclient\s+[A-Z][A-Za-z0-9&.-]+\b/,
+    /\bcustomer\s+[A-Z][A-Za-z0-9&.-]+\b/,
+    /\bproject\s+[A-Z][A-Za-z0-9&.-]+\b/,
+    /\b[A-Z][A-Za-z0-9&.-]+\s+(?:Bank|Finance|Capital|Labs|Corp|Inc|LLC)\b/,
+  ].some((pattern) => pattern.test(text));
 }
 
 function formatReusableUsage(item: EvidenceCardItem) {
@@ -3635,7 +3655,7 @@ function formatEvidenceMissingInfo(item: EvidenceCardItem) {
   if (!(item.allowed_usage ?? []).includes("resume")) {
     missing.push("resume usage");
   }
-  if (item.sensitivity_level !== "public_safe" && !item.public_safe_summary) {
+  if (!getPublicSafeSummaryCandidate(item)) {
     missing.push("public-safe wording");
   }
   if (
@@ -3675,11 +3695,11 @@ function getEvidenceBlocker(item: EvidenceCardItem) {
   if (item.status !== "approved") {
     return {
       action: "approve_for_resume" as const,
-      label: item.sensitivity_level !== "public_safe" && !item.public_safe_summary
+      label: !getPublicSafeSummaryCandidate(item)
         ? "Review truth + add safe wording"
         : "Review truth and approve",
       reason:
-        item.sensitivity_level !== "public_safe" && !item.public_safe_summary
+        !getPublicSafeSummaryCandidate(item)
           ? "Truth review and external-safe wording are required before resume use."
           : "Truth review is still pending.",
     };
@@ -3687,16 +3707,16 @@ function getEvidenceBlocker(item: EvidenceCardItem) {
   if (item.needs_user_confirmation) {
     return {
       action: "approve_for_resume" as const,
-      label: item.sensitivity_level !== "public_safe" && !item.public_safe_summary
+      label: !getPublicSafeSummaryCandidate(item)
         ? "Confirm + add safe wording"
         : "Confirm claim for resume",
       reason:
-        item.sensitivity_level !== "public_safe" && !item.public_safe_summary
+        !getPublicSafeSummaryCandidate(item)
           ? "User confirmation and external-safe wording are required before resume use."
           : "User confirmation is required before resume use.",
     };
   }
-  if (item.sensitivity_level !== "public_safe" && !item.public_safe_summary) {
+  if (!getPublicSafeSummaryCandidate(item)) {
     return {
       action: "mark_external_safe" as const,
       label: "Add external-safe wording",
@@ -4580,6 +4600,14 @@ function EvidenceCard({
     setIsEditing(false);
   }
 
+  function openPublicSafeConfirmation() {
+    setDraftSummary(getPublicSafeSummaryCandidate(item) || item.public_safe_summary || "");
+    setDraftAllowedUsage((current) =>
+      Array.from(new Set([...current.filter((usage) => usage !== "internal_only"), "resume", "interview"])),
+    );
+    setIsEditing(true);
+  }
+
   if (variant === "nested") {
     return (
       <article className="requirement evidence-subcard">
@@ -4620,12 +4648,16 @@ function EvidenceCard({
             if (blocker.action === "edit") {
               setIsEditing((current) => !current);
             } else if (blocker.action === "mark_external_safe") {
-              if (!item.public_safe_summary) {
-                setIsEditing(true);
+              if (!getPublicSafeSummaryCandidate(item)) {
+                openPublicSafeConfirmation();
                 return;
               }
               onUpdate(item, "mark_external_safe");
             } else {
+              if (!getPublicSafeSummaryCandidate(item)) {
+                openPublicSafeConfirmation();
+                return;
+              }
               onUpdate(item, "approve_for_resume");
             }
           }}
@@ -4666,7 +4698,9 @@ function EvidenceCard({
         <p>Missing info: {missingInfo}</p>
         <p>Last updated: {formatRelativeDate(item.updatedAt)}</p>
         <p>Quote: {formatSourceQuotePreview(item.source_quote)}</p>
-        {item.public_safe_summary ? <p>External-safe: {item.public_safe_summary}</p> : null}
+        {getPublicSafeSummaryCandidate(item) ? (
+          <p>External-safe: {getPublicSafeSummaryCandidate(item)}</p>
+        ) : null}
         {item.id ? (
         <div className="actions actions--compact">
           <button
@@ -4698,8 +4732,8 @@ function EvidenceCard({
             disabled={isUpdating}
             type="button"
             onClick={() => {
-              if (!item.public_safe_summary) {
-                setIsEditing(true);
+              if (!getPublicSafeSummaryCandidate(item)) {
+                openPublicSafeConfirmation();
                 return;
               }
               onUpdate(item, "mark_external_safe");
@@ -4715,14 +4749,14 @@ function EvidenceCard({
               disabled={isUpdating}
               type="button"
               onClick={() => {
-                if (item.sensitivity_level !== "public_safe" && !item.public_safe_summary) {
-                  setIsEditing(true);
+                if (!getPublicSafeSummaryCandidate(item)) {
+                  openPublicSafeConfirmation();
                   return;
                 }
                 onUpdate(item, "approve_for_resume");
               }}
             >
-              {item.sensitivity_level !== "public_safe" && !item.public_safe_summary
+              {!getPublicSafeSummaryCandidate(item)
                 ? "Add safe wording first"
                 : "Approve for resume"}
             </button>
@@ -4743,7 +4777,7 @@ function EvidenceCard({
             <textarea
               value={draftSummary}
               onChange={(event) => setDraftSummary(event.target.value)}
-              placeholder="Optional resume-safe wording"
+              placeholder="Required before resume use. Use public-safe wording only."
             />
           </label>
           <div className="inline-editor__grid">

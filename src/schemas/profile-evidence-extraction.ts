@@ -180,6 +180,59 @@ function toLooseObjectArray(value: unknown): unknown[] {
   return [value];
 }
 
+function preserveObjectArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (value == null) return [];
+  return [value];
+}
+
+function normalizeEntityArray(
+  value: unknown,
+  entityName: string,
+): { items: unknown[]; warnings: string[] } {
+  const rawItems = Array.isArray(value)
+    ? value
+    : value == null
+      ? []
+      : [value];
+  const warnings: string[] = [];
+  const items = rawItems.filter((item, index) => {
+    if (item && typeof item === "object" && !Array.isArray(item)) return true;
+    warnings.push(`Dropped invalid ${entityName} item at index ${index}.`);
+    return false;
+  });
+  return { items, warnings };
+}
+
+function normalizeProfileEvidenceExtractionInput(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = { ...(value as Record<string, unknown>) };
+  const warnings: string[] = [];
+
+  for (const [key, label] of [
+    ["work_experiences", "work_experiences"],
+    ["initiatives", "initiatives"],
+    ["portfolio_projects", "portfolio_projects"],
+    ["evidence_items", "evidence_items"],
+    ["project_cards", "project_cards"],
+  ] as const) {
+    const normalized = normalizeEntityArray(record[key], label);
+    record[key] = normalized.items;
+    warnings.push(...normalized.warnings);
+  }
+
+  if (warnings.length > 0) {
+    const existingNotes = Array.isArray(record.extraction_notes)
+      ? record.extraction_notes
+      : record.extraction_notes == null
+        ? []
+        : [record.extraction_notes];
+    record.extraction_notes = [...existingNotes, ...warnings];
+  }
+
+  return record;
+}
+
 export const SimpleProfile = z.object({
   name: SimpleExtractedField,
   email: NullableSimpleExtractedField.default(null),
@@ -361,39 +414,42 @@ const LooseProjectDraft = z.preprocess((value) => {
   };
 }, ProjectDraft);
 
-export const ProfileEvidenceExtraction = z.object({
-  profile: SimpleProfile,
-  work_experiences: z
-    .preprocess((value) => flattenArrayLike(value), z.array(LooseWorkExperienceDraft))
-    .default([]),
-  initiatives: z
-    .preprocess((value) => flattenArrayLike(value), z.array(LooseInitiativeDraft))
-    .default([]),
-  portfolio_projects: z
-    .preprocess((value) => flattenArrayLike(value), z.array(LoosePortfolioProjectDraft))
-    .default([]),
-  evidence_items: z
-    .preprocess((value) => flattenArrayLike(value), z.array(LooseEvidenceDraft))
-    .default([]),
-  project_cards: z
-    .preprocess((value) => flattenArrayLike(value), z.array(LooseProjectDraft))
-    .default([]),
-  extraction_notes: z
-    .preprocess((value) => {
-      const values = Array.isArray(value)
-        ? value
-        : value && typeof value === "object"
-          ? Object.values(value)
-          : value == null
-            ? []
-            : [value];
-      return values
-        .flatMap((item) => (Array.isArray(item) ? item : [item]))
-        .map((item) =>
-          typeof item === "string" ? item : JSON.stringify(item),
-        )
-        .filter(Boolean);
-    }, z.array(z.string()))
-    .default([]),
-});
+export const ProfileEvidenceExtraction = z.preprocess(
+  normalizeProfileEvidenceExtractionInput,
+  z.object({
+    profile: SimpleProfile,
+    work_experiences: z
+      .preprocess((value) => preserveObjectArray(value), z.array(LooseWorkExperienceDraft))
+      .default([]),
+    initiatives: z
+      .preprocess((value) => preserveObjectArray(value), z.array(LooseInitiativeDraft))
+      .default([]),
+    portfolio_projects: z
+      .preprocess((value) => preserveObjectArray(value), z.array(LoosePortfolioProjectDraft))
+      .default([]),
+    evidence_items: z
+      .preprocess((value) => preserveObjectArray(value), z.array(LooseEvidenceDraft))
+      .default([]),
+    project_cards: z
+      .preprocess((value) => preserveObjectArray(value), z.array(LooseProjectDraft))
+      .default([]),
+    extraction_notes: z
+      .preprocess((value) => {
+        const values = Array.isArray(value)
+          ? value
+          : value && typeof value === "object"
+            ? Object.values(value)
+            : value == null
+              ? []
+              : [value];
+        return values
+          .flatMap((item) => (Array.isArray(item) ? item : [item]))
+          .map((item) =>
+            typeof item === "string" ? item : JSON.stringify(item),
+          )
+          .filter(Boolean);
+      }, z.array(z.string()))
+      .default([]),
+  }),
+);
 export type ProfileEvidenceExtraction = z.infer<typeof ProfileEvidenceExtraction>;

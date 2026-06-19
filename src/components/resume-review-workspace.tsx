@@ -551,7 +551,10 @@ function ResumeReviewProgressNotice({
       <p>
         {activeStage.detail}
         {fileName ? ` File: ${fileName}.` : ""}
-        {elapsedSeconds >= 135 ? " Long resumes or provider retries can take about three minutes." : ""}
+        {elapsedSeconds >= 60 && elapsedSeconds < 110
+          ? " AI review can take one to two minutes while the provider scores the resume and checks the output contract."
+          : ""}
+        {elapsedSeconds >= 110 ? " This review is still running because the provider is slow or retrying malformed output. Keep the page open; the saved report will appear here when complete." : ""}
       </p>
       <ol className="progress-stages" aria-label="Resume review stages">
         {stages.map((stage, index) => (
