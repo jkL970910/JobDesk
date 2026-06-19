@@ -5000,11 +5000,14 @@ select:focus {
 }
 
 .card-message {
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
   color: var(--accent);
   font-size: 0.8rem;
   font-weight: 760;
   line-height: 1.4;
-  margin: 10px 0 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  padding: 10px 15px;
 }
 
 .card-message--error {
@@ -5424,9 +5427,13 @@ select:focus {
   align-items: flex-start;
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, auto);
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
   min-width: 0;
   padding: 15px;
+}
+
+.evidence-row__content {
+  min-width: 0;
 }
 
 .evidence-row__content > span {
@@ -5444,7 +5451,9 @@ select:focus {
   display: block;
   font-size: 0.98rem;
   line-height: 1.42;
+  max-width: 100%;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .evidence-row__content > p {
@@ -5509,6 +5518,7 @@ select:focus {
   flex-wrap: wrap;
   gap: 6px 12px;
   margin-top: 10px;
+  min-width: 0;
 }
 
 .evidence-row__meta span {
@@ -5522,6 +5532,8 @@ select:focus {
   color: var(--muted);
   font-size: 0.7rem;
   font-weight: 780;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .evidence-row__details {
