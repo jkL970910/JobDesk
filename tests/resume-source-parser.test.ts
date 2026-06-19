@@ -115,4 +115,25 @@ describe("resume source parser", () => {
     expect(quality.warnings).toContain("text_extraction_failed");
     expect(quality.warnings).toContain("possible_scanned_pdf");
   });
+
+  it("reports fallback extractor attempts when PDF parsing fails", async () => {
+    await expect(
+      parseResumeSourceFile({
+        filename: "broken.pdf",
+        buffer: Buffer.from("not actually a pdf but long enough to reach the parser"),
+      }),
+    ).rejects.toMatchObject({
+      kind: "parser_failed",
+      parseAttempts: expect.arrayContaining([
+        expect.objectContaining({
+          extractor: "pdf-parse",
+          status: "failed",
+        }),
+        expect.objectContaining({
+          extractor: "pdftotext",
+          status: "failed",
+        }),
+      ]),
+    } satisfies Partial<ResumeSourceParseError>);
+  });
 });

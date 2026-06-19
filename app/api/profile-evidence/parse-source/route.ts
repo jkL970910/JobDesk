@@ -44,6 +44,7 @@ export async function POST(request: Request) {
         sourceKind: parsed.sourceKind,
         sourceType: sourceIntent,
         parseQuality: parsed.parseQuality,
+        parseAttempts: parsed.parseAttempts,
         warnings: parsed.warnings,
         duplicate:
           persistence?.status === "duplicate"
@@ -70,6 +71,7 @@ export async function POST(request: Request) {
           data: error.parseQuality
             ? {
                 parseQuality: error.parseQuality,
+                parseAttempts: error.parseAttempts,
               }
             : undefined,
         },

@@ -42,6 +42,7 @@ export async function POST(request: Request) {
           kind: parsed.parseQuality.status,
           data: {
             parseQuality: parsed.parseQuality,
+            parseAttempts: parsed.parseAttempts,
             sourceTitle: parsed.sourceTitle,
             sourceKind: parsed.sourceKind,
           },
@@ -60,6 +61,7 @@ export async function POST(request: Request) {
         ...result,
         parseWarnings: parsed.warnings,
         parseQuality: parsed.parseQuality,
+        parseAttempts: parsed.parseAttempts,
       },
     });
   } catch (error) {
@@ -77,6 +79,7 @@ export async function POST(request: Request) {
           data: error.parseQuality
             ? {
                 parseQuality: error.parseQuality,
+                parseAttempts: error.parseAttempts,
               }
             : undefined,
         },
