@@ -548,94 +548,7 @@ function DashboardView({
           view: "dashboard" as View,
         }
       : nextAction;
-  const summaryCards =
-    dashboardLoadState === "loading"
-      ? [
-          {
-            label: "Material readiness",
-            note: "Checking resume and evidence state.",
-            value: "Loading",
-          },
-          {
-            label: "Project context",
-            note: "Checking story targets.",
-            value: "Loading",
-          },
-          {
-            label: "Active jobs",
-            note: "Checking job workspaces.",
-            value: "Loading",
-          },
-          {
-            label: "Application pipeline",
-            note: "Checking application states.",
-            value: "Loading",
-          },
-        ]
-      : [
-          {
-            label: "Material readiness",
-            value:
-              resumeReadyClaims > 0
-                ? `${resumeReadyClaims} resume-ready claims`
-                : claimsNeedingReview > 0
-                  ? `${claimsNeedingReview} claims await approval`
-                  : hasExtractedMaterial
-                    ? "Evidence extracted"
-                    : "No extracted evidence yet",
-            note:
-              resumeReadyClaims > 0
-                ? "Reusable resume material is available"
-                : hasExtractedMaterial
-                  ? "Review claims before using this material"
-                  : "Resume evidence is not ready yet",
-          },
-          {
-            label: "Project context",
-            value:
-              storyTargets > 0
-                ? thinStories > 0
-                  ? `${thinStories} thin signals`
-                  : "Stories enriched"
-                : "No story targets yet",
-            note: storyTargets > 0 ? "Work notes can strengthen this" : "Add material first",
-          },
-          {
-            label: "Active jobs",
-            value: String(jobs.length),
-            note: resumeReadyClaims > 0 ? "analyzed workspaces" : "Later workflow until evidence is ready",
-          },
-          {
-            label: "Application pipeline",
-            value: String(activeApplications),
-            note: jobs.length > 0 ? "active applications" : "Starts after JD analysis",
-          },
-        ];
-  const entryPaths = [
-    {
-      action: "Build library",
-      body:
-        "No resume required. Start from project notes, work summaries, performance excerpts, guided answers, or a reviewed resume.",
-      target: () => onStartMaterialPath("scratch"),
-      title: "Build My Evidence Library",
-    },
-    {
-      action: "Create or update",
-      body:
-        "Generate main resumes, positioning variants, refresh an old resume, review versions, and export final artifacts.",
-      target: () => onNavigateResume("build_export"),
-      title: "Create or Update My Resume",
-    },
-    {
-      action: "Apply to job",
-      body:
-        "Analyze a specific JD, find evidence gaps, tailor a resume, prepare interview notes, and track the application.",
-      target: () => onNavigate("jobs"),
-      title: "Apply to a Target Job",
-    },
-  ];
-
-  const coreJourney = [
+  const readinessItems = [
     {
       action: latestResume ? "Open review" : "Upload resume",
       detail: latestResume
@@ -666,37 +579,143 @@ function DashboardView({
       target: () => onNavigate("evidence"),
     },
     {
-      action: "Create resume",
+      action: thinStories > 0 ? "Enrich stories" : "Review stories",
+      detail:
+        storyTargets > 0
+          ? thinStories > 0
+            ? `${thinStories} stor${thinStories === 1 ? "y needs" : "ies need"} context before reuse.`
+            : `${storyTargets} story target${storyTargets === 1 ? "" : "s"} available.`
+          : "No reusable story targets yet.",
+      id: "stories",
+      label: "Stories",
+      metric: storyTargets > 0 ? (thinStories > 0 ? `${thinStories} thin` : `${storyTargets} ready`) : "None",
+      state: storyTargets > 0 ? (thinStories > 0 ? "active" : "complete") : "blocked",
+      target: () => onNavigate("evidence"),
+    },
+    {
+      action: "Build resume",
       detail:
         resumeReadyClaims > 0
           ? "Generate a grounded main resume, positioning variant, or refresh an old resume."
           : "Requires resume-safe evidence before generation is trustworthy.",
-      id: "main-resume",
-      label: "Main resume",
-      metric: resumeReadyClaims > 0 ? "Ready" : "Blocked",
+      id: "export",
+      label: "Export",
+      metric: resumeReadyClaims > 0 ? "Draftable" : "Blocked",
       state: resumeReadyClaims > 0 ? "active" : "blocked",
       target: () => onNavigateResume("build_export"),
     },
   ];
-  const downstreamWorkflows = [
+  const priorityItems = [
+    ...(claimsNeedingReview > 0
+      ? [
+          {
+            action: "Review claims",
+            detail: `${claimsNeedingReview} extracted claim${claimsNeedingReview === 1 ? "" : "s"} need approval and external-safe wording.`,
+            label: "Review evidence claims",
+            target: () => onNavigate("evidence"),
+          },
+        ]
+      : []),
+    ...(thinStories > 0
+      ? [
+          {
+            action: "Enrich stories",
+            detail: `${thinStories} stor${thinStories === 1 ? "y needs" : "ies need"} metrics, scope, role context, or public-safe wording.`,
+            label: "Strengthen thin stories",
+            target: () => onNavigate("evidence"),
+          },
+        ]
+      : []),
+    ...(!latestResume && !hasExtractedMaterial
+      ? [
+          {
+            action: "Add material",
+            detail: "Start with a resume, project notes, work summaries, or guided answers.",
+            label: "Create your evidence base",
+            target: () => onStartMaterialPath("scratch"),
+          },
+        ]
+      : []),
+    ...(latestResume && !latestResume.latestReview
+      ? [
+          {
+            action: "Open review",
+            detail: `${formatResumeTitle(latestResume.title)} is saved but still needs review findings.`,
+            label: "Complete resume review",
+            target: () => onNavigateResume("intake_review"),
+          },
+        ]
+      : []),
+    ...(resumeReadyClaims === 0 && hasExtractedMaterial && claimsNeedingReview === 0
+      ? [
+          {
+            action: "Approve evidence",
+            detail: "Evidence exists, but nothing is marked resume-safe yet.",
+            label: "Unlock resume generation",
+            target: () => onNavigate("evidence"),
+          },
+        ]
+      : []),
+    ...(activeApplications > 0
+      ? [
+          {
+            action: "Open tracker",
+            detail: `${activeApplications} active application${activeApplications === 1 ? "" : "s"} need tracking.`,
+            label: "Follow up applications",
+            target: () => onNavigate("applications"),
+          },
+        ]
+      : []),
+    ...(interviewJobs > 0
+      ? [
+          {
+            action: "Prep interview",
+            detail: `${interviewJobs} job${interviewJobs === 1 ? " is" : "s are"} in interview stage.`,
+            label: "Prepare interviews",
+            target: () => onNavigate("interview"),
+          },
+        ]
+      : []),
+  ].slice(0, 3);
+  const visiblePriorityItems =
+    dashboardLoadState === "loading"
+      ? [
+          {
+            action: "Loading",
+            detail: "Checking resume, evidence, jobs, and interviews.",
+            label: "Loading blockers",
+            target: () => undefined,
+          },
+        ]
+      : priorityItems.length > 0
+        ? priorityItems
+        : [
+            {
+              action: "Open Evidence",
+              detail: "No urgent blockers found. Continue improving evidence quality or start a target job workflow.",
+              label: "No critical blockers",
+              target: () => onNavigate("evidence"),
+            },
+          ];
+  const secondaryWorkflows = [
     {
       action: "Open jobs",
       detail: jobs[0]?.title ?? "Analyze a specific JD once your evidence base is usable.",
-      label: "Apply to a target job",
+      label: "Jobs",
       metric: `${jobs.length} analyzed`,
       target: () => onNavigate("jobs"),
     },
     {
       action: "Open tracker",
       detail: `${activeApplications} active applications · ${interviewJobs} in interview stage.`,
-      label: "Track applications",
+      label: "Applications",
       metric: `${activeApplications} active`,
       target: () => onNavigate("applications"),
     },
     {
       action: "Prep interview",
       detail: prepPacks.length > 0 ? `${prepPacks.length} prep packs saved.` : "Create prep once a JD is analyzed.",
-      label: "Interview prep",
+      label: "Interview",
       metric: prepPacks.length > 0 ? `${prepPacks.length} packs` : "Later",
       target: () => onNavigate("interview"),
     },
@@ -738,16 +757,16 @@ function DashboardView({
           </div>
         </article>
 
-        <div className="journey-panel" aria-label="Resume workflow journey">
+        <div className="journey-panel readiness-strip" aria-label="Resume readiness">
           <div className="journey-panel__header">
             <div>
-              <p className="panel-kicker">Core journey</p>
-              <h2>Turn source material into a verified resume.</h2>
+              <p className="panel-kicker">Resume readiness</p>
+              <h2>What blocks a trustworthy export?</h2>
             </div>
             <span>{dashboardLoadState === "loading" ? "Loading" : `${resumeReadyClaims} resume-safe`}</span>
           </div>
           <div className="journey-steps">
-            {coreJourney.map((step, index) => (
+            {readinessItems.map((step, index) => (
               <article className="journey-step" data-state={step.state} key={step.id}>
                 <div className="journey-step__number">{index + 1}</div>
                 <div>
@@ -764,40 +783,83 @@ function DashboardView({
         </div>
       </section>
 
-      <section className="status-board dashboard-summary" aria-label="Workspace readiness summary">
-        {summaryCards.map((card) => (
-          <article className="status-card" key={card.label}>
-            <span>{card.label}</span>
-            <strong>{card.value}</strong>
-            <p>{card.note}</p>
-          </article>
-        ))}
+      <section className="priority-board" aria-label="Top blockers">
+        <div className="priority-board__header">
+          <p className="panel-kicker">Priority queue</p>
+          <h2>Top blockers</h2>
+        </div>
+        <div className="priority-board__list">
+          {visiblePriorityItems.map((item, index) => (
+            <article className="priority-row" key={item.label}>
+              <span>{index + 1}</span>
+              <div>
+                <strong>{item.label}</strong>
+                <p>{item.detail}</p>
+              </div>
+              <button disabled={dashboardLoadState === "loading"} type="button" onClick={item.target}>
+                {item.action}
+              </button>
+            </article>
+          ))}
+        </div>
       </section>
 
-      <section className="entry-path-board" aria-label="Start JobDesk workflow">
-        {entryPaths.map((path) => (
-          <article data-phase={path.title === "Apply to a Target Job" && resumeReadyClaims === 0 ? "secondary" : "primary"} key={path.title}>
-            <span>{path.title}</span>
-            <p>{path.body}</p>
-            <button type="button" onClick={path.target}>
-              {path.action}
-            </button>
-          </article>
-        ))}
+      <section className="secondary-workflows" aria-label="Secondary workflows">
+        <div className="secondary-workflows__header">
+          <p className="panel-kicker">Later workflows</p>
+          <h2>Jobs, applications, and interview follow-up</h2>
+        </div>
+        <div className="secondary-workflows__list">
+          {secondaryWorkflows.map((workflow) => (
+            <article key={workflow.label}>
+              <div>
+                <span>{workflow.label}</span>
+                <strong>{workflow.metric}</strong>
+                <p>{workflow.detail}</p>
+              </div>
+              <button type="button" onClick={workflow.target}>
+                {workflow.action}
+              </button>
+            </article>
+          ))}
+        </div>
       </section>
 
-      <section className="downstream-board" aria-label="Later job-search workflows">
-        {downstreamWorkflows.map((workflow) => (
-          <article key={workflow.label}>
-            <span>{workflow.label}</span>
-            <strong>{workflow.metric}</strong>
-            <p>{workflow.detail}</p>
-            <button type="button" onClick={workflow.target}>
-              {workflow.action}
-            </button>
-          </article>
-        ))}
-      </section>
+      {!hasExtractedMaterial && !latestResume ? (
+        <section className="entry-path-board entry-path-board--onboarding" aria-label="Start JobDesk workflow">
+          {[
+            {
+              action: "Build library",
+              body:
+                "No resume required. Start from project notes, work summaries, performance excerpts, guided answers, or a reviewed resume.",
+              target: () => onStartMaterialPath("scratch"),
+              title: "Build My Evidence Library",
+            },
+            {
+              action: "Create or update",
+              body:
+                "Generate main resumes, positioning variants, refresh an old resume, review versions, and export final artifacts.",
+              target: () => onNavigateResume("build_export"),
+              title: "Create or Update My Resume",
+            },
+            {
+              action: "Apply to job",
+              body:
+                "Analyze a specific JD, find evidence gaps, tailor a resume, prepare interview notes, and track the application.",
+              target: () => onNavigate("jobs"),
+              title: "Apply to a Target Job",
+            },
+          ].map((path) => (
+            <article data-phase={path.title === "Apply to a Target Job" && resumeReadyClaims === 0 ? "secondary" : "primary"} key={path.title}>
+              <span>{path.title}</span>
+              <p>{path.body}</p>
+              <button type="button" onClick={path.target}>
+                {path.action}
+              </button>
+            </article>
+          ))}
+        </section>
+      ) : null}
     </div>
   );
 }
