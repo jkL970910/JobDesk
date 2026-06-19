@@ -131,6 +131,24 @@ type EvidenceCardItem = {
   updatedAt?: string;
 };
 
+type ExternalSafeSummarySuggestion = {
+  provider: "ai" | "deterministic";
+  safeSummary: string;
+  confidence: "low" | "medium" | "high";
+  needsUserReview: boolean;
+  blockedTerms: string[];
+  redactionReport: {
+    hasBlockedTerms: boolean;
+    blockedTerms: string[];
+    suggestedSummary: string;
+    diff: Array<{
+      from: string;
+      to: string;
+      reason?: string;
+    }>;
+  };
+};
+
 type EnrichmentTaskItem = {
   id: string;
   task_type: string;
@@ -3883,7 +3901,7 @@ function getEvidenceBlocker(item: EvidenceCardItem) {
     return {
       action: "approve_for_resume" as const,
       label: !getPublicSafeSummaryCandidate(item)
-        ? "Add safe wording"
+        ? "Review safe wording"
         : "Review claim",
       reason:
         !getPublicSafeSummaryCandidate(item)
@@ -3895,7 +3913,7 @@ function getEvidenceBlocker(item: EvidenceCardItem) {
     return {
       action: "approve_for_resume" as const,
       label: !getPublicSafeSummaryCandidate(item)
-        ? "Add safe wording"
+        ? "Review safe wording"
         : "Confirm claim",
       reason:
         !getPublicSafeSummaryCandidate(item)
@@ -3906,7 +3924,7 @@ function getEvidenceBlocker(item: EvidenceCardItem) {
   if (!getPublicSafeSummaryCandidate(item)) {
     return {
       action: "mark_external_safe" as const,
-      label: "Add external-safe wording",
+      label: "Review external-safe wording",
       reason: "Sensitive evidence needs external-safe wording.",
     };
   }
@@ -4749,6 +4767,10 @@ function EvidenceCard({
   const [draftAllowedUsage, setDraftAllowedUsage] = useState<string[]>(
     item.allowed_usage ?? [],
   );
+  const [safeSuggestion, setSafeSuggestion] =
+    useState<ExternalSafeSummarySuggestion | null>(null);
+  const [safeSuggestionStatus, setSafeSuggestionStatus] = useState<string | null>(null);
+  const [isSuggestingSafeSummary, setIsSuggestingSafeSummary] = useState(false);
 
   useEffect(() => {
     setDraftText(item.text);
@@ -4757,6 +4779,8 @@ function EvidenceCard({
     setDraftProjectId(item.related_project_id ?? "");
     setDraftTarget(toEvidenceTargetValue(item));
     setDraftAllowedUsage(item.allowed_usage ?? []);
+    setSafeSuggestion(null);
+    setSafeSuggestionStatus(null);
   }, [
     item.allowed_usage,
     item.public_safe_summary,
@@ -4794,6 +4818,36 @@ function EvidenceCard({
       Array.from(new Set([...current.filter((usage) => usage !== "internal_only"), "resume", "interview"])),
     );
     setIsEditing(true);
+  }
+
+  async function suggestSafeSummary() {
+    if (!item.id) return;
+    setIsSuggestingSafeSummary(true);
+    setSafeSuggestionStatus(null);
+    try {
+      const response = await fetch(`/api/evidence/${item.id}/external-safe-summary`, {
+        method: "POST",
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { data?: ExternalSafeSummarySuggestion; error?: string }
+        | null;
+      if (!response.ok || !payload?.data) {
+        setSafeSuggestionStatus(payload?.error ?? "Could not generate safe wording.");
+        return;
+      }
+      setSafeSuggestion(payload.data);
+      setDraftSummary(payload.data.safeSummary);
+      setDraftAllowedUsage((current) =>
+        Array.from(new Set([...current.filter((usage) => usage !== "internal_only"), "resume", "interview"])),
+      );
+      setSafeSuggestionStatus(
+        payload.data.provider === "ai"
+          ? "AI suggested external-safe wording. Review before saving."
+          : "Fallback wording suggested from deterministic redaction. Review before saving.",
+      );
+    } finally {
+      setIsSuggestingSafeSummary(false);
+    }
   }
 
   if (variant === "nested") {
@@ -4922,7 +4976,7 @@ function EvidenceCard({
               onUpdate(item, "mark_external_safe");
             }}
           >
-            Mark external-safe
+            Review external-safe wording
           </button>
           {item.status !== "approved" ||
           item.needs_user_confirmation ||
@@ -4940,7 +4994,7 @@ function EvidenceCard({
               }}
             >
               {!getPublicSafeSummaryCandidate(item)
-                ? "Add safe wording first"
+                ? "Review safe wording first"
                 : "Approve for resume"}
             </button>
           ) : null}
@@ -4948,6 +5002,44 @@ function EvidenceCard({
         ) : null}
         {isEditing ? (
         <div className="inline-editor">
+          <div className="safe-wording-review">
+            <div>
+              <span>External-safe review</span>
+              <p>
+                Review why this evidence is private, generate a candidate if useful, then approve
+                the wording before resume/interview use.
+              </p>
+            </div>
+            {safetyNote ? <p className="safe-wording-review__reason">{safetyNote}</p> : null}
+            {safeSuggestion?.blockedTerms.length ? (
+              <div className="safe-wording-review__terms">
+                {safeSuggestion.blockedTerms.map((term) => (
+                  <span key={term}>{term}</span>
+                ))}
+              </div>
+            ) : null}
+            {safeSuggestion?.redactionReport.diff.length ? (
+              <div className="safe-wording-review__diff">
+                {safeSuggestion.redactionReport.diff.slice(0, 4).map((entry) => (
+                  <p key={`${entry.from}-${entry.to}`}>
+                    <strong>{entry.from}</strong> → {entry.to}
+                    {entry.reason ? <small>{entry.reason}</small> : null}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+            <div className="actions actions--compact">
+              <button
+                className="secondary-button"
+                disabled={isSuggestingSafeSummary || isUpdating || !item.id}
+                type="button"
+                onClick={suggestSafeSummary}
+              >
+                {isSuggestingSafeSummary ? "Suggesting..." : "Suggest safe wording"}
+              </button>
+            </div>
+            {safeSuggestionStatus ? <p className="form-note">{safeSuggestionStatus}</p> : null}
+          </div>
           <label>
             Evidence text
             <textarea
@@ -4960,7 +5052,7 @@ function EvidenceCard({
             <textarea
               value={draftSummary}
               onChange={(event) => setDraftSummary(event.target.value)}
-              placeholder="Required before resume use. Use public-safe wording only."
+              placeholder="Review or generate public-safe wording before resume use."
             />
           </label>
           <div className="inline-editor__grid">
@@ -5021,7 +5113,7 @@ function EvidenceCard({
               type="button"
               onClick={() => submitEdit(true)}
             >
-              Save as external-safe
+              Save reviewed external-safe wording
             </button>
           </div>
         </div>
@@ -5648,7 +5740,7 @@ function ProjectList({
                 type="button"
                 onClick={() => onUpdate(project, "mark_external_safe")}
               >
-                Mark external-safe
+                Review external-safe wording
               </button>
               <button
                 className="secondary-button"

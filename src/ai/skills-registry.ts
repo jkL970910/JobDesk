@@ -9,6 +9,7 @@ export type RuntimeSkillId =
   | "main-resume"
   | "tailored-resume"
   | "fact-guard-v0"
+  | "external-safe-summary"
   | "interview-prep-v1";
 
 export type SourceSkillId =
@@ -139,6 +140,16 @@ export const skillRegistry = {
     schemaVersion: "0.1",
     modelTier: "none",
     sourceSkillIds: ["claim-support-judgment"],
+  },
+  externalSafeSummary: {
+    skillId: "external-safe-summary",
+    skillVersion: "0.1",
+    promptVersion: "external-safe-summary-v1",
+    workflowType: "deidentification",
+    schemaName: "ExternalSafeSummarySuggestion",
+    schemaVersion: "0.1",
+    modelTier: "cheap",
+    sourceSkillIds: ["project-deidentification"],
   },
   interviewPrepV1: {
     skillId: "interview-prep-v1",

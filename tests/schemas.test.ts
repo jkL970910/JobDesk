@@ -12,6 +12,7 @@ import { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extra
 import { ProfilePositioningReport } from "../src/schemas/profile-positioning";
 import { ResumeReview } from "../src/schemas/resume-review";
 import { GeneratedClaim, TailoredResumeDraft } from "../src/schemas/tailored-resume";
+import { ExternalSafeSummarySuggestion } from "../src/schemas/external-safe-summary";
 
 describe("ExtractedField", () => {
   it("applies defaults (verified=false, confidence=0) when omitted", () => {
@@ -31,6 +32,26 @@ describe("controlled vocabularies", () => {
   it("rejects an unknown evidence_type", () => {
     expect(EvidenceType.safeParse("confirmed").success).toBe(false); // must be 'user_confirmed'
     expect(EvidenceType.safeParse("inferred").success).toBe(true);
+  });
+});
+
+describe("ExternalSafeSummarySuggestion", () => {
+  it("parses an AI safe-wording suggestion for human review", () => {
+    const parsed = ExternalSafeSummarySuggestion.parse({
+      safe_summary: "Reduced operational reporting effort for a financial services team.",
+      removed_or_generalized_terms: [
+        {
+          original_span: "Client A",
+          replacement: "a financial services team",
+          reason: "Named client should not appear in external-facing wording.",
+        },
+      ],
+      confidence: "medium",
+      needs_user_review: true,
+    });
+
+    expect(parsed.needs_user_review).toBe(true);
+    expect(parsed.removed_or_generalized_terms[0]?.original_span).toBe("Client A");
   });
 });
 

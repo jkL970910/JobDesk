@@ -68,6 +68,10 @@ function findBlockedTerms(text: string) {
   return [...seen];
 }
 
+export function findPublicUnsafeTerms(text: string) {
+  return findBlockedTerms(text);
+}
+
 function replacementForTerm(term: string) {
   if (/client/i.test(term)) return "client";
   if (/customer/i.test(term)) return "customer";

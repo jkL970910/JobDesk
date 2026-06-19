@@ -5630,6 +5630,72 @@ select:focus {
   padding: 12px;
 }
 
+.safe-wording-review {
+  background: rgba(79, 140, 255, 0.055);
+  border: 1px solid rgba(79, 140, 255, 0.14);
+  border-radius: 10px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.safe-wording-review span {
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 780;
+}
+
+.safe-wording-review p {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 4px 0 0;
+}
+
+.safe-wording-review__reason {
+  background: rgba(245, 158, 11, 0.09);
+  border: 1px solid rgba(245, 158, 11, 0.16);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.safe-wording-review__terms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.safe-wording-review__terms span {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  padding: 5px 8px;
+}
+
+.safe-wording-review__diff {
+  display: grid;
+  gap: 6px;
+}
+
+.safe-wording-review__diff p {
+  border-left: 2px solid rgba(79, 140, 255, 0.35);
+  margin: 0;
+  padding-left: 9px;
+}
+
+.safe-wording-review__diff strong {
+  color: var(--ink);
+  font-weight: 780;
+}
+
+.safe-wording-review__diff small {
+  color: var(--muted);
+  display: block;
+  margin-top: 2px;
+}
+
 .inline-editor label,
 .inline-editor__usage {
   color: var(--muted);
