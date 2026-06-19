@@ -1761,6 +1761,147 @@ export async function approveProjectEvidenceForResume(projectId: string) {
   };
 }
 
+export async function assignInitiativeToWorkExperience(args: {
+  initiativeId: string;
+  workExperienceId: string | null;
+}) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [initiative] = await db
+    .select({
+      id: initiatives.id,
+      status: initiatives.status,
+      workspaceId: initiatives.workspaceId,
+    })
+    .from(initiatives)
+    .where(and(eq(initiatives.workspaceId, workspace.id), eq(initiatives.id, args.initiativeId)))
+    .limit(1);
+  if (!initiative) return { status: "not_found" as const };
+  if (initiative.status === "rejected") {
+    return { status: "invalid" as const, reason: "initiative_rejected" as const };
+  }
+
+  if (args.workExperienceId) {
+    const [experience] = await db
+      .select({
+        id: workExperiences.id,
+        status: workExperiences.status,
+        workspaceId: workExperiences.workspaceId,
+      })
+      .from(workExperiences)
+      .where(
+        and(
+          eq(workExperiences.workspaceId, workspace.id),
+          eq(workExperiences.id, args.workExperienceId),
+        ),
+      )
+      .limit(1);
+    if (!experience) {
+      return { status: "invalid" as const, reason: "work_experience_not_found" as const };
+    }
+    if (experience.status === "rejected") {
+      return { status: "invalid" as const, reason: "work_experience_rejected" as const };
+    }
+    if (experience.workspaceId !== initiative.workspaceId) {
+      return { status: "invalid" as const, reason: "cross_workspace_work_experience_link" as const };
+    }
+  }
+
+  const [updated] = await db
+    .update(initiatives)
+    .set({
+      workExperienceId: args.workExperienceId,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(initiatives.workspaceId, workspace.id), eq(initiatives.id, args.initiativeId)))
+    .returning({
+      id: initiatives.id,
+      workExperienceId: initiatives.workExperienceId,
+    });
+
+  return updated
+    ? ({ status: "saved" as const, initiative: updated })
+    : ({ status: "not_found" as const });
+}
+
+export async function createWorkExperienceAndAssignInitiative(args: {
+  initiativeId: string;
+  employer: string;
+  roleTitle: string;
+  team?: string | null;
+  location?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  summary?: string | null;
+}) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  return getDb().transaction(async (tx) => {
+    const workspace = await getCurrentWorkspace(tx);
+    const [initiative] = await tx
+      .select({
+        id: initiatives.id,
+        status: initiatives.status,
+        workspaceId: initiatives.workspaceId,
+      })
+      .from(initiatives)
+      .where(and(eq(initiatives.workspaceId, workspace.id), eq(initiatives.id, args.initiativeId)))
+      .limit(1);
+    if (!initiative) return { status: "not_found" as const };
+    if (initiative.status === "rejected") {
+      return { status: "invalid" as const, reason: "initiative_rejected" as const };
+    }
+
+    const now = new Date();
+    const [experience] = await tx
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: args.employer.trim(),
+        roleTitle: args.roleTitle.trim(),
+        team: args.team?.trim() || null,
+        location: args.location?.trim() || null,
+        startDate: args.startDate?.trim() || null,
+        endDate: args.endDate?.trim() || null,
+        summary: args.summary?.trim() || null,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({
+        id: workExperiences.id,
+        employer: workExperiences.employer,
+        roleTitle: workExperiences.roleTitle,
+        status: workExperiences.status,
+      });
+    if (!experience) {
+      return { status: "invalid" as const, reason: "work_experience_create_failed" as const };
+    }
+
+    const [updated] = await tx
+      .update(initiatives)
+      .set({
+        workExperienceId: experience.id,
+        updatedAt: now,
+      })
+      .where(and(eq(initiatives.workspaceId, workspace.id), eq(initiatives.id, args.initiativeId)))
+      .returning({
+        id: initiatives.id,
+        workExperienceId: initiatives.workExperienceId,
+      });
+
+    return updated
+      ? ({ status: "saved" as const, initiative: updated, workExperience: experience })
+      : ({ status: "not_found" as const });
+  });
+}
+
 export async function markClaimsStaleForEvidenceIds(evidenceIds: string[]) {
   if (!hasDatabaseUrl() || evidenceIds.length === 0) {
     return {

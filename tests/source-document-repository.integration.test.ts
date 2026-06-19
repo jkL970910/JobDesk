@@ -2,12 +2,15 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { loadDotEnv } from "../src/ai/env";
 import { getDb } from "../src/db/client";
-import { evidenceItems, initiatives, resumeSourceVersions, sourceDocuments } from "../src/db/schema";
+import { evidenceItems, initiatives, resumeSourceVersions, sourceDocuments, workExperiences } from "../src/db/schema";
 import {
   persistParsedSourceDocument,
   buildSourceContentHash,
 } from "../src/server/source-document-repository";
-import { persistProfileEvidenceExtraction } from "../src/server/profile-evidence-repository";
+import {
+  createWorkExperienceAndAssignInitiative,
+  persistProfileEvidenceExtraction,
+} from "../src/server/profile-evidence-repository";
 import { getCurrentWorkspace } from "../src/server/workspace-repository";
 import type { ResumeSourceParseResult } from "../src/server/resume-source-parser";
 import { registerUser, runWithAuthContext } from "../src/server/auth-service";
@@ -360,6 +363,57 @@ describe.skipIf(!runIntegration)("source document lifecycle integration", () => 
       .from(evidenceItems)
       .where(eq(evidenceItems.sourceDocumentId, parsedSource.sourceDocumentId));
     expect(allEvidence.every((item) => item.relatedInitiativeId === selectedTarget.id)).toBe(true);
+  });
+
+  it("creates a user-confirmed work experience before assigning an initiative", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const [selectedTarget] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        internalTitle: `Unassigned initiative ${Date.now()}`,
+        externalSafeTitle: "Unassigned initiative",
+        context: "Project note did not include employer or role context.",
+        problem: null,
+        role: null,
+        actions: [],
+        results: [],
+        metrics: [],
+        technologies: [],
+        stakeholders: [],
+        status: "pending",
+      })
+      .returning({ id: initiatives.id });
+    if (!selectedTarget) throw new Error("Expected selected initiative.");
+
+    const result = await createWorkExperienceAndAssignInitiative({
+      initiativeId: selectedTarget.id,
+      employer: "Confirmed Employer",
+      roleTitle: "Confirmed Role",
+      startDate: "2025",
+      summary: "User-confirmed role container for imported project material.",
+    });
+    expect(result).toMatchObject({ status: "saved" });
+
+    const [updatedTarget] = await db
+      .select()
+      .from(initiatives)
+      .where(eq(initiatives.id, selectedTarget.id))
+      .limit(1);
+    expect(updatedTarget?.workExperienceId).toBeTruthy();
+
+    const [createdRole] = await db
+      .select()
+      .from(workExperiences)
+      .where(eq(workExperiences.id, updatedTarget!.workExperienceId!))
+      .limit(1);
+    expect(createdRole).toMatchObject({
+      employer: "Confirmed Employer",
+      roleTitle: "Confirmed Role",
+      status: "pending",
+      workspaceId: workspace.id,
+    });
   });
 });
 

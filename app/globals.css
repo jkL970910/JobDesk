@@ -5256,6 +5256,71 @@ select:focus {
   padding: 4px 7px;
 }
 
+.story-target-row__assignment {
+  align-items: start;
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.85fr);
+  padding: 10px 14px;
+}
+
+.story-target-row__assignment strong {
+  color: var(--ink);
+  display: block;
+  font-size: 0.82rem;
+  margin-bottom: 3px;
+}
+
+.story-target-row__assignment p {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.story-assignment-control {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.story-assignment-control label,
+.story-new-role-form label {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.72rem;
+  font-weight: 780;
+  gap: 5px;
+}
+
+.story-assignment-control select,
+.story-new-role-form input {
+  background: rgba(8, 12, 20, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  min-height: 36px;
+  padding: 8px 10px;
+}
+
+.story-new-role-form {
+  display: grid;
+  gap: 8px;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+}
+
+.story-new-role-form button {
+  align-self: end;
+}
+
+.story-target-row__assignment > .status,
+.story-target-row__assignment > .error {
+  grid-column: 1 / -1;
+}
+
 .story-target-row__details {
   border-top: 1px solid rgba(255, 255, 255, 0.055);
   padding: 8px 14px 12px;
@@ -5790,8 +5855,17 @@ select:focus {
 
   .story-group-row__summary,
   .story-target-row__main,
+  .story-target-row__assignment,
+  .story-assignment-control,
+  .story-new-role-form,
   .evidence-row__main {
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .story-target-row__assignment,
+  .story-assignment-control,
+  .story-new-role-form {
+    grid-template-columns: 1fr;
   }
 
   .story-group-row__summary > span,

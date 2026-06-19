@@ -320,6 +320,24 @@ type EvidenceUpdatePatch = {
   relatedPortfolioProjectId?: string | null;
 };
 
+type StoryAssignmentPatch =
+  | {
+      action: "assign_work_experience";
+      targetType: "initiative";
+      workExperienceId: string | null;
+    }
+  | {
+      action: "create_work_experience_and_assign";
+      targetType: "initiative";
+      employer: string;
+      roleTitle: string;
+      team?: string | null;
+      location?: string | null;
+      startDate?: string | null;
+      endDate?: string | null;
+      summary?: string | null;
+    };
+
 export function ProfileEvidenceWorkspace({
   entryIntent = "resume",
   initialSection = "review",
@@ -1385,6 +1403,37 @@ export function ProfileEvidenceWorkspace({
     return { ok: true, message };
   }
 
+  async function updateStoryAssignment(
+    target: StoryEnrichmentTarget,
+    patch: StoryAssignmentPatch,
+  ): Promise<{ ok: boolean; message: string }> {
+    if (target.targetType !== "initiative") {
+      return { ok: false, message: "Only work initiatives can be assigned to a role." };
+    }
+    const response = await fetchJson(`/api/story-targets/${target.targetId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string }
+      | null;
+    if (!response.ok) {
+      const message = payload?.error ?? "Could not update story assignment.";
+      setError(message);
+      return { ok: false, message };
+    }
+    await refreshLibraryAfterMutation();
+    const message =
+      patch.action === "create_work_experience_and_assign"
+        ? "Created role and assigned initiative."
+        : patch.workExperienceId
+          ? "Assigned initiative to selected role."
+          : "Kept initiative as standalone.";
+    setStatus(message);
+    return { ok: true, message };
+  }
+
   async function updateEnrichmentTask(
     taskId: string,
     payload:
@@ -1985,6 +2034,7 @@ export function ProfileEvidenceWorkspace({
             <StoryMaterialList
               evidenceItems={evidenceItems}
               initiatives={initiatives}
+              onAssignStory={updateStoryAssignment}
               onEnrichStory={startProjectEnrichment}
               onReviewClaims={reviewClaimsForStory}
               onReviewStarStory={reviewStarStoryForStory}
@@ -4767,6 +4817,7 @@ function EvidenceCard({
 function StoryMaterialList({
   evidenceItems,
   initiatives,
+  onAssignStory,
   onEnrichStory,
   onReviewClaims,
   onReviewStarStory,
@@ -4775,6 +4826,10 @@ function StoryMaterialList({
 }: {
   evidenceItems: EvidenceCardItem[];
   initiatives: InitiativeItem[];
+  onAssignStory: (
+    target: StoryEnrichmentTarget,
+    patch: StoryAssignmentPatch,
+  ) => Promise<{ ok: boolean; message: string }>;
   onEnrichStory: (project: StoryEnrichmentTarget) => void;
   onReviewClaims: (target: StoryEnrichmentTarget) => void;
   onReviewStarStory: (target: StoryEnrichmentTarget) => void;
@@ -4851,12 +4906,14 @@ function StoryMaterialList({
                     )}
                     key={initiative.id ?? initiative.internal_title}
                     kind="Work initiative"
+                    onAssignStory={onAssignStory}
                     onEnrichStory={onEnrichStory}
                     onReviewClaims={onReviewClaims}
                     onReviewStarStory={onReviewStarStory}
                     story={initiative}
                     title={initiative.external_safe_title ?? initiative.internal_title}
                     targetType="initiative"
+                    workExperiences={workExperiences}
                   />
                 ))}
               </article>
@@ -4876,12 +4933,14 @@ function StoryMaterialList({
                 )}
                 key={initiative.id ?? initiative.internal_title}
                 kind="Standalone initiative"
+                onAssignStory={onAssignStory}
                 onEnrichStory={onEnrichStory}
                 onReviewClaims={onReviewClaims}
                 onReviewStarStory={onReviewStarStory}
                 story={initiative}
                 title={initiative.external_safe_title ?? initiative.internal_title}
                 targetType="initiative"
+                workExperiences={workExperiences}
               />
             ))}
         </div>
@@ -4896,12 +4955,14 @@ function StoryMaterialList({
               )}
               key={project.id ?? project.title}
               kind={formatPortfolioProjectType(project.project_type)}
+              onAssignStory={onAssignStory}
               onEnrichStory={onEnrichStory}
               onReviewClaims={onReviewClaims}
               onReviewStarStory={onReviewStarStory}
               story={project}
               title={project.external_safe_title ?? project.title}
               targetType="portfolio_project"
+              workExperiences={workExperiences}
             />
           ))}
         </div>
@@ -4913,22 +4974,40 @@ function StoryMaterialList({
 function StoryTargetRow({
   evidenceItems,
   kind,
+  onAssignStory,
   onEnrichStory,
   onReviewClaims,
   onReviewStarStory,
   story,
   targetType,
   title,
+  workExperiences,
 }: {
   evidenceItems: EvidenceCardItem[];
   kind: string;
+  onAssignStory: (
+    target: StoryEnrichmentTarget,
+    patch: StoryAssignmentPatch,
+  ) => Promise<{ ok: boolean; message: string }>;
   onEnrichStory: (project: StoryEnrichmentTarget) => void;
   onReviewClaims: (target: StoryEnrichmentTarget) => void;
   onReviewStarStory: (target: StoryEnrichmentTarget) => void;
   story: InitiativeItem | PortfolioProjectItem;
   targetType: Exclude<StoryEnrichmentTargetType, "legacy_project">;
   title: string;
+  workExperiences: WorkExperienceItem[];
 }) {
+  const [assignmentMode, setAssignmentMode] = useState<"existing" | "new">("existing");
+  const [assignmentMessage, setAssignmentMessage] = useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [newRoleDraft, setNewRoleDraft] = useState({
+    employer: "",
+    roleTitle: "",
+    timeframe: "",
+    summary: "",
+  });
   const readiness = getStoryReadiness(story);
   const metrics = story.metrics?.map((metric) => metric.value) ?? [];
   const primaryAction: "Review STAR story" | "Review claims" | "Enrich story" =
@@ -4959,6 +5038,57 @@ function StoryTargetRow({
   const linkedUsage = formatStoryReusableUsage(evidenceItems);
   const linkedSource = formatStorySourceSummary(evidenceItems);
   const linkedStatus = formatStoryEvidenceStatus(evidenceItems);
+  const currentWorkExperienceId =
+    targetType === "initiative" && "work_experience_id" in story
+      ? story.work_experience_id ?? ""
+      : "";
+  const canAssignRole = targetType === "initiative" && Boolean(target);
+  async function handleAssignExisting(workExperienceId: string) {
+    if (!target || target.targetType !== "initiative") return;
+    setIsAssigning(true);
+    setAssignmentMessage({ ok: true, text: "Saving role assignment..." });
+    try {
+      const result = await onAssignStory(target, {
+        action: "assign_work_experience",
+        targetType: "initiative",
+        workExperienceId: workExperienceId || null,
+      });
+      setAssignmentMessage({ ok: result.ok, text: result.message });
+    } finally {
+      setIsAssigning(false);
+    }
+  }
+  async function handleCreateRole() {
+    if (!target || target.targetType !== "initiative") return;
+    const employer = newRoleDraft.employer.trim();
+    const roleTitle = newRoleDraft.roleTitle.trim();
+    if (!employer || !roleTitle) {
+      setAssignmentMessage({
+        ok: false,
+        text: "Add employer and role title before creating a role.",
+      });
+      return;
+    }
+    setIsAssigning(true);
+    setAssignmentMessage({ ok: true, text: "Creating role and assigning initiative..." });
+    try {
+      const result = await onAssignStory(target, {
+        action: "create_work_experience_and_assign",
+        targetType: "initiative",
+        employer,
+        roleTitle,
+        startDate: newRoleDraft.timeframe.trim() || null,
+        summary: newRoleDraft.summary.trim() || null,
+      });
+      setAssignmentMessage({ ok: result.ok, text: result.message });
+      if (result.ok) {
+        setNewRoleDraft({ employer: "", roleTitle: "", timeframe: "", summary: "" });
+        setAssignmentMode("existing");
+      }
+    } finally {
+      setIsAssigning(false);
+    }
+  }
   return (
     <article className="story-target-row">
       <div className="story-target-row__main">
@@ -4998,6 +5128,100 @@ function StoryTargetRow({
           <small key={item}>{item}</small>
         ))}
       </div>
+      {canAssignRole ? (
+        <div className="story-target-row__assignment">
+          <div>
+            <strong>Role assignment</strong>
+            <p>
+              Link this initiative to an existing role, create a reviewed role
+              container, or keep it standalone until the user can confirm context.
+            </p>
+          </div>
+          <div className="story-assignment-control">
+            <label>
+              <span>Existing role</span>
+              <select
+                disabled={isAssigning || assignmentMode === "new"}
+                value={currentWorkExperienceId}
+                onChange={(event) => void handleAssignExisting(event.target.value)}
+              >
+                <option value="">Keep standalone / assign later</option>
+                {workExperiences.map((experience) => (
+                  <option key={experience.id} value={experience.id}>
+                    {experience.employer} · {experience.role_title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="secondary-button secondary-button--quiet"
+              type="button"
+              onClick={() =>
+                setAssignmentMode((mode) => (mode === "new" ? "existing" : "new"))
+              }
+            >
+              {assignmentMode === "new" ? "Use existing role" : "Create new role"}
+            </button>
+          </div>
+          {assignmentMode === "new" ? (
+            <div className="story-new-role-form">
+              <label>
+                <span>Employer</span>
+                <input
+                  value={newRoleDraft.employer}
+                  onChange={(event) =>
+                    setNewRoleDraft((draft) => ({ ...draft, employer: event.target.value }))
+                  }
+                  placeholder="Company or organization"
+                />
+              </label>
+              <label>
+                <span>Role title</span>
+                <input
+                  value={newRoleDraft.roleTitle}
+                  onChange={(event) =>
+                    setNewRoleDraft((draft) => ({ ...draft, roleTitle: event.target.value }))
+                  }
+                  placeholder="Product Manager, Data Analyst..."
+                />
+              </label>
+              <label>
+                <span>Timeframe</span>
+                <input
+                  value={newRoleDraft.timeframe}
+                  onChange={(event) =>
+                    setNewRoleDraft((draft) => ({ ...draft, timeframe: event.target.value }))
+                  }
+                  placeholder="Optional, can stay unknown"
+                />
+              </label>
+              <label>
+                <span>Role note</span>
+                <input
+                  value={newRoleDraft.summary}
+                  onChange={(event) =>
+                    setNewRoleDraft((draft) => ({ ...draft, summary: event.target.value }))
+                  }
+                  placeholder="Optional user-confirmed context"
+                />
+              </label>
+              <button
+                className="secondary-button"
+                disabled={isAssigning}
+                type="button"
+                onClick={() => void handleCreateRole()}
+              >
+                Create role and assign
+              </button>
+            </div>
+          ) : null}
+          {assignmentMessage ? (
+            <p className={assignmentMessage.ok ? "status" : "error"}>
+              {assignmentMessage.text}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <details className="story-target-row__details">
         <summary>View story detail</summary>
         {story.context ? <p>Context: {story.context}</p> : null}
