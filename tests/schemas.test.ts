@@ -158,6 +158,32 @@ describe("ProfileEvidenceExtraction", () => {
     expect(parsed.extraction_notes).toContain("Dropped invalid work_experiences item at index 1.");
     expect(parsed.extraction_notes).toContain("Dropped invalid initiatives item at index 0.");
   });
+
+  it("normalizes object-valued profile review flags from provider output", () => {
+    const parsed = ProfileEvidenceExtraction.parse({
+      profile: {
+        name: { value: "Jane Doe", source_quote: "Jane Doe", confidence: 1 },
+        missing_fields: [{ field: "phone", reason: "not stated" }],
+        low_confidence_fields: [{ path: "profile.location", confidence: "low" }],
+        invented_field_flags: [
+          { field: "title", reason: "tempting but not stated" },
+          { value: "school", note: "needs verification" },
+        ],
+      },
+      work_experiences: [],
+      initiatives: [],
+      portfolio_projects: [],
+      evidence_items: [],
+      project_cards: [],
+    });
+
+    expect(parsed.profile.missing_fields).toEqual(["phone: not stated"]);
+    expect(parsed.profile.low_confidence_fields).toEqual(["profile.location: low"]);
+    expect(parsed.profile.invented_field_flags).toEqual([
+      "title: tempting but not stated",
+      "school: needs verification",
+    ]);
+  });
 });
 
 describe("ResumeReview", () => {

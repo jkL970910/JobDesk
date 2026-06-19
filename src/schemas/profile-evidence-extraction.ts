@@ -155,6 +155,42 @@ function toStringArray(value: unknown): string[] {
     .filter((item): item is string => Boolean(item));
 }
 
+function toProfileStringList(value: unknown): string[] {
+  return preserveObjectArray(value)
+    .flatMap((item) => (Array.isArray(item) ? item : [item]))
+    .map(toProfileStringListItem)
+    .filter((item): item is string => Boolean(item));
+}
+
+function toProfileStringListItem(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string" || typeof value === "number") {
+    const text = String(value).trim();
+    return text || null;
+  }
+  if (Array.isArray(value)) {
+    return value.map(toProfileStringListItem).filter(Boolean).join(": ") || null;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const primary =
+      toText(record.path) ??
+      toText(record.field) ??
+      toText(record.name) ??
+      toText(record.key) ??
+      toText(record.value) ??
+      toText(record.text);
+    const reason =
+      toText(record.reason) ??
+      toText(record.note) ??
+      toText(record.explanation) ??
+      toText(record.confidence);
+    if (primary && reason && primary !== reason) return `${primary}: ${reason}`;
+    return primary ?? reason ?? JSON.stringify(record);
+  }
+  return null;
+}
+
 function flattenArrayLike(value: unknown): unknown[] {
   const values = Array.isArray(value)
     ? value
@@ -273,9 +309,9 @@ export const SimpleProfile = z.object({
     .default([]),
   skills: LooseSimpleFieldArray,
   certifications: LooseSimpleFieldArray,
-  missing_fields: z.array(z.string()).default([]),
-  low_confidence_fields: z.array(z.string()).default([]),
-  invented_field_flags: z.array(z.string()).default([]),
+  missing_fields: z.preprocess(toProfileStringList, z.array(z.string())).default([]),
+  low_confidence_fields: z.preprocess(toProfileStringList, z.array(z.string())).default([]),
+  invented_field_flags: z.preprocess(toProfileStringList, z.array(z.string())).default([]),
 });
 export type SimpleProfile = z.infer<typeof SimpleProfile>;
 
