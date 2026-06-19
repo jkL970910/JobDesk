@@ -1357,7 +1357,7 @@ function ProfileReferenceView({
       disposition.match(/filename="([^"]+)"/)?.[1] ??
       `jobdesk-main-resume.${format === "markdown" ? "md" : format}`;
     downloadBlob(fileName, blob);
-    setMainResumeStatus(`Exported ${formatLabel(format)} main resume.`);
+    setMainResumeStatus(formatExportResultStatus(format, response.headers));
   }
 
   async function openPrintableMainResume(resumeId: string) {
@@ -1385,10 +1385,12 @@ function ProfileReferenceView({
       const fileName =
         disposition.match(/filename="([^"]+)"/)?.[1] ?? "jobdesk-main-resume.html";
       downloadBlob(fileName, blob);
-      setMainResumeStatus("Downloaded printable HTML because the browser blocked the preview tab.");
+      setMainResumeStatus(
+        `${formatExportResultStatus("html", response.headers)} Browser blocked the preview tab, so the HTML file was downloaded.`,
+      );
       return;
     }
-    setMainResumeStatus("Opened printable resume. Use browser print to save PDF.");
+    setMainResumeStatus(`${formatExportResultStatus("html", response.headers)} Use browser print to save PDF.`);
   }
 
   if (loadState === "loading") {
@@ -1845,9 +1847,9 @@ function ProfileReferenceView({
                         setExportPagePolicy(event.target.value as typeof exportPagePolicy)
                       }
                     >
+                      <option value="unrestricted">Full length</option>
                       <option value="one_page">One page</option>
                       <option value="two_page">Two page</option>
-                      <option value="unrestricted">Full length</option>
                     </select>
                   </label>
                 </div>
@@ -1895,9 +1897,14 @@ function ProfileReferenceView({
                   </button>
                 </div>
                 {exportUsesLengthConstraint ? (
-                  <p className="final-export-controls__note">
-                    Length-constrained export can omit lower-priority sections or bullets. The draft preview below remains the full generated resume.
-                  </p>
+                  <div className="final-export-controls__warning" role="note">
+                    <strong>Compact export differs from the draft preview.</strong>
+                    <p>
+                      One-page and two-page exports may omit lower-priority sections,
+                      body lines, or bullets. JobDesk reports exactly what was hidden
+                      after export.
+                    </p>
+                  </div>
                 ) : (
                   <p className="final-export-controls__note">
                     Full length export matches the draft content below. Choose one or two pages only when you want a compact ATS version.
@@ -2052,10 +2059,31 @@ function formatFactGuardSummary(
   return `${stats.needsReview} to review`;
 }
 
-function formatLabel(format: "markdown" | "json" | "docx") {
+function formatLabel(format: "markdown" | "json" | "docx" | "html") {
   if (format === "docx") return "DOCX";
+  if (format === "html") return "printable HTML";
   if (format === "json") return "JSON audit";
   return "Markdown";
+}
+
+function formatExportResultStatus(
+  format: "markdown" | "json" | "docx" | "html",
+  headers: Headers,
+) {
+  const base = `Exported ${formatLabel(format)} main resume.`;
+  const wasTrimmed = headers.get("x-resume-export-trimmed") === "true";
+  const pagePolicy = headers.get("x-resume-export-page-policy");
+  if (!wasTrimmed || !pagePolicy || pagePolicy === "unrestricted") return base;
+  const hiddenSections = Number(headers.get("x-resume-export-hidden-sections") ?? "0");
+  const hiddenBullets = Number(headers.get("x-resume-export-hidden-bullets") ?? "0");
+  const hiddenBodyLines = Number(headers.get("x-resume-export-hidden-body-lines") ?? "0");
+  const hiddenParts = [
+    hiddenSections > 0 ? `${hiddenSections} section${hiddenSections === 1 ? "" : "s"}` : null,
+    hiddenBullets > 0 ? `${hiddenBullets} bullet${hiddenBullets === 1 ? "" : "s"}` : null,
+    hiddenBodyLines > 0 ? `${hiddenBodyLines} body line${hiddenBodyLines === 1 ? "" : "s"}` : null,
+  ].filter(Boolean);
+  if (hiddenParts.length === 0) return base;
+  return `${base} Compact ${pagePolicy.replace("_", " ")} export hid ${hiddenParts.join(", ")} from the full draft preview.`;
 }
 
 function extractFactValue(value: unknown): string | null {

@@ -2594,6 +2594,29 @@ strong,
   text-align: right;
 }
 
+.final-export-controls__warning {
+  background: rgba(255, 190, 92, 0.09);
+  border: 1px solid rgba(255, 190, 92, 0.24);
+  border-radius: 14px;
+  color: var(--muted);
+  display: grid;
+  gap: 4px;
+  line-height: 1.38;
+  max-width: 520px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.final-export-controls__warning strong {
+  color: var(--ink);
+  font-size: 0.76rem;
+}
+
+.final-export-controls__warning p {
+  font-size: 0.74rem;
+  margin: 0;
+}
+
 .final-export-controls__selectors {
   display: grid;
   gap: 8px;
@@ -5988,6 +6011,10 @@ select:focus {
   .final-export-controls__note {
     max-width: none;
     text-align: left;
+  }
+
+  .final-export-controls__warning {
+    max-width: none;
   }
 
   .final-export-controls .actions,
