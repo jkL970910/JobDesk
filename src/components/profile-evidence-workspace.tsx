@@ -3317,6 +3317,13 @@ function ReadyToUseLibraryView({
   const coverLetterReadyCount = items.filter((item) =>
     (item.allowed_usage ?? []).includes("cover_letter"),
   ).length;
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  async function copyReadyAsset(item: EvidenceCardItem) {
+    const text = getPublicSafeSummaryCandidate(item) || item.text;
+    await navigator.clipboard.writeText(text);
+    setCopiedKey(item.id ?? item.text);
+    window.setTimeout(() => setCopiedKey(null), 1800);
+  }
   return (
     <section className="ready-library" aria-label="Ready to use evidence assets">
       <div className="ready-library__header">
@@ -3380,8 +3387,15 @@ function ReadyToUseLibraryView({
                 <span className="chip">{formatFilterLabel(item.sensitivity_level)}</span>
               </div>
               <div className="actions actions--compact">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => void copyReadyAsset(item)}
+                >
+                  {copiedKey === (item.id ?? item.text) ? "Copied" : "Copy claim"}
+                </button>
                 <button className="secondary-button" type="button" onClick={onOpenAllEvidence}>
-                  View in evidence
+                  Review in evidence
                 </button>
               </div>
             </article>
@@ -3426,27 +3440,41 @@ function EnrichmentTaskQueue({
   const actionableTasks = tasks.filter(
     (task) => task.status === "open" || task.status === "answered",
   );
-  const groupedTasks = groupEnrichmentTasks(actionableTasks);
   const convertedCount = tasks.filter((task) => task.status === "converted").length;
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const [batchPending, setBatchPending] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<Record<string, { ok: boolean; text: string }>>({});
+  const [taskFilters, setTaskFilters] = useState({
+    query: "",
+    scope: "all",
+    sourceType: "all",
+    status: "all",
+    unlinkedOnly: false,
+  });
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const filteredTasks = filterEnrichmentTasks(actionableTasks, taskFilters);
+  const groupedTasks = groupEnrichmentTasks(filteredTasks);
   const selectedTask =
-    actionableTasks.find((task) => task.id === selectedTaskId) ?? actionableTasks[0] ?? null;
+    filteredTasks.find((task) => task.id === selectedTaskId) ?? filteredTasks[0] ?? null;
   const selectedTaskIndex = selectedTask
-    ? actionableTasks.findIndex((task) => task.id === selectedTask.id)
+    ? filteredTasks.findIndex((task) => task.id === selectedTask.id)
     : -1;
+  const selectedBatchIds = filteredTasks
+    .filter((task) => task.status === "open" && !taskHasReusableLibraryAnchor(task))
+    .slice(0, 10)
+    .map((task) => task.id);
+  const taskFilterOptions = buildEnrichmentTaskFilterOptions(actionableTasks);
 
   useEffect(() => {
-    if (actionableTasks.length === 0) {
+    if (filteredTasks.length === 0) {
       if (selectedTaskId !== null) setSelectedTaskId(null);
       return;
     }
-    if (!selectedTaskId || !actionableTasks.some((task) => task.id === selectedTaskId)) {
-      setSelectedTaskId(actionableTasks[0]!.id);
+    if (!selectedTaskId || !filteredTasks.some((task) => task.id === selectedTaskId)) {
+      setSelectedTaskId(filteredTasks[0]!.id);
     }
-  }, [actionableTasks, selectedTaskId]);
+  }, [filteredTasks, selectedTaskId]);
 
   async function handleUpdate(
     task: EnrichmentTaskItem,
@@ -3475,10 +3503,24 @@ function EnrichmentTaskQueue({
   function selectRelativeTask(direction: -1 | 1) {
     if (selectedTaskIndex < 0) return;
     const nextIndex = Math.min(
-      actionableTasks.length - 1,
+      filteredTasks.length - 1,
       Math.max(0, selectedTaskIndex + direction),
     );
-    setSelectedTaskId(actionableTasks[nextIndex]?.id ?? null);
+    setSelectedTaskId(filteredTasks[nextIndex]?.id ?? null);
+  }
+
+  async function dismissFilteredUnassigned() {
+    if (selectedBatchIds.length === 0) return;
+    setBatchPending(true);
+    try {
+      for (const taskId of selectedBatchIds) {
+        const task = filteredTasks.find((item) => item.id === taskId);
+        if (!task) continue;
+        await handleUpdate(task, { action: "dismiss" });
+      }
+    } finally {
+      setBatchPending(false);
+    }
   }
 
   return (
@@ -3527,6 +3569,25 @@ function EnrichmentTaskQueue({
           </button>
         </div>
       ) : (
+        <>
+        <EnrichmentTaskControls
+          batchCount={selectedBatchIds.length}
+          disabled={batchPending}
+          filters={taskFilters}
+          onBatchDismiss={() => void dismissFilteredUnassigned()}
+          onChange={setTaskFilters}
+          options={taskFilterOptions}
+          resultCount={filteredTasks.length}
+          totalCount={actionableTasks.length}
+        />
+        {filteredTasks.length === 0 ? (
+          <div className="empty-state-row">
+            <div>
+              <strong>No enrichment tasks match these filters.</strong>
+              <p>Clear search or broaden source, scope, status, or unlinked filters.</p>
+            </div>
+          </div>
+        ) : (
         <div className="enrichment-focus-shell">
           <aside className="enrichment-task-rail" aria-label="Enrichment task queue">
             {groupedTasks.map((group) => (
@@ -3558,7 +3619,7 @@ function EnrichmentTaskQueue({
           {selectedTask ? (
             <EnrichmentTaskFocusPane
               answer={answers[selectedTask.id] ?? selectedTask.user_answer ?? ""}
-              canGoNext={selectedTaskIndex >= 0 && selectedTaskIndex < actionableTasks.length - 1}
+              canGoNext={selectedTaskIndex >= 0 && selectedTaskIndex < filteredTasks.length - 1}
               canGoPrevious={selectedTaskIndex > 0}
               evidenceItems={evidenceItems}
               initiatives={initiatives}
@@ -3588,11 +3649,13 @@ function EnrichmentTaskQueue({
               portfolioProjects={portfolioProjects}
               task={selectedTask}
               taskIndex={selectedTaskIndex + 1}
-              taskTotal={actionableTasks.length}
+              taskTotal={filteredTasks.length}
               workExperiences={workExperiences}
             />
           ) : null}
         </div>
+        )}
+        </>
       )}
     </section>
   );
@@ -3792,6 +3855,112 @@ function EnrichmentTaskFocusPane({
         </div>
       </div>
     </article>
+  );
+}
+
+function EnrichmentTaskControls({
+  batchCount,
+  disabled,
+  filters,
+  onBatchDismiss,
+  onChange,
+  options,
+  resultCount,
+  totalCount,
+}: {
+  batchCount: number;
+  disabled: boolean;
+  filters: {
+    query: string;
+    scope: string;
+    sourceType: string;
+    status: string;
+    unlinkedOnly: boolean;
+  };
+  onBatchDismiss: () => void;
+  onChange: (filters: {
+    query: string;
+    scope: string;
+    sourceType: string;
+    status: string;
+    unlinkedOnly: boolean;
+  }) => void;
+  options: {
+    scopes: string[];
+    sourceTypes: string[];
+    statuses: string[];
+  };
+  resultCount: number;
+  totalCount: number;
+}) {
+  function update(patch: Partial<typeof filters>) {
+    onChange({ ...filters, ...patch });
+  }
+  return (
+    <section className="enrichment-task-controls" aria-label="Enrichment task filters">
+      <label className="enrichment-task-controls__search">
+        <span>Search tasks</span>
+        <input
+          value={filters.query}
+          onChange={(event) => update({ query: event.target.value })}
+          placeholder="Search prompt, source, target, or reason..."
+        />
+      </label>
+      <ThemeSelect
+        label="Scope"
+        value={filters.scope}
+        options={[
+          { label: "All scopes", value: "all" },
+          ...options.scopes.map((scope) => ({
+            label: formatEnrichmentTaskScope(scope as EnrichmentTaskItem["target_scope"]),
+            value: scope,
+          })),
+        ]}
+        onChange={(scope) => update({ scope })}
+      />
+      <ThemeSelect
+        label="Source"
+        value={filters.sourceType}
+        options={[
+          { label: "All sources", value: "all" },
+          ...options.sourceTypes.map((sourceType) => ({
+            label: formatEnrichmentSourceType(sourceType),
+            value: sourceType,
+          })),
+        ]}
+        onChange={(sourceType) => update({ sourceType })}
+      />
+      <ThemeSelect
+        label="Status"
+        value={filters.status}
+        options={[
+          { label: "All status", value: "all" },
+          ...options.statuses.map((status) => ({
+            label: formatEnrichmentStatus(status as EnrichmentTaskItem["status"]),
+            value: status,
+          })),
+        ]}
+        onChange={(status) => update({ status })}
+      />
+      <ThemeToggleFilter
+        active={filters.unlinkedOnly}
+        label="Target"
+        activeText="Needs target"
+        inactiveText="Any target"
+        onToggle={() => update({ unlinkedOnly: !filters.unlinkedOnly })}
+      />
+      <div className="enrichment-task-controls__batch">
+        <span>{resultCount} of {totalCount} shown</span>
+        <button
+          className="secondary-button secondary-button--quiet"
+          disabled={disabled || batchCount === 0}
+          type="button"
+          onClick={onBatchDismiss}
+        >
+          Dismiss {batchCount > 0 ? `${batchCount} unassigned` : "unassigned"}
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -4253,6 +4422,46 @@ function groupEnrichmentTasks(tasks: EnrichmentTaskItem[]) {
       tasks: tasks.filter((task) => task.source_type === key),
     }))
     .filter((group) => group.tasks.length > 0);
+}
+
+function filterEnrichmentTasks(
+  tasks: EnrichmentTaskItem[],
+  filters: {
+    query: string;
+    scope: string;
+    sourceType: string;
+    status: string;
+    unlinkedOnly: boolean;
+  },
+) {
+  const query = filters.query.trim().toLowerCase();
+  return tasks.filter((task) => {
+    if (filters.scope !== "all" && task.target_scope !== filters.scope) return false;
+    if (filters.sourceType !== "all" && task.source_type !== filters.sourceType) return false;
+    if (filters.status !== "all" && task.status !== filters.status) return false;
+    if (filters.unlinkedOnly && taskHasReusableLibraryAnchor(task)) return false;
+    if (!query) return true;
+    return [
+      task.prompt,
+      task.source_label,
+      task.source_type,
+      task.target_reason ?? "",
+      task.expected_outcome,
+      task.target_scope,
+      task.user_answer ?? "",
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
+  });
+}
+
+function buildEnrichmentTaskFilterOptions(tasks: EnrichmentTaskItem[]) {
+  return {
+    scopes: Array.from(new Set(tasks.map((task) => task.target_scope))).sort(),
+    sourceTypes: Array.from(new Set(tasks.map((task) => task.source_type))).sort(),
+    statuses: Array.from(new Set(tasks.map((task) => task.status))).sort(),
+  };
 }
 
 function getEntryGuidance(intent: MaterialEntryIntent) {
