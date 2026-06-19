@@ -598,12 +598,14 @@ strong,
 
 .command-center {
   align-items: stretch;
-  background:
-    linear-gradient(135deg, rgba(79, 140, 255, 0.12), rgba(255, 255, 255, 0.022)),
-    rgba(255, 255, 255, 0.018);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
   display: grid;
-  gap: 14px;
+  gap: 18px;
   grid-template-columns: minmax(360px, 0.95fr) minmax(420px, 1.05fr);
+  padding: 0;
 }
 
 .next-action-card {
@@ -650,12 +652,12 @@ strong,
 }
 
 .journey-panel {
-  background: rgba(5, 9, 16, 0.42);
-  border: 1px solid var(--line);
-  border-radius: 18px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   display: grid;
   gap: 14px;
-  padding: 14px;
+  padding: 2px 0 0;
 }
 
 .journey-panel__header {
@@ -685,22 +687,28 @@ strong,
 
 .journey-steps {
   display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  grid-template-columns: 1fr;
 }
 
 .journey-step {
   animation: surface-in 560ms var(--ease-out) both;
-  background: rgba(255, 255, 255, 0.034);
-  border: 1px solid var(--line);
-  border-radius: 16px;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0;
   display: grid;
-  gap: 12px;
-  grid-template-rows: auto 1fr auto;
-  min-height: 220px;
-  padding: 14px;
+  gap: 14px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  min-height: 0;
+  padding: 14px 0;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
+}
+
+.journey-step:last-child {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .journey-step:nth-child(1),
@@ -725,22 +733,27 @@ strong,
 }
 
 .journey-step::after {
-  background: linear-gradient(135deg, rgba(79, 140, 255, 0.2), transparent 44%);
+  background: rgba(79, 140, 255, 0.45);
   content: "";
-  height: 120px;
-  opacity: 0;
+  height: calc(100% - 46px);
+  left: 15px;
+  opacity: 0.28;
   position: absolute;
-  right: -50px;
-  top: -50px;
-  transform: rotate(10deg);
-  transition: opacity 200ms ease;
-  width: 120px;
+  top: 46px;
+  transform: none;
+  transition: opacity 200ms ease, background 200ms ease;
+  width: 1px;
+}
+
+.journey-step:last-child::after {
+  display: none;
 }
 
 .journey-step:hover::after,
 .journey-step[data-state="active"]::after,
 .journey-step[data-state="complete"]::after {
-  opacity: 1;
+  background: rgba(79, 140, 255, 0.72);
+  opacity: 0.75;
 }
 
 .journey-step__number {
@@ -777,10 +790,10 @@ strong,
 .downstream-board strong {
   color: var(--ink);
   display: block;
-  font-size: 1.55rem;
-  letter-spacing: -0.05em;
-  line-height: 1;
-  margin: 7px 0;
+  font-size: 1.12rem;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  margin: 4px 0 5px;
 }
 
 .journey-step p,
@@ -801,6 +814,7 @@ strong,
   font-weight: 820;
   justify-self: flex-start;
   padding: 8px 12px;
+  white-space: nowrap;
 }
 
 .journey-step[data-state="active"] button,
@@ -4284,13 +4298,14 @@ select:focus {
 
 .enrichment-task-card__gate {
   align-items: center;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 14px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 0;
   display: grid;
   gap: 12px;
   grid-template-columns: minmax(0, 1fr) auto;
-  padding: 12px;
+  padding: 12px 0 0;
 }
 
 .enrichment-task-card__gate strong {
@@ -4325,9 +4340,10 @@ select:focus {
 }
 
 .enrichment-task-card__target-picker {
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 10px;
-  padding: 9px 10px;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 0;
+  padding: 11px 0 0;
 }
 
 .enrichment-task-card__target-picker summary {
@@ -4341,16 +4357,17 @@ select:focus {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 10px;
+  margin-top: 11px;
 }
 
 .enrichment-task-card__stage {
-  background: rgba(255, 255, 255, 0.018);
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 16px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 0;
   display: grid;
   gap: 12px;
-  padding: 14px;
+  padding: 14px 0 0;
 }
 
 .enrichment-task-card__stage-header span {
@@ -6119,7 +6136,6 @@ select:focus {
   .dashboard-summary,
   .entry-path-board,
   .downstream-board,
-  .journey-steps,
   .project-source-modes,
   .guided-material-builder__grid,
   .resume-version-strip,
@@ -6238,9 +6254,7 @@ select:focus {
   .status-board,
   .entry-path-board,
   .downstream-board,
-  .journey-steps,
   .downstream-board,
-  .journey-steps,
   .command-center,
   .prep-summary-grid,
   .dashboard-summary,
@@ -6549,7 +6563,6 @@ select:focus {
   .status-board,
   .entry-path-board,
   .downstream-board,
-  .journey-steps,
   .review-switcher,
   .profile-tabs-preview,
   .profile-live-summary__grid,
@@ -6566,6 +6579,15 @@ select:focus {
   .resume-version-strip,
   .resume-review-rubric {
     grid-template-columns: 1fr;
+  }
+
+  .journey-step {
+    align-items: flex-start;
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .journey-step button {
+    grid-column: 2;
   }
 
   .app-brand small,
