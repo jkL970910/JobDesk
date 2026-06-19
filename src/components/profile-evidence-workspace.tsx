@@ -3840,11 +3840,11 @@ function getEvidenceBlocker(item: EvidenceCardItem) {
     return {
       action: "approve_for_resume" as const,
       label: !getPublicSafeSummaryCandidate(item)
-        ? "Review truth + add safe wording"
-        : "Review truth and approve",
+        ? "Add safe wording"
+        : "Review claim",
       reason:
         !getPublicSafeSummaryCandidate(item)
-          ? "Truth review and external-safe wording are required before resume use."
+          ? "Public-safe wording is required before this can support a resume."
           : "Truth review is still pending.",
     };
   }
@@ -3852,11 +3852,11 @@ function getEvidenceBlocker(item: EvidenceCardItem) {
     return {
       action: "approve_for_resume" as const,
       label: !getPublicSafeSummaryCandidate(item)
-        ? "Confirm + add safe wording"
-        : "Confirm claim for resume",
+        ? "Add safe wording"
+        : "Confirm claim",
       reason:
         !getPublicSafeSummaryCandidate(item)
-          ? "User confirmation and external-safe wording are required before resume use."
+          ? "Public-safe wording is required before this can support a resume."
           : "User confirmation is required before resume use.",
     };
   }
@@ -4776,57 +4776,49 @@ function EvidenceCard({
   return (
     <article className="evidence-row">
       <div className="evidence-row__main">
-        <div>
+        <div className="evidence-row__content">
           <span>{item.evidence_type}</span>
           <strong>{item.text}</strong>
-          <p>{readiness.next}</p>
+          <p>{blocker.reason}</p>
+          <div className="evidence-row__meta">
+            <span>{readiness.label}</span>
+            <small>Missing: {missingInfo}</small>
+            <small>Linked: {linkedTarget}</small>
+          </div>
         </div>
-        <em data-ready={readiness.state === "resume_ready"}>{readiness.label}</em>
-        <small>{item.sensitivity_level}</small>
-        <button
-          className="secondary-button"
-          disabled={isUpdating || !item.id}
-          type="button"
-          onClick={() => {
-            if (!item.id) return;
-            if (blocker.action === "edit") {
-              setIsEditing((current) => !current);
-            } else if (blocker.action === "mark_external_safe") {
-              if (!getPublicSafeSummaryCandidate(item)) {
-                openPublicSafeConfirmation();
-                return;
+        <div className="evidence-row__action">
+          <em data-ready={readiness.state === "resume_ready"}>{readiness.label}</em>
+          <small>{item.sensitivity_level}</small>
+          <button
+            className="primary-button"
+            disabled={isUpdating || !item.id}
+            type="button"
+            onClick={() => {
+              if (!item.id) return;
+              if (blocker.action === "edit") {
+                setIsEditing((current) => !current);
+              } else if (blocker.action === "mark_external_safe") {
+                if (!getPublicSafeSummaryCandidate(item)) {
+                  openPublicSafeConfirmation();
+                  return;
+                }
+                onUpdate(item, "mark_external_safe");
+              } else {
+                if (!getPublicSafeSummaryCandidate(item)) {
+                  openPublicSafeConfirmation();
+                  return;
+                }
+                onUpdate(item, "approve_for_resume");
               }
-              onUpdate(item, "mark_external_safe");
-            } else {
-              if (!getPublicSafeSummaryCandidate(item)) {
-                openPublicSafeConfirmation();
-                return;
-              }
-              onUpdate(item, "approve_for_resume");
-            }
-          }}
-        >
-          {blocker.action === "edit"
-            ? isEditing
-              ? "Close edit"
-              : "Edit"
-            : blocker.label}
-        </button>
-      </div>
-      <div className="evidence-row__meta">
-        <span>Status: {formatEvidenceAssetStatus(item)}</span>
-        <small>Reusable in: {formatReusableUsage(item)}</small>
-        <small>Source: {formatEvidenceSource(item)}</small>
-        <small>Linked to: {linkedTarget}</small>
-        <small>Missing info: {missingInfo}</small>
-        <small>Updated: {formatRelativeDate(item.updatedAt)}</small>
-        <small>{blocker.reason}</small>
-        {(item.allowed_usage ?? []).map((usage) => (
-          <small key={usage}>
-            {usage}
-          </small>
-        ))}
-        {item.needs_user_confirmation ? <small>needs confirmation</small> : null}
+            }}
+          >
+            {blocker.action === "edit"
+              ? isEditing
+                ? "Close review"
+                : "Review/edit"
+              : blocker.label}
+          </button>
+        </div>
       </div>
       {cardMessage ? (
         <p className={cardMessage.ok ? "card-message" : "card-message card-message--error"}>
@@ -4834,19 +4826,19 @@ function EvidenceCard({
         </p>
       ) : null}
       <details className="evidence-row__details" {...(isEditing ? { open: true } : {})}>
-        <summary>View evidence detail</summary>
-        <p>Source: {formatEvidenceSource(item)}</p>
-        <p>Reusable in: {formatReusableUsage(item)}</p>
-        <p>Status: {formatEvidenceAssetStatus(item)}</p>
-        <p>Linked to: {linkedTarget}</p>
-        <p>Missing info: {missingInfo}</p>
-        <p>Last updated: {formatRelativeDate(item.updatedAt)}</p>
-        <p>Quote: {formatSourceQuotePreview(item.source_quote)}</p>
-        {getPublicSafeSummaryCandidate(item) ? (
-          <p>External-safe: {getPublicSafeSummaryCandidate(item)}</p>
-        ) : null}
+        <summary>Details and more actions</summary>
+        <div className="evidence-row__detail-grid">
+          <p>Source: {formatEvidenceSource(item)}</p>
+          <p>Reusable in: {formatReusableUsage(item)}</p>
+          <p>Status: {formatEvidenceAssetStatus(item)}</p>
+          <p>Last updated: {formatRelativeDate(item.updatedAt)}</p>
+          <p>Quote: {formatSourceQuotePreview(item.source_quote)}</p>
+          {getPublicSafeSummaryCandidate(item) ? (
+            <p>Public-safe wording: {getPublicSafeSummaryCandidate(item)}</p>
+          ) : null}
+        </div>
         {item.id ? (
-        <div className="actions actions--compact">
+        <div className="actions actions--compact evidence-row__secondary-actions">
           <button
             className="secondary-button"
             disabled={isUpdating}
