@@ -6004,6 +6004,178 @@ select:focus {
   }
 }
 
+/* Premium flat surface pass: keep page-level panels, make inner content read as rows/bands. */
+.panel,
+.hero-panel,
+.profile-card,
+.planned-panel,
+.settings-panel,
+.handoff-panel,
+.workspace-band {
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.14);
+}
+
+.panel .section-block,
+.profile-reference .section-block,
+.main-resume-builder .section-block,
+.job-workspace-stack .section-block {
+  border-top-color: rgba(255, 255, 255, 0.085);
+  padding-top: 18px;
+}
+
+.section-block .requirement,
+.section-block .claim-card,
+.result-stack--inner .requirement,
+.result-stack--inner .claim-card,
+.claim-review .claim-card,
+.project-card,
+.overlap-project,
+.merge-review,
+.planned-panel article,
+.settings-panel__grid article,
+.profile-fact-grid article,
+.positioning-detail-grid article,
+.final-review-checklist,
+.claim-review-summary,
+.missing-evidence-panel,
+.final-resume-preview {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.section-block .requirement,
+.section-block .claim-card,
+.result-stack--inner .requirement,
+.result-stack--inner .claim-card,
+.claim-review .claim-card,
+.project-card,
+.overlap-project,
+.merge-review,
+.positioning-detail-grid article,
+.final-review-checklist,
+.claim-review-summary,
+.missing-evidence-panel,
+.final-resume-preview {
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+}
+
+.section-block .requirement:first-child,
+.result-stack--inner .requirement:first-child,
+.claim-review .claim-card:first-child,
+.positioning-detail-grid article:first-child,
+.final-review-checklist:first-child,
+.claim-review-summary:first-child {
+  border-top: 0;
+}
+
+.entry-path-board article,
+.downstream-board article,
+.status-card,
+.main-resume-builder__metrics article,
+.positioning-engine__summary,
+.positioning-direction-detail,
+.positioning-variant-callout,
+.positioning-direction-card,
+.resume-refresh-panel,
+.guardrail-banner,
+.source-active-form,
+.source-parse-card,
+.source-path-handoff,
+.resume-source-picker,
+.review-retry-panel {
+  box-shadow: none;
+}
+
+.main-resume-builder__metrics article,
+.positioning-engine__summary,
+.positioning-direction-detail,
+.positioning-variant-callout,
+.resume-refresh-panel,
+.source-active-form,
+.source-parse-card,
+.source-path-handoff,
+.resume-source-picker,
+.positioning-direction-card,
+.entry-path-board article,
+.downstream-board article,
+.status-card {
+  background: rgba(255, 255, 255, 0.018);
+  border-color: rgba(255, 255, 255, 0.075);
+}
+
+.story-table,
+.evidence-row-table {
+  border: 0;
+  border-radius: 0;
+  gap: 0;
+  overflow: visible;
+}
+
+.story-table .story-target-row,
+.story-table .story-group-row,
+.evidence-row {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  box-shadow: none;
+}
+
+.story-table .story-target-row:first-child,
+.story-table .story-group-row:first-child,
+.evidence-row:first-child {
+  border-top: 0;
+}
+
+.story-group-row .story-target-row {
+  background: transparent;
+  border-bottom: 0;
+  border-top-color: rgba(255, 255, 255, 0.06);
+}
+
+.story-target-row__meta,
+.story-target-row__assignment,
+.story-target-row__details,
+.evidence-row__meta,
+.evidence-row__details {
+  border-top-color: rgba(255, 255, 255, 0.055);
+}
+
+.story-target-row__meta small,
+.evidence-row__meta small,
+.chip,
+.merge-review__facts span,
+.source-parse-card__metrics span {
+  background: rgba(255, 255, 255, 0.032);
+  border-color: rgba(255, 255, 255, 0.075);
+}
+
+.review-dimension-card__body div,
+.review-finding-card,
+.final-review-checklist li,
+.claim-review-list div,
+.main-resume-builder__preview pre,
+.resume-preview {
+  background: rgba(255, 255, 255, 0.016);
+  border-color: rgba(255, 255, 255, 0.065);
+  box-shadow: none;
+}
+
+.review-finding-card {
+  border-left-width: 2px;
+}
+
+.main-resume-builder__preview,
+.final-review-panel {
+  background: rgba(255, 255, 255, 0.018);
+  border-color: rgba(255, 255, 255, 0.075);
+  box-shadow: none;
+}
+
 @media (max-width: 640px) {
   .status-board,
   .entry-path-board,
