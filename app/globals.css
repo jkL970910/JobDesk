@@ -4284,13 +4284,13 @@ select:focus {
 
 .enrichment-task-card__gate {
   align-items: center;
-  background: rgba(255, 184, 107, 0.08);
-  border: 1px solid rgba(255, 184, 107, 0.22);
-  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 14px;
   display: grid;
   gap: 12px;
   grid-template-columns: minmax(0, 1fr) auto;
-  padding: 10px;
+  padding: 12px;
 }
 
 .enrichment-task-card__gate strong {
@@ -4342,6 +4342,46 @@ select:focus {
   gap: 10px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 10px;
+}
+
+.enrichment-task-card__stage {
+  background: rgba(255, 255, 255, 0.018);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 16px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.enrichment-task-card__stage-header span {
+  color: var(--accent);
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.enrichment-task-card__stage-header strong {
+  color: var(--ink);
+  display: block;
+  font-size: 1rem;
+  margin-bottom: 4px;
+}
+
+.enrichment-task-card__stage-header p {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin: 0;
+  text-wrap: pretty;
+}
+
+.enrichment-task-card__stage .enrichment-task-card__target-grid {
+  margin-top: 0;
+}
+
+.enrichment-task-card__stage-actions {
+  justify-content: flex-start;
 }
 
 .enrichment-task-card__dismiss {

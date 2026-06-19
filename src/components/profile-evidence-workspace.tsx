@@ -3131,174 +3131,130 @@ function EnrichmentTaskQueue({
                         <strong>{formatEnrichmentExpectedOutcome(task)}</strong>
                       </div>
                     </div>
-                    <label className="source-field source-field--textarea">
-                      <span>Your answer</span>
-                      <textarea
-                        className="jd-input jd-input--compact enrichment-task-card__answer"
-                        disabled={isPending || !hasLibraryAnchor}
-                        onChange={(event) =>
-                          setAnswers((current) => ({
-                            ...current,
-                            [task.id]: event.target.value,
-                          }))
-                        }
-                        placeholder={
-                          hasLibraryAnchor
-                            ? "Add concrete numbers, scope, ownership, actions, results, or public-safe wording..."
-                            : "Choose the claim, story, or role this answer should strengthen before answering."
-                        }
-                        value={answer}
-                      />
-                    </label>
                     {!hasLibraryAnchor ? (
-                      <div className="enrichment-task-card__gate">
-                        <div>
-                          <strong>Choose a target before answering</strong>
+                      <div className="enrichment-task-card__stage">
+                        <div className="enrichment-task-card__stage-header">
+                          <span>Step 1</span>
+                          <strong>Choose where this answer belongs</strong>
                           <p>
-                            This prompt came from Resume Review. Attach it to a specific claim, project/story, or role so the answer strengthens the right material.
+                            Attach this question to a claim, project/story, or role before writing an answer.
                           </p>
                         </div>
-                        <button
-                          className="secondary-button secondary-button--quiet"
-                          type="button"
-                          onClick={() => onCreateLibraryItems(task)}
-                        >
-                          Create new material instead
-                        </button>
-                      </div>
-                    ) : null}
-                    <details className="enrichment-task-card__target-picker" open={!hasLibraryAnchor}>
-                      <summary>{hasLibraryAnchor ? "Change target" : "Choose target"}</summary>
-                      <div className="enrichment-task-card__target-grid">
-                        <label className="source-field enrichment-task-card__destination">
-                          <span>Specific claim</span>
-                          <select
-                            className="jd-input jd-input--compact"
-                            disabled={isPending}
-                            onChange={(event) => {
-                              if (!event.target.value) return;
-                              void handleUpdate(task, {
-                                action: "link",
-                                anchor: parseEnrichmentTaskAnchorValue(event.target.value),
-                              });
-                            }}
-                            value={task.evidence_item_id ? toEnrichmentTaskAnchorValue(task) : ""}
+                        <EnrichmentTaskTargetPicker
+                          disabled={isPending}
+                          evidenceItems={evidenceItems}
+                          initiatives={initiatives}
+                          onLink={(anchor) =>
+                            void handleUpdate(task, {
+                              action: "link",
+                              anchor,
+                            })
+                          }
+                          portfolioProjects={portfolioProjects}
+                          task={task}
+                          workExperiences={workExperiences}
+                        />
+                        <div className="enrichment-task-card__gate">
+                          <div>
+                            <strong>No matching target?</strong>
+                            <p>Create new material only if this answer does not belong to any existing claim, story, or role.</p>
+                          </div>
+                          <button
+                            className="secondary-button secondary-button--quiet"
+                            type="button"
+                            onClick={() => onCreateLibraryItems(task)}
                           >
-                            <option value="">Choose a claim</option>
-                            {evidenceItems.slice(0, 80).map((item) => (
-                              item.id ? (
-                                <option key={`evidence:${item.id}`} value={`evidence:${item.id}`}>
-                                  {truncateOptionText(item.text)}
-                                </option>
-                              ) : null
-                            ))}
-                          </select>
-                        </label>
-                        <label className="source-field enrichment-task-card__destination">
-                          <span>Project / story</span>
-                          <select
-                            className="jd-input jd-input--compact"
+                            Create new material instead
+                          </button>
+                        </div>
+                        <div className="actions actions--compact enrichment-task-card__stage-actions">
+                          <button
+                            className="ghost-button enrichment-task-card__dismiss"
                             disabled={isPending}
-                            onChange={(event) => {
-                              if (!event.target.value) return;
+                            type="button"
+                            onClick={() => void handleUpdate(task, { action: "dismiss" })}
+                          >
+                            Dismiss
+                          </button>
+                          {message ? (
+                            <span className={message.ok ? "status" : "status status--error"}>
+                              {message.text}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <details className="enrichment-task-card__target-picker">
+                          <summary>Change target</summary>
+                          <EnrichmentTaskTargetPicker
+                            disabled={isPending}
+                            evidenceItems={evidenceItems}
+                            initiatives={initiatives}
+                            onLink={(anchor) =>
                               void handleUpdate(task, {
                                 action: "link",
-                                anchor: parseEnrichmentTaskAnchorValue(event.target.value),
-                              });
-                            }}
-                            value={
-                              task.initiative_id || task.portfolio_project_id
-                                ? toEnrichmentTaskAnchorValue(task)
-                                : ""
+                                anchor,
+                              })
+                            }
+                            portfolioProjects={portfolioProjects}
+                            task={task}
+                            workExperiences={workExperiences}
+                          />
+                        </details>
+                        <label className="source-field source-field--textarea">
+                          <span>Your answer</span>
+                          <textarea
+                            className="jd-input jd-input--compact enrichment-task-card__answer"
+                            disabled={isPending}
+                            onChange={(event) =>
+                              setAnswers((current) => ({
+                                ...current,
+                                [task.id]: event.target.value,
+                              }))
+                            }
+                            placeholder="Add concrete numbers, scope, ownership, actions, results, or public-safe wording..."
+                            value={answer}
+                          />
+                        </label>
+                        <div className="actions actions--compact">
+                          <button
+                            className="secondary-button"
+                            disabled={isPending || answer.trim().length < 12}
+                            type="button"
+                            onClick={() =>
+                              void handleUpdate(task, {
+                                action: "answer",
+                                userAnswer: answer,
+                              })
                             }
                           >
-                            <option value="">Choose a project or story</option>
-                            {initiatives.map((item) => (
-                              item.id ? (
-                                <option key={`initiative:${item.id}`} value={`initiative:${item.id}`}>
-                                  {item.external_safe_title ?? item.internal_title}
-                                </option>
-                              ) : null
-                            ))}
-                            {portfolioProjects.map((item) => (
-                              item.id ? (
-                                <option key={`portfolio_project:${item.id}`} value={`portfolio_project:${item.id}`}>
-                                  {item.external_safe_title ?? item.title}
-                                </option>
-                              ) : null
-                            ))}
-                          </select>
-                        </label>
-                        <label className="source-field enrichment-task-card__destination">
-                          <span>Role-level experience</span>
-                          <select
-                            className="jd-input jd-input--compact"
-                            disabled={isPending}
-                            onChange={(event) => {
-                              if (!event.target.value) return;
-                              void handleUpdate(task, {
-                                action: "link",
-                                anchor: parseEnrichmentTaskAnchorValue(event.target.value),
-                              });
-                            }}
-                            value={task.work_experience_id ? toEnrichmentTaskAnchorValue(task) : ""}
+                            Save answer
+                          </button>
+                          <button
+                            className="secondary-button"
+                            disabled={isPending || task.status !== "answered"}
+                            type="button"
+                            onClick={() => void handleUpdate(task, { action: "convert" })}
                           >
-                            <option value="">Choose a role</option>
-                            {workExperiences.map((item) => (
-                              item.id ? (
-                                <option key={`work_experience:${item.id}`} value={`work_experience:${item.id}`}>
-                                  {item.employer} · {item.role_title}
-                                </option>
-                              ) : null
-                            ))}
-                          </select>
-                        </label>
-                      </div>
-                    </details>
-                    <div className="actions actions--compact">
-                      <button
-                        className="secondary-button"
-                        disabled={
-                          isPending ||
-                          !hasLibraryAnchor ||
-                          answer.trim().length < 12
-                        }
-                        type="button"
-                        onClick={() =>
-                          void handleUpdate(task, {
-                            action: "answer",
-                            userAnswer: answer,
-                          })
-                        }
-                      >
-                        Save answer
-                      </button>
-                      <button
-                        className="secondary-button"
-                        disabled={
-                          isPending ||
-                          !hasLibraryAnchor ||
-                          task.status !== "answered"
-                        }
-                        type="button"
-                        onClick={() => void handleUpdate(task, { action: "convert" })}
-                      >
-                        Convert to evidence candidate
-                      </button>
-                      <button
-                        className="ghost-button enrichment-task-card__dismiss"
-                        disabled={isPending}
-                        type="button"
-                        onClick={() => void handleUpdate(task, { action: "dismiss" })}
-                      >
-                        Dismiss
-                      </button>
-                      {message ? (
-                        <span className={message.ok ? "status" : "status status--error"}>
-                          {message.text}
-                        </span>
-                      ) : null}
-                    </div>
+                            Convert to evidence candidate
+                          </button>
+                          <button
+                            className="ghost-button enrichment-task-card__dismiss"
+                            disabled={isPending}
+                            type="button"
+                            onClick={() => void handleUpdate(task, { action: "dismiss" })}
+                          >
+                            Dismiss
+                          </button>
+                          {message ? (
+                            <span className={message.ok ? "status" : "status status--error"}>
+                              {message.text}
+                            </span>
+                          ) : null}
+                        </div>
+                      </>
+                    )}
                   </article>
                 );
               })}
@@ -3307,6 +3263,103 @@ function EnrichmentTaskQueue({
         </div>
       )}
     </section>
+  );
+}
+
+function EnrichmentTaskTargetPicker({
+  disabled,
+  evidenceItems,
+  initiatives,
+  onLink,
+  portfolioProjects,
+  task,
+  workExperiences,
+}: {
+  disabled: boolean;
+  evidenceItems: EvidenceCardItem[];
+  initiatives: InitiativeItem[];
+  onLink: (anchor: EnrichmentTaskAnchorPatch) => void;
+  portfolioProjects: PortfolioProjectItem[];
+  task: EnrichmentTaskItem;
+  workExperiences: WorkExperienceItem[];
+}) {
+  return (
+    <div className="enrichment-task-card__target-grid">
+      <label className="source-field enrichment-task-card__destination">
+        <span>Specific claim</span>
+        <select
+          className="jd-input jd-input--compact"
+          disabled={disabled}
+          onChange={(event) => {
+            if (!event.target.value) return;
+            onLink(parseEnrichmentTaskAnchorValue(event.target.value));
+          }}
+          value={task.evidence_item_id ? toEnrichmentTaskAnchorValue(task) : ""}
+        >
+          <option value="">Choose a claim</option>
+          {evidenceItems.slice(0, 80).map((item) => (
+            item.id ? (
+              <option key={`evidence:${item.id}`} value={`evidence:${item.id}`}>
+                {truncateOptionText(item.text)}
+              </option>
+            ) : null
+          ))}
+        </select>
+      </label>
+      <label className="source-field enrichment-task-card__destination">
+        <span>Project / story</span>
+        <select
+          className="jd-input jd-input--compact"
+          disabled={disabled}
+          onChange={(event) => {
+            if (!event.target.value) return;
+            onLink(parseEnrichmentTaskAnchorValue(event.target.value));
+          }}
+          value={
+            task.initiative_id || task.portfolio_project_id
+              ? toEnrichmentTaskAnchorValue(task)
+              : ""
+          }
+        >
+          <option value="">Choose a project or story</option>
+          {initiatives.map((item) => (
+            item.id ? (
+              <option key={`initiative:${item.id}`} value={`initiative:${item.id}`}>
+                {item.external_safe_title ?? item.internal_title}
+              </option>
+            ) : null
+          ))}
+          {portfolioProjects.map((item) => (
+            item.id ? (
+              <option key={`portfolio_project:${item.id}`} value={`portfolio_project:${item.id}`}>
+                {item.external_safe_title ?? item.title}
+              </option>
+            ) : null
+          ))}
+        </select>
+      </label>
+      <label className="source-field enrichment-task-card__destination">
+        <span>Role-level experience</span>
+        <select
+          className="jd-input jd-input--compact"
+          disabled={disabled}
+          onChange={(event) => {
+            if (!event.target.value) return;
+            onLink(parseEnrichmentTaskAnchorValue(event.target.value));
+          }}
+          value={task.work_experience_id ? toEnrichmentTaskAnchorValue(task) : ""}
+        >
+          <option value="">Choose a role</option>
+          {workExperiences.map((item) => (
+            item.id ? (
+              <option key={`work_experience:${item.id}`} value={`work_experience:${item.id}`}>
+                {item.employer} · {item.role_title}
+              </option>
+            ) : null
+          ))}
+        </select>
+      </label>
+    </div>
   );
 }
 
