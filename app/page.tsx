@@ -697,66 +697,75 @@ function DashboardView({
               target: () => onNavigate("evidence"),
             },
           ];
-  const secondaryWorkflows = [
+  const pipelineItems = [
     {
       action: "Open jobs",
       detail: jobs[0]?.title ?? "Analyze a specific JD once your evidence base is usable.",
-      label: "Jobs",
+      label: "Jobs saved",
       metric: `${jobs.length} analyzed`,
       target: () => onNavigate("jobs"),
     },
     {
       action: "Open tracker",
-      detail: `${activeApplications} active applications · ${interviewJobs} in interview stage.`,
-      label: "Applications",
+      detail: activeApplications > 0 ? "Track active follow-ups and stage changes." : "No active applications yet.",
+      label: "Applied",
       metric: `${activeApplications} active`,
       target: () => onNavigate("applications"),
     },
     {
       action: "Prep interview",
-      detail: prepPacks.length > 0 ? `${prepPacks.length} prep packs saved.` : "Create prep once a JD is analyzed.",
-      label: "Interview",
-      metric: prepPacks.length > 0 ? `${prepPacks.length} packs` : "Later",
+      detail: interviewJobs > 0 ? "Interview-stage jobs need prep material." : "No interview-stage jobs.",
+      label: "Interviewing",
+      metric: String(interviewJobs),
+      target: () => onNavigate("interview"),
+    },
+    {
+      action: "View prep",
+      detail: prepPacks.length > 0 ? "Prep packs are ready for reviewed jobs." : "Create prep after JD analysis.",
+      label: "Prep packs",
+      metric: String(prepPacks.length),
       target: () => onNavigate("interview"),
     },
   ];
 
   return (
     <div className="dashboard-grid">
-      <section className="command-center">
-        <article className="next-action-card">
-          <p className="panel-kicker">Next best action</p>
+      <article className="next-action-card next-action-card--compact">
+        <div>
+          <p className="panel-kicker">Next</p>
           <h2>{displayNextAction.title}</h2>
           <p>{displayNextAction.detail}</p>
-          <div className="next-action-card__actions">
-            <button
-              disabled={dashboardLoadState === "loading"}
-              type="button"
-              onClick={() =>
-                displayNextAction.resumeTab
-                  ? onNavigateResume(displayNextAction.resumeTab)
-                  : onNavigate(displayNextAction.view)
-              }
-            >
-              {displayNextAction.label}
-            </button>
-            {(() => {
-              const secondaryTarget = displayNextAction.secondaryTarget;
-              if (!displayNextAction.secondaryLabel || !secondaryTarget) return null;
-              return (
-                <button
-                  className="next-action-card__secondary"
-                  disabled={dashboardLoadState === "loading"}
-                  type="button"
-                  onClick={() => onStartMaterialPath(secondaryTarget)}
-                >
-                  {displayNextAction.secondaryLabel}
-                </button>
-              );
-            })()}
-          </div>
-        </article>
+        </div>
+        <div className="next-action-card__actions">
+          <button
+            disabled={dashboardLoadState === "loading"}
+            type="button"
+            onClick={() =>
+              displayNextAction.resumeTab
+                ? onNavigateResume(displayNextAction.resumeTab)
+                : onNavigate(displayNextAction.view)
+            }
+          >
+            {displayNextAction.label}
+          </button>
+          {(() => {
+            const secondaryTarget = displayNextAction.secondaryTarget;
+            if (!displayNextAction.secondaryLabel || !secondaryTarget) return null;
+            return (
+              <button
+                className="next-action-card__secondary"
+                disabled={dashboardLoadState === "loading"}
+                type="button"
+                onClick={() => onStartMaterialPath(secondaryTarget)}
+              >
+                {displayNextAction.secondaryLabel}
+              </button>
+            );
+          })()}
+        </div>
+      </article>
 
+      <section className="overview-lanes" aria-label="Business overview">
         <div className="journey-panel readiness-strip" aria-label="Resume readiness">
           <div className="journey-panel__header">
             <div>
@@ -781,12 +790,36 @@ function DashboardView({
             ))}
           </div>
         </div>
+
+        <div className="pipeline-panel" aria-label="Application pipeline">
+          <div className="journey-panel__header">
+            <div>
+              <p className="panel-kicker">Application pipeline</p>
+              <h2>What needs follow-up?</h2>
+            </div>
+            <span>{dashboardLoadState === "loading" ? "Loading" : `${activeApplications} active`}</span>
+          </div>
+          <div className="pipeline-list">
+            {pipelineItems.map((item) => (
+              <article className="pipeline-row" key={item.label}>
+                <div>
+                  <span>{item.label}</span>
+                  <strong>{item.metric}</strong>
+                  <p>{item.detail}</p>
+                </div>
+                <button disabled={dashboardLoadState === "loading"} type="button" onClick={item.target}>
+                  {item.action}
+                </button>
+              </article>
+            ))}
+          </div>
+        </div>
       </section>
 
-      <section className="priority-board" aria-label="Top blockers">
+      <section className="priority-board" aria-label="Attention queue">
         <div className="priority-board__header">
-          <p className="panel-kicker">Priority queue</p>
-          <h2>Top blockers</h2>
+          <p className="panel-kicker">Attention Queue</p>
+          <h2>The highest-impact items to unblock progress.</h2>
         </div>
         <div className="priority-board__list">
           {visiblePriorityItems.map((item, index) => (
@@ -798,27 +831,6 @@ function DashboardView({
               </div>
               <button disabled={dashboardLoadState === "loading"} type="button" onClick={item.target}>
                 {item.action}
-              </button>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="secondary-workflows" aria-label="Secondary workflows">
-        <div className="secondary-workflows__header">
-          <p className="panel-kicker">Later workflows</p>
-          <h2>Jobs, applications, and interview follow-up</h2>
-        </div>
-        <div className="secondary-workflows__list">
-          {secondaryWorkflows.map((workflow) => (
-            <article key={workflow.label}>
-              <div>
-                <span>{workflow.label}</span>
-                <strong>{workflow.metric}</strong>
-                <p>{workflow.detail}</p>
-              </div>
-              <button type="button" onClick={workflow.target}>
-                {workflow.action}
               </button>
             </article>
           ))}
