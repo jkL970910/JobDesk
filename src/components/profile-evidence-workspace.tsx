@@ -3360,6 +3360,22 @@ function EnrichmentTaskQueue({
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<Record<string, { ok: boolean; text: string }>>({});
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const selectedTask =
+    actionableTasks.find((task) => task.id === selectedTaskId) ?? actionableTasks[0] ?? null;
+  const selectedTaskIndex = selectedTask
+    ? actionableTasks.findIndex((task) => task.id === selectedTask.id)
+    : -1;
+
+  useEffect(() => {
+    if (actionableTasks.length === 0) {
+      if (selectedTaskId !== null) setSelectedTaskId(null);
+      return;
+    }
+    if (!selectedTaskId || !actionableTasks.some((task) => task.id === selectedTaskId)) {
+      setSelectedTaskId(actionableTasks[0]!.id);
+    }
+  }, [actionableTasks, selectedTaskId]);
 
   async function handleUpdate(
     task: EnrichmentTaskItem,
@@ -3383,6 +3399,15 @@ function EnrichmentTaskQueue({
     } finally {
       setPendingTaskId(null);
     }
+  }
+
+  function selectRelativeTask(direction: -1 | 1) {
+    if (selectedTaskIndex < 0) return;
+    const nextIndex = Math.min(
+      actionableTasks.length - 1,
+      Math.max(0, selectedTaskIndex + direction),
+    );
+    setSelectedTaskId(actionableTasks[nextIndex]?.id ?? null);
   }
 
   return (
@@ -3431,186 +3456,271 @@ function EnrichmentTaskQueue({
           </button>
         </div>
       ) : (
-        <div className="enrichment-task-list">
-          {groupedTasks.map((group) => (
-            <section className="enrichment-task-group" key={group.key}>
-              <div className="enrichment-task-group__header">
-                <span>{group.label}</span>
-                <strong>{group.tasks.length}</strong>
-              </div>
-              {group.tasks.map((task) => {
-                const answer = answers[task.id] ?? task.user_answer ?? "";
-                const hasLibraryAnchor = taskHasReusableLibraryAnchor(task);
-                const linkedLabel = formatEnrichmentTaskAnchor(
-                  task,
-                  evidenceItems,
-                  linkTargets,
-                );
-                const parentLabel = formatEnrichmentTaskParent(task, linkTargets);
-                const isPending = pendingTaskId === task.id;
-                const message = messages[task.id];
-                return (
-                  <article className="enrichment-task-card" key={task.id}>
-                    <div className="enrichment-task-card__top">
-                      <div>
-                        <span>{formatEnrichmentTaskScope(task.target_scope)}</span>
-                        <strong>{task.prompt}</strong>
-                        <p>
-                          Source: {task.source_label} · {formatEnrichmentSourceType(task.source_type)}
-                        </p>
-                      </div>
-                      <em data-state={task.status}>{formatEnrichmentStatus(task.status)}</em>
-                    </div>
-                    <div className="enrichment-task-card__context">
-                      <div>
-                        <span>Target</span>
-                        <strong>{linkedLabel}</strong>
-                      </div>
-                      <div>
-                        <span>Parent context</span>
-                        <strong>{parentLabel}</strong>
-                      </div>
-                      <div>
-                        <span>Why we ask</span>
-                        <strong>{formatEnrichmentTargetReason(task)}</strong>
-                      </div>
-                      <div>
-                        <span>Answer will</span>
-                        <strong>{formatEnrichmentExpectedOutcome(task)}</strong>
-                      </div>
-                    </div>
-                    {!hasLibraryAnchor ? (
-                      <div className="enrichment-task-card__stage">
-                        <div className="enrichment-task-card__stage-header">
-                          <span>Step 1</span>
-                          <strong>Choose where this answer belongs</strong>
-                          <p>
-                            Attach this question to a claim, project/story, or role before writing an answer.
-                          </p>
-                        </div>
-                        <EnrichmentTaskTargetPicker
-                          disabled={isPending}
-                          evidenceItems={evidenceItems}
-                          initiatives={initiatives}
-                          onLink={(anchor) =>
-                            void handleUpdate(task, {
-                              action: "link",
-                              anchor,
-                            })
-                          }
-                          portfolioProjects={portfolioProjects}
-                          task={task}
-                          workExperiences={workExperiences}
-                        />
-                        <div className="enrichment-task-card__gate">
-                          <div>
-                            <strong>No matching target?</strong>
-                            <p>Create new material only if this answer does not belong to any existing claim, story, or role.</p>
-                          </div>
-                          <button
-                            className="secondary-button secondary-button--quiet"
-                            type="button"
-                            onClick={() => onCreateLibraryItems(task)}
-                          >
-                            Create new material instead
-                          </button>
-                        </div>
-                        <div className="actions actions--compact enrichment-task-card__stage-actions">
-                          <button
-                            className="ghost-button enrichment-task-card__dismiss"
-                            disabled={isPending}
-                            type="button"
-                            onClick={() => void handleUpdate(task, { action: "dismiss" })}
-                          >
-                            Dismiss
-                          </button>
-                          {message ? (
-                            <span className={message.ok ? "status" : "status status--error"}>
-                              {message.text}
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <details className="enrichment-task-card__target-picker">
-                          <summary>Change target</summary>
-                          <EnrichmentTaskTargetPicker
-                            disabled={isPending}
-                            evidenceItems={evidenceItems}
-                            initiatives={initiatives}
-                            onLink={(anchor) =>
-                              void handleUpdate(task, {
-                                action: "link",
-                                anchor,
-                              })
-                            }
-                            portfolioProjects={portfolioProjects}
-                            task={task}
-                            workExperiences={workExperiences}
-                          />
-                        </details>
-                        <label className="source-field source-field--textarea">
-                          <span>Your answer</span>
-                          <textarea
-                            className="jd-input jd-input--compact enrichment-task-card__answer"
-                            disabled={isPending}
-                            onChange={(event) =>
-                              setAnswers((current) => ({
-                                ...current,
-                                [task.id]: event.target.value,
-                              }))
-                            }
-                            placeholder="Add concrete numbers, scope, ownership, actions, results, or public-safe wording..."
-                            value={answer}
-                          />
-                        </label>
-                        <div className="actions actions--compact">
-                          <button
-                            className="secondary-button"
-                            disabled={isPending || answer.trim().length < 12}
-                            type="button"
-                            onClick={() =>
-                              void handleUpdate(task, {
-                                action: "answer",
-                                userAnswer: answer,
-                              })
-                            }
-                          >
-                            Save answer
-                          </button>
-                          <button
-                            className="secondary-button"
-                            disabled={isPending || task.status !== "answered"}
-                            type="button"
-                            onClick={() => void handleUpdate(task, { action: "convert" })}
-                          >
-                            Convert to evidence candidate
-                          </button>
-                          <button
-                            className="ghost-button enrichment-task-card__dismiss"
-                            disabled={isPending}
-                            type="button"
-                            onClick={() => void handleUpdate(task, { action: "dismiss" })}
-                          >
-                            Dismiss
-                          </button>
-                          {message ? (
-                            <span className={message.ok ? "status" : "status status--error"}>
-                              {message.text}
-                            </span>
-                          ) : null}
-                        </div>
-                      </>
-                    )}
-                  </article>
-                );
-              })}
-            </section>
-          ))}
+        <div className="enrichment-focus-shell">
+          <aside className="enrichment-task-rail" aria-label="Enrichment task queue">
+            {groupedTasks.map((group) => (
+              <section className="enrichment-task-group" key={group.key}>
+                <div className="enrichment-task-group__header">
+                  <span>{group.label}</span>
+                  <strong>{group.tasks.length}</strong>
+                </div>
+                <div className="enrichment-task-list">
+                  {group.tasks.map((task) => (
+                    <button
+                      className="enrichment-task-row"
+                      data-active={selectedTask?.id === task.id}
+                      key={task.id}
+                      onClick={() => setSelectedTaskId(task.id)}
+                      type="button"
+                    >
+                      <span>{formatEnrichmentTaskScope(task.target_scope)}</span>
+                      <strong>{task.prompt}</strong>
+                      <small>
+                        {formatEnrichmentStatus(task.status)} · {formatEnrichmentSourceType(task.source_type)}
+                      </small>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </aside>
+          {selectedTask ? (
+            <EnrichmentTaskFocusPane
+              answer={answers[selectedTask.id] ?? selectedTask.user_answer ?? ""}
+              canGoNext={selectedTaskIndex >= 0 && selectedTaskIndex < actionableTasks.length - 1}
+              canGoPrevious={selectedTaskIndex > 0}
+              evidenceItems={evidenceItems}
+              initiatives={initiatives}
+              isPending={pendingTaskId === selectedTask.id}
+              linkTargets={linkTargets}
+              message={messages[selectedTask.id]}
+              onAnswerChange={(answer) =>
+                setAnswers((current) => ({ ...current, [selectedTask.id]: answer }))
+              }
+              onCreateLibraryItems={() => onCreateLibraryItems(selectedTask)}
+              onDismiss={() => void handleUpdate(selectedTask, { action: "dismiss" })}
+              onLink={(anchor) =>
+                void handleUpdate(selectedTask, {
+                  action: "link",
+                  anchor,
+                })
+              }
+              onNext={() => selectRelativeTask(1)}
+              onPrevious={() => selectRelativeTask(-1)}
+              onSaveAnswer={(answer) =>
+                void handleUpdate(selectedTask, {
+                  action: "answer",
+                  userAnswer: answer,
+                })
+              }
+              onConvert={() => void handleUpdate(selectedTask, { action: "convert" })}
+              portfolioProjects={portfolioProjects}
+              task={selectedTask}
+              taskIndex={selectedTaskIndex + 1}
+              taskTotal={actionableTasks.length}
+              workExperiences={workExperiences}
+            />
+          ) : null}
         </div>
       )}
     </section>
+  );
+}
+
+function EnrichmentTaskFocusPane({
+  answer,
+  canGoNext,
+  canGoPrevious,
+  evidenceItems,
+  initiatives,
+  isPending,
+  linkTargets,
+  message,
+  onAnswerChange,
+  onConvert,
+  onCreateLibraryItems,
+  onDismiss,
+  onLink,
+  onNext,
+  onPrevious,
+  onSaveAnswer,
+  portfolioProjects,
+  task,
+  taskIndex,
+  taskTotal,
+  workExperiences,
+}: {
+  answer: string;
+  canGoNext: boolean;
+  canGoPrevious: boolean;
+  evidenceItems: EvidenceCardItem[];
+  initiatives: InitiativeItem[];
+  isPending: boolean;
+  linkTargets: EvidenceLinkTargets;
+  message?: { ok: boolean; text: string };
+  onAnswerChange: (answer: string) => void;
+  onConvert: () => void;
+  onCreateLibraryItems: () => void;
+  onDismiss: () => void;
+  onLink: (anchor: EnrichmentTaskAnchorPatch) => void;
+  onNext: () => void;
+  onPrevious: () => void;
+  onSaveAnswer: (answer: string) => void;
+  portfolioProjects: PortfolioProjectItem[];
+  task: EnrichmentTaskItem;
+  taskIndex: number;
+  taskTotal: number;
+  workExperiences: WorkExperienceItem[];
+}) {
+  const hasLibraryAnchor = taskHasReusableLibraryAnchor(task);
+  const linkedLabel = formatEnrichmentTaskAnchor(task, evidenceItems, linkTargets);
+  const parentLabel = formatEnrichmentTaskParent(task, linkTargets);
+  return (
+    <article className="enrichment-focus-pane">
+      <div className="enrichment-focus-pane__top">
+        <div>
+          <span>
+            Task {taskIndex} of {taskTotal} · {formatEnrichmentTaskScope(task.target_scope)}
+          </span>
+          <h3>{task.prompt}</h3>
+          <p>
+            Source: {task.source_label} · {formatEnrichmentSourceType(task.source_type)}
+          </p>
+        </div>
+        <em data-state={task.status}>{formatEnrichmentStatus(task.status)}</em>
+      </div>
+      <div className="enrichment-task-card__context">
+        <div>
+          <span>Target</span>
+          <strong>{linkedLabel}</strong>
+        </div>
+        <div>
+          <span>Parent context</span>
+          <strong>{parentLabel}</strong>
+        </div>
+        <div>
+          <span>Why we ask</span>
+          <strong>{formatEnrichmentTargetReason(task)}</strong>
+        </div>
+        <div>
+          <span>Answer will</span>
+          <strong>{formatEnrichmentExpectedOutcome(task)}</strong>
+        </div>
+      </div>
+      {!hasLibraryAnchor ? (
+        <div className="enrichment-task-card__stage">
+          <div className="enrichment-task-card__stage-header">
+            <span>Step 1</span>
+            <strong>Choose where this answer belongs</strong>
+            <p>
+              Attach this question to a claim, project/story, or role before writing an answer.
+            </p>
+          </div>
+          <EnrichmentTaskTargetPicker
+            disabled={isPending}
+            evidenceItems={evidenceItems}
+            initiatives={initiatives}
+            onLink={onLink}
+            portfolioProjects={portfolioProjects}
+            task={task}
+            workExperiences={workExperiences}
+          />
+          <div className="enrichment-task-card__gate">
+            <div>
+              <strong>No matching target?</strong>
+              <p>Create new material only if this answer does not belong to any existing claim, story, or role.</p>
+            </div>
+            <button
+              className="secondary-button secondary-button--quiet"
+              type="button"
+              onClick={onCreateLibraryItems}
+            >
+              Create new material instead
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <details className="enrichment-task-card__target-picker">
+            <summary>Change target</summary>
+            <EnrichmentTaskTargetPicker
+              disabled={isPending}
+              evidenceItems={evidenceItems}
+              initiatives={initiatives}
+              onLink={onLink}
+              portfolioProjects={portfolioProjects}
+              task={task}
+              workExperiences={workExperiences}
+            />
+          </details>
+          <label className="source-field source-field--textarea">
+            <span>Your answer</span>
+            <textarea
+              className="jd-input jd-input--compact enrichment-task-card__answer"
+              disabled={isPending}
+              onChange={(event) => onAnswerChange(event.target.value)}
+              placeholder="Add concrete numbers, scope, ownership, actions, results, or public-safe wording..."
+              value={answer}
+            />
+          </label>
+        </>
+      )}
+      <div className="enrichment-focus-pane__footer">
+        <div className="actions actions--compact">
+          {hasLibraryAnchor ? (
+            <>
+              <button
+                className="secondary-button"
+                disabled={isPending || answer.trim().length < 12}
+                type="button"
+                onClick={() => onSaveAnswer(answer)}
+              >
+                Save answer
+              </button>
+              <button
+                className="secondary-button"
+                disabled={isPending || task.status !== "answered"}
+                type="button"
+                onClick={onConvert}
+              >
+                Convert to evidence candidate
+              </button>
+            </>
+          ) : null}
+          <button
+            className="ghost-button enrichment-task-card__dismiss"
+            disabled={isPending}
+            type="button"
+            onClick={onDismiss}
+          >
+            Dismiss
+          </button>
+          {message ? (
+            <span className={message.ok ? "status" : "status status--error"}>
+              {message.text}
+            </span>
+          ) : null}
+        </div>
+        <div className="enrichment-focus-pane__nav">
+          <button
+            className="secondary-button"
+            disabled={!canGoPrevious}
+            type="button"
+            onClick={onPrevious}
+          >
+            Previous
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canGoNext}
+            type="button"
+            onClick={onNext}
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    </article>
   );
 }
 
