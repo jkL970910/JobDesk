@@ -2015,7 +2015,7 @@ export function ProfileEvidenceWorkspace({
               type="button"
               onClick={() => setReviewTab("projects")}
             >
-              Stories ({workExperiences.length} roles · {initiatives.length + portfolioProjects.length})
+              Stories ({workExperiences.length} roles · {initiatives.length + portfolioProjects.length} stories)
             </button>
             <button
               data-active={reviewTab === "claims"}
