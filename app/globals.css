@@ -5417,11 +5417,28 @@ select:focus {
   margin: 3px 0 0;
 }
 
+.evidence-row__content > .evidence-row__safety-note {
+  color: var(--warning);
+  font-size: 0.76rem;
+}
+
 .evidence-row__action {
   align-items: flex-end;
   display: grid;
   gap: 8px;
   justify-items: end;
+  min-width: 260px;
+}
+
+.evidence-row__action-status {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.evidence-row__action .primary-button {
+  min-width: 210px;
 }
 
 .evidence-row__action em {
@@ -5900,6 +5917,15 @@ select:focus {
 
   .evidence-row__action {
     justify-items: start;
+    min-width: 0;
+  }
+
+  .evidence-row__action-status {
+    justify-content: flex-start;
+  }
+
+  .evidence-row__action .primary-button {
+    min-width: 0;
   }
 
   .evidence-row__detail-grid {

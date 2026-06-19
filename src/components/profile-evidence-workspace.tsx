@@ -3718,14 +3718,47 @@ function getPublicSafeSummaryCandidate(item: EvidenceCardItem) {
 }
 
 function isClientPublicSafeText(text: string) {
-  return ![
-    /\bconfidential\b/i,
-    /\binternal[-\s]?only\b/i,
-    /\bclient\s+[A-Z][A-Za-z0-9&.-]+\b/,
-    /\bcustomer\s+[A-Z][A-Za-z0-9&.-]+\b/,
-    /\bproject\s+[A-Z][A-Za-z0-9&.-]+\b/,
-    /\b[A-Z][A-Za-z0-9&.-]+\s+(?:Bank|Finance|Capital|Labs|Corp|Inc|LLC)\b/,
-  ].some((pattern) => pattern.test(text));
+  return getClientUnsafeMatches(text).length === 0;
+}
+
+function getClientUnsafeMatches(text: string) {
+  const checks = [
+    { label: "confidential wording", pattern: /\bconfidential\b/gi },
+    { label: "internal-only wording", pattern: /\binternal[-\s]?only\b/gi },
+    { label: "named client", pattern: /\bclient\s+[A-Z][A-Za-z0-9&.-]+\b/g },
+    { label: "named customer", pattern: /\bcustomer\s+[A-Z][A-Za-z0-9&.-]+\b/g },
+    { label: "codename/project name", pattern: /\bproject\s+[A-Z][A-Za-z0-9&.-]+\b/g },
+    {
+      label: "specific company/client name",
+      pattern: /\b[A-Z][A-Za-z0-9&.-]+\s+(?:Bank|Finance|Capital|Labs|Corp|Inc|LLC)\b/g,
+    },
+  ];
+  return checks.flatMap((check) =>
+    Array.from(text.matchAll(check.pattern)).map((match) => ({
+      label: check.label,
+      text: match[0],
+    })),
+  );
+}
+
+function getEvidenceSafetyNote(item: EvidenceCardItem) {
+  if (getPublicSafeSummaryCandidate(item)) return "";
+  const matches = getClientUnsafeMatches(`${item.text} ${item.source_quote}`);
+  if (matches.length > 0) {
+    const unique = Array.from(new Map(matches.map((match) => [match.text, match])).values());
+    const preview = unique
+      .slice(0, 3)
+      .map((match) => `"${match.text}" (${match.label})`)
+      .join(", ");
+    return `Needs safe wording because this claim/source includes ${preview}.`;
+  }
+  if (item.sensitivity_level === "sensitive") {
+    return "Needs safe wording because the extracted evidence is marked sensitive.";
+  }
+  if (item.sensitivity_level === "private") {
+    return "Needs safe wording because this evidence is private until you confirm an external-safe summary.";
+  }
+  return "";
 }
 
 function formatReusableUsage(item: EvidenceCardItem) {
@@ -4696,6 +4729,7 @@ function EvidenceCard({
   const blocker = getEvidenceBlocker(item);
   const linkedTarget = formatEvidenceLinkedTarget(item, linkTargets, projects);
   const missingInfo = formatEvidenceMissingInfo(item);
+  const safetyNote = getEvidenceSafetyNote(item);
   const [isEditing, setIsEditing] = useState(false);
   const [draftText, setDraftText] = useState(item.text);
   const [draftSummary, setDraftSummary] = useState(item.public_safe_summary ?? "");
@@ -4780,6 +4814,7 @@ function EvidenceCard({
           <span>{item.evidence_type}</span>
           <strong>{item.text}</strong>
           <p>{blocker.reason}</p>
+          {safetyNote ? <p className="evidence-row__safety-note">{safetyNote}</p> : null}
           <div className="evidence-row__meta">
             <span>{readiness.label}</span>
             <small>Missing: {missingInfo}</small>
@@ -4787,8 +4822,10 @@ function EvidenceCard({
           </div>
         </div>
         <div className="evidence-row__action">
-          <em data-ready={readiness.state === "resume_ready"}>{readiness.label}</em>
-          <small>{item.sensitivity_level}</small>
+          <div className="evidence-row__action-status">
+            <em data-ready={readiness.state === "resume_ready"}>{readiness.label}</em>
+            <small>{item.sensitivity_level}</small>
+          </div>
           <button
             className="primary-button"
             disabled={isUpdating || !item.id}
