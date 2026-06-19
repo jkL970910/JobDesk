@@ -4932,12 +4932,11 @@ select:focus {
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid var(--line);
   border-radius: 10px;
-  display: flex;
+  display: grid;
   gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 14px 0;
-  overflow-x: auto;
   padding: 6px;
-  scrollbar-width: thin;
 }
 
 .review-switcher button {
@@ -4949,9 +4948,11 @@ select:focus {
   font-weight: 840;
   line-height: 1.2;
   min-height: 38px;
-  min-width: max-content;
-  padding: 8px 14px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 8px 10px;
   text-wrap: nowrap;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -5870,6 +5871,10 @@ select:focus {
 
   .review-detail-tabs {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .review-switcher {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .resume-current-summary {

@@ -1987,14 +1987,14 @@ export function ProfileEvidenceWorkspace({
               type="button"
               onClick={() => setReviewTab("enrichment")}
             >
-              Needs Enrichment ({enrichmentTasks.filter((task) => task.status === "open" || task.status === "answered").length})
+              Enrichment ({enrichmentTasks.filter((task) => task.status === "open" || task.status === "answered").length})
             </button>
             <button
               data-active={reviewTab === "projects"}
               type="button"
               onClick={() => setReviewTab("projects")}
             >
-              Experience & Stories ({workExperiences.length} roles · {initiatives.length + portfolioProjects.length} stories)
+              Stories ({workExperiences.length} roles · {initiatives.length + portfolioProjects.length})
             </button>
             <button
               data-active={reviewTab === "claims"}
@@ -2004,7 +2004,7 @@ export function ProfileEvidenceWorkspace({
                 setReviewTab("claims");
               }}
             >
-              Evidence Claims ({claimReviewEvidenceItems.length})
+              Claims ({claimReviewEvidenceItems.length})
             </button>
             <button
               data-active={reviewTab === "unlinked"}
@@ -2014,21 +2014,21 @@ export function ProfileEvidenceWorkspace({
                 setReviewTab("unlinked");
               }}
             >
-              {evidenceFocus ? "Focused Claims" : "Unlinked Evidence"} ({focusedEvidenceItems.length})
+              {evidenceFocus ? "Focused" : "Unlinked"} ({focusedEvidenceItems.length})
             </button>
             <button
               data-active={reviewTab === "cleanup"}
               type="button"
               onClick={() => setReviewTab("cleanup")}
             >
-              Overlap Cleanup ({storyDedupeCandidates.length + dedupeCandidates.length})
+              Cleanup ({storyDedupeCandidates.length + dedupeCandidates.length})
             </button>
             <button
               data-active={reviewTab === "stories"}
               type="button"
               onClick={() => setReviewTab("stories")}
             >
-              STAR Stories ({starStories.length})
+              STAR ({starStories.length})
             </button>
           </div>
           {reviewTab === "enrichment" ? (
