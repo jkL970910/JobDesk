@@ -12,7 +12,10 @@ import { getDb, hasDatabaseUrl } from "../db/client";
 import {
   enrichmentTasks,
   evidenceItems,
+  initiatives,
+  portfolioProjects,
   sourceDocuments,
+  workExperiences,
   workflowRuns,
   type enrichmentTaskSourceTypeEnum,
   type enrichmentTaskStatusEnum,
@@ -58,6 +61,13 @@ export type EnrichmentAnswerExtractorResult = {
   usage: { inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null };
   retryCount: number;
   skill: JobDeskAiSkillBinding;
+};
+
+type ReusableLibraryAnchor = {
+  evidenceItemId?: string | null;
+  workExperienceId?: string | null;
+  initiativeId?: string | null;
+  portfolioProjectId?: string | null;
 };
 
 export async function getEnrichmentTaskQueue(filters: EnrichmentTaskQueueFilters | number = {}) {
@@ -189,8 +199,9 @@ export function buildExtractionNoteEnrichmentTasks(args: {
 
 export async function updateEnrichmentTask(args: {
   taskId: string;
-  action: "answer" | "dismiss" | "reopen" | "convert";
+  action: "answer" | "dismiss" | "reopen" | "convert" | "link";
   userAnswer?: string;
+  anchor?: ReusableLibraryAnchor;
   useAiExtraction?: boolean;
   extractAnswerEvidence?: (args: {
     sourceId: string;
@@ -236,6 +247,18 @@ export async function updateEnrichmentTask(args: {
   } else if (args.action === "reopen") {
     patch.status = existing.userAnswer ? "answered" : "open";
     patch.dismissedAt = null;
+  } else if (args.action === "link") {
+    const anchor = await validateReusableLibraryAnchor(db, {
+      anchor: args.anchor ?? {},
+      workspaceId: workspace.id,
+    });
+    if (anchor.status === "invalid") {
+      return { status: "invalid" as const, reason: anchor.reason };
+    }
+    patch.evidenceItemId = anchor.anchor.evidenceItemId ?? null;
+    patch.workExperienceId = anchor.anchor.workExperienceId ?? null;
+    patch.initiativeId = anchor.anchor.initiativeId ?? null;
+    patch.portfolioProjectId = anchor.anchor.portfolioProjectId ?? null;
   }
 
   const [updated] = await db
@@ -246,6 +269,67 @@ export async function updateEnrichmentTask(args: {
   return updated
     ? ({ status: "saved" as const, task: toEnrichmentTaskPayload(updated) })
     : ({ status: "not_found" as const });
+}
+
+export async function reconcileResumeReviewEnrichmentTasksForSource(
+  db: Pick<DbHandle, "select" | "update">,
+  args: {
+    workspaceId: string;
+    resumeSourceVersionId: string;
+    anchors: Array<
+      ReusableLibraryAnchor & {
+        text: string;
+        sourceQuote?: string | null;
+      }
+    >;
+    now?: Date;
+  },
+) {
+  const cleanAnchors = args.anchors.filter(hasReusableLibraryAnchor);
+  if (cleanAnchors.length === 0) return { updatedCount: 0 };
+  const now = args.now ?? new Date();
+  const tasks = await db
+    .select()
+    .from(enrichmentTasks)
+    .where(
+      and(
+        eq(enrichmentTasks.workspaceId, args.workspaceId),
+        eq(enrichmentTasks.sourceType, "resume_review"),
+        eq(enrichmentTasks.resumeSourceVersionId, args.resumeSourceVersionId),
+        inArray(enrichmentTasks.status, ["open", "answered"]),
+        sql`${enrichmentTasks.evidenceItemId} is null`,
+        sql`${enrichmentTasks.workExperienceId} is null`,
+        sql`${enrichmentTasks.initiativeId} is null`,
+        sql`${enrichmentTasks.portfolioProjectId} is null`,
+      ),
+    );
+
+  let updatedCount = 0;
+  for (const task of tasks) {
+    const anchor = pickBestAnchorForTask(task.prompt, cleanAnchors);
+    const [updated] = await db
+      .update(enrichmentTasks)
+      .set({
+        evidenceItemId: anchor.evidenceItemId ?? null,
+        workExperienceId: anchor.workExperienceId ?? null,
+        initiativeId: anchor.initiativeId ?? null,
+        portfolioProjectId: anchor.portfolioProjectId ?? null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(enrichmentTasks.workspaceId, args.workspaceId),
+          eq(enrichmentTasks.id, task.id),
+          sql`${enrichmentTasks.evidenceItemId} is null`,
+          sql`${enrichmentTasks.workExperienceId} is null`,
+          sql`${enrichmentTasks.initiativeId} is null`,
+          sql`${enrichmentTasks.portfolioProjectId} is null`,
+        ),
+      )
+      .returning({ id: enrichmentTasks.id });
+    if (updated) updatedCount += 1;
+  }
+  return { updatedCount };
 }
 
 async function convertEnrichmentTaskToEvidenceCandidate(
@@ -471,6 +555,152 @@ function evaluateEnrichmentEvidenceGuardrails(
 function metricNumbersAreInQuote(value: string, quote: string) {
   const numbers = value.match(/\d+(?:[.,]\d+)?%?/g) ?? [];
   return numbers.every((number) => quote.includes(number));
+}
+
+async function validateReusableLibraryAnchor(
+  db: Pick<DbHandle, "select">,
+  args: {
+    anchor: ReusableLibraryAnchor;
+    workspaceId: string;
+  },
+):
+  Promise<
+    | { status: "valid"; anchor: ReusableLibraryAnchor }
+    | {
+        status: "invalid";
+        reason:
+          | "evidence_item_not_found"
+          | "initiative_not_found"
+          | "portfolio_project_not_found"
+          | "work_experience_not_found";
+      }
+  > {
+  const anchor = normalizeReusableLibraryAnchor(args.anchor);
+  if (anchor.evidenceItemId) {
+    const [item] = await db
+      .select({ id: evidenceItems.id })
+      .from(evidenceItems)
+      .where(
+        and(
+          eq(evidenceItems.workspaceId, args.workspaceId),
+          eq(evidenceItems.id, anchor.evidenceItemId),
+        ),
+      )
+      .limit(1);
+    if (!item) return { status: "invalid", reason: "evidence_item_not_found" };
+  }
+  if (anchor.initiativeId) {
+    const [item] = await db
+      .select({ id: initiatives.id })
+      .from(initiatives)
+      .where(and(eq(initiatives.workspaceId, args.workspaceId), eq(initiatives.id, anchor.initiativeId)))
+      .limit(1);
+    if (!item) return { status: "invalid", reason: "initiative_not_found" };
+  }
+  if (anchor.portfolioProjectId) {
+    const [item] = await db
+      .select({ id: portfolioProjects.id })
+      .from(portfolioProjects)
+      .where(
+        and(
+          eq(portfolioProjects.workspaceId, args.workspaceId),
+          eq(portfolioProjects.id, anchor.portfolioProjectId),
+        ),
+      )
+      .limit(1);
+    if (!item) return { status: "invalid", reason: "portfolio_project_not_found" };
+  }
+  if (anchor.workExperienceId) {
+    const [item] = await db
+      .select({ id: workExperiences.id })
+      .from(workExperiences)
+      .where(
+        and(
+          eq(workExperiences.workspaceId, args.workspaceId),
+          eq(workExperiences.id, anchor.workExperienceId),
+        ),
+      )
+      .limit(1);
+    if (!item) return { status: "invalid", reason: "work_experience_not_found" };
+  }
+  return { status: "valid", anchor };
+}
+
+function normalizeReusableLibraryAnchor(anchor: ReusableLibraryAnchor): ReusableLibraryAnchor {
+  return {
+    evidenceItemId: anchor.evidenceItemId ?? null,
+    initiativeId: anchor.evidenceItemId ? null : anchor.initiativeId ?? null,
+    portfolioProjectId: anchor.evidenceItemId || anchor.initiativeId ? null : anchor.portfolioProjectId ?? null,
+    workExperienceId:
+      anchor.evidenceItemId || anchor.initiativeId || anchor.portfolioProjectId
+        ? null
+        : anchor.workExperienceId ?? null,
+  };
+}
+
+function hasReusableLibraryAnchor(anchor: ReusableLibraryAnchor) {
+  return Boolean(
+    anchor.evidenceItemId ||
+      anchor.initiativeId ||
+      anchor.portfolioProjectId ||
+      anchor.workExperienceId,
+  );
+}
+
+function pickBestAnchorForTask<T extends ReusableLibraryAnchor & { text: string; sourceQuote?: string | null }>(
+  prompt: string,
+  anchors: T[],
+) {
+  let best = anchors[0]!;
+  let bestScore = -1;
+  for (const anchor of anchors) {
+    const score = scoreAnchorForTask(prompt, anchor);
+    if (score > bestScore) {
+      best = anchor;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function scoreAnchorForTask(
+  prompt: string,
+  anchor: ReusableLibraryAnchor & { text: string; sourceQuote?: string | null },
+) {
+  const promptTokens = new Set(toTaskTokens(prompt));
+  const textTokens = new Set(toTaskTokens(`${anchor.text} ${anchor.sourceQuote ?? ""}`));
+  let overlap = 0;
+  for (const token of promptTokens) {
+    if (textTokens.has(token)) overlap += 1;
+  }
+  const typeBonus = anchor.evidenceItemId
+    ? 4
+    : anchor.initiativeId || anchor.portfolioProjectId
+      ? 2
+      : 1;
+  return overlap * 3 + typeBonus;
+}
+
+function toTaskTokens(value: string) {
+  const stopWords = new Set([
+    "about",
+    "after",
+    "before",
+    "could",
+    "from",
+    "have",
+    "more",
+    "that",
+    "their",
+    "this",
+    "with",
+    "your",
+  ]);
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9%]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !stopWords.has(token));
 }
 
 export async function getOpenEnrichmentTaskCountsByEvidenceIds(evidenceIds: string[]) {

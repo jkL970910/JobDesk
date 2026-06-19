@@ -148,6 +148,13 @@ type EnrichmentTaskItem = {
   updatedAt: string;
 };
 
+type EnrichmentTaskAnchorPatch = {
+  evidenceItemId?: string | null;
+  initiativeId?: string | null;
+  portfolioProjectId?: string | null;
+  workExperienceId?: string | null;
+};
+
 type WorkExperienceItem = {
   id?: string;
   employer: string;
@@ -1440,7 +1447,8 @@ export function ProfileEvidenceWorkspace({
       | { action: "answer"; userAnswer: string }
       | { action: "dismiss" }
       | { action: "reopen" }
-      | { action: "convert" },
+      | { action: "convert" }
+      | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
   ): Promise<{ ok: boolean; message: string }> {
     const response = await fetchJson(`/api/enrichment-tasks/${taskId}`, {
       method: "PATCH",
@@ -1459,6 +1467,8 @@ export function ProfileEvidenceWorkspace({
     const message =
       payload.action === "answer"
         ? "Saved enrichment answer."
+        : payload.action === "link"
+          ? "Updated enrichment destination."
         : payload.action === "convert"
           ? "Converted into a pending evidence candidate. Next: review truth, add public-safe wording if needed, then approve for resume."
           : payload.action === "dismiss"
@@ -2023,11 +2033,16 @@ export function ProfileEvidenceWorkspace({
           </div>
           {reviewTab === "enrichment" ? (
             <EnrichmentTaskQueue
+              evidenceItems={evidenceItems}
+              initiatives={initiatives}
+              linkTargets={linkTargets}
               onCreateLibraryItems={openCreateLibraryItemsForTask}
               onReturnToIntake={() => setActiveSection("intake")}
               onUpdate={updateEnrichmentTask}
+              portfolioProjects={portfolioProjects}
               queueStatus={enrichmentTaskQueueStatus}
               tasks={enrichmentTasks}
+              workExperiences={workExperiences}
             />
           ) : null}
           {reviewTab === "projects" ? (
@@ -2910,12 +2925,20 @@ function EvidencePriorityQueue({
 }
 
 function EnrichmentTaskQueue({
+  evidenceItems,
+  initiatives,
+  linkTargets,
   onCreateLibraryItems,
   onReturnToIntake,
   onUpdate,
+  portfolioProjects,
   queueStatus,
   tasks,
+  workExperiences,
 }: {
+  evidenceItems: EvidenceCardItem[];
+  initiatives: InitiativeItem[];
+  linkTargets: EvidenceLinkTargets;
   onCreateLibraryItems: (task: EnrichmentTaskItem) => void;
   onReturnToIntake: () => void;
   onUpdate: (
@@ -2924,10 +2947,13 @@ function EnrichmentTaskQueue({
       | { action: "answer"; userAnswer: string }
       | { action: "dismiss" }
       | { action: "reopen" }
-      | { action: "convert" },
+      | { action: "convert" }
+      | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
   ) => Promise<{ ok: boolean; message: string }>;
+  portfolioProjects: PortfolioProjectItem[];
   queueStatus: "ready" | "skipped" | "error";
   tasks: EnrichmentTaskItem[];
+  workExperiences: WorkExperienceItem[];
 }) {
   const actionableTasks = tasks.filter(
     (task) => task.status === "open" || task.status === "answered",
@@ -2944,7 +2970,8 @@ function EnrichmentTaskQueue({
       | { action: "answer"; userAnswer: string }
       | { action: "dismiss" }
       | { action: "reopen" }
-      | { action: "convert" },
+      | { action: "convert" }
+      | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
   ) {
     setPendingTaskId(task.id);
     try {
@@ -3017,6 +3044,11 @@ function EnrichmentTaskQueue({
               {group.tasks.map((task) => {
                 const answer = answers[task.id] ?? task.user_answer ?? "";
                 const hasLibraryAnchor = taskHasReusableLibraryAnchor(task);
+                const linkedLabel = formatEnrichmentTaskAnchor(
+                  task,
+                  evidenceItems,
+                  linkTargets,
+                );
                 const isPending = pendingTaskId === task.id;
                 const message = messages[task.id];
                 return (
@@ -3028,6 +3060,7 @@ function EnrichmentTaskQueue({
                         <p>
                           Source: {task.source_label} · {formatEnrichmentSourceType(task.source_type)}
                         </p>
+                        <p>Destination: {linkedLabel}</p>
                       </div>
                       <em data-state={task.status}>{formatEnrichmentStatus(task.status)}</em>
                     </div>
@@ -3067,6 +3100,67 @@ function EnrichmentTaskQueue({
                         </button>
                       </div>
                     ) : null}
+                    <label className="source-field">
+                      <span>{hasLibraryAnchor ? "Change destination" : "Use an existing destination"}</span>
+                      <select
+                        className="jd-input jd-input--compact"
+                        disabled={isPending}
+                        onChange={(event) => {
+                          if (!event.target.value) return;
+                          void handleUpdate(task, {
+                            action: "link",
+                            anchor: parseEnrichmentTaskAnchorValue(event.target.value),
+                          });
+                        }}
+                        value={toEnrichmentTaskAnchorValue(task)}
+                      >
+                        <option value="">Choose evidence, story, or role</option>
+                        {evidenceItems.length > 0 ? (
+                          <optgroup label="Evidence">
+                            {evidenceItems.slice(0, 80).map((item) => (
+                              item.id ? (
+                                <option key={`evidence:${item.id}`} value={`evidence:${item.id}`}>
+                                  {truncateOptionText(item.text)}
+                                </option>
+                              ) : null
+                            ))}
+                          </optgroup>
+                        ) : null}
+                        {initiatives.length > 0 ? (
+                          <optgroup label="Initiatives">
+                            {initiatives.map((item) => (
+                              item.id ? (
+                                <option key={`initiative:${item.id}`} value={`initiative:${item.id}`}>
+                                  {item.external_safe_title ?? item.internal_title}
+                                </option>
+                              ) : null
+                            ))}
+                          </optgroup>
+                        ) : null}
+                        {portfolioProjects.length > 0 ? (
+                          <optgroup label="Portfolio projects">
+                            {portfolioProjects.map((item) => (
+                              item.id ? (
+                                <option key={`portfolio_project:${item.id}`} value={`portfolio_project:${item.id}`}>
+                                  {item.external_safe_title ?? item.title}
+                                </option>
+                              ) : null
+                            ))}
+                          </optgroup>
+                        ) : null}
+                        {workExperiences.length > 0 ? (
+                          <optgroup label="Roles">
+                            {workExperiences.map((item) => (
+                              item.id ? (
+                                <option key={`work_experience:${item.id}`} value={`work_experience:${item.id}`}>
+                                  {item.employer} · {item.role_title}
+                                </option>
+                              ) : null
+                            ))}
+                          </optgroup>
+                        ) : null}
+                      </select>
+                    </label>
                     <div className="actions actions--compact">
                       <button
                         className="secondary-button"
@@ -3350,6 +3444,56 @@ function taskHasReusableLibraryAnchor(task: EnrichmentTaskItem) {
       task.initiative_id ||
       task.portfolio_project_id,
   );
+}
+
+function toEnrichmentTaskAnchorValue(task: EnrichmentTaskItem) {
+  if (task.evidence_item_id) return `evidence:${task.evidence_item_id}`;
+  if (task.initiative_id) return `initiative:${task.initiative_id}`;
+  if (task.portfolio_project_id) return `portfolio_project:${task.portfolio_project_id}`;
+  if (task.work_experience_id) return `work_experience:${task.work_experience_id}`;
+  return "";
+}
+
+function parseEnrichmentTaskAnchorValue(value: string): EnrichmentTaskAnchorPatch {
+  const [kind, id] = value.split(":");
+  return {
+    evidenceItemId: kind === "evidence" ? id : null,
+    initiativeId: kind === "initiative" ? id : null,
+    portfolioProjectId: kind === "portfolio_project" ? id : null,
+    workExperienceId: kind === "work_experience" ? id : null,
+  };
+}
+
+function formatEnrichmentTaskAnchor(
+  task: EnrichmentTaskItem,
+  evidenceItems: EvidenceCardItem[],
+  linkTargets: EvidenceLinkTargets,
+) {
+  if (task.evidence_item_id) {
+    const item = evidenceItems.find((candidate) => candidate.id === task.evidence_item_id);
+    return item ? `Evidence · ${truncateOptionText(item.text, 72)}` : "Evidence item";
+  }
+  if (task.initiative_id) {
+    const item = linkTargets.initiatives.find((candidate) => candidate.id === task.initiative_id);
+    return item
+      ? `Initiative · ${item.external_safe_title ?? item.internal_title}`
+      : "Initiative";
+  }
+  if (task.portfolio_project_id) {
+    const item = linkTargets.portfolioProjects.find((candidate) => candidate.id === task.portfolio_project_id);
+    return item ? `Portfolio · ${item.external_safe_title ?? item.title}` : "Portfolio project";
+  }
+  if (task.work_experience_id) {
+    const item = linkTargets.workExperiences.find((candidate) => candidate.id === task.work_experience_id);
+    return item ? `Role · ${item.employer} · ${item.role_title}` : "Work experience";
+  }
+  return "Not linked yet";
+}
+
+function truncateOptionText(value: string, maxLength = 96) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - 1)}…`;
 }
 
 function groupEnrichmentTasks(tasks: EnrichmentTaskItem[]) {

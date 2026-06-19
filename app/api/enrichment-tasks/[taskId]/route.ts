@@ -16,6 +16,15 @@ const requestSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("dismiss") }),
   z.object({ action: z.literal("reopen") }),
   z.object({ action: z.literal("convert") }),
+  z.object({
+    action: z.literal("link"),
+    anchor: z.object({
+      evidenceItemId: z.string().uuid().nullable().optional(),
+      initiativeId: z.string().uuid().nullable().optional(),
+      portfolioProjectId: z.string().uuid().nullable().optional(),
+      workExperienceId: z.string().uuid().nullable().optional(),
+    }),
+  }),
 ]);
 
 export async function PATCH(

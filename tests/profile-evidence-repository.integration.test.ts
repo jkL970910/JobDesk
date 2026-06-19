@@ -9,7 +9,7 @@ import {
   upsertEnrichmentTasks,
 } from "../src/server/enrichment-task-repository";
 import { getDb } from "../src/db/client";
-import { evidenceItems, sourceDocuments } from "../src/db/schema";
+import { evidenceItems, resumeSourceVersions, sourceDocuments } from "../src/db/schema";
 import {
   getEvidenceDedupeCandidates,
   getProjectDedupeCandidates,
@@ -27,6 +27,7 @@ import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-
 import { skillRegistry } from "../src/ai/skills-registry";
 import { expectWorkflowRunMetadata } from "./helpers/workflow-run-assertions";
 import { eq } from "drizzle-orm";
+import { getCurrentWorkspace } from "../src/server/workspace-repository";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
 
@@ -739,6 +740,94 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       ),
     ).toBe(true);
   }, 20_000);
+
+  it("reconciles same-source resume review enrichment tasks to extracted library items", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const uniqueText = `${sampleSourceText}\nReconcile smoke ${Date.now()} ${crypto.randomUUID()}`;
+    const contentHash = crypto.createHash("sha256").update(uniqueText).digest("hex");
+    const [sourceDocument] = await db
+      .insert(sourceDocuments)
+      .values({
+        workspaceId: workspace.id,
+        sourceType: "resume-review",
+        title: "Reconcile resume",
+        contentText: uniqueText,
+        contentHash,
+        lifecycleStatus: "reviewed",
+      })
+      .returning();
+    expect(sourceDocument).toBeDefined();
+    if (!sourceDocument) throw new Error("Expected source document.");
+    const [resumeSource] = await db
+      .insert(resumeSourceVersions)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        title: "Reconcile resume",
+        contentHash,
+        sourceKind: "text",
+        sourceText: uniqueText,
+        status: "reviewed",
+      })
+      .returning();
+    expect(resumeSource).toBeDefined();
+    if (!resumeSource) throw new Error("Expected resume source.");
+    const prompt = `Add concrete SQL dashboard metric ${crypto.randomUUID()}`;
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          taskType: "metric",
+          sourceType: "resume_review",
+          sourceLabel: "Reconcile resume review",
+          prompt,
+          resumeSourceVersionId: resumeSource.id,
+        },
+      ],
+    });
+
+    const result = await persistProfileEvidenceExtraction({
+      sourceDocumentId: sourceDocument.id,
+      sourceText: uniqueText,
+      extraction: buildExtraction(),
+      provider: "integration-test",
+      model: "test-model",
+      usage: { totalTokens: 42 },
+      retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
+    });
+    expect(result.status).toBe("saved");
+    if (result.status !== "saved") throw new Error("Expected saved extraction.");
+
+    const queue = await getEnrichmentTaskQueue({
+      limit: 20,
+      resumeSourceVersionId: resumeSource.id,
+      statuses: ["open", "answered"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const task = queue.tasks.find((item) => item.prompt === prompt);
+    expect(task?.evidence_item_id).toBeTruthy();
+
+    const [alternateEvidence] = await db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.sourceDocumentId, result.sourceDocumentId))
+      .limit(1);
+    if (!task || !alternateEvidence) throw new Error("Expected task and evidence.");
+    const linked = await updateEnrichmentTask({
+      action: "link",
+      anchor: { evidenceItemId: alternateEvidence.id },
+      taskId: task.id,
+    });
+    expect(linked).toMatchObject({
+      status: "saved",
+      task: {
+        evidence_item_id: alternateEvidence.id,
+      },
+    });
+  });
 });
 
 const duplicateSourceText = [

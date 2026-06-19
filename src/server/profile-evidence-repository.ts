@@ -9,6 +9,7 @@ import {
   portfolioProjects,
   profiles,
   projectCards,
+  resumeSourceVersions,
   sourceDocuments,
   workExperiences,
   workflowRuns,
@@ -29,6 +30,7 @@ import { buildStarStoryCards, type StarStoryTargetInput } from "./star-story-ser
 import { workflowSkillFields } from "./workflow-run-metadata";
 import {
   buildExtractionNoteEnrichmentTasks,
+  reconcileResumeReviewEnrichmentTasksForSource,
   upsertEnrichmentTasks,
 } from "./enrichment-task-repository";
 import {
@@ -131,6 +133,7 @@ export async function persistProfileEvidenceExtraction(args: {
       profileExperiencesToWorkExperienceDrafts(args.extraction.profile.experience),
     );
     const workExperienceIdByDraftId = new Map<string, string>();
+    const workExperienceAnchorTexts = new Map<string, string>();
     for (const experience of workExperienceDrafts) {
       const [created] = await tx
         .insert(workExperiences)
@@ -153,10 +156,22 @@ export async function persistProfileEvidenceExtraction(args: {
         workExperienceIdByDraftId.set(buildWorkExperienceDraftKey(experience), created.id);
         workExperienceIdByDraftId.set(experience.employer, created.id);
         workExperienceIdByDraftId.set(experience.role_title, created.id);
+        workExperienceAnchorTexts.set(
+          created.id,
+          [
+            experience.employer,
+            experience.role_title,
+            experience.team,
+            experience.summary,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
       }
     }
 
     const initiativeIdByDraftId = new Map<string, string>();
+    const initiativeAnchorTexts = new Map<string, string>();
     if (enrichmentTarget?.targetType === "initiative") {
       await mergeSelectedInitiativeTarget(tx, {
         drafts: args.extraction.initiatives,
@@ -171,6 +186,7 @@ export async function persistProfileEvidenceExtraction(args: {
         if (initiative.external_safe_title) {
           initiativeIdByDraftId.set(initiative.external_safe_title, enrichmentTarget.targetId);
         }
+        initiativeAnchorTexts.set(enrichmentTarget.targetId, buildInitiativeAnchorText(initiative));
       }
     } else {
       for (const initiative of args.extraction.initiatives) {
@@ -206,11 +222,13 @@ export async function persistProfileEvidenceExtraction(args: {
           if (initiative.external_safe_title) {
             initiativeIdByDraftId.set(initiative.external_safe_title, created.id);
           }
+          initiativeAnchorTexts.set(created.id, buildInitiativeAnchorText(initiative));
         }
       }
     }
 
     const portfolioProjectIdByDraftId = new Map<string, string>();
+    const portfolioProjectAnchorTexts = new Map<string, string>();
     if (enrichmentTarget?.targetType === "portfolio_project") {
       await mergeSelectedPortfolioProjectTarget(tx, {
         drafts: args.extraction.portfolio_projects,
@@ -225,6 +243,7 @@ export async function persistProfileEvidenceExtraction(args: {
         if (project.external_safe_title) {
           portfolioProjectIdByDraftId.set(project.external_safe_title, enrichmentTarget.targetId);
         }
+        portfolioProjectAnchorTexts.set(enrichmentTarget.targetId, buildPortfolioProjectAnchorText(project));
       }
     } else {
       for (const project of args.extraction.portfolio_projects) {
@@ -257,6 +276,7 @@ export async function persistProfileEvidenceExtraction(args: {
           if (project.external_safe_title) {
             portfolioProjectIdByDraftId.set(project.external_safe_title, created.id);
           }
+          portfolioProjectAnchorTexts.set(created.id, buildPortfolioProjectAnchorText(project));
         }
       }
     }
@@ -301,8 +321,26 @@ export async function persistProfileEvidenceExtraction(args: {
       }
     }
 
+    const reconciliationAnchors: Array<{
+      evidenceItemId?: string | null;
+      workExperienceId?: string | null;
+      initiativeId?: string | null;
+      portfolioProjectId?: string | null;
+      text: string;
+      sourceQuote?: string | null;
+    }> = [];
+    for (const [id, text] of workExperienceAnchorTexts) {
+      reconciliationAnchors.push({ workExperienceId: id, text });
+    }
+    for (const [id, text] of initiativeAnchorTexts) {
+      reconciliationAnchors.push({ initiativeId: id, text });
+    }
+    for (const [id, text] of portfolioProjectAnchorTexts) {
+      reconciliationAnchors.push({ portfolioProjectId: id, text });
+    }
+
     if (args.extraction.evidence_items.length > 0) {
-      await tx.insert(evidenceItems).values(
+      const insertedEvidence = await tx.insert(evidenceItems).values(
         args.extraction.evidence_items.map((item) => {
           const guardrail = evaluateEvidenceGuardrails(item, args.sourceText);
           const mappedProjectId = item.related_project_id
@@ -358,7 +396,24 @@ export async function persistProfileEvidenceExtraction(args: {
             updatedAt: now,
           };
         }),
-      );
+      ).returning({
+        id: evidenceItems.id,
+        relatedWorkExperienceId: evidenceItems.relatedWorkExperienceId,
+        relatedInitiativeId: evidenceItems.relatedInitiativeId,
+        relatedPortfolioProjectId: evidenceItems.relatedPortfolioProjectId,
+        text: evidenceItems.text,
+        sourceQuote: evidenceItems.sourceQuote,
+      });
+      for (const item of insertedEvidence) {
+        reconciliationAnchors.push({
+          evidenceItemId: item.id,
+          initiativeId: item.relatedInitiativeId,
+          portfolioProjectId: item.relatedPortfolioProjectId,
+          workExperienceId: item.relatedWorkExperienceId,
+          sourceQuote: item.sourceQuote,
+          text: item.text,
+        });
+      }
     }
 
     const [workflowRun] = await tx
@@ -390,6 +445,20 @@ export async function persistProfileEvidenceExtraction(args: {
         notes: args.extraction.extraction_notes,
       }),
     });
+    if ((args.sourceType ?? "profile-evidence") === "profile-evidence" && args.sourceDocumentId) {
+      const resumeSource = await resolveResumeSourceVersionForSourceDocument(tx, {
+        sourceDocumentId: args.sourceDocumentId,
+        workspaceId: workspace.id,
+      });
+      if (resumeSource) {
+        await reconcileResumeReviewEnrichmentTasksForSource(tx, {
+          anchors: reconciliationAnchors,
+          now,
+          resumeSourceVersionId: resumeSource.id,
+          workspaceId: workspace.id,
+        });
+      }
+    }
 
     return {
       status: "saved",
@@ -493,6 +562,64 @@ async function resolveExtractionSourceDocument(args: {
     throw new Error("Failed to create profile source document.");
   }
   return sourceDocument;
+}
+
+async function resolveResumeSourceVersionForSourceDocument(
+  db: Pick<ReturnType<typeof getDb>, "select">,
+  args: {
+    sourceDocumentId: string;
+    workspaceId: string;
+  },
+) {
+  const [resumeSource] = await db
+    .select({ id: resumeSourceVersions.id })
+    .from(resumeSourceVersions)
+    .where(
+      and(
+        eq(resumeSourceVersions.workspaceId, args.workspaceId),
+        eq(resumeSourceVersions.sourceDocumentId, args.sourceDocumentId),
+      ),
+    )
+    .limit(1);
+  return resumeSource ?? null;
+}
+
+function buildInitiativeAnchorText(
+  initiative: ProfileEvidenceExtraction["initiatives"][number],
+) {
+  return [
+    initiative.internal_title,
+    initiative.external_safe_title,
+    initiative.context,
+    initiative.problem,
+    initiative.role,
+    ...initiative.actions,
+    ...initiative.results,
+    ...initiative.technologies,
+    ...(initiative.stakeholders ?? []),
+    initiative.external_safe_summary,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function buildPortfolioProjectAnchorText(
+  project: ProfileEvidenceExtraction["portfolio_projects"][number],
+) {
+  return [
+    project.title,
+    project.external_safe_title,
+    project.context,
+    project.problem,
+    project.role,
+    ...project.actions,
+    ...project.results,
+    ...project.technologies,
+    ...(project.stakeholders ?? []),
+    project.external_safe_summary,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 async function resolveEnrichmentStoryTarget(
