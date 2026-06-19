@@ -1465,10 +1465,11 @@ strong,
 .review-enrichment-handoff,
 .review-detail-panel,
 .review-summary-card {
-  background: var(--panel-soft);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 14px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 0;
+  padding: 14px 0 0;
 }
 
 .review-scan-card h3,
@@ -1528,11 +1529,11 @@ strong,
 }
 
 .review-top-fixes__grid article {
-  background: rgba(255, 255, 255, 0.026);
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-left: 3px solid #ffb86b;
-  border-radius: 10px;
-  padding: 11px;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid #ffb86b;
+  border-radius: 0;
+  padding: 2px 0 2px 11px;
 }
 
 .review-top-fixes__grid span {
@@ -1584,13 +1585,14 @@ strong,
 
 .review-enrichment-status-list article {
   align-items: center;
-  background: rgba(255, 255, 255, 0.026);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 0;
   display: grid;
   gap: 10px;
   grid-template-columns: 86px minmax(0, 1fr) auto;
-  padding: 8px 10px;
+  padding: 10px 0;
 }
 
 .review-enrichment-status-list span {
@@ -1819,10 +1821,11 @@ strong,
 }
 
 .review-dimension-card__body div {
-  background: rgba(255, 255, 255, 0.026);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 10px;
-  padding: 11px;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid rgba(79, 140, 255, 0.28);
+  border-radius: 0;
+  padding: 2px 0 2px 10px;
 }
 
 .review-dimension-card__body span {
@@ -1918,14 +1921,14 @@ strong,
 }
 
 .review-finding-card {
-  background: rgba(255, 255, 255, 0.026);
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-left: 3px solid rgba(255, 255, 255, 0.14);
-  border-radius: 11px;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0;
   color: inherit;
   display: grid;
   gap: 9px;
-  padding: 12px;
+  padding: 4px 0 4px 12px;
   text-align: left;
   transition:
     background 160ms ease,
@@ -1947,8 +1950,8 @@ strong,
 
 .review-finding-card:hover,
 .review-finding-card:focus-within {
-  background: rgba(255, 255, 255, 0.045);
-  border-color: rgba(79, 140, 255, 0.28);
+  background: rgba(79, 140, 255, 0.045);
+  border-left-color: rgba(79, 140, 255, 0.72);
 }
 
 .review-finding-card__badge {
@@ -2502,12 +2505,13 @@ strong,
 }
 
 .resume-refresh-panel {
-  background: rgba(8, 12, 20, 0.32);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 0;
   display: grid;
   gap: 12px;
-  padding: 12px;
+  padding: 14px 0 0;
 }
 
 .resume-refresh-panel h4 {
@@ -2563,12 +2567,13 @@ strong,
 }
 
 .main-resume-builder__metrics article {
-  background: rgba(8, 12, 20, 0.34);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid rgba(79, 140, 255, 0.24);
+  border-radius: 0;
   display: grid;
   gap: 5px;
-  padding: 12px;
+  padding: 2px 0 2px 11px;
 }
 
 .main-resume-builder__metrics span {
@@ -2744,12 +2749,13 @@ strong,
 .claim-review-summary,
 .missing-evidence-panel,
 .final-resume-preview {
-  background: rgba(255, 255, 255, 0.026);
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 18px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 0;
   display: grid;
   gap: 12px;
-  padding: 14px;
+  padding: 14px 0 0;
 }
 
 .final-review-checklist > span,
@@ -2770,11 +2776,11 @@ strong,
 }
 
 .final-review-checklist li {
-  background: rgba(255, 255, 255, 0.026);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--warning);
-  border-radius: 12px;
-  padding: 10px 11px;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid var(--warning);
+  border-radius: 0;
+  padding: 2px 0 2px 11px;
 }
 
 .final-review-checklist li[data-state="ready"] {
@@ -2811,12 +2817,13 @@ strong,
 }
 
 .claim-review-list div {
-  background: rgba(255, 255, 255, 0.026);
-  border: 1px solid var(--line);
-  border-radius: 12px;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid rgba(255, 255, 255, 0.13);
+  border-radius: 0;
   display: grid;
   gap: 5px;
-  padding: 10px;
+  padding: 2px 0 2px 11px;
 }
 
 .claim-review-list div[data-state="ready"] {
@@ -6540,7 +6547,11 @@ select:focus {
 .review-dimension-card__body div,
 .review-finding-card,
 .final-review-checklist li,
-.claim-review-list div,
+.claim-review-list div {
+  background: transparent;
+  box-shadow: none;
+}
+
 .main-resume-builder__preview pre,
 .resume-preview {
   background: rgba(255, 255, 255, 0.016);
