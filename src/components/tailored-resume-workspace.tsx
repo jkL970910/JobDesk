@@ -505,6 +505,7 @@ function ResumeResult({
     claims: ResumeClaim[];
   };
 }) {
+  const isValidated = resume.status === "validated";
   return (
     <div className="result-stack">
       <article className="requirement">
@@ -518,14 +519,18 @@ function ResumeResult({
           <button
             className="secondary-button"
             type="button"
+            disabled={!isValidated}
             onClick={() => void copyMarkdown(resume.resume_markdown)}
+            title={isValidated ? "Copy validated resume Markdown" : "Blocked until Fact Guard validates this resume"}
           >
             Copy Markdown
           </button>
           <button
             className="secondary-button"
             type="button"
+            disabled={!isValidated}
             onClick={() => downloadMarkdown(resume.title, resume.resume_markdown)}
+            title={isValidated ? "Download validated resume Markdown" : "Blocked until Fact Guard validates this resume"}
           >
             Download .md
           </button>
@@ -534,13 +539,28 @@ function ResumeResult({
               <button
                 className="secondary-button"
                 type="button"
+                disabled={!isValidated}
                 onClick={() => void exportResume(resume.id!, "markdown")}
+                title={isValidated ? "Export validated Markdown" : "Blocked until Fact Guard validates this resume"}
               >
                 Export Markdown
+              </button>
+              <button
+                className="secondary-button secondary-button--quiet"
+                type="button"
+                onClick={() => void exportResume(resume.id!, "json")}
+              >
+                JSON audit
               </button>
             </>
           ) : null}
         </div>
+        {!isValidated ? (
+          <p className="requirement__quote">
+            Draft only. Final Markdown export unlocks after Fact Guard validates every generated claim.
+            Use JSON audit for review data.
+          </p>
+        ) : null}
         <pre className="resume-preview">{resume.resume_markdown}</pre>
       </article>
       {resume.missing_evidence_questions.length > 0 ? (

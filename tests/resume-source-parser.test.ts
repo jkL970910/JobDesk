@@ -132,6 +132,8 @@ describe("resume source parser", () => {
         expect.objectContaining({
           extractor: "pdftotext",
           status: "failed",
+          errorKind: "extractor_not_enabled",
+          warnings: expect.arrayContaining(["pdftotext_not_enabled"]),
         }),
       ]),
     } satisfies Partial<ResumeSourceParseError>);

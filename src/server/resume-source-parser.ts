@@ -60,6 +60,7 @@ export type ParseAttempt = {
     | "password_required"
     | "unsupported_pdf_structure"
     | "extractor_unavailable"
+    | "extractor_not_enabled"
     | "text_extraction_failed";
 };
 
@@ -300,6 +301,24 @@ async function parsePdfWithPdftotext(args: {
   buffer: Buffer;
   pageCount?: number;
 }): Promise<PdfExtractionResult> {
+  if (process.env.JOBDESK_ENABLE_PDFTOTEXT_FALLBACK !== "true") {
+    const quality = buildParseQuality("", {
+      pageCount: args.pageCount,
+      sourceKind: "pdf",
+      warnings: ["pdftotext_not_enabled"],
+    });
+    return {
+      sourceText: "",
+      quality,
+      attempt: {
+        extractor: "pdftotext",
+        status: "failed",
+        charCount: 0,
+        warnings: quality.warnings,
+        errorKind: "extractor_not_enabled",
+      } satisfies ParseAttempt,
+    };
+  }
   const tempDirectory = await mkdtemp(join(tmpdir(), "jobdesk-pdf-"));
   const inputPath = join(tempDirectory, "source.pdf");
   const outputPath = join(tempDirectory, "source.txt");

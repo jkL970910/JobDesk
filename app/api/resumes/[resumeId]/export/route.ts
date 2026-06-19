@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getResumeFinalExportBlocker } from "../../../../../src/server/main-resume-export-policy";
 import { getTailoredResumeById } from "../../../../../src/server/resume-repository";
 
 const paramsSchema = z.object({
@@ -36,6 +37,13 @@ export async function GET(
       { error: "Resume not found.", kind: "not_found" },
       { status: 404 },
     );
+  }
+  const exportBlocker = getResumeFinalExportBlocker({
+    format: format.data,
+    status: resume.status,
+  });
+  if (exportBlocker) {
+    return NextResponse.json(exportBlocker, { status: 409 });
   }
 
   const filename = makeExportFilename(resume.title, format.data);

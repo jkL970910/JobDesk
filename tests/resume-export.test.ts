@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getMainResumeExportBlocker } from "../src/server/main-resume-export-policy";
+import {
+  getMainResumeExportBlocker,
+  getResumeFinalExportBlocker,
+} from "../src/server/main-resume-export-policy";
 import {
   applyResumePagePolicy,
   buildResumeExportViewModel,
@@ -43,6 +46,16 @@ describe("resume export coverage assumptions", () => {
     expect(getMainResumeExportBlocker({ format: "markdown", status: "validated" })).toBeNull();
     expect(getMainResumeExportBlocker({ format: "docx", status: "validated" })).toBeNull();
     expect(getMainResumeExportBlocker({ format: "html", status: "validated" })).toBeNull();
+  });
+
+  it("uses the same Fact Guard gate for tailored final exports", () => {
+    expect(
+      getResumeFinalExportBlocker({ format: "markdown", status: "unvalidated" }),
+    ).toMatchObject({
+      kind: "resume_not_validated",
+    });
+    expect(getResumeFinalExportBlocker({ format: "json", status: "unvalidated" })).toBeNull();
+    expect(getResumeFinalExportBlocker({ format: "markdown", status: "validated" })).toBeNull();
   });
 
   it("normalizes structured resume JSON into an export view model", () => {

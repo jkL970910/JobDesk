@@ -1,10 +1,11 @@
 export type MainResumeExportFormat = "markdown" | "json" | "docx" | "html";
+export type ResumeExportFormat = MainResumeExportFormat;
 
-export function getMainResumeExportBlocker(args: {
-  format: MainResumeExportFormat;
+export function getResumeFinalExportBlocker(args: {
+  format: ResumeExportFormat;
   status: string;
 }) {
-  const finalExportFormats: MainResumeExportFormat[] = ["markdown", "docx", "html"];
+  const finalExportFormats: ResumeExportFormat[] = ["markdown", "docx", "html"];
   if (finalExportFormats.includes(args.format) && args.status !== "validated") {
     return {
       error:
@@ -13,4 +14,11 @@ export function getMainResumeExportBlocker(args: {
     };
   }
   return null;
+}
+
+export function getMainResumeExportBlocker(args: {
+  format: MainResumeExportFormat;
+  status: string;
+}) {
+  return getResumeFinalExportBlocker(args);
 }
