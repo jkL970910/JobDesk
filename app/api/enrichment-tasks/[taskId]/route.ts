@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { updateEnrichmentTask } from "../../../../src/server/enrichment-task-repository";
+import { schedulePersonalEmbeddingsSync } from "../../../../src/server/embedding-service";
 
 const paramsSchema = z.object({
   taskId: z.string().uuid(),
@@ -48,5 +49,8 @@ export async function PATCH(
     );
   }
 
+  if (body.data.action === "convert") {
+    schedulePersonalEmbeddingsSync("enrichment_task_convert");
+  }
   return NextResponse.json({ data: result });
 }

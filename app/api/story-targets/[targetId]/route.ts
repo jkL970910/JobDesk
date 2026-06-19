@@ -5,6 +5,7 @@ import {
   assignInitiativeToWorkExperience,
   createWorkExperienceAndAssignInitiative,
 } from "../../../../src/server/profile-evidence-repository";
+import { schedulePersonalEmbeddingsSync } from "../../../../src/server/embedding-service";
 
 const paramsSchema = z.object({
   targetId: z.string().uuid(),
@@ -72,5 +73,6 @@ export async function PATCH(
     );
   }
 
+  schedulePersonalEmbeddingsSync(`story_target_${body.data.action}`);
   return NextResponse.json({ data: result });
 }

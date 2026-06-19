@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { updateEvidenceItem } from "../../../../src/server/profile-evidence-repository";
 import { AllowedUsage, SensitivityLevel } from "../../../../src/schemas/shared";
+import { schedulePersonalEmbeddingsSync } from "../../../../src/server/embedding-service";
 
 const paramsSchema = z.object({
   evidenceId: z.string().uuid(),
@@ -62,5 +63,6 @@ export async function PATCH(
     );
   }
 
+  schedulePersonalEmbeddingsSync(`evidence_${body.data.action}`);
   return NextResponse.json({ data: result });
 }

@@ -9,6 +9,7 @@ import {
   persistProfileEvidenceExtraction,
   persistProfileEvidenceFailure,
 } from "../../../../src/server/profile-evidence-repository";
+import { schedulePersonalEmbeddingsSync } from "../../../../src/server/embedding-service";
 
 const requestSchema = z.object({
   sourceText: z.string().trim().min(80).max(50_000),
@@ -92,6 +93,9 @@ export async function POST(request: Request) {
       sourceDocumentRecovered && persistence.status === "saved"
         ? { ...persistence, sourceDocumentRecovered }
         : persistence;
+    if (persistence.status === "saved") {
+      schedulePersonalEmbeddingsSync("profile_evidence_enrich_project");
+    }
     return NextResponse.json({
       data: result.data,
       meta: {

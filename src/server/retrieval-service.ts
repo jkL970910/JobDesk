@@ -10,6 +10,11 @@ import {
   type EvidenceType,
   type SensitivityLevel,
 } from "../schemas/shared";
+import {
+  getRetrievalPolicy,
+  type EvidenceRetrievalPolicy,
+  type RetrievalPolicyId,
+} from "./retrieval-policy";
 
 export type EvidenceRetrievalCandidate = {
   id: string;
@@ -47,21 +52,17 @@ export type RetrievedEvidenceItem = Omit<
   "status" | "needs_user_confirmation"
 > & {
   retrieval_score: number;
+  retrieval_policy: RetrievalPolicyId;
+  eligibility_reason: string;
+  matched_terms: string[];
+  score_breakdown: {
+    keyword: number;
+    semantic: number;
+    metric: number;
+    base: number;
+    total: number;
+  };
   reason_for_selection: string[];
-};
-
-export type EvidenceRetrievalPolicy = {
-  allowedUsage: AllowedUsage;
-  externalFacing: boolean;
-  excludeInferred: boolean;
-  limit: number;
-};
-
-const resumePolicy: EvidenceRetrievalPolicy = {
-  allowedUsage: "resume",
-  externalFacing: true,
-  excludeInferred: true,
-  limit: 12,
 };
 
 export async function retrieveResumeEvidenceForJob(
@@ -104,7 +105,7 @@ export async function retrieveResumeEvidenceForJob(
       semantic_similarity: semanticScoreByEvidenceId.get(item.id) ?? 0,
     })),
     job,
-    policy: { ...resumePolicy, limit: options.limit ?? resumePolicy.limit },
+    policy: getRetrievalPolicy("resume_generation", { limit: options.limit }),
   });
 }
 
@@ -116,7 +117,7 @@ export function rankEvidenceForPolicy(args: {
   const queryTerms = buildQueryTerms(args.job);
   return args.candidates
     .filter((candidate) => isEvidenceEligible(candidate, args.policy))
-    .map((candidate) => scoreEvidence(candidate, queryTerms))
+    .map((candidate) => scoreEvidence(candidate, queryTerms, args.policy))
     .sort((left, right) => {
       if (right.retrieval_score !== left.retrieval_score) {
         return right.retrieval_score - left.retrieval_score;
@@ -131,9 +132,21 @@ export function isEvidenceEligible(
   candidate: EvidenceRetrievalCandidate,
   policy: EvidenceRetrievalPolicy,
 ) {
-  if (candidate.status !== "approved") return false;
-  if (candidate.needs_user_confirmation) return false;
-  if (!candidate.allowed_usage.includes(policy.allowedUsage)) return false;
+  if (policy.statusPolicy === "approved_only" && candidate.status !== "approved") {
+    return false;
+  }
+  if (
+    policy.statusPolicy === "approved_or_pending" &&
+    !["approved", "pending"].includes(candidate.status)
+  ) {
+    return false;
+  }
+  if (policy.requireNoUserConfirmation && candidate.needs_user_confirmation) {
+    return false;
+  }
+  if (policy.allowedUsage && !candidate.allowed_usage.includes(policy.allowedUsage)) {
+    return false;
+  }
   if (policy.externalFacing && candidate.allowed_usage.includes("internal_only")) {
     return false;
   }
@@ -155,8 +168,13 @@ export function isEvidenceEligible(
 function scoreEvidence(
   candidate: EvidenceRetrievalCandidate,
   queryTerms: string[],
+  policy: EvidenceRetrievalPolicy,
 ): EvidenceRetrievalCandidate & {
   retrieval_score: number;
+  retrieval_policy: RetrievalPolicyId;
+  eligibility_reason: string;
+  matched_terms: string[];
+  score_breakdown: RetrievedEvidenceItem["score_breakdown"];
   reason_for_selection: string[];
 } {
   const haystack = normalizeText(
@@ -171,7 +189,9 @@ function scoreEvidence(
   const uniqueMatchedTerms = Array.from(new Set(matchedTerms));
   const metricBonus = candidate.metrics.length > 0 ? 2 : 0;
   const semanticBonus = Math.max(0, candidate.semantic_similarity ?? 0) * 12;
-  const score = uniqueMatchedTerms.length * 10 + semanticBonus + metricBonus + 1;
+  const keywordScore = uniqueMatchedTerms.length * 10;
+  const baseScore = 1;
+  const score = keywordScore + semanticBonus + metricBonus + baseScore;
   const reason =
     uniqueMatchedTerms.length > 0
       ? [`matches job terms: ${uniqueMatchedTerms.slice(0, 5).join(", ")}`]
@@ -184,8 +204,29 @@ function scoreEvidence(
   return {
     ...candidate,
     retrieval_score: score,
+    retrieval_policy: policy.id,
+    eligibility_reason: buildEligibilityReason(policy),
+    matched_terms: uniqueMatchedTerms,
+    score_breakdown: {
+      keyword: Number(keywordScore.toFixed(3)),
+      semantic: Number(semanticBonus.toFixed(3)),
+      metric: metricBonus,
+      base: baseScore,
+      total: Number(score.toFixed(3)),
+    },
     reason_for_selection: reason,
   };
+}
+
+function buildEligibilityReason(policy: EvidenceRetrievalPolicy) {
+  const rules = [
+    policy.statusPolicy === "approved_only" ? "approved evidence" : "approved or pending evidence",
+    policy.allowedUsage ? `${policy.allowedUsage} usage` : "any usage",
+    policy.externalFacing ? "public-safe external disclosure" : "internal analysis allowed",
+    policy.requireNoUserConfirmation ? "user-confirmed" : "may need user review",
+  ];
+  if (policy.excludeInferred) rules.push("non-inferred");
+  return rules.join("; ");
 }
 
 function buildEmbeddingQuery(job: ResumeRetrievalJobContext) {

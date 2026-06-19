@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   cosineSimilarity,
   embedTextLocal,
+  syncPersonalEmbeddingsBestEffort,
 } from "../src/server/embedding-service";
 
 describe("embedding service", () => {
@@ -26,5 +27,20 @@ describe("embedding service", () => {
 
   it("returns zero-vector similarity for empty input without throwing", () => {
     expect(cosineSimilarity(embedTextLocal(""), embedTextLocal("anything"))).toBe(0);
+  });
+
+  it("reports best-effort sync failures without throwing", async () => {
+    const result = await syncPersonalEmbeddingsBestEffort({
+      reason: "unit_test",
+      sync: async () => {
+        throw new Error("boom");
+      },
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      reason: "unit_test",
+      error: "boom",
+    });
   });
 });

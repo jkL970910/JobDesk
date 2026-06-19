@@ -10,6 +10,7 @@ import {
   persistProfileEvidenceFailure,
 } from "../../../../src/server/profile-evidence-repository";
 import { markResumeSourceExtracted } from "../../../../src/server/resume-review-repository";
+import { schedulePersonalEmbeddingsSync } from "../../../../src/server/embedding-service";
 
 const requestSchema = z.object({
   sourceText: z.string().trim().min(80).max(50_000),
@@ -63,6 +64,9 @@ export async function POST(request: Request) {
     }
     if (persistence.status === "saved" && parsed.data.resumeSourceVersionId) {
       await markResumeSourceExtracted(parsed.data.resumeSourceVersionId);
+    }
+    if (persistence.status === "saved") {
+      schedulePersonalEmbeddingsSync("profile_evidence_extract");
     }
     return NextResponse.json({
       data: result.data,

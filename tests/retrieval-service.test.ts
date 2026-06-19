@@ -4,15 +4,10 @@ import {
   isEvidenceEligible,
   rankEvidenceForPolicy,
   type EvidenceRetrievalCandidate,
-  type EvidenceRetrievalPolicy,
 } from "../src/server/retrieval-service";
+import { getRetrievalPolicy } from "../src/server/retrieval-policy";
 
-const resumePolicy: EvidenceRetrievalPolicy = {
-  allowedUsage: "resume",
-  externalFacing: true,
-  excludeInferred: true,
-  limit: 10,
-};
+const resumePolicy = getRetrievalPolicy("resume_generation", { limit: 10 });
 
 describe("retrieval service", () => {
   it("blocks evidence that is not eligible for external resume generation", () => {
@@ -69,6 +64,8 @@ describe("retrieval service", () => {
     });
 
     expect(ranked[0]?.id).toBe("safe-summary");
+    expect(ranked[0]?.retrieval_policy).toBe("resume_generation");
+    expect(ranked[0]?.eligibility_reason).toContain("public-safe");
     expect(ranked[0]?.reason_for_selection.join(" ")).toContain("stakeholder");
   });
 
@@ -113,10 +110,42 @@ describe("retrieval service", () => {
 
     expect(ranked.map((item) => item.id)).toEqual(["sql", "stakeholder"]);
     expect(ranked[0]?.reason_for_selection.join(" ")).toContain("sql");
+    expect(ranked[0]?.matched_terms).toContain("sql");
+    expect(ranked[0]?.score_breakdown.keyword).toBeGreaterThan(0);
+    expect(ranked[0]?.score_breakdown.semantic).toBeGreaterThanOrEqual(0);
+    expect(ranked[0]?.score_breakdown.metric).toBe(0);
+    expect(ranked[0]?.score_breakdown.total).toBe(ranked[0]?.retrieval_score);
     expect(ranked[0]?.retrieval_score).toBeGreaterThan(
       ranked[1]?.retrieval_score ?? 0,
     );
     expect(ranked.some((item) => item.id === "sensitive")).toBe(false);
+  });
+
+  it("uses different eligibility for interview prep than resume generation", () => {
+    const interviewPolicy = getRetrievalPolicy("interview_prep");
+    const interviewOnlyInternal = candidate({
+      allowed_usage: ["interview", "internal_only"],
+      sensitivity_level: "private",
+      evidence_type: "inferred",
+      public_safe_summary: null,
+    });
+
+    expect(isEvidenceEligible(interviewOnlyInternal, resumePolicy)).toBe(false);
+    expect(isEvidenceEligible(interviewOnlyInternal, interviewPolicy)).toBe(true);
+  });
+
+  it("allows reviewable material for positioning analysis without making it resume eligible", () => {
+    const positioningPolicy = getRetrievalPolicy("positioning_analysis");
+    const pendingReviewable = candidate({
+      allowed_usage: [],
+      status: "pending",
+      needs_user_confirmation: true,
+      sensitivity_level: "sensitive",
+      evidence_type: "inferred",
+    });
+
+    expect(isEvidenceEligible(pendingReviewable, resumePolicy)).toBe(false);
+    expect(isEvidenceEligible(pendingReviewable, positioningPolicy)).toBe(true);
   });
 });
 

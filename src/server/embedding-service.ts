@@ -250,6 +250,30 @@ export async function syncPersonalEmbeddings() {
   };
 }
 
+export async function syncPersonalEmbeddingsBestEffort(args: {
+  reason?: string;
+  sync?: () => Promise<unknown>;
+} = {}) {
+  try {
+    const result = await (args.sync ?? syncPersonalEmbeddings)();
+    return { status: "completed" as const, reason: args.reason, result };
+  } catch (error) {
+    return {
+      status: "failed" as const,
+      reason: args.reason,
+      error: error instanceof Error ? error.message : "Unknown embedding sync error.",
+    };
+  }
+}
+
+export function schedulePersonalEmbeddingsSync(reason: string) {
+  void syncPersonalEmbeddingsBestEffort({ reason }).then((result) => {
+    if (result.status === "failed") {
+      console.warn("[retrieval] best-effort embedding sync failed", result);
+    }
+  });
+}
+
 export async function searchPersonalEmbeddings(args: {
   query: string;
   indexTypes?: EmbeddingIndexType[];

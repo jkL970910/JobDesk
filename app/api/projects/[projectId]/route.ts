@@ -6,6 +6,7 @@ import {
   updateProjectCard,
 } from "../../../../src/server/profile-evidence-repository";
 import { SensitivityLevel } from "../../../../src/schemas/shared";
+import { schedulePersonalEmbeddingsSync } from "../../../../src/server/embedding-service";
 
 const paramsSchema = z.object({
   projectId: z.string().uuid(),
@@ -41,6 +42,7 @@ export async function PATCH(
 
   if (body.data.action === "approve_project_evidence_for_resume") {
     const result = await approveProjectEvidenceForResume(params.data.projectId);
+    schedulePersonalEmbeddingsSync("project_approve_evidence_for_resume");
     return NextResponse.json({ data: result });
   }
 
@@ -65,5 +67,6 @@ export async function PATCH(
     );
   }
 
+  schedulePersonalEmbeddingsSync(`project_${body.data.action}`);
   return NextResponse.json({ data: result });
 }
