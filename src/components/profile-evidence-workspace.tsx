@@ -3181,26 +3181,51 @@ function EvidenceLibraryToolbar({
           ]}
           onChange={(sensitivity) => update({ sensitivity })}
         />
-      </div>
-      <div className="evidence-library-toolbar__toggles">
-        <label>
-          <input
-            checked={filters.hasMetricOnly}
-            type="checkbox"
-            onChange={(event) => update({ hasMetricOnly: event.target.checked })}
-          />
-          Has metric
-        </label>
-        <label>
-          <input
-            checked={filters.unlinkedOnly}
-            type="checkbox"
-            onChange={(event) => update({ unlinkedOnly: event.target.checked })}
-          />
-          Unlinked only
-        </label>
+        <ThemeToggleFilter
+          active={filters.hasMetricOnly}
+          label="Metric"
+          activeText="Has metric"
+          inactiveText="Any metric"
+          onToggle={() => update({ hasMetricOnly: !filters.hasMetricOnly })}
+        />
+        <ThemeToggleFilter
+          active={filters.unlinkedOnly}
+          label="Link status"
+          activeText="Unlinked only"
+          inactiveText="Any link"
+          onToggle={() => update({ unlinkedOnly: !filters.unlinkedOnly })}
+        />
       </div>
     </section>
+  );
+}
+
+function ThemeToggleFilter({
+  active,
+  activeText,
+  inactiveText,
+  label,
+  onToggle,
+}: {
+  active: boolean;
+  activeText: string;
+  inactiveText: string;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="theme-select theme-toggle-filter">
+      <span>{label}</span>
+      <button
+        aria-pressed={active}
+        className="theme-select__trigger theme-toggle-filter__trigger"
+        type="button"
+        onClick={onToggle}
+      >
+        <span>{active ? activeText : inactiveText}</span>
+        <em aria-hidden="true">{active ? "On" : "Off"}</em>
+      </button>
+    </div>
   );
 }
 
