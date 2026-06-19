@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { loadDotEnv } from "../src/ai/env";
 import { getDb } from "../src/db/client";
-import { evidenceItems, initiatives, resumeSourceVersions, sourceDocuments, workExperiences } from "../src/db/schema";
+import { embeddings, evidenceItems, initiatives, resumeSourceVersions, sourceDocuments, workExperiences } from "../src/db/schema";
 import {
   persistParsedSourceDocument,
   buildSourceContentHash,
@@ -16,6 +16,8 @@ import type { ResumeSourceParseResult } from "../src/server/resume-source-parser
 import { registerUser, runWithAuthContext } from "../src/server/auth-service";
 import { and, eq } from "drizzle-orm";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
+import { syncPersonalEmbeddings } from "../src/server/embedding-service";
+import { retrieveSourceMaterialForEvidenceGaps } from "../src/server/retrieval-service";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
 
@@ -192,6 +194,63 @@ describe.skipIf(!runIntegration)("source document lifecycle integration", () => 
       id: parsedSource.sourceDocumentId,
       lifecycleStatus: "extracted",
       sourceType: "project-note",
+    });
+  });
+
+  it("indexes source chunks as evidence-gap material without making them resume evidence", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const owner = await registerUser({
+      email: `source-chunk-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected test user.");
+
+    await runWithAuthContext(owner.user.id, async () => {
+      const parsed = buildParsedSource(
+        `Activation source chunk ${suffix}`,
+        [
+          "Built onboarding activation dashboards with SQL and event taxonomy data.",
+          "Captured retention cohort questions that still need evidence extraction.",
+          "Partnered with product and engineering on launch analytics instrumentation.",
+        ].join(" "),
+      );
+      const saved = await persistParsedSourceDocument({
+        sourceType: "work_summary",
+        parsed,
+      });
+      if (saved.status !== "saved") throw new Error("Expected saved source.");
+
+      const sync = await syncPersonalEmbeddings();
+      expect(sync).toMatchObject({ status: "saved" });
+      if (sync.status !== "saved") throw new Error("Expected saved embeddings.");
+      expect(sync.sourceChunkCount).toBeGreaterThan(0);
+
+      const db = getDb();
+      const sourceChunks = await db
+        .select()
+        .from(embeddings)
+        .where(
+          and(
+            eq(embeddings.sourceEntityType, "source_document"),
+            eq(embeddings.indexType, "source_chunk_index"),
+          ),
+        );
+      expect(
+        sourceChunks.some(
+          (chunk) =>
+            chunk.metadata.source_document_id === saved.sourceDocumentId &&
+            chunk.metadata.source_type === "work_summary",
+        ),
+      ).toBe(true);
+
+      const sourceMaterial = await retrieveSourceMaterialForEvidenceGaps(
+        "activation dashboard evidence",
+        { limit: 5 },
+      );
+      expect(
+        sourceMaterial.some((item) => item.source_document_id === saved.sourceDocumentId),
+      ).toBe(true);
+      expect(sourceMaterial.every((item) => item.retrieval_policy === "evidence_enrichment")).toBe(true);
     });
   });
 
@@ -417,12 +476,15 @@ describe.skipIf(!runIntegration)("source document lifecycle integration", () => 
   });
 });
 
-function buildParsedSource(title: string): ResumeSourceParseResult {
+function buildParsedSource(title: string, body?: string): ResumeSourceParseResult {
   const sourceText = [
     title,
-    "Built onboarding analytics dashboards with SQL and product event data.",
-    "Led stakeholder readouts, clarified funnel health, and documented decisions.",
-    "Created reusable project summaries, metrics, ownership context, and resume-safe wording.",
+    body ??
+      [
+        "Built onboarding analytics dashboards with SQL and product event data.",
+        "Led stakeholder readouts, clarified funnel health, and documented decisions.",
+        "Created reusable project summaries, metrics, ownership context, and resume-safe wording.",
+      ].join("\n"),
   ].join("\n");
   const wordCount = sourceText.trim().split(/\s+/).filter(Boolean).length;
   return {

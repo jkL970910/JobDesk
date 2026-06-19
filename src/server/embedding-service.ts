@@ -9,7 +9,9 @@ import {
   initiatives,
   portfolioProjects,
   projectCards,
+  sourceDocuments,
 } from "../db/schema";
+import { buildSourceDocumentChunks, sourceChunkIndexType } from "./source-chunk-service";
 import { getOrCreateDefaultWorkspace } from "./workspace-repository";
 
 export const localEmbeddingModel = "jobdesk-local-hash-v1";
@@ -20,6 +22,7 @@ export type EmbeddingIndexType =
   | "initiative_index"
   | "portfolio_project_index"
   | "project_index"
+  | typeof sourceChunkIndexType
   | "star_story_index";
 
 export type EmbeddingSearchResult = {
@@ -83,6 +86,12 @@ export async function syncPersonalEmbeddings() {
     .from(projectCards)
     .where(eq(projectCards.workspaceId, workspace.id))
     .orderBy(desc(projectCards.updatedAt))
+    .limit(120);
+  const sourceDocumentRows = await db
+    .select()
+    .from(sourceDocuments)
+    .where(eq(sourceDocuments.workspaceId, workspace.id))
+    .orderBy(desc(sourceDocuments.updatedAt))
     .limit(120);
 
   const chunks = [
@@ -200,6 +209,22 @@ export async function syncPersonalEmbeddings() {
           title: project.title,
         },
       })),
+    ...sourceDocumentRows
+      .filter((document) =>
+        ["parsed", "parsed_with_warnings", "reviewed", "extracted"].includes(
+          document.lifecycleStatus,
+        ),
+      )
+      .flatMap((document) =>
+        buildSourceDocumentChunks(document).map((chunk) => ({
+          workspaceId: workspace.id,
+          indexType: sourceChunkIndexType,
+          sourceEntityType: "source_document",
+          sourceEntityId: chunk.id,
+          chunkText: chunk.chunkText,
+          metadata: chunk.metadata,
+        })),
+      ),
   ];
 
   await db
@@ -246,6 +271,8 @@ export async function syncPersonalEmbeddings() {
     initiativeCount: initiativeRows.length,
     portfolioProjectCount: portfolioProjectRows.length,
     legacyProjectCount: legacyProjects.length,
+    sourceDocumentCount: sourceDocumentRows.length,
+    sourceChunkCount: chunks.filter((chunk) => chunk.indexType === sourceChunkIndexType).length,
     model: localEmbeddingModel,
   };
 }

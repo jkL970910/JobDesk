@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   isEvidenceEligible,
   rankEvidenceForPolicy,
+  retrieveSourceMaterialForEvidenceGaps,
+  toRetrievedSourceMaterialItem,
   type EvidenceRetrievalCandidate,
 } from "../src/server/retrieval-service";
 import { getRetrievalPolicy } from "../src/server/retrieval-policy";
+import { sourceChunkIndexType } from "../src/server/source-chunk-service";
 
 const resumePolicy = getRetrievalPolicy("resume_generation", { limit: 10 });
 
@@ -146,6 +149,54 @@ describe("retrieval service", () => {
 
     expect(isEvidenceEligible(pendingReviewable, resumePolicy)).toBe(false);
     expect(isEvidenceEligible(pendingReviewable, positioningPolicy)).toBe(true);
+  });
+
+  it("keeps source chunks out of resume-generation policy", () => {
+    expect(getRetrievalPolicy("resume_generation").allowedIndexTypes).toEqual([
+      "evidence_index",
+    ]);
+    expect(getRetrievalPolicy("evidence_enrichment").allowedIndexTypes).toContain(
+      sourceChunkIndexType,
+    );
+  });
+
+  it("retrieves source chunks only as evidence-enrichment material", async () => {
+    const results = await retrieveSourceMaterialForEvidenceGaps("activation metrics", {
+      limit: 1,
+    });
+    expect(Array.isArray(results)).toBe(true);
+  });
+
+  it("maps source chunks as possible source material, not resume evidence", () => {
+    const mapped = toRetrievedSourceMaterialItem({
+      source_entity_id: "11111111-2222-5333-8444-000000000000",
+      source_entity_type: "source_document",
+      index_type: sourceChunkIndexType,
+      chunk_text: "Raw work note about activation dashboard metrics.",
+      similarity: 0.42,
+      metadata: {
+        source_document_id: "11111111-2222-4333-8444-555555555555",
+        source_type: "work_summary",
+        title: "Launch notes",
+        chunk_index: 2,
+        lifecycle_status: "parsed",
+        parse_quality_status: "usable",
+        sensitivity_hint: "unknown",
+      },
+    });
+
+    expect(mapped).toMatchObject({
+      source_document_id: "11111111-2222-4333-8444-555555555555",
+      source_type: "work_summary",
+      title: "Launch notes",
+      chunk_index: 2,
+      retrieval_policy: "evidence_enrichment",
+      retrieval_score: 42,
+      reason_for_selection: [
+        "possible source material for evidence gap",
+        "semantic match 42%",
+      ],
+    });
   });
 });
 

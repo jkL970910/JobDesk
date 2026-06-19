@@ -2,6 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 
 import { getDb, hasDatabaseUrl } from "../db/client";
 import { searchPersonalEmbeddings } from "./embedding-service";
+import type { EmbeddingSearchResult } from "./embedding-service";
 import { evidenceItems } from "../db/schema";
 import { hasResumeSafeDisclosure } from "./deidentification-service";
 import { getCurrentWorkspace } from "./workspace-repository";
@@ -15,6 +16,7 @@ import {
   type EvidenceRetrievalPolicy,
   type RetrievalPolicyId,
 } from "./retrieval-policy";
+import { sourceChunkIndexType } from "./source-chunk-service";
 
 export type EvidenceRetrievalCandidate = {
   id: string;
@@ -65,6 +67,20 @@ export type RetrievedEvidenceItem = Omit<
   reason_for_selection: string[];
 };
 
+export type RetrievedSourceMaterialItem = {
+  source_document_id: string;
+  source_type: string;
+  title: string;
+  chunk_index: number;
+  chunk_text: string;
+  retrieval_policy: "evidence_enrichment";
+  retrieval_score: number;
+  reason_for_selection: string[];
+  parse_quality_status: string | null;
+  lifecycle_status: string;
+  sensitivity_hint: string;
+};
+
 export async function retrieveResumeEvidenceForJob(
   job: ResumeRetrievalJobContext | null | undefined,
   options: { limit?: number } = {},
@@ -107,6 +123,49 @@ export async function retrieveResumeEvidenceForJob(
     job,
     policy: getRetrievalPolicy("resume_generation", { limit: options.limit }),
   });
+}
+
+export async function retrieveSourceMaterialForEvidenceGaps(
+  query: string,
+  options: { limit?: number } = {},
+): Promise<RetrievedSourceMaterialItem[]> {
+  const policy = getRetrievalPolicy("evidence_enrichment", { limit: options.limit });
+  if (!policy.allowedIndexTypes.includes(sourceChunkIndexType)) return [];
+  const matches = await searchPersonalEmbeddings({
+    query,
+    indexTypes: [sourceChunkIndexType],
+    limit: policy.limit,
+  }).catch(() => []);
+
+  return matches
+    .filter((match) => match.index_type === sourceChunkIndexType)
+    .map(toRetrievedSourceMaterialItem)
+    .filter((item) => item.source_document_id);
+}
+
+export function toRetrievedSourceMaterialItem(
+  match: EmbeddingSearchResult,
+): RetrievedSourceMaterialItem {
+  const metadata = match.metadata;
+  return {
+    source_document_id: String(metadata.source_document_id ?? ""),
+    source_type: String(metadata.source_type ?? "generic_source"),
+    title: String(metadata.title ?? "Source material"),
+    chunk_index: Number(metadata.chunk_index ?? 0),
+    chunk_text: match.chunk_text,
+    retrieval_policy: "evidence_enrichment",
+    retrieval_score: Number((Math.max(0, match.similarity) * 100).toFixed(3)),
+    reason_for_selection: [
+      "possible source material for evidence gap",
+      `semantic match ${Math.round(Math.max(0, match.similarity) * 100)}%`,
+    ],
+    parse_quality_status:
+      typeof metadata.parse_quality_status === "string"
+        ? metadata.parse_quality_status
+        : null,
+    lifecycle_status: String(metadata.lifecycle_status ?? "unknown"),
+    sensitivity_hint: String(metadata.sensitivity_hint ?? "unknown"),
+  };
 }
 
 export function rankEvidenceForPolicy(args: {

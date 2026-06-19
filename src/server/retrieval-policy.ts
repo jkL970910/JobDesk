@@ -11,6 +11,7 @@ export type EvidenceStatusPolicy = "approved_only" | "approved_or_pending";
 export type EvidenceRetrievalPolicy = {
   id: RetrievalPolicyId;
   allowedUsage?: AllowedUsage;
+  allowedIndexTypes: readonly string[];
   externalFacing: boolean;
   excludeInferred: boolean;
   statusPolicy: EvidenceStatusPolicy;
@@ -22,6 +23,7 @@ export const retrievalPolicies = {
   resume_generation: {
     id: "resume_generation",
     allowedUsage: "resume",
+    allowedIndexTypes: ["evidence_index"],
     externalFacing: true,
     excludeInferred: true,
     statusPolicy: "approved_only",
@@ -31,6 +33,12 @@ export const retrievalPolicies = {
   interview_prep: {
     id: "interview_prep",
     allowedUsage: "interview",
+    allowedIndexTypes: [
+      "evidence_index",
+      "initiative_index",
+      "portfolio_project_index",
+      "project_index",
+    ],
     externalFacing: false,
     excludeInferred: false,
     statusPolicy: "approved_only",
@@ -39,6 +47,12 @@ export const retrievalPolicies = {
   },
   positioning_analysis: {
     id: "positioning_analysis",
+    allowedIndexTypes: [
+      "evidence_index",
+      "initiative_index",
+      "portfolio_project_index",
+      "project_index",
+    ],
     externalFacing: false,
     excludeInferred: false,
     statusPolicy: "approved_or_pending",
@@ -47,6 +61,13 @@ export const retrievalPolicies = {
   },
   evidence_enrichment: {
     id: "evidence_enrichment",
+    allowedIndexTypes: [
+      "evidence_index",
+      "initiative_index",
+      "portfolio_project_index",
+      "project_index",
+      "source_chunk_index",
+    ],
     externalFacing: false,
     excludeInferred: false,
     statusPolicy: "approved_or_pending",
