@@ -4932,11 +4932,12 @@ select:focus {
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid var(--line);
   border-radius: 10px;
-  display: grid;
+  display: flex;
   gap: 6px;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   margin: 14px 0;
+  overflow-x: auto;
   padding: 6px;
+  scrollbar-width: thin;
 }
 
 .review-switcher button {
@@ -4946,8 +4947,12 @@ select:focus {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 840;
+  line-height: 1.2;
   min-height: 38px;
-  padding: 8px;
+  min-width: max-content;
+  padding: 8px 14px;
+  text-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .review-switcher button:hover,
@@ -6135,30 +6140,54 @@ select:focus {
 .evidence-row-table {
   border: 0;
   border-radius: 0;
-  gap: 0;
+  gap: 10px;
   overflow: visible;
 }
 
 .story-table .story-target-row,
 .story-table .story-group-row,
 .evidence-row {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.026), rgba(255, 255, 255, 0.012)),
+    rgba(7, 12, 20, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.082);
+  border-radius: 14px;
   box-shadow: none;
+  position: relative;
+}
+
+.story-table .story-target-row::before,
+.story-table .story-group-row::before,
+.evidence-row::before {
+  background: rgba(79, 140, 255, 0.38);
+  border-radius: 999px;
+  bottom: 12px;
+  content: "";
+  left: 0;
+  position: absolute;
+  top: 12px;
+  width: 2px;
+}
+
+.story-table .story-target-row:hover,
+.story-table .story-group-row:hover,
+.evidence-row:hover {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.038), rgba(255, 255, 255, 0.018)),
+    rgba(9, 15, 25, 0.46);
+  border-color: rgba(121, 164, 255, 0.18);
 }
 
 .story-table .story-target-row:first-child,
 .story-table .story-group-row:first-child,
 .evidence-row:first-child {
-  border-top: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.082);
 }
 
 .story-group-row .story-target-row {
-  background: transparent;
-  border-bottom: 0;
-  border-top-color: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.014);
+  border-color: rgba(255, 255, 255, 0.064);
+  margin: 0 12px 12px;
 }
 
 .story-target-row__meta,
