@@ -275,6 +275,19 @@ export type MaterialReviewTab =
   | "unlinked"
   | "cleanup"
   | "stories";
+type EvidenceLibraryMode = "library" | "work_queue";
+type EvidenceAssetView = "ready" | "all" | "stories" | "interview_stories";
+type EvidenceWorkQueueView = "enrichment" | "claims" | "unlinked" | "cleanup";
+type EvidenceLibraryFilters = {
+  hasMetricOnly: boolean;
+  query: string;
+  roleOrStory: string;
+  sensitivity: string;
+  source: string;
+  status: string;
+  unlinkedOnly: boolean;
+  usage: string;
+};
 type ProjectSourceMode = "upload" | "paste" | "guided";
 type StoryEnrichmentTargetType = "initiative" | "portfolio_project" | "legacy_project";
 
@@ -403,9 +416,20 @@ export function ProfileEvidenceWorkspace({
     Boolean(initialResumeSourceVersionId),
   );
   const [isEditingMaterialType, setIsEditingMaterialType] = useState(false);
-  const [reviewTab, setReviewTab] = useState<
-    MaterialReviewTab
-  >(initialReviewTab);
+  const [libraryMode, setLibraryMode] = useState<EvidenceLibraryMode>("library");
+  const [libraryView, setLibraryView] = useState<EvidenceAssetView>("ready");
+  const [workQueueView, setWorkQueueView] =
+    useState<EvidenceWorkQueueView>("enrichment");
+  const [libraryFilters, setLibraryFilters] = useState<EvidenceLibraryFilters>({
+    hasMetricOnly: false,
+    query: "",
+    roleOrStory: "all",
+    sensitivity: "all",
+    source: "all",
+    status: "all",
+    unlinkedOnly: false,
+    usage: "all",
+  });
   const [sourceDrafts, setSourceDrafts] = useState<Record<"resume" | "jd", SourceDraft>>({
     jd: { text: "", title: "" },
     resume: { text: "", title: "" },
@@ -482,7 +506,7 @@ export function ProfileEvidenceWorkspace({
   }, [initialSection]);
 
   useEffect(() => {
-    setReviewTab(initialReviewTab);
+    openReviewDestination(initialReviewTab);
   }, [initialReviewTab]);
 
   useEffect(() => {
@@ -1198,6 +1222,19 @@ export function ProfileEvidenceWorkspace({
     projectCards,
     workExperiences,
   });
+  const filteredEvidenceItems = filterEvidenceLibraryItems(
+    evidenceItems,
+    libraryFilters,
+    linkTargets,
+    projectCards,
+  );
+  const readyEvidenceItems = filteredEvidenceItems.filter(isReusableReadyEvidence);
+  const allEvidenceItems = filteredEvidenceItems;
+  const toolbarOptions = buildEvidenceLibraryFilterOptions(
+    evidenceItems,
+    linkTargets,
+    projectCards,
+  );
   const entryGuidance = getEntryGuidance(selectedEntryIntent);
   const selectedResumeSource =
     resumeSources.find((resume) => resume.id === selectedResumeSourceId) ?? null;
@@ -1225,6 +1262,34 @@ export function ProfileEvidenceWorkspace({
     setFileStatus(null);
     setFileProcessing(null);
     setParseCard(null);
+  }
+
+  function openReviewDestination(destination: MaterialReviewTab) {
+    if (destination === "projects") {
+      setLibraryMode("library");
+      setLibraryView("stories");
+      return;
+    }
+    if (destination === "stories") {
+      setLibraryMode("library");
+      setLibraryView("interview_stories");
+      return;
+    }
+    setLibraryMode("work_queue");
+    if (destination === "enrichment") setWorkQueueView("enrichment");
+    if (destination === "claims") setWorkQueueView("claims");
+    if (destination === "unlinked") setWorkQueueView("unlinked");
+    if (destination === "cleanup") setWorkQueueView("cleanup");
+  }
+
+  function openLibraryAssetView(view: EvidenceAssetView) {
+    setLibraryMode("library");
+    setLibraryView(view);
+  }
+
+  function openWorkQueueView(view: EvidenceWorkQueueView) {
+    setLibraryMode("work_queue");
+    setWorkQueueView(view);
   }
 
   function resetProjectMaterialDraft() {
@@ -1384,7 +1449,7 @@ export function ProfileEvidenceWorkspace({
       targetType: target.targetType,
       title: target.targetTitle,
     });
-    setReviewTab("claims");
+    openWorkQueueView("claims");
   }
 
   function reviewStarStoryForStory(target: StoryEnrichmentTarget) {
@@ -1394,7 +1459,7 @@ export function ProfileEvidenceWorkspace({
       targetType: target.targetType,
       title: target.targetTitle,
     });
-    setReviewTab("stories");
+    openLibraryAssetView("interview_stories");
   }
 
   async function updateEvidence(
@@ -2003,14 +2068,14 @@ export function ProfileEvidenceWorkspace({
             />
           ) : null}
           <EvidencePriorityQueue
-            onOpenEnrichment={() => setReviewTab("enrichment")}
-            onOpenCleanup={() => setReviewTab("cleanup")}
+            onOpenEnrichment={() => openWorkQueueView("enrichment")}
+            onOpenCleanup={() => openWorkQueueView("cleanup")}
             onOpenClaims={() => {
               setEvidenceFocus(null);
-              setReviewTab("claims");
+              openWorkQueueView("claims");
             }}
-            onOpenStories={() => setReviewTab("stories")}
-            onOpenStoryTargets={() => setReviewTab("projects")}
+            onOpenStories={() => openLibraryAssetView("interview_stories")}
+            onOpenStoryTargets={() => openLibraryAssetView("stories")}
             onReturnToIntake={openGenericSourceIntake}
             enrichmentTaskCount={
               enrichmentTasks.filter((task) => task.status === "open" || task.status === "answered")
@@ -2023,57 +2088,141 @@ export function ProfileEvidenceWorkspace({
             library={library}
             summary={libraryReadiness}
           />
-          <div className="review-switcher" role="tablist" aria-label="Review Material panels">
+          <div className="library-mode-switcher" role="tablist" aria-label="Evidence Library mode">
             <button
-              data-active={reviewTab === "enrichment"}
+              data-active={libraryMode === "library"}
               type="button"
-              onClick={() => setReviewTab("enrichment")}
+              onClick={() => setLibraryMode("library")}
             >
-              Enrichment ({enrichmentTasks.filter((task) => task.status === "open" || task.status === "answered").length})
+              Library
             </button>
             <button
-              data-active={reviewTab === "projects"}
+              data-active={libraryMode === "work_queue"}
               type="button"
-              onClick={() => setReviewTab("projects")}
+              onClick={() => setLibraryMode("work_queue")}
             >
-              Stories ({workExperiences.length} roles · {initiatives.length + portfolioProjects.length} stories)
+              Work Queue
+            </button>
+          </div>
+
+          {libraryMode === "library" ? (
+            <>
+              <EvidenceLibraryToolbar
+                filters={libraryFilters}
+                onChange={setLibraryFilters}
+                options={toolbarOptions}
+              />
+              <div className="review-switcher review-switcher--library" role="tablist" aria-label="Library asset views">
+                <button
+                  data-active={libraryView === "ready"}
+                  type="button"
+                  onClick={() => openLibraryAssetView("ready")}
+                >
+                  Ready to Use ({readyEvidenceItems.length})
+                </button>
+                <button
+                  data-active={libraryView === "all"}
+                  type="button"
+                  onClick={() => openLibraryAssetView("all")}
+                >
+                  All Evidence ({allEvidenceItems.length})
+                </button>
+                <button
+                  data-active={libraryView === "stories"}
+                  type="button"
+                  onClick={() => openLibraryAssetView("stories")}
+                >
+                  Stories ({workExperiences.length} roles · {initiatives.length + portfolioProjects.length})
+                </button>
+                <button
+                  data-active={libraryView === "interview_stories"}
+                  type="button"
+                  onClick={() => openLibraryAssetView("interview_stories")}
+                >
+                  Interview Stories ({starStories.length})
+                </button>
+              </div>
+              {libraryView === "ready" ? (
+                <ReadyToUseLibraryView
+                  items={readyEvidenceItems}
+                  linkTargets={linkTargets}
+                  onOpenAllEvidence={() => openLibraryAssetView("all")}
+                  projects={projectCards}
+                />
+              ) : null}
+              {libraryView === "all" ? (
+                <EvidenceList
+                  description="Browse every source-backed claim in the library. Use filters above to narrow by reuse, status, sensitivity, source, role, or story."
+                  emptyMessage="No evidence matches the current library filters."
+                  items={allEvidenceItems}
+                  onUpdate={updateEvidence}
+                  projects={projectCards}
+                  linkTargets={linkTargets}
+                  title="All Evidence"
+                />
+              ) : null}
+              {libraryView === "stories" ? (
+                <StoryMaterialList
+                  evidenceItems={evidenceItems}
+                  initiatives={initiatives}
+                  onAssignStory={updateStoryAssignment}
+                  onEnrichStory={startProjectEnrichment}
+                  onReviewClaims={reviewClaimsForStory}
+                  onReviewStarStory={reviewStarStoryForStory}
+                  portfolioProjects={portfolioProjects}
+                  workExperiences={workExperiences}
+                />
+              ) : null}
+              {libraryView === "interview_stories" ? (
+                <StarStoryPanel
+                  focus={starStoryFocus}
+                  onImproveStory={startProjectEnrichment}
+                  stories={starStories}
+                  onRefresh={() => void loadStarStories()}
+                />
+              ) : null}
+            </>
+          ) : null}
+
+          {libraryMode === "work_queue" ? (
+            <>
+          <div className="review-switcher review-switcher--queue" role="tablist" aria-label="Work Queue panels">
+            <button
+              data-active={workQueueView === "enrichment"}
+              type="button"
+              onClick={() => openWorkQueueView("enrichment")}
+            >
+              Needs Enrichment ({enrichmentTasks.filter((task) => task.status === "open" || task.status === "answered").length})
             </button>
             <button
-              data-active={reviewTab === "claims"}
+              data-active={workQueueView === "claims"}
               type="button"
               onClick={() => {
                 setEvidenceFocus(null);
-                setReviewTab("claims");
+                openWorkQueueView("claims");
               }}
             >
-              Claims ({claimReviewEvidenceItems.length})
+              Claims to Review ({claimReviewEvidenceItems.length})
             </button>
             <button
-              data-active={reviewTab === "unlinked"}
+              data-active={workQueueView === "unlinked"}
               type="button"
               onClick={() => {
                 setEvidenceFocus(null);
-                setReviewTab("unlinked");
+                openWorkQueueView("unlinked");
               }}
             >
               {evidenceFocus ? "Focused" : "Unlinked"} ({focusedEvidenceItems.length})
             </button>
             <button
-              data-active={reviewTab === "cleanup"}
+              data-active={workQueueView === "cleanup"}
               type="button"
-              onClick={() => setReviewTab("cleanup")}
+              onClick={() => openWorkQueueView("cleanup")}
             >
               Cleanup ({storyDedupeCandidates.length + dedupeCandidates.length})
             </button>
-            <button
-              data-active={reviewTab === "stories"}
-              type="button"
-              onClick={() => setReviewTab("stories")}
-            >
-              STAR ({starStories.length})
-            </button>
           </div>
-          {reviewTab === "enrichment" ? (
+          {workQueueView === "enrichment" ? (
             <EnrichmentTaskQueue
               evidenceItems={evidenceItems}
               initiatives={initiatives}
@@ -2087,19 +2236,7 @@ export function ProfileEvidenceWorkspace({
               workExperiences={workExperiences}
             />
           ) : null}
-          {reviewTab === "projects" ? (
-            <StoryMaterialList
-              evidenceItems={evidenceItems}
-              initiatives={initiatives}
-              onAssignStory={updateStoryAssignment}
-              onEnrichStory={startProjectEnrichment}
-              onReviewClaims={reviewClaimsForStory}
-              onReviewStarStory={reviewStarStoryForStory}
-              portfolioProjects={portfolioProjects}
-              workExperiences={workExperiences}
-            />
-          ) : null}
-          {reviewTab === "claims" ? (
+          {workQueueView === "claims" ? (
             <>
             {evidenceFocus ? (
               <section className="focused-claims-banner">
@@ -2136,7 +2273,7 @@ export function ProfileEvidenceWorkspace({
             />
             </>
           ) : null}
-          {reviewTab === "unlinked" ? (
+          {workQueueView === "unlinked" ? (
             <>
             {evidenceFocus ? (
               <section className="focused-claims-banner">
@@ -2173,7 +2310,7 @@ export function ProfileEvidenceWorkspace({
             />
             </>
           ) : null}
-          {reviewTab === "cleanup" ? (
+          {workQueueView === "cleanup" ? (
             <DedupePanel
               evidenceCandidates={dedupeCandidates}
               onEvidenceKeepSeparate={keepEvidenceCandidateSeparate}
@@ -2183,13 +2320,7 @@ export function ProfileEvidenceWorkspace({
               storyCandidates={storyDedupeCandidates}
             />
           ) : null}
-          {reviewTab === "stories" ? (
-            <StarStoryPanel
-              focus={starStoryFocus}
-              onImproveStory={startProjectEnrichment}
-              stories={starStories}
-              onRefresh={() => void loadStarStories()}
-            />
+            </>
           ) : null}
         </div>
       ) : null}
@@ -2969,6 +3100,223 @@ function EvidencePriorityQueue({
           </button>
         ))}
       </div>
+    </section>
+  );
+}
+
+function EvidenceLibraryToolbar({
+  filters,
+  onChange,
+  options,
+}: {
+  filters: EvidenceLibraryFilters;
+  onChange: (filters: EvidenceLibraryFilters) => void;
+  options: {
+    rolesAndStories: Array<{ label: string; value: string }>;
+    sensitivities: string[];
+    sources: Array<{ label: string; value: string }>;
+    statuses: string[];
+    usages: string[];
+  };
+}) {
+  function update(patch: Partial<EvidenceLibraryFilters>) {
+    onChange({ ...filters, ...patch });
+  }
+  return (
+    <section className="evidence-library-toolbar" aria-label="Evidence Library search and filters">
+      <label className="evidence-library-toolbar__search">
+        <span>Search evidence, stories, roles</span>
+        <input
+          value={filters.query}
+          onChange={(event) => update({ query: event.target.value })}
+          placeholder="Search claims, source quotes, roles, or stories..."
+        />
+      </label>
+      <div className="evidence-library-toolbar__filters">
+        <label>
+          <span>Usage</span>
+          <select
+            value={filters.usage}
+            onChange={(event) => update({ usage: event.target.value })}
+          >
+            <option value="all">All usage</option>
+            {options.usages.map((usage) => (
+              <option key={usage} value={usage}>
+                {formatFilterLabel(usage)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Status</span>
+          <select
+            value={filters.status}
+            onChange={(event) => update({ status: event.target.value })}
+          >
+            <option value="all">All status</option>
+            {options.statuses.map((status) => (
+              <option key={status} value={status}>
+                {formatFilterLabel(status)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Role / story</span>
+          <select
+            value={filters.roleOrStory}
+            onChange={(event) => update({ roleOrStory: event.target.value })}
+          >
+            <option value="all">All roles and stories</option>
+            {options.rolesAndStories.map((target) => (
+              <option key={target.value} value={target.value}>
+                {target.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Source</span>
+          <select
+            value={filters.source}
+            onChange={(event) => update({ source: event.target.value })}
+          >
+            <option value="all">All sources</option>
+            {options.sources.map((source) => (
+              <option key={source.value} value={source.value}>
+                {source.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Sensitivity</span>
+          <select
+            value={filters.sensitivity}
+            onChange={(event) => update({ sensitivity: event.target.value })}
+          >
+            <option value="all">All sensitivity</option>
+            {options.sensitivities.map((sensitivity) => (
+              <option key={sensitivity} value={sensitivity}>
+                {formatFilterLabel(sensitivity)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="evidence-library-toolbar__toggles">
+        <label>
+          <input
+            checked={filters.hasMetricOnly}
+            type="checkbox"
+            onChange={(event) => update({ hasMetricOnly: event.target.checked })}
+          />
+          Has metric
+        </label>
+        <label>
+          <input
+            checked={filters.unlinkedOnly}
+            type="checkbox"
+            onChange={(event) => update({ unlinkedOnly: event.target.checked })}
+          />
+          Unlinked only
+        </label>
+      </div>
+    </section>
+  );
+}
+
+function ReadyToUseLibraryView({
+  items,
+  linkTargets,
+  onOpenAllEvidence,
+  projects,
+}: {
+  items: EvidenceCardItem[];
+  linkTargets: EvidenceLinkTargets;
+  onOpenAllEvidence: () => void;
+  projects: ProjectCardItem[];
+}) {
+  const resumeReadyCount = items.filter((item) =>
+    (item.allowed_usage ?? []).includes("resume"),
+  ).length;
+  const interviewReadyCount = items.filter((item) =>
+    (item.allowed_usage ?? []).includes("interview"),
+  ).length;
+  const coverLetterReadyCount = items.filter((item) =>
+    (item.allowed_usage ?? []).includes("cover_letter"),
+  ).length;
+  return (
+    <section className="ready-library" aria-label="Ready to use evidence assets">
+      <div className="ready-library__header">
+        <div>
+          <span className="eyebrow">Reusable assets</span>
+          <h3>Ready to Use</h3>
+          <p>
+            User-approved, external-safe claims that can support resume,
+            interview, and cover-letter workflows.
+          </p>
+        </div>
+        <div className="ready-library__metrics" aria-label="Ready asset counts">
+          <span><strong>{resumeReadyCount}</strong> resume</span>
+          <span><strong>{interviewReadyCount}</strong> interview</span>
+          <span><strong>{coverLetterReadyCount}</strong> cover letter</span>
+        </div>
+      </div>
+      {items.length === 0 ? (
+        <div className="empty-state-row">
+          <div>
+            <strong>No ready assets match these filters.</strong>
+            <p>Approve claims, review external-safe wording, or clear filters to browse candidates.</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={onOpenAllEvidence}>
+            Browse all evidence
+          </button>
+        </div>
+      ) : (
+        <div className="ready-asset-grid">
+          {items.slice(0, 12).map((item) => (
+            <article className="ready-asset-card" key={item.id ?? item.text}>
+              <div className="ready-asset-card__top">
+                <span>{formatEvidenceTypeLabel(item.evidence_type)}</span>
+                <em>{getEvidenceReadiness(item).label}</em>
+              </div>
+              <strong>{item.text}</strong>
+              <dl className="ready-asset-card__meta">
+                <div>
+                  <dt>Linked to</dt>
+                  <dd>{formatEvidenceLinkedTarget(item, linkTargets, projects)}</dd>
+                </div>
+                <div>
+                  <dt>Reusable in</dt>
+                  <dd>{formatReusableUsage(item)}</dd>
+                </div>
+                <div>
+                  <dt>Source</dt>
+                  <dd>{formatEvidenceSource(item)}</dd>
+                </div>
+                <div>
+                  <dt>Updated</dt>
+                  <dd>{formatRelativeDate(item.updatedAt)}</dd>
+                </div>
+              </dl>
+              <div className="chip-row">
+                {(item.allowed_usage ?? []).slice(0, 4).map((usage) => (
+                  <span className="chip" key={usage}>
+                    {formatFilterLabel(usage)}
+                  </span>
+                ))}
+                <span className="chip">{formatFilterLabel(item.sensitivity_level)}</span>
+              </div>
+              <div className="actions actions--compact">
+                <button className="secondary-button" type="button" onClick={onOpenAllEvidence}>
+                  View in evidence
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -3906,6 +4254,117 @@ function getEvidenceReadiness(item: EvidenceCardItem) {
   };
 }
 
+function filterEvidenceLibraryItems(
+  items: EvidenceCardItem[],
+  filters: EvidenceLibraryFilters,
+  linkTargets: EvidenceLinkTargets,
+  projects: ProjectCardItem[],
+) {
+  const query = filters.query.trim().toLowerCase();
+  return items.filter((item) => {
+    if (query) {
+      const haystack = [
+        item.text,
+        item.source_quote,
+        item.evidence_type,
+        item.sensitivity_level,
+        formatEvidenceLinkedTarget(item, linkTargets, projects),
+        formatReusableUsage(item),
+        formatEvidenceAssetStatus(item),
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    if (filters.usage !== "all" && !(item.allowed_usage ?? []).includes(filters.usage)) {
+      return false;
+    }
+    if (filters.status !== "all") {
+      const readiness = getEvidenceReadiness(item).state;
+      if (filters.status === "resume_ready" && readiness !== "resume_ready") return false;
+      if (filters.status === "approved" && item.status !== "approved") return false;
+      if (filters.status === "needs_review" && readiness === "resume_ready") return false;
+      if (
+        filters.status !== "resume_ready" &&
+        filters.status !== "approved" &&
+        filters.status !== "needs_review" &&
+        item.status !== filters.status
+      ) {
+        return false;
+      }
+    }
+    if (filters.sensitivity !== "all" && item.sensitivity_level !== filters.sensitivity) {
+      return false;
+    }
+    if (filters.source !== "all") {
+      const source = item.source_document_id ? `source:${item.source_document_id}` : "source:extracted";
+      if (source !== filters.source) return false;
+    }
+    if (filters.roleOrStory !== "all" && !evidenceMatchesTargetFilter(item, filters.roleOrStory)) {
+      return false;
+    }
+    if (filters.hasMetricOnly && !evidenceLooksMetricBacked(item)) return false;
+    if (filters.unlinkedOnly && !isEvidenceUnlinked(item)) return false;
+    return true;
+  });
+}
+
+function buildEvidenceLibraryFilterOptions(
+  items: EvidenceCardItem[],
+  linkTargets: EvidenceLinkTargets,
+  projects: ProjectCardItem[],
+) {
+  const rolesAndStories = buildEvidenceTargetOptions(linkTargets, projects);
+  const sensitivities = Array.from(new Set(items.map((item) => item.sensitivity_level))).sort();
+  const statuses = Array.from(
+    new Set([
+      ...items.map((item) => item.status),
+      "needs_review",
+      "resume_ready",
+      "approved",
+    ]),
+  ).sort();
+  const usages = Array.from(new Set(items.flatMap((item) => item.allowed_usage ?? []))).sort();
+  const sourceIds = Array.from(
+    new Set(items.map((item) => item.source_document_id).filter((id): id is string => Boolean(id))),
+  );
+  const sources = [
+    ...(items.some((item) => !item.source_document_id)
+      ? [{ label: "Extracted source", value: "source:extracted" }]
+      : []),
+    ...sourceIds.map((id, index) => ({
+      label: `Source document ${index + 1}`,
+      value: `source:${id}`,
+    })),
+  ];
+  return { rolesAndStories, sensitivities, sources, statuses, usages };
+}
+
+function evidenceMatchesTargetFilter(item: EvidenceCardItem, value: string) {
+  const [kind, id] = value.split(":");
+  if (!id) return false;
+  if (kind === "initiative") return item.related_initiative_id === id;
+  if (kind === "portfolio_project") return item.related_portfolio_project_id === id;
+  if (kind === "work_experience") return item.related_work_experience_id === id;
+  if (kind === "legacy_project") return item.related_project_id === id;
+  return false;
+}
+
+function evidenceLooksMetricBacked(item: EvidenceCardItem) {
+  return /\b\d+[%x]?\b|\bpercent\b|\bhours?\b|\bweeks?\b|\busers?\b|\brevenue\b|\bcost\b/i.test(
+    `${item.text} ${item.source_quote}`,
+  );
+}
+
+function isEvidenceUnlinked(item: EvidenceCardItem) {
+  return (
+    !item.related_work_experience_id &&
+    !item.related_initiative_id &&
+    !item.related_portfolio_project_id &&
+    !item.related_project_id
+  );
+}
+
 function isResumeReadyEvidence(item: EvidenceCardItem) {
   return (
     item.status === "approved" &&
@@ -3913,6 +4372,32 @@ function isResumeReadyEvidence(item: EvidenceCardItem) {
     (item.allowed_usage ?? []).includes("resume") &&
     hasExternalSafeDisclosure(item)
   );
+}
+
+function isReusableReadyEvidence(item: EvidenceCardItem) {
+  const reusableUsages = new Set(["resume", "interview", "cover_letter"]);
+  return (
+    item.status === "approved" &&
+    !item.needs_user_confirmation &&
+    hasExternalSafeDisclosure(item) &&
+    (item.allowed_usage ?? []).some((usage) => reusableUsages.has(usage))
+  );
+}
+
+function formatStoryReadinessLabel(readiness: StarStory["readiness"]) {
+  if (readiness === "ready") return "Ready";
+  if (readiness === "needs_review") return "Needs review";
+  return "Needs context";
+}
+
+function formatEvidenceTypeLabel(type: string) {
+  return formatFilterLabel(type);
+}
+
+function formatFilterLabel(value: string) {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function hasExternalSafeDisclosure(item: EvidenceCardItem) {
@@ -4576,12 +5061,13 @@ function StarStoryPanel({
     ? [...focusedStories, ...stories.filter((story) => !starStoryMatchesFocus(story, focus))]
     : stories;
   return (
-    <section className="section-block">
-      <div className="requirement__top">
+    <section className="section-block interview-stories">
+      <div className="section-block__top">
         <div>
-          <h3>STAR story bank</h3>
+          <h3>Interview Stories</h3>
+          <p>Reusable STAR stories generated from approved stories and evidence.</p>
           {focus ? (
-            <p className="requirement__quote">
+            <p>
               Focus: {focus.title} · {focusedStories.length > 0 ? "matched story first" : "no generated STAR story yet"}
             </p>
           ) : null}
@@ -4595,41 +5081,61 @@ function StarStoryPanel({
           No initiatives or portfolio projects are ready to promote into STAR stories yet.
         </p>
       ) : (
-        <div className="result-stack result-stack--inner">
+        <div className="interview-story-grid">
           {visibleStories.slice(0, 4).map((story) => (
             <article
-              className="requirement"
+              className="interview-story-card"
               data-focused={focus ? starStoryMatchesFocus(story, focus) : undefined}
               key={story.id}
             >
-              <div className="requirement__top">
-                <p className="requirement__text">{story.title}</p>
-                <span className="requirement__type">
-                  {story.story_target_type.replaceAll("_", " ")} · {story.readiness}
-                </span>
+              <div className="interview-story-card__top">
+                <div>
+                  <span>Behavioral interview story</span>
+                  <strong>{story.title}</strong>
+                </div>
+                <em data-readiness={story.readiness}>
+                  {formatStoryReadinessLabel(story.readiness)}
+                </em>
               </div>
               {story.internal_title && story.internal_title !== story.title ? (
-                <p className="requirement__quote">Internal title: {story.internal_title}</p>
+                <p className="interview-story-card__caption">Internal title: {story.internal_title}</p>
               ) : null}
-              {story.situation ? (
-                <p className="requirement__quote">S: {story.situation}</p>
-              ) : null}
-              {story.task ? (
-                <p className="requirement__quote">T: {story.task}</p>
-              ) : null}
-              {story.action.length > 0 ? (
-                <SectionList title="A" items={story.action.slice(0, 3)} />
-              ) : null}
-              {story.result.length > 0 ? (
-                <SectionList title="R" items={story.result.slice(0, 3)} />
-              ) : null}
+              <dl className="interview-story-card__star">
+                <div>
+                  <dt>S</dt>
+                  <dd>{story.situation || "Situation needs clearer context."}</dd>
+                </div>
+                <div>
+                  <dt>T</dt>
+                  <dd>{story.task || "Task needs clearer responsibility framing."}</dd>
+                </div>
+                <div>
+                  <dt>A</dt>
+                  <dd>
+                    {story.action.length > 0
+                      ? story.action.slice(0, 3).join(" · ")
+                      : "Actions need more detail."}
+                  </dd>
+                </div>
+                <div>
+                  <dt>R</dt>
+                  <dd>
+                    {story.result.length > 0
+                      ? story.result.slice(0, 3).join(" · ")
+                      : "Result needs evidence-backed impact."}
+                  </dd>
+                </div>
+              </dl>
               {story.external_safe_summary ? (
-                <p className="requirement__quote">
+                <p className="interview-story-card__summary">
                   External-safe: {story.external_safe_summary}
                 </p>
               ) : null}
+              <div className="interview-story-card__meta">
+                <span>Evidence backing: {story.evidence_count} claims</span>
+                <span>Type: {story.story_target_type.replaceAll("_", " ")}</span>
+              </div>
               <div className="chip-row">
-                <span className="chip">{story.evidence_count} evidence</span>
                 {story.metrics.slice(0, 3).map((metric) => (
                   <span className="chip" key={metric}>
                     {metric}
@@ -4642,38 +5148,50 @@ function StarStoryPanel({
                 ))}
               </div>
               {story.gaps.length > 0 ? (
-                <SectionList title="Gaps" items={story.gaps.slice(0, 3)} />
+                <div className="interview-story-card__gaps">
+                  <span>Gaps</span>
+                  <p>{story.gaps.slice(0, 3).join(" · ")}</p>
+                </div>
               ) : null}
               {story.story_target_type === "legacy_project" ? (
                 <div className="actions actions--compact">
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() =>
-                    onImproveStory({
-                      id: story.project_id,
-                      title: story.title,
-                      context: story.situation,
-                      problem: story.task,
-                      role: null,
-                      actions: story.action,
-                      results: story.result,
-                      metrics: story.metrics.map((metric) => ({
-                        value: metric,
-                        source_quote: metric,
-                      })),
-                      technologies: story.technologies,
-                      stakeholders: story.stakeholders,
-                      public_safe_summary: story.external_safe_summary,
-                      sensitivity_level: "private",
-                      status: story.status,
-                    })
-                  }
-                >
-                  Improve story
-                </button>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() =>
+                      onImproveStory({
+                        id: story.project_id,
+                        title: story.title,
+                        context: story.situation,
+                        problem: story.task,
+                        role: null,
+                        actions: story.action,
+                        results: story.result,
+                        metrics: story.metrics.map((metric) => ({
+                          value: metric,
+                          source_quote: metric,
+                        })),
+                        technologies: story.technologies,
+                        stakeholders: story.stakeholders,
+                        public_safe_summary: story.external_safe_summary,
+                        sensitivity_level: "private",
+                        status: story.status,
+                      })
+                    }
+                  >
+                    Improve story
+                  </button>
                 </div>
-              ) : null}
+              ) : (
+                <div className="actions actions--compact">
+                  <button className="secondary-button" type="button" disabled>
+                    Use in interview prep
+                  </button>
+                  <button className="secondary-button" type="button" disabled>
+                    View evidence
+                  </button>
+                </div>
+              )}
             </article>
           ))}
         </div>
