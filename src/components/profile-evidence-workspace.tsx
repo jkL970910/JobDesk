@@ -3128,7 +3128,7 @@ function EnrichmentTaskQueue({
                         </button>
                       </div>
                     ) : null}
-                    <label className="source-field">
+                    <label className="source-field enrichment-task-card__destination">
                       <span>{hasLibraryAnchor ? "Change destination" : "Use an existing destination"}</span>
                       <select
                         className="jd-input jd-input--compact"
