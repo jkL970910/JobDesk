@@ -30,6 +30,9 @@
   --radius-xs: 12px;
   --font-ui: "Aptos", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --font-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  --app-max-width: 1500px;
+  --app-topbar-space: 92px;
+  --app-header-space: 150px;
 }
 
 * {
@@ -38,6 +41,7 @@
 
 html {
   scroll-behavior: smooth;
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -48,7 +52,9 @@ body {
   color: var(--ink);
   font-family: var(--font-ui);
   margin: 0;
+  min-height: 100dvh;
   min-width: 320px;
+  overflow-y: scroll;
 }
 
 body::before {
@@ -136,9 +142,10 @@ textarea:focus-visible {
   display: grid;
   gap: 22px;
   margin: 0 auto;
-  max-width: 1500px;
-  min-height: 100vh;
+  max-width: var(--app-max-width);
+  min-height: 100dvh;
   padding: 18px 22px 46px;
+  width: 100%;
 }
 
 h1,
@@ -283,6 +290,8 @@ strong,
 .resume-workspace {
   display: grid;
   gap: 18px;
+  min-height: calc(100dvh - var(--app-topbar-space) - var(--app-header-space) - 96px);
+  width: 100%;
 }
 
 .resume-workspace__tabs {
@@ -445,7 +454,10 @@ strong,
   animation: page-enter 540ms var(--ease-out) both;
   display: flex;
   flex-direction: column;
+  margin-inline: auto;
+  min-height: calc(100dvh - var(--app-topbar-space));
   min-width: 0;
+  width: 100%;
 }
 
 .app-content__header {
@@ -453,6 +465,7 @@ strong,
   display: flex;
   gap: 24px;
   justify-content: space-between;
+  min-height: var(--app-header-space);
   padding: 18px 4px 4px;
 }
 
@@ -500,7 +513,9 @@ strong,
   animation: view-enter 560ms var(--ease-out) both;
   display: grid;
   gap: 18px;
+  min-height: calc(100dvh - var(--app-topbar-space) - var(--app-header-space) - 72px);
   padding: 18px 0 0;
+  width: 100%;
 }
 
 @keyframes page-enter {
@@ -529,6 +544,8 @@ strong,
 .profile-reference {
   display: grid;
   gap: 14px;
+  min-height: calc(100dvh - var(--app-topbar-space) - var(--app-header-space) - 96px);
+  width: 100%;
 }
 
 .hero-panel,
@@ -1135,11 +1152,15 @@ strong,
 .job-workspace-stack {
   display: grid;
   gap: 18px;
+  min-height: calc(100dvh - var(--app-topbar-space) - var(--app-header-space) - 96px);
+  width: 100%;
 }
 
 .resume-review-workspace {
   display: grid;
   gap: 18px;
+  min-height: calc(100dvh - var(--app-topbar-space) - var(--app-header-space) - 96px);
+  width: 100%;
 }
 
 .resume-upload-zone {
@@ -3337,11 +3358,14 @@ select {
   margin: 0;
   max-width: none;
   padding: 0;
+  width: 100%;
 }
 
 .material-workspace {
   display: grid;
   gap: 16px;
+  min-height: calc(100dvh - var(--app-topbar-space) - var(--app-header-space) - 96px);
+  width: 100%;
 }
 
 .material-workspace__tabs {
@@ -6423,6 +6447,11 @@ select:focus {
 }
 
 @media (max-width: 900px) {
+  :root {
+    --app-topbar-space: 132px;
+    --app-header-space: 118px;
+  }
+
   .jobdesk-shell {
     padding: 12px;
   }
