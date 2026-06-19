@@ -3133,76 +3133,54 @@ function EvidenceLibraryToolbar({
         />
       </label>
       <div className="evidence-library-toolbar__filters">
-        <label>
-          <span>Usage</span>
-          <select
-            value={filters.usage}
-            onChange={(event) => update({ usage: event.target.value })}
-          >
-            <option value="all">All usage</option>
-            {options.usages.map((usage) => (
-              <option key={usage} value={usage}>
-                {formatFilterLabel(usage)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Status</span>
-          <select
-            value={filters.status}
-            onChange={(event) => update({ status: event.target.value })}
-          >
-            <option value="all">All status</option>
-            {options.statuses.map((status) => (
-              <option key={status} value={status}>
-                {formatFilterLabel(status)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Role / story</span>
-          <select
-            value={filters.roleOrStory}
-            onChange={(event) => update({ roleOrStory: event.target.value })}
-          >
-            <option value="all">All roles and stories</option>
-            {options.rolesAndStories.map((target) => (
-              <option key={target.value} value={target.value}>
-                {target.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Source</span>
-          <select
-            value={filters.source}
-            onChange={(event) => update({ source: event.target.value })}
-          >
-            <option value="all">All sources</option>
-            {options.sources.map((source) => (
-              <option key={source.value} value={source.value}>
-                {source.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Sensitivity</span>
-          <select
-            value={filters.sensitivity}
-            onChange={(event) => update({ sensitivity: event.target.value })}
-          >
-            <option value="all">All sensitivity</option>
-            {options.sensitivities.map((sensitivity) => (
-              <option key={sensitivity} value={sensitivity}>
-                {formatFilterLabel(sensitivity)}
-              </option>
-            ))}
-          </select>
-        </label>
+        <ThemeSelect
+          label="Usage"
+          value={filters.usage}
+          options={[
+            { label: "All usage", value: "all" },
+            ...options.usages.map((usage) => ({
+              label: formatFilterLabel(usage),
+              value: usage,
+            })),
+          ]}
+          onChange={(usage) => update({ usage })}
+        />
+        <ThemeSelect
+          label="Status"
+          value={filters.status}
+          options={[
+            { label: "All status", value: "all" },
+            ...options.statuses.map((status) => ({
+              label: formatFilterLabel(status),
+              value: status,
+            })),
+          ]}
+          onChange={(status) => update({ status })}
+        />
+        <ThemeSelect
+          label="Role / story"
+          value={filters.roleOrStory}
+          options={[{ label: "All roles and stories", value: "all" }, ...options.rolesAndStories]}
+          onChange={(roleOrStory) => update({ roleOrStory })}
+        />
+        <ThemeSelect
+          label="Source"
+          value={filters.source}
+          options={[{ label: "All sources", value: "all" }, ...options.sources]}
+          onChange={(source) => update({ source })}
+        />
+        <ThemeSelect
+          label="Sensitivity"
+          value={filters.sensitivity}
+          options={[
+            { label: "All sensitivity", value: "all" },
+            ...options.sensitivities.map((sensitivity) => ({
+              label: formatFilterLabel(sensitivity),
+              value: sensitivity,
+            })),
+          ]}
+          onChange={(sensitivity) => update({ sensitivity })}
+        />
       </div>
       <div className="evidence-library-toolbar__toggles">
         <label>
@@ -3223,6 +3201,74 @@ function EvidenceLibraryToolbar({
         </label>
       </div>
     </section>
+  );
+}
+
+function ThemeSelect({
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  options: Array<{ label: string; value: string }>;
+  value: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selected = options.find((option) => option.value === value) ?? options[0];
+  const listboxId = `theme-select-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  return (
+    <div className="theme-select">
+      <span>{label}</span>
+      <button
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        aria-controls={listboxId}
+        className="theme-select__trigger"
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        onBlur={(event) => {
+          if (!event.currentTarget.parentElement?.contains(event.relatedTarget)) {
+            setIsOpen(false);
+          }
+        }}
+      >
+        <span>{selected?.label ?? "Select"}</span>
+        <em aria-hidden="true">⌄</em>
+      </button>
+      {isOpen ? (
+        <div
+          className="theme-select__menu"
+          id={listboxId}
+          role="listbox"
+          tabIndex={-1}
+          onBlur={(event) => {
+            if (!event.currentTarget.parentElement?.contains(event.relatedTarget)) {
+              setIsOpen(false);
+            }
+          }}
+        >
+          {options.map((option) => (
+            <button
+              aria-selected={option.value === value}
+              className="theme-select__option"
+              data-selected={option.value === value}
+              key={option.value}
+              role="option"
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onChange(option.value);
+                setIsOpen(false);
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
