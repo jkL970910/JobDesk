@@ -1979,8 +1979,11 @@ export function ProfileEvidenceWorkspace({
             }
             summary={libraryReadiness}
           />
-          {profile ? <ProfileSummary extraction={result} /> : <LibrarySummary library={library} />}
-          <LibraryReadinessSummary summary={libraryReadiness} />
+          <LibraryOverviewSummary
+            extraction={profile ? result : null}
+            library={library}
+            summary={libraryReadiness}
+          />
           <div className="review-switcher" role="tablist" aria-label="Review Material panels">
             <button
               data-active={reviewTab === "enrichment"}
@@ -2797,36 +2800,43 @@ function GuidedMaterialBuilder({
   );
 }
 
-function LibraryReadinessSummary({
+function LibraryOverviewSummary({
+  extraction,
+  library,
   summary,
 }: {
+  extraction: ProfileEvidenceExtraction | null;
+  library: EvidenceLibrary | null;
   summary: ReturnType<typeof summarizeLibraryReadiness>;
 }) {
   return (
-    <section className="library-readiness" aria-label="Material Library readiness">
-      <article>
-        <span>Projects needing context</span>
-        <strong>{summary.projectsNeedingContext}</strong>
-        <p>
-          {summary.projectsNeedingContext > 0
-            ? "Add problem, role, actions, results, metrics, and public-safe wording."
-            : `${summary.storyReadyProjects} story target${summary.storyReadyProjects === 1 ? "" : "s"} ready`}
-        </p>
-      </article>
-      <article>
-        <span>Claims awaiting review</span>
-        <strong>{summary.evidenceNeedingReview}</strong>
-        <p>
-          {summary.evidenceNeedingReview > 0
-            ? "Review truth, confirmation, sensitivity, and resume usage."
-            : `${summary.resumeReadyEvidence} resume-ready claim${summary.resumeReadyEvidence === 1 ? "" : "s"}`}
-        </p>
-      </article>
-      <article>
-        <span>Next best action</span>
-        <strong>{summary.nextActionTitle}</strong>
-        <p>{summary.nextActionDetail}</p>
-      </article>
+    <section className="library-overview" aria-label="Material Library readiness">
+      {extraction ? <ProfileSummary extraction={extraction} /> : <LibrarySummary library={library} />}
+      <div className="library-readiness">
+        <article>
+          <span>Projects needing context</span>
+          <strong>{summary.projectsNeedingContext}</strong>
+          <p>
+            {summary.projectsNeedingContext > 0
+              ? "Add problem, role, actions, results, metrics, and public-safe wording."
+              : `${summary.storyReadyProjects} story target${summary.storyReadyProjects === 1 ? "" : "s"} ready`}
+          </p>
+        </article>
+        <article>
+          <span>Claims awaiting review</span>
+          <strong>{summary.evidenceNeedingReview}</strong>
+          <p>
+            {summary.evidenceNeedingReview > 0
+              ? "Review truth, confirmation, sensitivity, and resume usage."
+              : `${summary.resumeReadyEvidence} resume-ready claim${summary.resumeReadyEvidence === 1 ? "" : "s"}`}
+          </p>
+        </article>
+        <article>
+          <span>Next best action</span>
+          <strong>{summary.nextActionTitle}</strong>
+          <p>{summary.nextActionDetail}</p>
+        </article>
+      </div>
     </section>
   );
 }
@@ -4006,7 +4016,7 @@ function ProfileSummary({
   if (!extraction) return null;
   const profile = extraction.profile;
   return (
-    <section className="job-facts">
+    <div className="library-overview__profile">
       <div className="chip-row">
         <span className="chip">Name: {profile.name.value}</span>
         {profile.location ? (
@@ -4018,7 +4028,7 @@ function ProfileSummary({
           </span>
         ))}
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -4031,7 +4041,7 @@ function LibrarySummary({ library }: { library: EvidenceLibrary | null }) {
     );
   }
   return (
-    <section className="job-facts">
+    <div className="library-overview__profile">
       <p className="requirement__text">
         Latest profile: {library?.profile?.displayName ?? "Unnamed profile"}
       </p>
@@ -4041,7 +4051,7 @@ function LibrarySummary({ library }: { library: EvidenceLibrary | null }) {
         {library?.initiatives.length ?? 0} initiatives ·{" "}
         {library?.portfolioProjects.length ?? 0} portfolio projects
       </p>
-    </section>
+    </div>
   );
 }
 

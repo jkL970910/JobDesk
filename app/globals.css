@@ -3709,6 +3709,30 @@ select:focus {
   margin-bottom: 14px;
 }
 
+.library-overview {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.032), rgba(255, 255, 255, 0.014)),
+    rgba(8, 12, 20, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.082);
+  border-radius: 14px;
+  display: grid;
+  gap: 0;
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+
+.library-overview__profile {
+  padding: 14px 16px;
+}
+
+.library-overview__profile .requirement__text {
+  margin: 0;
+}
+
+.library-overview__profile .requirement__quote {
+  margin-bottom: 0;
+}
+
 .material-type-picker {
   background: rgba(255, 255, 255, 0.018);
   border: 1px solid rgba(255, 255, 255, 0.065);
@@ -3798,8 +3822,7 @@ select:focus {
 }
 
 .onboarding-paths article,
-.onboarding-path,
-.library-readiness article {
+.onboarding-path {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.018)),
     var(--panel-soft);
@@ -3808,6 +3831,17 @@ select:focus {
   display: grid;
   gap: 7px;
   padding: 12px;
+}
+
+.library-readiness article {
+  border-left: 1px solid rgba(255, 255, 255, 0.065);
+  display: grid;
+  gap: 7px;
+  padding: 14px 16px;
+}
+
+.library-readiness article:first-child {
+  border-left: 0;
 }
 
 .onboarding-path {
@@ -4295,7 +4329,9 @@ select:focus {
 }
 
 .library-readiness {
+  border-top: 1px solid rgba(255, 255, 255, 0.065);
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 0;
 }
 
 .library-readiness strong {
@@ -5943,6 +5979,12 @@ select:focus {
 
   .story-target-row__detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .library-readiness article,
+  .library-readiness article:first-child {
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.065);
   }
 
   .source-field--wide {
