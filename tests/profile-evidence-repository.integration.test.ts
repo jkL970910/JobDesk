@@ -9,7 +9,12 @@ import {
   upsertEnrichmentTasks,
 } from "../src/server/enrichment-task-repository";
 import { getDb } from "../src/db/client";
-import { evidenceItems, resumeSourceVersions, sourceDocuments } from "../src/db/schema";
+import {
+  enrichmentTaskTargets,
+  evidenceItems,
+  resumeSourceVersions,
+  sourceDocuments,
+} from "../src/db/schema";
 import {
   getEvidenceDedupeCandidates,
   getProjectDedupeCandidates,
@@ -160,6 +165,11 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     if (aiTaskQueue.status !== "ready") throw new Error("Expected AI task queue.");
     const aiTask = aiTaskQueue.tasks.find((task) => task.prompt === aiAnswerPrompt);
     if (!aiTask) throw new Error("Expected AI extraction task.");
+    expect(aiTask).toMatchObject({
+      target_scope: "assign_later",
+      expected_outcome: "clarify_assignment",
+      targets: [],
+    });
     const aiAnswer = "Increased onboarding activation by 12% across three cohorts.";
     await updateEnrichmentTask({
       taskId: aiTask.id,
@@ -809,6 +819,11 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
     const task = queue.tasks.find((item) => item.prompt === prompt);
     expect(task?.evidence_item_id).toBeTruthy();
+    expect(task).toMatchObject({
+      target_scope: "evidence_detail",
+      expected_outcome: "update_evidence",
+    });
+    expect(task?.targets.some((target) => target.target_kind === "evidence")).toBe(true);
 
     const [alternateEvidence] = await db
       .select()
@@ -825,7 +840,27 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       status: "saved",
       task: {
         evidence_item_id: alternateEvidence.id,
+        target_scope: "evidence_detail",
       },
+    });
+    if (linked.status !== "saved") throw new Error("Expected linked task.");
+    expect(
+      linked.task.targets.some(
+        (target) =>
+          target.target_kind === "evidence" &&
+          target.target_id === alternateEvidence.id &&
+          target.target_role === "primary",
+      ),
+    ).toBe(true);
+    const persistedTargets = await db
+      .select()
+      .from(enrichmentTaskTargets)
+      .where(eq(enrichmentTaskTargets.taskId, task.id));
+    expect(persistedTargets).toHaveLength(1);
+    expect(persistedTargets[0]).toMatchObject({
+      targetKind: "evidence",
+      targetId: alternateEvidence.id,
+      targetRole: "primary",
     });
   });
 });

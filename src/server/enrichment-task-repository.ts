@@ -10,6 +10,7 @@ import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extr
 import type { JobDeskAiFailureKind, JobDeskAiSkillBinding } from "../ai/types";
 import { getDb, hasDatabaseUrl } from "../db/client";
 import {
+  enrichmentTaskTargets,
   enrichmentTasks,
   evidenceItems,
   initiatives,
@@ -19,6 +20,11 @@ import {
   workflowRuns,
   type enrichmentTaskSourceTypeEnum,
   type enrichmentTaskStatusEnum,
+  type enrichmentTaskExpectedOutcomeEnum,
+  type enrichmentTaskTargetConfidenceEnum,
+  type enrichmentTaskTargetKindEnum,
+  type enrichmentTaskTargetRoleEnum,
+  type enrichmentTaskTargetScopeEnum,
   type enrichmentTaskTypeEnum,
 } from "../db/schema";
 import { workflowSkillFields } from "./workflow-run-metadata";
@@ -32,6 +38,24 @@ export type EnrichmentTaskStatus =
   (typeof enrichmentTaskStatusEnum.enumValues)[number];
 export type EnrichmentTaskSourceType =
   (typeof enrichmentTaskSourceTypeEnum.enumValues)[number];
+export type EnrichmentTaskTargetScope =
+  (typeof enrichmentTaskTargetScopeEnum.enumValues)[number];
+export type EnrichmentTaskTargetConfidence =
+  (typeof enrichmentTaskTargetConfidenceEnum.enumValues)[number];
+export type EnrichmentTaskExpectedOutcome =
+  (typeof enrichmentTaskExpectedOutcomeEnum.enumValues)[number];
+export type EnrichmentTaskTargetKind =
+  (typeof enrichmentTaskTargetKindEnum.enumValues)[number];
+export type EnrichmentTaskTargetRole =
+  (typeof enrichmentTaskTargetRoleEnum.enumValues)[number];
+
+export type EnrichmentTaskTargetPayload = {
+  target_kind: EnrichmentTaskTargetKind;
+  target_id: string;
+  target_role: EnrichmentTaskTargetRole;
+  confidence: EnrichmentTaskTargetConfidence;
+  reason: string | null;
+};
 
 export type EnrichmentTaskQueueFilters = {
   limit?: number;
@@ -106,10 +130,11 @@ export async function getEnrichmentTaskQueue(filters: EnrichmentTaskQueueFilters
       desc(enrichmentTasks.updatedAt),
     )
     .limit(limit);
+  const targetMap = await getTaskTargetMap(db, rows.map((row) => row.id));
 
   return {
     status: "ready" as const,
-    tasks: rows.map(toEnrichmentTaskPayload),
+    tasks: rows.map((row) => toEnrichmentTaskPayload(row, targetMap.get(row.id))),
   };
 }
 
@@ -119,7 +144,7 @@ function clampQueueLimit(limit?: number) {
 }
 
 export async function upsertEnrichmentTasks(
-  db: Pick<DbHandle, "insert">,
+  db: Pick<DbHandle, "insert" | "delete">,
   args: {
     workspaceId: string;
     tasks: EnrichmentTaskDraft[];
@@ -144,6 +169,7 @@ export async function upsertEnrichmentTasks(
         sourceLabel: task.sourceLabel,
         prompt: task.prompt,
         dedupeKey: buildEnrichmentDedupeKey(task),
+        ...deriveTaskTargetMetadata(task),
         evidenceItemId: task.evidenceItemId ?? null,
         workExperienceId: task.workExperienceId ?? null,
         initiativeId: task.initiativeId ?? null,
@@ -165,6 +191,15 @@ export async function upsertEnrichmentTasks(
       })
       .returning();
     if (row) inserted.push(row);
+    if (row) {
+      await replaceTaskTargets(db, {
+        workspaceId: args.workspaceId,
+        taskId: row.id,
+        anchor: task,
+        reason: "Initial target inferred from task source.",
+        confidence: hasReusableLibraryAnchor(task) ? "medium" : "low",
+      });
+    }
   }
   return inserted;
 }
@@ -259,6 +294,10 @@ export async function updateEnrichmentTask(args: {
     patch.workExperienceId = anchor.anchor.workExperienceId ?? null;
     patch.initiativeId = anchor.anchor.initiativeId ?? null;
     patch.portfolioProjectId = anchor.anchor.portfolioProjectId ?? null;
+    Object.assign(
+      patch,
+      deriveTaskTargetMetadata(anchor.anchor, "User selected this destination."),
+    );
   }
 
   const [updated] = await db
@@ -266,13 +305,28 @@ export async function updateEnrichmentTask(args: {
     .set(patch)
     .where(and(eq(enrichmentTasks.workspaceId, workspace.id), eq(enrichmentTasks.id, args.taskId)))
     .returning();
+  if (updated && args.action === "link") {
+    await replaceTaskTargets(db, {
+      workspaceId: workspace.id,
+      taskId: updated.id,
+      anchor: {
+        evidenceItemId: updated.evidenceItemId,
+        workExperienceId: updated.workExperienceId,
+        initiativeId: updated.initiativeId,
+        portfolioProjectId: updated.portfolioProjectId,
+      },
+      reason: "User selected this destination.",
+      confidence: "high",
+    });
+  }
+  const targetMap = updated ? await getTaskTargetMap(db, [updated.id]) : new Map();
   return updated
-    ? ({ status: "saved" as const, task: toEnrichmentTaskPayload(updated) })
+    ? ({ status: "saved" as const, task: toEnrichmentTaskPayload(updated, targetMap.get(updated.id)) })
     : ({ status: "not_found" as const });
 }
 
 export async function reconcileResumeReviewEnrichmentTasksForSource(
-  db: Pick<DbHandle, "select" | "update">,
+  db: Pick<DbHandle, "delete" | "insert" | "select" | "update">,
   args: {
     workspaceId: string;
     resumeSourceVersionId: string;
@@ -314,6 +368,7 @@ export async function reconcileResumeReviewEnrichmentTasksForSource(
         workExperienceId: anchor.workExperienceId ?? null,
         initiativeId: anchor.initiativeId ?? null,
         portfolioProjectId: anchor.portfolioProjectId ?? null,
+        ...deriveTaskTargetMetadata(anchor, "Automatically matched to material from the same source."),
         updatedAt: now,
       })
       .where(
@@ -327,7 +382,16 @@ export async function reconcileResumeReviewEnrichmentTasksForSource(
         ),
       )
       .returning({ id: enrichmentTasks.id });
-    if (updated) updatedCount += 1;
+    if (updated) {
+      await replaceTaskTargets(db, {
+        workspaceId: args.workspaceId,
+        taskId: updated.id,
+        anchor,
+        reason: "Automatically matched to material from the same source.",
+        confidence: "medium",
+      });
+      updatedCount += 1;
+    }
   }
   return { updatedCount };
 }
@@ -348,9 +412,10 @@ async function convertEnrichmentTaskToEvidenceCandidate(
     return { status: "invalid" as const, reason: "missing_answer" as const };
   }
   if (args.task.status === "converted" && args.task.evidenceItemId) {
+    const targetMap = await getTaskTargetMap(db, [args.task.id]);
     return {
       status: "saved" as const,
-      task: toEnrichmentTaskPayload(args.task),
+      task: toEnrichmentTaskPayload(args.task, targetMap.get(args.task.id)),
       evidenceItemId: args.task.evidenceItemId,
     };
   }
@@ -440,10 +505,23 @@ async function convertEnrichmentTaskToEvidenceCandidate(
       .where(and(eq(enrichmentTasks.workspaceId, args.task.workspaceId), eq(enrichmentTasks.id, args.task.id)))
       .returning();
     if (!updated) throw new Error("Failed to mark enrichment task converted.");
+    await replaceTaskTargets(tx, {
+      workspaceId: args.task.workspaceId,
+      taskId: updated.id,
+      anchor: {
+        evidenceItemId: updated.evidenceItemId,
+        workExperienceId: updated.workExperienceId,
+        initiativeId: updated.initiativeId,
+        portfolioProjectId: updated.portfolioProjectId,
+      },
+      reason: "Converted answer created this evidence candidate.",
+      confidence: "medium",
+    });
+    const targetMap = await getTaskTargetMap(tx, [updated.id]);
 
     return {
       status: "saved" as const,
-      task: toEnrichmentTaskPayload(updated),
+      task: toEnrichmentTaskPayload(updated, targetMap.get(updated.id)),
       evidenceItemId: insertedEvidence[0]?.id ?? null,
       evidenceCount: insertedEvidence.length,
       conversionMode: aiExtraction ? "ai_extraction" as const : "fallback" as const,
@@ -783,7 +861,128 @@ function normalizeText(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function toEnrichmentTaskPayload(task: typeof enrichmentTasks.$inferSelect) {
+async function getTaskTargetMap(
+  db: Pick<DbHandle, "select">,
+  taskIds: string[],
+) {
+  if (taskIds.length === 0) return new Map<string, EnrichmentTaskTargetPayload[]>();
+  const rows = await db
+    .select()
+    .from(enrichmentTaskTargets)
+    .where(inArray(enrichmentTaskTargets.taskId, taskIds));
+  const map = new Map<string, EnrichmentTaskTargetPayload[]>();
+  for (const row of rows) {
+    const targets = map.get(row.taskId) ?? [];
+    targets.push({
+      target_kind: row.targetKind,
+      target_id: row.targetId,
+      target_role: row.targetRole,
+      confidence: row.confidence,
+      reason: row.reason,
+    });
+    map.set(row.taskId, targets);
+  }
+  return map;
+}
+
+async function replaceTaskTargets(
+  db: Pick<DbHandle, "delete" | "insert">,
+  args: {
+    workspaceId: string;
+    taskId: string;
+    anchor: ReusableLibraryAnchor;
+    confidence: EnrichmentTaskTargetConfidence;
+    reason: string;
+  },
+) {
+  await db
+    .delete(enrichmentTaskTargets)
+    .where(eq(enrichmentTaskTargets.taskId, args.taskId));
+  const targets = buildTargetRows(args.anchor, {
+    confidence: args.confidence,
+    reason: args.reason,
+    taskId: args.taskId,
+    workspaceId: args.workspaceId,
+  });
+  if (targets.length === 0) return [];
+  return db.insert(enrichmentTaskTargets).values(targets).returning();
+}
+
+function buildTargetRows(
+  anchor: ReusableLibraryAnchor,
+  args: {
+    confidence: EnrichmentTaskTargetConfidence;
+    reason: string;
+    taskId: string;
+    workspaceId: string;
+  },
+) {
+  const rows: Array<typeof enrichmentTaskTargets.$inferInsert> = [];
+  const add = (targetKind: EnrichmentTaskTargetKind, targetId?: string | null) => {
+    if (!targetId) return;
+    rows.push({
+      workspaceId: args.workspaceId,
+      taskId: args.taskId,
+      targetKind,
+      targetId,
+      targetRole: rows.length === 0 ? "primary" : "parent",
+      confidence: args.confidence,
+      reason: args.reason,
+    });
+  };
+  add("evidence", anchor.evidenceItemId);
+  add("initiative", anchor.initiativeId);
+  add("portfolio_project", anchor.portfolioProjectId);
+  add("work_experience", anchor.workExperienceId);
+  return rows;
+}
+
+function deriveTaskTargetMetadata(
+  anchor: ReusableLibraryAnchor,
+  reason?: string,
+): {
+  targetScope: EnrichmentTaskTargetScope;
+  targetConfidence: EnrichmentTaskTargetConfidence;
+  targetReason: string;
+  expectedOutcome: EnrichmentTaskExpectedOutcome;
+} {
+  if (anchor.evidenceItemId) {
+    return {
+      targetScope: "evidence_detail",
+      targetConfidence: "medium",
+      targetReason: reason ?? "This question is attached to a specific evidence claim.",
+      expectedOutcome: "update_evidence",
+    };
+  }
+  if (anchor.initiativeId || anchor.portfolioProjectId) {
+    return {
+      targetScope: "story_context",
+      targetConfidence: "medium",
+      targetReason: reason ?? "This question is attached to a project or story.",
+      expectedOutcome: "update_story",
+    };
+  }
+  if (anchor.workExperienceId) {
+    return {
+      targetScope: "role_context",
+      targetConfidence: "medium",
+      targetReason: reason ?? "This question is attached to a role-level experience.",
+      expectedOutcome: "update_role",
+    };
+  }
+  return {
+    targetScope: "assign_later",
+    targetConfidence: "low",
+    targetReason: reason ?? "No reusable library target is attached yet.",
+    expectedOutcome: "clarify_assignment",
+  };
+}
+
+function toEnrichmentTaskPayload(
+  task: typeof enrichmentTasks.$inferSelect,
+  targets: EnrichmentTaskTargetPayload[] = [],
+) {
+  const fallbackTargets = targets.length > 0 ? targets : buildFallbackTargetPayloads(task);
   return {
     id: task.id,
     task_type: task.taskType,
@@ -792,6 +991,11 @@ function toEnrichmentTaskPayload(task: typeof enrichmentTasks.$inferSelect) {
     source_label: task.sourceLabel,
     prompt: task.prompt,
     user_answer: task.userAnswer,
+    target_scope: task.targetScope,
+    target_confidence: task.targetConfidence,
+    target_reason: task.targetReason,
+    expected_outcome: task.expectedOutcome,
+    targets: fallbackTargets,
     evidence_item_id: task.evidenceItemId,
     work_experience_id: task.workExperienceId,
     initiative_id: task.initiativeId,
@@ -804,4 +1008,29 @@ function toEnrichmentTaskPayload(task: typeof enrichmentTasks.$inferSelect) {
     convertedAt: task.convertedAt?.toISOString() ?? null,
     dismissedAt: task.dismissedAt?.toISOString() ?? null,
   };
+}
+
+function buildFallbackTargetPayloads(
+  task: typeof enrichmentTasks.$inferSelect,
+): EnrichmentTaskTargetPayload[] {
+  return buildTargetRows(
+    {
+      evidenceItemId: task.evidenceItemId,
+      initiativeId: task.initiativeId,
+      portfolioProjectId: task.portfolioProjectId,
+      workExperienceId: task.workExperienceId,
+    },
+    {
+      confidence: task.targetConfidence ?? "low",
+      reason: task.targetReason ?? "Fallback from legacy destination fields.",
+      taskId: task.id,
+      workspaceId: task.workspaceId,
+    },
+  ).map((row) => ({
+    target_kind: row.targetKind,
+    target_id: row.targetId,
+    target_role: row.targetRole ?? "primary",
+    confidence: row.confidence ?? "low",
+    reason: row.reason ?? null,
+  }));
 }

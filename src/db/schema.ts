@@ -124,6 +124,39 @@ export const enrichmentTaskSourceTypeEnum = pgEnum("enrichment_task_source_type"
   "jd_gap",
   "user_input",
 ]);
+export const enrichmentTaskTargetScopeEnum = pgEnum("enrichment_task_target_scope", [
+  "evidence_detail",
+  "story_context",
+  "role_context",
+  "source_material",
+  "assign_later",
+]);
+export const enrichmentTaskTargetConfidenceEnum = pgEnum(
+  "enrichment_task_target_confidence",
+  ["low", "medium", "high"],
+);
+export const enrichmentTaskExpectedOutcomeEnum = pgEnum(
+  "enrichment_task_expected_outcome",
+  [
+    "create_evidence",
+    "update_evidence",
+    "update_story",
+    "update_role",
+    "clarify_assignment",
+  ],
+);
+export const enrichmentTaskTargetKindEnum = pgEnum("enrichment_task_target_kind", [
+  "evidence",
+  "initiative",
+  "portfolio_project",
+  "work_experience",
+]);
+export const enrichmentTaskTargetRoleEnum = pgEnum("enrichment_task_target_role", [
+  "primary",
+  "parent",
+  "suggested",
+  "previous",
+]);
 export const portfolioProjectTypeEnum = pgEnum("portfolio_project_type", [
   "personal_project",
   "academic_project",
@@ -899,6 +932,16 @@ export const enrichmentTasks = pgTable(
     prompt: text("prompt").notNull(),
     userAnswer: text("user_answer"),
     dedupeKey: varchar("dedupe_key", { length: 320 }).notNull(),
+    targetScope: enrichmentTaskTargetScopeEnum("target_scope")
+      .notNull()
+      .default("assign_later"),
+    targetConfidence: enrichmentTaskTargetConfidenceEnum("target_confidence")
+      .notNull()
+      .default("low"),
+    targetReason: text("target_reason"),
+    expectedOutcome: enrichmentTaskExpectedOutcomeEnum("expected_outcome")
+      .notNull()
+      .default("clarify_assignment"),
     evidenceItemId: uuid("evidence_item_id").references(() => evidenceItems.id, {
       onDelete: "set null",
     }),
@@ -939,6 +982,47 @@ export const enrichmentTasks = pgTable(
     uniqueDedupeIdx: uniqueIndex("enrichment_tasks_workspace_dedupe_idx").on(
       table.workspaceId,
       table.dedupeKey,
+    ),
+  }),
+);
+
+export const enrichmentTaskTargets = pgTable(
+  "enrichment_task_targets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => enrichmentTasks.id, { onDelete: "cascade" }),
+    targetKind: enrichmentTaskTargetKindEnum("target_kind").notNull(),
+    targetId: uuid("target_id").notNull(),
+    targetRole: enrichmentTaskTargetRoleEnum("target_role").notNull().default("primary"),
+    confidence: enrichmentTaskTargetConfidenceEnum("confidence").notNull().default("medium"),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    taskRoleIdx: index("enrichment_task_targets_task_role_idx").on(
+      table.taskId,
+      table.targetRole,
+    ),
+    workspaceKindIdx: index("enrichment_task_targets_workspace_kind_idx").on(
+      table.workspaceId,
+      table.targetKind,
+      table.targetId,
+    ),
+    uniqueTaskTargetIdx: uniqueIndex("enrichment_task_targets_unique_idx").on(
+      table.taskId,
+      table.targetKind,
+      table.targetId,
+      table.targetRole,
     ),
   }),
 );
@@ -1094,6 +1178,7 @@ export const workspaceRelations = relations(workspaces, ({ many, one }) => ({
   profilePositioningReports: many(profilePositioningReports),
   generatedClaims: many(generatedClaims),
   enrichmentTasks: many(enrichmentTasks),
+  enrichmentTaskTargets: many(enrichmentTaskTargets),
   embeddings: many(embeddings),
   interviewPrepPacks: many(interviewPrepPacks),
   workflowRuns: many(workflowRuns),
@@ -1249,6 +1334,17 @@ export const enrichmentTaskRelations = relations(enrichmentTasks, ({ one }) => (
   resumeReviewReport: one(resumeReviewReports, {
     fields: [enrichmentTasks.resumeReviewReportId],
     references: [resumeReviewReports.id],
+  }),
+}));
+
+export const enrichmentTaskTargetRelations = relations(enrichmentTaskTargets, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [enrichmentTaskTargets.workspaceId],
+    references: [workspaces.id],
+  }),
+  task: one(enrichmentTasks, {
+    fields: [enrichmentTaskTargets.taskId],
+    references: [enrichmentTasks.id],
   }),
 }));
 

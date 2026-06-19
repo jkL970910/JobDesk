@@ -157,6 +157,27 @@ type EnrichmentTaskItem = {
   source_label: string;
   prompt: string;
   user_answer: string | null;
+  target_scope:
+    | "evidence_detail"
+    | "story_context"
+    | "role_context"
+    | "source_material"
+    | "assign_later";
+  target_confidence: "low" | "medium" | "high";
+  target_reason: string | null;
+  expected_outcome:
+    | "create_evidence"
+    | "update_evidence"
+    | "update_story"
+    | "update_role"
+    | "clarify_assignment";
+  targets: Array<{
+    target_kind: "evidence" | "initiative" | "portfolio_project" | "work_experience";
+    target_id: string;
+    target_role: "primary" | "parent" | "suggested" | "previous";
+    confidence: "low" | "medium" | "high";
+    reason: string | null;
+  }>;
   evidence_item_id: string | null;
   work_experience_id: string | null;
   initiative_id: string | null;
@@ -3077,20 +3098,38 @@ function EnrichmentTaskQueue({
                   evidenceItems,
                   linkTargets,
                 );
+                const parentLabel = formatEnrichmentTaskParent(task, linkTargets);
                 const isPending = pendingTaskId === task.id;
                 const message = messages[task.id];
                 return (
                   <article className="enrichment-task-card" key={task.id}>
                     <div className="enrichment-task-card__top">
                       <div>
-                        <span>{formatEnrichmentTaskType(task.task_type)}</span>
+                        <span>{formatEnrichmentTaskScope(task.target_scope)}</span>
                         <strong>{task.prompt}</strong>
                         <p>
                           Source: {task.source_label} · {formatEnrichmentSourceType(task.source_type)}
                         </p>
-                        <p>Destination: {linkedLabel}</p>
                       </div>
                       <em data-state={task.status}>{formatEnrichmentStatus(task.status)}</em>
+                    </div>
+                    <div className="enrichment-task-card__context">
+                      <div>
+                        <span>Target</span>
+                        <strong>{linkedLabel}</strong>
+                      </div>
+                      <div>
+                        <span>Parent context</span>
+                        <strong>{parentLabel}</strong>
+                      </div>
+                      <div>
+                        <span>Why we ask</span>
+                        <strong>{formatEnrichmentTargetReason(task)}</strong>
+                      </div>
+                      <div>
+                        <span>Answer will</span>
+                        <strong>{formatEnrichmentExpectedOutcome(task)}</strong>
+                      </div>
                     </div>
                     <label className="source-field source-field--textarea">
                       <span>Your answer</span>
@@ -3128,23 +3167,24 @@ function EnrichmentTaskQueue({
                         </button>
                       </div>
                     ) : null}
-                    <label className="source-field enrichment-task-card__destination">
-                      <span>{hasLibraryAnchor ? "Change destination" : "Use an existing destination"}</span>
-                      <select
-                        className="jd-input jd-input--compact"
-                        disabled={isPending}
-                        onChange={(event) => {
-                          if (!event.target.value) return;
-                          void handleUpdate(task, {
-                            action: "link",
-                            anchor: parseEnrichmentTaskAnchorValue(event.target.value),
-                          });
-                        }}
-                        value={toEnrichmentTaskAnchorValue(task)}
-                      >
-                        <option value="">Choose evidence, story, or role</option>
-                        {evidenceItems.length > 0 ? (
-                          <optgroup label="Evidence">
+                    <details className="enrichment-task-card__target-picker">
+                      <summary>{hasLibraryAnchor ? "Change target" : "Choose target"}</summary>
+                      <div className="enrichment-task-card__target-grid">
+                        <label className="source-field enrichment-task-card__destination">
+                          <span>Specific claim</span>
+                          <select
+                            className="jd-input jd-input--compact"
+                            disabled={isPending}
+                            onChange={(event) => {
+                              if (!event.target.value) return;
+                              void handleUpdate(task, {
+                                action: "link",
+                                anchor: parseEnrichmentTaskAnchorValue(event.target.value),
+                              });
+                            }}
+                            value={task.evidence_item_id ? toEnrichmentTaskAnchorValue(task) : ""}
+                          >
+                            <option value="">Choose a claim</option>
                             {evidenceItems.slice(0, 80).map((item) => (
                               item.id ? (
                                 <option key={`evidence:${item.id}`} value={`evidence:${item.id}`}>
@@ -3152,10 +3192,27 @@ function EnrichmentTaskQueue({
                                 </option>
                               ) : null
                             ))}
-                          </optgroup>
-                        ) : null}
-                        {initiatives.length > 0 ? (
-                          <optgroup label="Initiatives">
+                          </select>
+                        </label>
+                        <label className="source-field enrichment-task-card__destination">
+                          <span>Project / story</span>
+                          <select
+                            className="jd-input jd-input--compact"
+                            disabled={isPending}
+                            onChange={(event) => {
+                              if (!event.target.value) return;
+                              void handleUpdate(task, {
+                                action: "link",
+                                anchor: parseEnrichmentTaskAnchorValue(event.target.value),
+                              });
+                            }}
+                            value={
+                              task.initiative_id || task.portfolio_project_id
+                                ? toEnrichmentTaskAnchorValue(task)
+                                : ""
+                            }
+                          >
+                            <option value="">Choose a project or story</option>
                             {initiatives.map((item) => (
                               item.id ? (
                                 <option key={`initiative:${item.id}`} value={`initiative:${item.id}`}>
@@ -3163,10 +3220,6 @@ function EnrichmentTaskQueue({
                                 </option>
                               ) : null
                             ))}
-                          </optgroup>
-                        ) : null}
-                        {portfolioProjects.length > 0 ? (
-                          <optgroup label="Portfolio projects">
                             {portfolioProjects.map((item) => (
                               item.id ? (
                                 <option key={`portfolio_project:${item.id}`} value={`portfolio_project:${item.id}`}>
@@ -3174,10 +3227,23 @@ function EnrichmentTaskQueue({
                                 </option>
                               ) : null
                             ))}
-                          </optgroup>
-                        ) : null}
-                        {workExperiences.length > 0 ? (
-                          <optgroup label="Roles">
+                          </select>
+                        </label>
+                        <label className="source-field enrichment-task-card__destination">
+                          <span>Role-level experience</span>
+                          <select
+                            className="jd-input jd-input--compact"
+                            disabled={isPending}
+                            onChange={(event) => {
+                              if (!event.target.value) return;
+                              void handleUpdate(task, {
+                                action: "link",
+                                anchor: parseEnrichmentTaskAnchorValue(event.target.value),
+                              });
+                            }}
+                            value={task.work_experience_id ? toEnrichmentTaskAnchorValue(task) : ""}
+                          >
+                            <option value="">Choose a role</option>
                             {workExperiences.map((item) => (
                               item.id ? (
                                 <option key={`work_experience:${item.id}`} value={`work_experience:${item.id}`}>
@@ -3185,10 +3251,10 @@ function EnrichmentTaskQueue({
                                 </option>
                               ) : null
                             ))}
-                          </optgroup>
-                        ) : null}
-                      </select>
-                    </label>
+                          </select>
+                        </label>
+                      </div>
+                    </details>
                     <div className="actions actions--compact">
                       <button
                         className="secondary-button"
@@ -3446,6 +3512,17 @@ function formatEnrichmentTaskType(type: string) {
   return labels[type] ?? type;
 }
 
+function formatEnrichmentTaskScope(scope: EnrichmentTaskItem["target_scope"]) {
+  const labels: Record<EnrichmentTaskItem["target_scope"], string> = {
+    assign_later: "Target needs review",
+    evidence_detail: "Evidence detail",
+    role_context: "Role context",
+    source_material: "Source material",
+    story_context: "Story context",
+  };
+  return labels[scope];
+}
+
 function formatEnrichmentSourceType(type: string) {
   const labels: Record<string, string> = {
     evidence: "evidence card",
@@ -3456,6 +3533,26 @@ function formatEnrichmentSourceType(type: string) {
     user_input: "user input",
   };
   return labels[type] ?? type;
+}
+
+function formatEnrichmentTargetReason(task: EnrichmentTaskItem) {
+  return task.target_reason || "This question needs a target before the answer can be reused safely.";
+}
+
+function formatEnrichmentExpectedOutcome(task: EnrichmentTaskItem) {
+  if (task.target_scope === "assign_later") {
+    return "be assigned before it creates or strengthens reusable material.";
+  }
+  if (task.target_scope === "evidence_detail") {
+    return "be used to create or strengthen material for this specific claim.";
+  }
+  if (task.target_scope === "story_context") {
+    return "be used to create or strengthen material under this project/story.";
+  }
+  if (task.target_scope === "role_context") {
+    return "be used to clarify role-level context before it supports claims.";
+  }
+  return "be used as source material for future evidence review.";
 }
 
 function formatEnrichmentStatus(status: EnrichmentTaskItem["status"]) {
@@ -3516,6 +3613,39 @@ function formatEnrichmentTaskAnchor(
     return item ? `Role · ${item.employer} · ${item.role_title}` : "Work experience";
   }
   return "Not linked yet";
+}
+
+function formatEnrichmentTaskParent(
+  task: EnrichmentTaskItem,
+  linkTargets: EvidenceLinkTargets,
+) {
+  const parentTargets = task.targets.filter((target) => target.target_role === "parent");
+  const primaryTargets = task.targets.filter((target) => target.target_role === "primary");
+  const candidates = parentTargets.length ? parentTargets : primaryTargets.slice(1);
+  const labels = candidates
+    .map((target) => formatEnrichmentTargetPayload(target, linkTargets))
+    .filter(Boolean);
+  return labels.length ? labels.join(" · ") : "No parent context yet";
+}
+
+function formatEnrichmentTargetPayload(
+  target: EnrichmentTaskItem["targets"][number],
+  linkTargets: EvidenceLinkTargets,
+) {
+  if (target.target_kind === "initiative") {
+    const item = linkTargets.initiatives.find((candidate) => candidate.id === target.target_id);
+    return item ? `Project/story · ${item.external_safe_title ?? item.internal_title}` : "Project/story";
+  }
+  if (target.target_kind === "portfolio_project") {
+    const item = linkTargets.portfolioProjects.find((candidate) => candidate.id === target.target_id);
+    return item ? `Portfolio story · ${item.external_safe_title ?? item.title}` : "Portfolio story";
+  }
+  if (target.target_kind === "work_experience") {
+    const item = linkTargets.workExperiences.find((candidate) => candidate.id === target.target_id);
+    return item ? `Role · ${item.employer} · ${item.role_title}` : "Role";
+  }
+  if (target.target_kind === "evidence") return "Specific claim";
+  return "";
 }
 
 function truncateOptionText(value: string, maxLength = 96) {
