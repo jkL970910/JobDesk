@@ -291,9 +291,14 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       item.text.includes("Sensitive finance dashboard"),
     );
     expect(sqlEvidence).toBeDefined();
+    expect(sqlEvidence?.public_safe_summary).toBe(
+      "Built SQL dashboards for onboarding funnel analysis.",
+    );
     expect(inferredEvidence).toMatchObject({
       needs_user_confirmation: true,
+      public_safe_summary: null,
     });
+    expect(sensitiveEvidence?.public_safe_summary).toBeNull();
     if (!internalEvidence) throw new Error("Expected internal evidence.");
     const unsafeExternalSummary = await updateEvidenceItem({
       evidenceId: internalEvidence.id,

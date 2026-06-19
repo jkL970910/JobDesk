@@ -337,6 +337,7 @@ export async function persistProfileEvidenceExtraction(args: {
             (preferredProjectId || preferredInitiativeId || preferredPortfolioProjectId)
               ? null
               : mappedWorkExperienceId;
+          const publicSafeSummary = buildPublicSafeSummaryCandidate(item);
           return {
             workspaceId: workspace.id,
             sourceDocumentId: sourceDocument.id,
@@ -346,7 +347,7 @@ export async function persistProfileEvidenceExtraction(args: {
             metrics: guardrail.metrics,
             sensitivityLevel: item.sensitivity_level,
             allowedUsage: item.allowed_usage,
-            publicSafeSummary: item.public_safe_summary,
+            publicSafeSummary,
             status: item.status,
             relatedProjectId: preferredProjectId,
             relatedWorkExperienceId: preferredWorkExperienceId,
@@ -403,6 +404,22 @@ export async function persistProfileEvidenceExtraction(args: {
       workflowRunId: workflowRun.id,
     };
   });
+}
+
+function buildPublicSafeSummaryCandidate(
+  item: ProfileEvidenceExtraction["evidence_items"][number],
+) {
+  const providerSummary = item.public_safe_summary?.trim();
+  if (providerSummary && isPublicSafeText(providerSummary)) return providerSummary;
+  const text = item.text.trim();
+  if (
+    item.evidence_type !== "inferred" &&
+    item.sensitivity_level !== "sensitive" &&
+    isPublicSafeText(text)
+  ) {
+    return text;
+  }
+  return null;
 }
 
 async function resolveExtractionSourceDocument(args: {
