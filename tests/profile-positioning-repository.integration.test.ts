@@ -229,6 +229,7 @@ function buildMainResumeDraft(evidenceId: string): TailoredResumeDraft {
       {
         claim_text: "Built activation funnel dashboard.",
         section: "Experience",
+        primary_evidence_id: evidenceId,
         evidence_ids: [evidenceId],
         source_quotes: ["Built activation funnel dashboard."],
         risk_level: "low",

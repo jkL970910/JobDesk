@@ -34,6 +34,7 @@ export type FactGuardClaimReport = {
   id: string;
   claim_text: string;
   section: string;
+  primary_evidence_id: string | null;
   evidence_ids: string[];
   source_quotes: string[];
   support_status: string;
@@ -369,6 +370,7 @@ async function toMainResumeDto(
       id: claim.id,
       claim_text: claim.claimText,
       section: claim.section,
+      primary_evidence_id: claim.evidenceIds[0] ?? null,
       evidence_ids: claim.evidenceIds,
       source_quotes: claim.sourceQuotes,
       support_status: claim.supportStatus,
@@ -436,6 +438,7 @@ async function toTailoredResumeDto(
       id: claim.id,
       claim_text: claim.claimText,
       section: claim.section,
+      primary_evidence_id: claim.evidenceIds[0] ?? null,
       evidence_ids: claim.evidenceIds,
       source_quotes: claim.sourceQuotes,
       support_status: claim.supportStatus,
@@ -708,6 +711,7 @@ function toFactGuardClaimReport(
     id: claim.id,
     claim_text: claim.claimText,
     section: claim.section,
+    primary_evidence_id: claim.evidenceIds[0] ?? null,
     evidence_ids: claim.evidenceIds,
     source_quotes: claim.sourceQuotes,
     support_status: claim.supportStatus,
@@ -733,6 +737,10 @@ function evaluateClaimSupport(
     return unsupported("claim has no source quotes");
   }
 
+  const primaryEvidence = evidenceById.get(claim.evidenceIds[0]!);
+  if (!primaryEvidence) {
+    return unsupported("claim references missing primary evidence");
+  }
   const evidence = claim.evidenceIds.map((id) => evidenceById.get(id));
   if (evidence.some((item) => !item)) {
     return unsupported("claim references missing evidence");
@@ -751,19 +759,25 @@ function evaluateClaimSupport(
     return unsupported("claim source quote is not present in referenced evidence");
   }
 
-  const textSupported = evidence.some(
-    (item) =>
-      item &&
-      (claimsMatch(item.text, claim.claimText) ||
-        claimsMatch(item.sourceQuote, claim.claimText) ||
-        Boolean(item.publicSafeSummary && claimsMatch(item.publicSafeSummary, claim.claimText)) ||
-        claim.sourceQuotes.some((quote) => claimsMatch(claim.claimText, quote))),
+  const primarySupportedQuotes = claim.sourceQuotes.filter(
+    (quote) =>
+      claimsMatch(primaryEvidence.sourceQuote, quote) ||
+      claimsMatch(primaryEvidence.text, quote) ||
+      Boolean(primaryEvidence.publicSafeSummary && claimsMatch(primaryEvidence.publicSafeSummary, quote)),
   );
+  const primaryTextSupported =
+    claimsMatch(primaryEvidence.text, claim.claimText) ||
+    claimsMatch(primaryEvidence.sourceQuote, claim.claimText) ||
+    Boolean(primaryEvidence.publicSafeSummary && claimsMatch(primaryEvidence.publicSafeSummary, claim.claimText)) ||
+    primarySupportedQuotes.some((quote) => claimsMatch(claim.claimText, quote));
+  const textSupported = primaryTextSupported;
 
   return {
     supportStatus: textSupported ? ("supported" as const) : ("partially_supported" as const),
     claimStatus: textSupported ? ("supported" as const) : ("partially_supported" as const),
-    staleReason: textSupported ? null : "claim text is broader than referenced quote",
+    staleReason: textSupported
+      ? null
+      : "claim text is broader than the primary evidence",
   };
 }
 

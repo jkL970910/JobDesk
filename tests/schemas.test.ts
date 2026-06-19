@@ -477,12 +477,14 @@ describe("TailoredResumeDraft", () => {
         {
           claim_text: "Built SQL dashboards",
           section: "experience",
+          primary_evidence_id: "e2",
           evidence_ids: ["e1", "e1"],
           source_quotes: ["Built SQL dashboards", "Built SQL dashboards"],
         },
       ],
     });
-    expect(draft.claims[0]?.evidence_ids).toEqual(["e1"]);
+    expect(draft.claims[0]?.primary_evidence_id).toBe("e2");
+    expect(draft.claims[0]?.evidence_ids).toEqual(["e2", "e1"]);
     expect(draft.claims[0]?.source_quotes).toEqual(["Built SQL dashboards"]);
     expect(draft.claims[0]?.risk_level).toBe("low");
     expect(draft.missing_evidence_questions).toEqual([]);

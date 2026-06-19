@@ -43,6 +43,25 @@ export function validateTailoredResumeDraft(args: {
         `Generated claim ${index + 1} referenced ineligible evidence ${leakedId}.`,
       );
     }
+    if (claim.primary_evidence_id && claim.evidence_ids[0] !== claim.primary_evidence_id) {
+      throw new TailoredResumeGuardrailError(
+        `Generated claim ${index + 1} does not list its primary evidence first.`,
+      );
+    }
+    const primaryEvidence = eligible.get(claim.evidence_ids[0]!);
+    const hasPrimaryQuote = claim.source_quotes.some(
+      (quote) =>
+        primaryEvidence &&
+        (primaryEvidence.source_quote.includes(quote) ||
+          primaryEvidence.text.includes(quote) ||
+          (primaryEvidence.public_safe_summary?.includes(quote) ?? false) ||
+          quote.includes(primaryEvidence.source_quote)),
+    );
+    if (!hasPrimaryQuote) {
+      throw new TailoredResumeGuardrailError(
+        `Generated claim ${index + 1} has no source quote from its primary evidence.`,
+      );
+    }
     const quotedEvidence = claim.evidence_ids.map((id) => eligible.get(id));
     const unsupportedQuote = claim.source_quotes.find(
       (quote) =>

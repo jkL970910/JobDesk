@@ -35,13 +35,48 @@ describe("tailored resume guardrails", () => {
     ).toThrow(/ineligible evidence/);
   });
 
+  it("rejects claims whose primary evidence is not listed first", () => {
+    expect(() =>
+      validateTailoredResumeDraft({
+        draft: buildDraft({
+          primary_evidence_id: "e1",
+          evidence_ids: ["e2", "e1"],
+        }),
+        eligibleEvidence: [
+          eligibleEvidence(),
+          { id: "e2", text: "Built dashboards", source_quote: "Built dashboards" },
+        ],
+      }),
+    ).toThrow(/primary evidence first/);
+  });
+
+  it("rejects claims without a quote from primary evidence", () => {
+    expect(() =>
+      validateTailoredResumeDraft({
+        draft: buildDraft({
+          primary_evidence_id: "e1",
+          evidence_ids: ["e1", "e2"],
+          source_quotes: ["Reduced onboarding dropoff by 12%"],
+        }),
+        eligibleEvidence: [
+          eligibleEvidence(),
+          {
+            id: "e2",
+            text: "Reduced onboarding dropoff by 12%",
+            source_quote: "Reduced onboarding dropoff by 12%",
+          },
+        ],
+      }),
+    ).toThrow(/no source quote from its primary evidence/);
+  });
+
   it("rejects claims whose quotes do not belong to referenced evidence", () => {
     expect(() =>
       validateTailoredResumeDraft({
         draft: buildDraft({ source_quotes: ["Migrated Kubernetes clusters"] }),
         eligibleEvidence: [eligibleEvidence()],
       }),
-    ).toThrow(/not supported by its evidence/);
+    ).toThrow(/no source quote from its primary evidence/);
   });
 
   it("accepts public-safe summaries as de-identified claim support", () => {
@@ -127,6 +162,7 @@ function buildDraft(
       {
         claim_text: "Built dashboards",
         section: "experience",
+        primary_evidence_id: "e1",
         evidence_ids: ["e1"],
         source_quotes: ["Built dashboards"],
         risk_level: "low",

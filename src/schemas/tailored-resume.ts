@@ -19,6 +19,7 @@ export const GeneratedClaim = z.object({
   resume_version_id: z.string().nullable().default(null),
   claim_text: z.string(),
   section: z.string(),
+  primary_evidence_id: z.string().nullable().default(null),
   // Non-empty unless the claim is explicitly user_confirmed.
   evidence_ids: z.array(z.string()).default([]),
   source_quotes: z.array(z.string()).default([]),
@@ -47,13 +48,29 @@ export const TailoredResume = z.object({
 });
 export type TailoredResume = z.infer<typeof TailoredResume>;
 
-export const GeneratedClaimDraft = z.object({
-  claim_text: z.string().trim().min(1),
-  section: z.string().trim().min(1),
-  evidence_ids: nonEmptyStringArray,
-  source_quotes: nonEmptyStringArray,
-  risk_level: z.enum(["low", "medium", "high"]).default("low"),
-});
+export const GeneratedClaimDraft = z
+  .object({
+    claim_text: z.string().trim().min(1),
+    section: z.string().trim().min(1),
+    primary_evidence_id: z.string().trim().min(1).optional().nullable(),
+    evidence_ids: nonEmptyStringArray,
+    source_quotes: nonEmptyStringArray,
+    risk_level: z.enum(["low", "medium", "high"]).default("low"),
+  })
+  .transform((claim) => {
+    const primaryEvidenceId = claim.primary_evidence_id ?? claim.evidence_ids[0] ?? null;
+    const evidenceIds = primaryEvidenceId
+      ? [
+          primaryEvidenceId,
+          ...claim.evidence_ids.filter((id) => id !== primaryEvidenceId),
+        ]
+      : claim.evidence_ids;
+    return {
+      ...claim,
+      primary_evidence_id: primaryEvidenceId,
+      evidence_ids: evidenceIds,
+    };
+  });
 export type GeneratedClaimDraft = z.infer<typeof GeneratedClaimDraft>;
 
 export const TailoredResumeDraft = z.object({

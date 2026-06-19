@@ -15,4 +15,16 @@ describe("resume prompt retrieval boundary", () => {
     expect(main).not.toContain("possible_source_material");
     expect(tailored).not.toContain("possible_source_material");
   });
+
+  it("requires primary evidence and narrow evidence-bounded claims", () => {
+    const main = buildMainResumeInstructions();
+    const tailored = buildTailoredResumeInstructions();
+
+    for (const prompt of [main, tailored]) {
+      expect(prompt).toContain("primary_evidence_id");
+      expect(prompt).toContain("Put that same id first in evidence_ids");
+      expect(prompt).toContain("Avoid umbrella phrases");
+      expect(prompt).toContain("write fewer and narrower bullets");
+    }
+  });
 });

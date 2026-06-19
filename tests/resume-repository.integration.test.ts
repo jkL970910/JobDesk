@@ -327,6 +327,7 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
         claims: [
           {
             claim_text: "Built dashboard analysis for onboarding funnel metrics.",
+            primary_evidence_id: evidenceId,
             evidence_ids: [evidenceId],
             risk_level: "low",
             section: "Experience",
@@ -531,6 +532,7 @@ function buildResumeDraft(evidenceId: string): TailoredResumeDraft {
       {
         claim_text: "Built SQL dashboards for onboarding funnel analysis.",
         section: "Experience",
+        primary_evidence_id: evidenceId,
         evidence_ids: [evidenceId],
         source_quotes: ["Built SQL dashboards for onboarding funnel analysis."],
         risk_level: "low",
