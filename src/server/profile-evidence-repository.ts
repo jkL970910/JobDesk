@@ -171,10 +171,6 @@ export async function persistProfileEvidenceExtraction(args: {
       profileExperiencesToWorkExperienceDrafts(args.extraction.profile.experience),
     );
     const initiativeConsolidation = consolidateInitiativeDrafts(args.extraction.initiatives);
-    const extractionNotes = [
-      ...args.extraction.extraction_notes,
-      ...initiativeConsolidation.extractionNotes,
-    ];
     const workExperienceIdByDraftId = new Map<string, string>();
     const workExperienceAnchorTexts = new Map<string, string>();
     for (const experience of workExperienceDrafts) {
@@ -487,7 +483,7 @@ export async function persistProfileEvidenceExtraction(args: {
       now,
       tasks: buildExtractionNoteEnrichmentTasks({
         sourceTitle: title,
-        notes: extractionNotes,
+        notes: args.extraction.extraction_notes,
       }),
     });
     if ((args.sourceType ?? "profile-evidence") === "profile-evidence" && args.sourceDocumentId) {
@@ -729,7 +725,9 @@ function scoreInitiativeMergeConfidence(
   first: InitiativeDraft,
   second: InitiativeDraft,
 ): "none" | "medium" | "high" {
-  if (!sameNullableRef(first.work_experience_ref, second.work_experience_ref)) return "none";
+  if (!sameKnownWorkExperienceRef(first.work_experience_ref, second.work_experience_ref)) {
+    return "none";
+  }
   const firstTokens = initiativeSignalTokens(first);
   const secondTokens = initiativeSignalTokens(second);
   const sharedTokens = countSetOverlap(firstTokens.all, secondTokens.all);
@@ -848,8 +846,9 @@ function hasAny(values: Set<string>) {
   return values.size > 0;
 }
 
-function sameNullableRef(first: string | null | undefined, second: string | null | undefined) {
-  return normalizeMatchText(first ?? "") === normalizeMatchText(second ?? "");
+function sameKnownWorkExperienceRef(first: string | null | undefined, second: string | null | undefined) {
+  if (!hasText(first) || !hasText(second)) return false;
+  return normalizeMatchText(first!) === normalizeMatchText(second!);
 }
 
 function pickMostCompleteTitle(cluster: InitiativeDraft[]) {

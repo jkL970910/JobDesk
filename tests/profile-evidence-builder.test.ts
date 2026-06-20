@@ -90,6 +90,25 @@ describe("Evidence Library Builder instructions", () => {
     expect(result.extractionNotes).toHaveLength(0);
   });
 
+  it("does not consolidate initiatives when role references are missing", () => {
+    const result = consolidateInitiativeDrafts([
+      buildInitiative({
+        internal_title: "AWS infrastructure provisioning with CDK",
+        technologies: ["AWS CDK"],
+        work_experience_ref: null,
+      }),
+      buildInitiative({
+        internal_title: "Distributed cloud caching for session latency",
+        technologies: ["distributed cache"],
+        work_experience_ref: null,
+      }),
+    ]);
+
+    expect(result.initiatives).toHaveLength(2);
+    expect(result.draftRefRedirects.size).toBe(0);
+    expect(result.extractionNotes).toHaveLength(0);
+  });
+
   it("marks source-section extraction notes as imported material review tasks", () => {
     const [task] = buildExtractionNoteEnrichmentTasks({
       sourceTitle: "Resume import",

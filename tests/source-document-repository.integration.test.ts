@@ -424,6 +424,74 @@ describe.skipIf(!runIntegration)("source document lifecycle integration", () => 
     expect(allEvidence.every((item) => item.relatedInitiativeId === selectedTarget.id)).toBe(true);
   });
 
+  it("redirects evidence from consolidated initiative fragments to the inserted merged initiative", async () => {
+    const parsed = buildParsedSource(`Fragmented initiative ${Date.now()}`);
+    const parsedSource = await persistParsedSourceDocument({
+      sourceType: "project_note",
+      parsed,
+    });
+    if (parsedSource.status !== "saved") {
+      throw new Error("Expected saved parsed source.");
+    }
+
+    const extraction = buildFragmentedInitiativeExtraction();
+    const persistence = await persistProfileEvidenceExtraction({
+      sourceText: parsed.sourceText,
+      sourceTitle: parsed.sourceTitle,
+      sourceDocumentId: parsedSource.sourceDocumentId,
+      sourceType: "project-note",
+      extraction,
+      provider: "test-provider",
+      model: "test-model",
+      usage: { totalTokens: 0 },
+      retryCount: 0,
+      skill: {
+        modelTier: "cheap",
+        promptVersion: "test-prompt",
+        schemaName: "ProfileEvidenceExtraction",
+        schemaVersion: "test-schema",
+        skillId: "profile-evidence-extraction-project-note",
+        skillVersion: "test-skill",
+        sourceSkillIds: ["profile-extraction", "evidence-extraction"],
+        workflowType: "profile-evidence-extraction",
+      },
+    });
+    expect(persistence).toMatchObject({ status: "saved" });
+
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const insertedInitiatives = await db
+      .select()
+      .from(initiatives)
+      .where(
+        and(
+          eq(initiatives.workspaceId, workspace.id),
+          eq(initiatives.sourceDocumentId, parsedSource.sourceDocumentId),
+        ),
+      );
+    expect(insertedInitiatives).toHaveLength(1);
+    const [mergedInitiative] = insertedInitiatives;
+    expect(mergedInitiative).toBeTruthy();
+    expect(mergedInitiative?.technologies).toEqual(
+      expect.arrayContaining(["AWS CDK", "distributed cache"]),
+    );
+    expect(mergedInitiative?.results).toContain("Optimized session latency.");
+
+    const linkedEvidence = await db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.sourceDocumentId, parsedSource.sourceDocumentId));
+    const fragmentEvidence = linkedEvidence.filter((item) =>
+      [
+        "Provisioned cloud infrastructure using AWS CDK.",
+        "Optimized session latency with distributed caching.",
+        "Built distributed cloud caching for a high-scale delivery service.",
+      ].includes(item.text),
+    );
+    expect(fragmentEvidence).toHaveLength(3);
+    expect(fragmentEvidence.every((item) => item.relatedInitiativeId === mergedInitiative?.id)).toBe(true);
+  });
+
   it("creates a user-confirmed work experience before assigning an initiative", async () => {
     const db = getDb();
     const workspace = await getCurrentWorkspace(db);
@@ -579,6 +647,119 @@ function buildExtractionWithGeneratedInitiative(title: string): ProfileEvidenceE
         public_safe_summary: "Built onboarding analytics dashboards with SQL and product event data.",
         related_project_id: null,
         related_initiative_id: title,
+      },
+    ],
+  };
+}
+
+function buildFragmentedInitiativeExtraction(): ProfileEvidenceExtraction {
+  const roleRef = "Amazon · Software Engineer";
+  return {
+    ...buildExtraction("fragmented initiative"),
+    work_experiences: [
+      {
+        employer: "Amazon",
+        role_title: "Software Engineer",
+        team: null,
+        location: null,
+        start_date: null,
+        end_date: null,
+        summary: "Built cloud infrastructure for delivery service performance.",
+        status: "pending",
+      },
+    ],
+    initiatives: [
+      {
+        internal_title: "AWS infrastructure provisioning with CDK",
+        external_safe_title: "AWS infrastructure provisioning with CDK",
+        work_experience_ref: roleRef,
+        context: null,
+        problem: null,
+        role: null,
+        actions: ["Provisioned cloud infrastructure using AWS CDK."],
+        results: [],
+        metrics: [],
+        technologies: ["AWS CDK"],
+        stakeholders: [],
+        external_safe_summary: null,
+        sensitivity_level: "private",
+        needs_redaction_review: false,
+        status: "pending",
+      },
+      {
+        internal_title: "Session latency optimization with distributed caching",
+        external_safe_title: "Session latency optimization with distributed caching",
+        work_experience_ref: roleRef,
+        context: null,
+        problem: null,
+        role: null,
+        actions: [],
+        results: ["Optimized session latency."],
+        metrics: [],
+        technologies: ["distributed cache"],
+        stakeholders: [],
+        external_safe_summary: null,
+        sensitivity_level: "private",
+        needs_redaction_review: false,
+        status: "pending",
+      },
+      {
+        internal_title: "Distributed cloud caching for high-scale delivery service",
+        external_safe_title: "Distributed cloud caching for high-scale delivery service",
+        work_experience_ref: roleRef,
+        context: "High-scale delivery service had session latency constraints.",
+        problem: "Session dependency latency affected delivery service performance.",
+        role: null,
+        actions: [],
+        results: [],
+        metrics: [],
+        technologies: ["distributed cache"],
+        stakeholders: [],
+        external_safe_summary: null,
+        sensitivity_level: "private",
+        needs_redaction_review: false,
+        status: "pending",
+      },
+    ],
+    evidence_items: [
+      {
+        text: "Provisioned cloud infrastructure using AWS CDK.",
+        evidence_type: "extracted",
+        status: "pending",
+        source_quote: "Provisioned cloud infrastructure using AWS CDK.",
+        metrics: [],
+        sensitivity_level: "private",
+        allowed_usage: [],
+        needs_user_confirmation: true,
+        public_safe_summary: null,
+        related_project_id: null,
+        related_initiative_id: "AWS infrastructure provisioning with CDK",
+      },
+      {
+        text: "Optimized session latency with distributed caching.",
+        evidence_type: "extracted",
+        status: "pending",
+        source_quote: "Optimized session latency with distributed caching.",
+        metrics: [],
+        sensitivity_level: "private",
+        allowed_usage: [],
+        needs_user_confirmation: true,
+        public_safe_summary: null,
+        related_project_id: null,
+        related_initiative_id: "Session latency optimization with distributed caching",
+      },
+      {
+        text: "Built distributed cloud caching for a high-scale delivery service.",
+        evidence_type: "extracted",
+        status: "pending",
+        source_quote: "Built distributed cloud caching for a high-scale delivery service.",
+        metrics: [],
+        sensitivity_level: "private",
+        allowed_usage: [],
+        needs_user_confirmation: true,
+        public_safe_summary: null,
+        related_project_id: null,
+        related_initiative_id: "Distributed cloud caching for high-scale delivery service",
       },
     ],
   };
