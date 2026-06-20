@@ -754,20 +754,16 @@ function ResumeReviewReportCard({
             <strong>{isFallback ? "Quick estimate" : "Review complete"}</strong>
             <p>
               {isFallback
-                ? "Retry when you want the full review."
+                ? "Run the full review when ready."
                 : "Use this review as guidance before turning material into evidence."}
             </p>
           </article>
           <details className="review-technical-details">
-            <summary>Technical details</summary>
+            <summary>Support details</summary>
             <dl>
               <div>
-                <dt>AI service</dt>
+                <dt>Review method</dt>
                 <dd>{metadata.provider ?? "unknown"}</dd>
-              </div>
-              <div>
-                <dt>AI model</dt>
-                <dd>{metadata.model ?? "model unknown"}</dd>
               </div>
               <div>
                 <dt>Attempts</dt>
@@ -775,7 +771,7 @@ function ResumeReviewReportCard({
               </div>
               {metadata.providerFailureKind ? (
                 <div>
-                  <dt>Fallback reason</dt>
+                  <dt>Why this is limited</dt>
                   <dd>{metadata.providerFailureKind}</dd>
                 </div>
               ) : null}

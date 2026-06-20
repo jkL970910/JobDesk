@@ -2306,9 +2306,9 @@ function SettingsReferenceView() {
   return (
     <section className="settings-panel settings-panel--quiet">
       <p className="panel-kicker">Settings</p>
-      <h2>System health and workspace settings</h2>
+      <h2>Workspace settings</h2>
       <p>
-        Review account protection, AI availability, storage, and recent workflow health without exposing secrets.
+        Review account access, storage, AI availability, and recent activity.
       </p>
       <div className="settings-panel__grid">
         <article>
@@ -2319,19 +2319,19 @@ function SettingsReferenceView() {
         <article>
           <span>AI</span>
           <strong>Server configured</strong>
-          <p>Provider credentials are environment-only, not user-editable here.</p>
+          <p>AI access is managed on the server.</p>
         </article>
         <article>
           <span>Data</span>
-          <strong>JobDesk DB</strong>
+          <strong>Storage</strong>
           <p>Career data uses this app's separate project database.</p>
         </article>
       </div>
       <section className="diagnostics-panel" aria-label="System diagnostics">
         <details>
           <summary>
-            <span>Advanced diagnostics</span>
-            <strong>Runtime checks for support and debugging</strong>
+            <span>Support diagnostics</span>
+            <strong>Technical status for support</strong>
           </summary>
           {diagnosticsError ? (
             <p className="diagnostics-panel__error">{diagnosticsError}</p>
@@ -2352,11 +2352,6 @@ function SettingsReferenceView() {
                   value={diagnostics.ai.providerEnabled ? "enabled" : "disabled"}
                   tone={diagnostics.ai.providerEnabled ? "ready" : "muted"}
                 />
-                <DiagnosticMetric label="AI model" value={diagnostics.ai.model} />
-                <DiagnosticMetric
-                  label="Prompt registry"
-                  value={String(diagnostics.skills.registryEntries)}
-                />
                 <DiagnosticMetric
                   label="Failed jobs"
                   value={String(diagnostics.workflows.failedCount)}
@@ -2369,11 +2364,8 @@ function SettingsReferenceView() {
               </div>
               <div className="diagnostics-detail">
                 <div>
-                  <h4>AI connection</h4>
-                  <p>
-                    Secret {diagnostics.ai.apiKeyConfigured ? "present" : "missing"} ·{" "}
-                    {diagnostics.ai.transport} · {diagnostics.ai.endpointHost}
-                  </p>
+                  <h4>AI setup</h4>
+                  <p>{diagnostics.ai.providerEnabled ? "AI features are available." : "AI features are not available."}</p>
                 </div>
                 <div>
                   <h4>Recent background jobs</h4>
@@ -2383,7 +2375,7 @@ function SettingsReferenceView() {
                         <li key={run.id}>
                           <strong>{run.workflowType}</strong>
                           <span>{run.status}</span>
-                          <small>{run.skillId ?? "no prompt"} · {run.promptVersion ?? "current"}</small>
+                          <small>{formatDateTime(run.finishedAt)}</small>
                         </li>
                       ))}
                     </ul>

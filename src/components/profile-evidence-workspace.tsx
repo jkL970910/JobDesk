@@ -4681,9 +4681,9 @@ function formatEnrichmentProposalType(
 function formatEnrichmentProposalStatus(
   status: EnrichmentTaskItem["proposals"][number]["status"],
 ) {
-  if (status === "pending_review") return "needs review";
+  if (status === "pending_review") return "ready to review";
   if (status === "accepted") return "accepted";
-  return "rejected";
+  return "discarded";
 }
 
 function taskHasReusableLibraryAnchor(task: EnrichmentTaskItem) {
