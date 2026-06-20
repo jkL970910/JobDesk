@@ -6376,18 +6376,15 @@ function EvidenceCard({
         <div className="evidence-row__content">
           <span>{item.evidence_type}</span>
           <strong>{item.text}</strong>
-          <p>{blocker.reason}</p>
-          {safetyNote ? <p className="evidence-row__safety-note">{safetyNote}</p> : null}
           <div className="evidence-row__meta">
             <span>{readiness.label}</span>
-            <small>Missing: {missingInfo}</small>
             <small>Linked: {linkedTarget}</small>
           </div>
         </div>
         <div className="evidence-row__action">
           <div className="evidence-row__action-status">
             <em data-ready={readiness.state === "resume_ready"}>{readiness.label}</em>
-            <small>{item.sensitivity_level}</small>
+            <small>{linkedTarget}</small>
           </div>
           <button
             className="primary-button"
@@ -6428,6 +6425,9 @@ function EvidenceCard({
       <details className="evidence-row__details" {...(isEditing ? { open: true } : {})}>
         <summary>Details and more actions</summary>
         <div className="evidence-row__detail-grid">
+          <p>Next step: {blocker.reason}</p>
+          <p>Missing: {missingInfo}</p>
+          <p>Sensitivity: {formatFilterLabel(item.sensitivity_level)}</p>
           <p>Source: {formatEvidenceSource(item)}</p>
           <p>Reusable in: {formatReusableUsage(item)}</p>
           <p>Status: {formatEvidenceAssetStatus(item)}</p>
@@ -6437,6 +6437,7 @@ function EvidenceCard({
             <p>Public-safe wording: {getPublicSafeSummaryCandidate(item)}</p>
           ) : null}
         </div>
+        {safetyNote ? <p className="evidence-row__safety-note">{safetyNote}</p> : null}
         {item.id ? (
         <div className="actions actions--compact evidence-row__secondary-actions">
           <button
