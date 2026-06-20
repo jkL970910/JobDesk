@@ -10,6 +10,8 @@ import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extr
 import type { JobDeskAiFailureKind, JobDeskAiSkillBinding } from "../ai/types";
 import { getDb, hasDatabaseUrl } from "../db/client";
 import {
+  enrichmentAnswers,
+  enrichmentProposals,
   enrichmentTaskTargets,
   enrichmentTasks,
   evidenceItems,
@@ -26,6 +28,8 @@ import {
   type enrichmentTaskTargetRoleEnum,
   type enrichmentTaskTargetScopeEnum,
   type enrichmentTaskTypeEnum,
+  type enrichmentProposalStatusEnum,
+  type enrichmentProposalTypeEnum,
 } from "../db/schema";
 import { workflowSkillFields } from "./workflow-run-metadata";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
@@ -48,6 +52,25 @@ export type EnrichmentTaskTargetKind =
   (typeof enrichmentTaskTargetKindEnum.enumValues)[number];
 export type EnrichmentTaskTargetRole =
   (typeof enrichmentTaskTargetRoleEnum.enumValues)[number];
+export type EnrichmentProposalType =
+  (typeof enrichmentProposalTypeEnum.enumValues)[number];
+export type EnrichmentProposalStatus =
+  (typeof enrichmentProposalStatusEnum.enumValues)[number];
+
+export type EnrichmentProposalPayload = {
+  id: string;
+  proposal_type: EnrichmentProposalType;
+  status: EnrichmentProposalStatus;
+  target_kind: EnrichmentTaskTargetKind | null;
+  target_id: string | null;
+  schema_version: string;
+  proposed_patch_json: Record<string, unknown>;
+  evidence_delta_json: Record<string, unknown> | null;
+  committed_evidence_item_id: string | null;
+  createdAt: string;
+  updatedAt: string;
+  reviewedAt: string | null;
+};
 
 export type EnrichmentTaskTargetPayload = {
   target_kind: EnrichmentTaskTargetKind;
@@ -134,11 +157,15 @@ export async function getEnrichmentTaskQueue(filters: EnrichmentTaskQueueFilters
       desc(enrichmentTasks.updatedAt),
     )
     .limit(limit);
-  const targetMap = await getTaskTargetMap(db, rows.map((row) => row.id));
+  const taskIds = rows.map((row) => row.id);
+  const targetMap = await getTaskTargetMap(db, taskIds);
+  const proposalMap = await getTaskProposalMap(db, taskIds);
 
   return {
     status: "ready" as const,
-    tasks: rows.map((row) => toEnrichmentTaskPayload(row, targetMap.get(row.id))),
+    tasks: rows.map((row) =>
+      toEnrichmentTaskPayload(row, targetMap.get(row.id), proposalMap.get(row.id)),
+    ),
   };
 }
 
@@ -253,9 +280,17 @@ export function buildExtractionNoteEnrichmentTasks(args: {
 
 export async function updateEnrichmentTask(args: {
   taskId: string;
-  action: "answer" | "dismiss" | "reopen" | "convert" | "link";
+  action:
+    | "answer"
+    | "dismiss"
+    | "reopen"
+    | "convert"
+    | "link"
+    | "accept_proposal"
+    | "reject_proposal";
   userAnswer?: string;
   anchor?: ReusableLibraryAnchor;
+  proposalId?: string;
   useAiExtraction?: boolean;
   extractAnswerEvidence?: (args: {
     sourceId: string;
@@ -282,6 +317,28 @@ export async function updateEnrichmentTask(args: {
       now,
       useAiExtraction: args.useAiExtraction ?? false,
       extractAnswerEvidence: args.extractAnswerEvidence,
+    });
+  }
+
+  if (args.action === "accept_proposal") {
+    if (!args.proposalId) {
+      return { status: "invalid" as const, reason: "missing_proposal_id" as const };
+    }
+    return acceptEnrichmentProposal(db, {
+      task: existing,
+      proposalId: args.proposalId,
+      now,
+    });
+  }
+
+  if (args.action === "reject_proposal") {
+    if (!args.proposalId) {
+      return { status: "invalid" as const, reason: "missing_proposal_id" as const };
+    }
+    return rejectEnrichmentProposal(db, {
+      task: existing,
+      proposalId: args.proposalId,
+      now,
     });
   }
 
@@ -324,6 +381,13 @@ export async function updateEnrichmentTask(args: {
     .set(patch)
     .where(and(eq(enrichmentTasks.workspaceId, workspace.id), eq(enrichmentTasks.id, args.taskId)))
     .returning();
+  if (updated && args.action === "answer") {
+    await createPendingProposalForAnswer(db, {
+      task: updated,
+      answer: updated.userAnswer ?? "",
+      now,
+    });
+  }
   if (updated && args.action === "link") {
     await replaceTaskTargets(db, {
       workspaceId: workspace.id,
@@ -339,8 +403,16 @@ export async function updateEnrichmentTask(args: {
     });
   }
   const targetMap = updated ? await getTaskTargetMap(db, [updated.id]) : new Map();
+  const proposalMap = updated ? await getTaskProposalMap(db, [updated.id]) : new Map();
   return updated
-    ? ({ status: "saved" as const, task: toEnrichmentTaskPayload(updated, targetMap.get(updated.id)) })
+    ? ({
+        status: "saved" as const,
+        task: toEnrichmentTaskPayload(
+          updated,
+          targetMap.get(updated.id),
+          proposalMap.get(updated.id),
+        ),
+      })
     : ({ status: "not_found" as const });
 }
 
@@ -432,9 +504,14 @@ async function convertEnrichmentTaskToEvidenceCandidate(
   }
   if (args.task.status === "converted" && args.task.evidenceItemId) {
     const targetMap = await getTaskTargetMap(db, [args.task.id]);
+    const proposalMap = await getTaskProposalMap(db, [args.task.id]);
     return {
       status: "saved" as const,
-      task: toEnrichmentTaskPayload(args.task, targetMap.get(args.task.id)),
+      task: toEnrichmentTaskPayload(
+        args.task,
+        targetMap.get(args.task.id),
+        proposalMap.get(args.task.id),
+      ),
       evidenceItemId: args.task.evidenceItemId,
     };
   }
@@ -524,6 +601,20 @@ async function convertEnrichmentTaskToEvidenceCandidate(
       .where(and(eq(enrichmentTasks.workspaceId, args.task.workspaceId), eq(enrichmentTasks.id, args.task.id)))
       .returning();
     if (!updated) throw new Error("Failed to mark enrichment task converted.");
+    await tx
+      .update(enrichmentProposals)
+      .set({
+        status: "rejected",
+        updatedAt: args.now,
+        reviewedAt: args.now,
+      })
+      .where(
+        and(
+          eq(enrichmentProposals.workspaceId, args.task.workspaceId),
+          eq(enrichmentProposals.taskId, args.task.id),
+          eq(enrichmentProposals.status, "pending_review"),
+        ),
+      );
     await replaceTaskTargets(tx, {
       workspaceId: args.task.workspaceId,
       taskId: updated.id,
@@ -537,15 +628,379 @@ async function convertEnrichmentTaskToEvidenceCandidate(
       confidence: "medium",
     });
     const targetMap = await getTaskTargetMap(tx, [updated.id]);
+    const proposalMap = await getTaskProposalMap(tx, [updated.id]);
 
     return {
       status: "saved" as const,
-      task: toEnrichmentTaskPayload(updated, targetMap.get(updated.id)),
+      task: toEnrichmentTaskPayload(
+        updated,
+        targetMap.get(updated.id),
+        proposalMap.get(updated.id),
+      ),
       evidenceItemId: insertedEvidence[0]?.id ?? null,
       evidenceCount: insertedEvidence.length,
       conversionMode: aiExtraction ? "ai_extraction" as const : "fallback" as const,
     };
   });
+}
+
+async function createPendingProposalForAnswer(
+  db: Pick<DbHandle, "insert" | "update" | "select">,
+  args: {
+    task: typeof enrichmentTasks.$inferSelect;
+    answer: string;
+    now: Date;
+  },
+) {
+  const answer = args.answer.trim();
+  if (!answer) return null;
+  const patch = buildCreateEvidenceProposalPatch(args.task, answer);
+  await db
+    .update(enrichmentProposals)
+    .set({
+      status: "rejected",
+      updatedAt: args.now,
+      reviewedAt: args.now,
+    })
+    .where(
+      and(
+        eq(enrichmentProposals.workspaceId, args.task.workspaceId),
+        eq(enrichmentProposals.taskId, args.task.id),
+        eq(enrichmentProposals.status, "pending_review"),
+      ),
+    );
+  const [answerRow] = await db
+    .insert(enrichmentAnswers)
+    .values({
+      workspaceId: args.task.workspaceId,
+      taskId: args.task.id,
+      answerText: answer,
+      answerStatus: "submitted",
+      createdAt: args.now,
+      updatedAt: args.now,
+    })
+    .returning({ id: enrichmentAnswers.id });
+  if (!answerRow) throw new Error("Failed to save enrichment answer.");
+  const [proposal] = await db
+    .insert(enrichmentProposals)
+    .values({
+      workspaceId: args.task.workspaceId,
+      taskId: args.task.id,
+      answerId: answerRow.id,
+      proposalType: "create_evidence",
+      targetKind: "evidence",
+      targetId: null,
+      proposedPatchJson: patch,
+      evidenceDeltaJson: {
+        text: patch.text,
+        target_summary: summarizeProposalTarget(args.task),
+        resume_safe_note:
+          "Accepting creates a pending evidence candidate. Resume-safe approval still requires review.",
+      },
+      schemaVersion: "enrichment-proposal-v1",
+      status: "pending_review",
+      createdAt: args.now,
+      updatedAt: args.now,
+    })
+    .returning();
+  return proposal ?? null;
+}
+
+async function acceptEnrichmentProposal(
+  db: DbHandle,
+  args: {
+    task: typeof enrichmentTasks.$inferSelect;
+    proposalId: string;
+    now: Date;
+  },
+) {
+  return db.transaction(async (tx) => {
+    const [proposal] = await tx
+      .select()
+      .from(enrichmentProposals)
+      .where(
+        and(
+          eq(enrichmentProposals.workspaceId, args.task.workspaceId),
+          eq(enrichmentProposals.taskId, args.task.id),
+          eq(enrichmentProposals.id, args.proposalId),
+          eq(enrichmentProposals.status, "pending_review"),
+        ),
+      )
+      .limit(1);
+    if (!proposal) {
+      return { status: "invalid" as const, reason: "proposal_not_found" as const };
+    }
+    if (proposal.proposalType !== "create_evidence") {
+      return { status: "invalid" as const, reason: "unsupported_proposal_type" as const };
+    }
+    const patch = parseCreateEvidenceProposalPatch(proposal.proposedPatchJson);
+    if (!patch) {
+      return { status: "invalid" as const, reason: "invalid_proposal_payload" as const };
+    }
+    const content = patch.source_quote || patch.text;
+    const [sourceDocument] = await tx
+      .insert(sourceDocuments)
+      .values({
+        workspaceId: args.task.workspaceId,
+        sourceType: "enrichment-answer",
+        title: `Enrichment answer: ${args.task.sourceLabel}`,
+        contentText: content,
+        contentHash: crypto.createHash("sha256").update(content).digest("hex"),
+        createdAt: args.now,
+      })
+      .returning({ id: sourceDocuments.id });
+    if (!sourceDocument) {
+      throw new Error("Failed to create enrichment proposal source document.");
+    }
+    const [evidence] = await tx
+      .insert(evidenceItems)
+      .values({
+        workspaceId: args.task.workspaceId,
+        sourceDocumentId: sourceDocument.id,
+        text: patch.text,
+        sourceQuote: patch.source_quote,
+        evidenceType: patch.evidence_type,
+        metrics: patch.metrics,
+        sensitivityLevel: patch.sensitivity_level,
+        allowedUsage: patch.allowed_usage,
+        publicSafeSummary: patch.public_safe_summary,
+        status: patch.status,
+        relatedWorkExperienceId: patch.related_work_experience_id,
+        relatedInitiativeId: patch.related_initiative_id,
+        relatedPortfolioProjectId: patch.related_portfolio_project_id,
+        needsUserConfirmation: patch.needs_user_confirmation ? 1 : 0,
+        createdAt: args.now,
+        updatedAt: args.now,
+      })
+      .returning({ id: evidenceItems.id });
+    if (!evidence) throw new Error("Failed to create evidence from proposal.");
+    if (proposal.answerId) {
+      await tx
+        .update(enrichmentAnswers)
+        .set({
+          answerStatus: "applied",
+          updatedAt: args.now,
+        })
+        .where(eq(enrichmentAnswers.id, proposal.answerId));
+    }
+    await tx
+      .update(enrichmentProposals)
+      .set({
+        status: "accepted",
+        committedEvidenceItemId: evidence.id,
+        updatedAt: args.now,
+        reviewedAt: args.now,
+      })
+      .where(eq(enrichmentProposals.id, proposal.id));
+    await tx
+      .update(enrichmentProposals)
+      .set({
+        status: "rejected",
+        updatedAt: args.now,
+        reviewedAt: args.now,
+      })
+      .where(
+        and(
+          eq(enrichmentProposals.workspaceId, args.task.workspaceId),
+          eq(enrichmentProposals.taskId, args.task.id),
+          eq(enrichmentProposals.status, "pending_review"),
+        ),
+      );
+    const [updated] = await tx
+      .update(enrichmentTasks)
+      .set({
+        status: "converted",
+        evidenceItemId: evidence.id,
+        updatedAt: args.now,
+        convertedAt: args.now,
+      })
+      .where(
+        and(
+          eq(enrichmentTasks.workspaceId, args.task.workspaceId),
+          eq(enrichmentTasks.id, args.task.id),
+        ),
+      )
+      .returning();
+    if (!updated) throw new Error("Failed to mark enrichment task converted.");
+    await replaceTaskTargets(tx, {
+      workspaceId: args.task.workspaceId,
+      taskId: updated.id,
+      anchor: {
+        evidenceItemId: evidence.id,
+        initiativeId: updated.initiativeId,
+        portfolioProjectId: updated.portfolioProjectId,
+        workExperienceId: updated.workExperienceId,
+      },
+      reason: "Accepted proposal created this evidence candidate.",
+      confidence: "medium",
+    });
+    const targetMap = await getTaskTargetMap(tx, [updated.id]);
+    const proposalMap = await getTaskProposalMap(tx, [updated.id]);
+    return {
+      status: "saved" as const,
+      task: toEnrichmentTaskPayload(
+        updated,
+        targetMap.get(updated.id),
+        proposalMap.get(updated.id),
+      ),
+      evidenceItemId: evidence.id,
+      evidenceCount: 1,
+      conversionMode: "proposal_commit" as const,
+    };
+  });
+}
+
+async function rejectEnrichmentProposal(
+  db: DbHandle,
+  args: {
+    task: typeof enrichmentTasks.$inferSelect;
+    proposalId: string;
+    now: Date;
+  },
+) {
+  const [proposal] = await db
+    .update(enrichmentProposals)
+    .set({
+      status: "rejected",
+      updatedAt: args.now,
+      reviewedAt: args.now,
+    })
+    .where(
+      and(
+        eq(enrichmentProposals.workspaceId, args.task.workspaceId),
+        eq(enrichmentProposals.taskId, args.task.id),
+        eq(enrichmentProposals.id, args.proposalId),
+        eq(enrichmentProposals.status, "pending_review"),
+      ),
+    )
+    .returning();
+  if (!proposal) return { status: "invalid" as const, reason: "proposal_not_found" as const };
+  if (proposal.answerId) {
+    await db
+      .update(enrichmentAnswers)
+      .set({
+        answerStatus: "rejected",
+        updatedAt: args.now,
+      })
+      .where(eq(enrichmentAnswers.id, proposal.answerId));
+  }
+  const [updated] = await db
+    .select()
+    .from(enrichmentTasks)
+    .where(
+      and(
+        eq(enrichmentTasks.workspaceId, args.task.workspaceId),
+        eq(enrichmentTasks.id, args.task.id),
+      ),
+    )
+    .limit(1);
+  const targetMap = updated ? await getTaskTargetMap(db, [updated.id]) : new Map();
+  const proposalMap = updated ? await getTaskProposalMap(db, [updated.id]) : new Map();
+  return updated
+    ? ({
+        status: "saved" as const,
+        task: toEnrichmentTaskPayload(
+          updated,
+          targetMap.get(updated.id),
+          proposalMap.get(updated.id),
+        ),
+      })
+    : ({ status: "not_found" as const });
+}
+
+type CreateEvidenceProposalPatch = {
+  text: string;
+  source_quote: string;
+  evidence_type: "user_confirmed";
+  metrics: Array<Record<string, unknown>>;
+  sensitivity_level: "private";
+  allowed_usage: string[];
+  public_safe_summary: string | null;
+  status: "pending";
+  related_work_experience_id: string | null;
+  related_initiative_id: string | null;
+  related_portfolio_project_id: string | null;
+  needs_user_confirmation: true;
+};
+
+function buildCreateEvidenceProposalPatch(
+  task: typeof enrichmentTasks.$inferSelect,
+  answer: string,
+): CreateEvidenceProposalPatch {
+  const cleanAnswer = answer.trim();
+  return {
+    text: cleanAnswer,
+    source_quote: cleanAnswer,
+    evidence_type: "user_confirmed",
+    metrics: [],
+    sensitivity_level: "private",
+    allowed_usage: [],
+    public_safe_summary: null,
+    status: "pending",
+    related_work_experience_id: task.workExperienceId,
+    related_initiative_id: task.initiativeId,
+    related_portfolio_project_id: task.portfolioProjectId,
+    needs_user_confirmation: true,
+  };
+}
+
+function parseCreateEvidenceProposalPatch(
+  value: Record<string, unknown>,
+): CreateEvidenceProposalPatch | null {
+  if (
+    typeof value.text !== "string" ||
+    typeof value.source_quote !== "string" ||
+    value.text.trim().length === 0 ||
+    value.source_quote.trim().length === 0 ||
+    value.evidence_type !== "user_confirmed" ||
+    value.sensitivity_level !== "private" ||
+    value.status !== "pending" ||
+    value.needs_user_confirmation !== true
+  ) {
+    return null;
+  }
+  const allowedUsage = Array.isArray(value.allowed_usage)
+    ? value.allowed_usage.filter((item): item is string => typeof item === "string")
+    : [];
+  const metrics = Array.isArray(value.metrics)
+    ? value.metrics.filter((item): item is Record<string, unknown> =>
+        Boolean(item) && typeof item === "object" && !Array.isArray(item),
+      )
+    : [];
+  return {
+    text: value.text.trim(),
+    source_quote: value.source_quote.trim(),
+    evidence_type: "user_confirmed",
+    metrics,
+    sensitivity_level: "private",
+    allowed_usage: allowedUsage,
+    public_safe_summary:
+      typeof value.public_safe_summary === "string" && value.public_safe_summary.trim()
+        ? value.public_safe_summary.trim()
+        : null,
+    status: "pending",
+    related_work_experience_id: uuidOrNull(value.related_work_experience_id),
+    related_initiative_id: uuidOrNull(value.related_initiative_id),
+    related_portfolio_project_id: uuidOrNull(value.related_portfolio_project_id),
+    needs_user_confirmation: true,
+  };
+}
+
+function uuidOrNull(value: unknown) {
+  if (typeof value !== "string") return null;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  )
+    ? value
+    : null;
+}
+
+function summarizeProposalTarget(task: typeof enrichmentTasks.$inferSelect) {
+  if (task.evidenceItemId) return "Existing evidence claim";
+  if (task.initiativeId) return "Project or story";
+  if (task.portfolioProjectId) return "Standalone portfolio project";
+  if (task.workExperienceId) return "Role-level experience";
+  return "Assign later";
 }
 
 async function extractEnrichmentAnswerEvidence(args: {
@@ -915,6 +1370,47 @@ async function getTaskTargetMap(
   return map;
 }
 
+async function getTaskProposalMap(
+  db: Pick<DbHandle, "select">,
+  taskIds: string[],
+) {
+  if (taskIds.length === 0) return new Map<string, EnrichmentProposalPayload[]>();
+  const rows = await db
+    .select()
+    .from(enrichmentProposals)
+    .where(inArray(enrichmentProposals.taskId, taskIds))
+    .orderBy(
+      sql`case when ${enrichmentProposals.status} = 'pending_review' then 0 else 1 end`,
+      desc(enrichmentProposals.updatedAt),
+    );
+  const map = new Map<string, EnrichmentProposalPayload[]>();
+  for (const row of rows) {
+    const proposals = map.get(row.taskId) ?? [];
+    proposals.push(toEnrichmentProposalPayload(row));
+    map.set(row.taskId, proposals);
+  }
+  return map;
+}
+
+function toEnrichmentProposalPayload(
+  proposal: typeof enrichmentProposals.$inferSelect,
+): EnrichmentProposalPayload {
+  return {
+    id: proposal.id,
+    proposal_type: proposal.proposalType,
+    status: proposal.status,
+    target_kind: proposal.targetKind,
+    target_id: proposal.targetId,
+    schema_version: proposal.schemaVersion,
+    proposed_patch_json: proposal.proposedPatchJson,
+    evidence_delta_json: proposal.evidenceDeltaJson ?? null,
+    committed_evidence_item_id: proposal.committedEvidenceItemId,
+    createdAt: proposal.createdAt.toISOString(),
+    updatedAt: proposal.updatedAt.toISOString(),
+    reviewedAt: proposal.reviewedAt?.toISOString() ?? null,
+  };
+}
+
 async function replaceTaskTargets(
   db: Pick<DbHandle, "delete" | "insert">,
   args: {
@@ -1023,6 +1519,7 @@ function deriveTaskTargetMetadata(
 function toEnrichmentTaskPayload(
   task: typeof enrichmentTasks.$inferSelect,
   targets: EnrichmentTaskTargetPayload[] = [],
+  proposals: EnrichmentProposalPayload[] = [],
 ) {
   const fallbackTargets = targets.length > 0 ? targets : buildFallbackTargetPayloads(task);
   return {
@@ -1038,6 +1535,7 @@ function toEnrichmentTaskPayload(
     target_reason: task.targetReason,
     expected_outcome: task.expectedOutcome,
     targets: fallbackTargets,
+    proposals,
     evidence_item_id: task.evidenceItemId,
     work_experience_id: task.workExperienceId,
     initiative_id: task.initiativeId,

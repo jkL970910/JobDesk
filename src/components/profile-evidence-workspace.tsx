@@ -179,6 +179,27 @@ type EnrichmentTaskItem = {
     confidence: "low" | "medium" | "high";
     reason: string | null;
   }>;
+  proposals: Array<{
+    id: string;
+    proposal_type:
+      | "create_evidence"
+      | "update_evidence"
+      | "create_initiative"
+      | "update_initiative"
+      | "update_work_experience"
+      | "link_evidence_to_story"
+      | "link_story_to_role";
+    status: "pending_review" | "accepted" | "rejected";
+    target_kind: "evidence" | "initiative" | "portfolio_project" | "work_experience" | null;
+    target_id: string | null;
+    schema_version: string;
+    proposed_patch_json: Record<string, unknown>;
+    evidence_delta_json: Record<string, unknown> | null;
+    committed_evidence_item_id: string | null;
+    createdAt: string;
+    updatedAt: string;
+    reviewedAt: string | null;
+  }>;
   evidence_item_id: string | null;
   work_experience_id: string | null;
   initiative_id: string | null;
@@ -1560,6 +1581,8 @@ export function ProfileEvidenceWorkspace({
       | { action: "dismiss" }
       | { action: "reopen" }
       | { action: "convert" }
+      | { action: "accept_proposal"; proposalId: string }
+      | { action: "reject_proposal"; proposalId: string }
       | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
   ): Promise<{ ok: boolean; message: string }> {
     const response = await fetchJson(`/api/enrichment-tasks/${taskId}`, {
@@ -1578,9 +1601,13 @@ export function ProfileEvidenceWorkspace({
     await refreshLibraryAfterMutation();
     const message =
       payload.action === "answer"
-        ? "Saved enrichment answer."
+        ? "Saved answer and prepared a proposed library update."
         : payload.action === "link"
           ? "Updated enrichment destination."
+        : payload.action === "accept_proposal"
+          ? "Accepted proposal and created a pending evidence candidate."
+        : payload.action === "reject_proposal"
+          ? "Rejected proposed library update."
         : payload.action === "convert"
           ? "Converted into a pending evidence candidate. Next: review truth, add public-safe wording if needed, then approve for resume."
           : payload.action === "dismiss"
@@ -3463,6 +3490,8 @@ function EnrichmentTaskQueue({
       | { action: "dismiss" }
       | { action: "reopen" }
       | { action: "convert" }
+      | { action: "accept_proposal"; proposalId: string }
+      | { action: "reject_proposal"; proposalId: string }
       | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
   ) => Promise<{ ok: boolean; message: string }>;
   portfolioProjects: PortfolioProjectItem[];
@@ -3527,6 +3556,8 @@ function EnrichmentTaskQueue({
       | { action: "dismiss" }
       | { action: "reopen" }
       | { action: "convert" }
+      | { action: "accept_proposal"; proposalId: string }
+      | { action: "reject_proposal"; proposalId: string }
       | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
   ) {
     setPendingTaskId(task.id);
@@ -3702,6 +3733,12 @@ function EnrichmentTaskQueue({
                 })
               }
               onConvert={() => void handleUpdate(selectedTask, { action: "convert" })}
+              onAcceptProposal={(proposalId) =>
+                void handleUpdate(selectedTask, { action: "accept_proposal", proposalId })
+              }
+              onRejectProposal={(proposalId) =>
+                void handleUpdate(selectedTask, { action: "reject_proposal", proposalId })
+              }
               portfolioProjects={portfolioProjects}
               task={selectedTask}
               taskIndex={selectedTaskIndex + 1}
@@ -3727,6 +3764,7 @@ function EnrichmentTaskFocusPane({
   linkTargets,
   message,
   onAnswerChange,
+  onAcceptProposal,
   onConvert,
   onCreateLibraryItems,
   onDismiss,
@@ -3734,6 +3772,7 @@ function EnrichmentTaskFocusPane({
   onNext,
   onPrevious,
   onReviewImportedMaterial,
+  onRejectProposal,
   onSaveAnswer,
   portfolioProjects,
   task,
@@ -3750,6 +3789,7 @@ function EnrichmentTaskFocusPane({
   linkTargets: EvidenceLinkTargets;
   message?: { ok: boolean; text: string };
   onAnswerChange: (answer: string) => void;
+  onAcceptProposal: (proposalId: string) => void;
   onConvert: () => void;
   onCreateLibraryItems: () => void;
   onDismiss: () => void;
@@ -3757,6 +3797,7 @@ function EnrichmentTaskFocusPane({
   onNext: () => void;
   onPrevious: () => void;
   onReviewImportedMaterial: () => void;
+  onRejectProposal: (proposalId: string) => void;
   onSaveAnswer: (answer: string) => void;
   portfolioProjects: PortfolioProjectItem[];
   task: EnrichmentTaskItem;
@@ -3767,6 +3808,8 @@ function EnrichmentTaskFocusPane({
   const hasLibraryAnchor = taskHasReusableLibraryAnchor(task);
   const linkedLabel = formatEnrichmentTaskAnchor(task, evidenceItems, linkTargets);
   const parentLabel = formatEnrichmentTaskParent(task, linkTargets);
+  const pendingProposal =
+    task.proposals.find((proposal) => proposal.status === "pending_review") ?? null;
   if (isSourceSectionReviewTask(task)) {
     return (
       <SourceSectionReviewPane
@@ -3873,6 +3916,24 @@ function EnrichmentTaskFocusPane({
               value={answer}
             />
           </label>
+          {pendingProposal ? (
+            <EnrichmentProposalPreview
+              disabled={isPending}
+              proposal={pendingProposal}
+              targetLabel={linkedLabel}
+              onAccept={() => onAcceptProposal(pendingProposal.id)}
+              onReject={() => onRejectProposal(pendingProposal.id)}
+            />
+          ) : task.status === "answered" ? (
+            <div className="enrichment-proposal enrichment-proposal--empty">
+              <span>Proposal needed</span>
+              <strong>Save this answer again to preview the library update.</strong>
+              <p>
+                Older answered tasks may not have a proposal yet. Previewing keeps your
+                answer out of the canonical library until you approve the update.
+              </p>
+            </div>
+          ) : null}
         </>
       )}
       <div className="enrichment-focus-pane__footer">
@@ -3885,16 +3946,18 @@ function EnrichmentTaskFocusPane({
                 type="button"
                 onClick={() => onSaveAnswer(answer)}
               >
-                Save answer
+                Save & preview update
               </button>
-              <button
-                className="secondary-button"
-                disabled={isPending || task.status !== "answered"}
-                type="button"
-                onClick={onConvert}
-              >
-                Convert to evidence candidate
-              </button>
+              {task.status === "answered" && !pendingProposal ? (
+                <button
+                  className="secondary-button secondary-button--quiet"
+                  disabled={isPending}
+                  type="button"
+                  onClick={onConvert}
+                >
+                  Legacy convert
+                </button>
+              ) : null}
             </>
           ) : null}
           <button
@@ -4089,6 +4152,62 @@ function SourceSectionReviewPane({
         </div>
       </div>
     </article>
+  );
+}
+
+function EnrichmentProposalPreview({
+  disabled,
+  onAccept,
+  onReject,
+  proposal,
+  targetLabel,
+}: {
+  disabled: boolean;
+  onAccept: () => void;
+  onReject: () => void;
+  proposal: EnrichmentTaskItem["proposals"][number];
+  targetLabel: string;
+}) {
+  const text =
+    typeof proposal.proposed_patch_json.text === "string"
+      ? proposal.proposed_patch_json.text
+      : "No proposal text available.";
+  const sourceQuote =
+    typeof proposal.proposed_patch_json.source_quote === "string"
+      ? proposal.proposed_patch_json.source_quote
+      : text;
+  return (
+    <div className="enrichment-proposal">
+      <div className="enrichment-proposal__header">
+        <div>
+          <span>Proposed library update</span>
+          <strong>{formatEnrichmentProposalType(proposal.proposal_type)}</strong>
+        </div>
+        <em data-state={proposal.status}>{formatEnrichmentProposalStatus(proposal.status)}</em>
+      </div>
+      <dl className="enrichment-proposal__meta">
+        <div>
+          <dt>Target</dt>
+          <dd>{targetLabel}</dd>
+        </div>
+        <div>
+          <dt>Commit behavior</dt>
+          <dd>Accept creates a pending evidence candidate. Resume-safe approval is separate.</dd>
+        </div>
+      </dl>
+      <blockquote>{text}</blockquote>
+      {sourceQuote !== text ? (
+        <p className="enrichment-proposal__quote">Source quote: {sourceQuote}</p>
+      ) : null}
+      <div className="enrichment-proposal__actions">
+        <button className="primary-action" disabled={disabled} type="button" onClick={onAccept}>
+          Accept update
+        </button>
+        <button className="secondary-button" disabled={disabled} type="button" onClick={onReject}>
+          Reject proposal
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -4555,6 +4674,29 @@ function formatEnrichmentStatus(status: EnrichmentTaskItem["status"]) {
   if (status === "converted") return "candidate created";
   if (status === "dismissed") return "dismissed";
   return "open";
+}
+
+function formatEnrichmentProposalType(
+  type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
+) {
+  const labels: Record<EnrichmentTaskItem["proposals"][number]["proposal_type"], string> = {
+    create_evidence: "Create evidence candidate",
+    update_evidence: "Update evidence",
+    create_initiative: "Create story",
+    update_initiative: "Update story",
+    update_work_experience: "Update role",
+    link_evidence_to_story: "Link evidence to story",
+    link_story_to_role: "Link story to role",
+  };
+  return labels[type];
+}
+
+function formatEnrichmentProposalStatus(
+  status: EnrichmentTaskItem["proposals"][number]["status"],
+) {
+  if (status === "pending_review") return "needs review";
+  if (status === "accepted") return "accepted";
+  return "rejected";
 }
 
 function taskHasReusableLibraryAnchor(task: EnrichmentTaskItem) {

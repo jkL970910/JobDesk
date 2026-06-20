@@ -5020,6 +5020,129 @@ select:focus {
   padding-top: 12px;
 }
 
+.enrichment-proposal {
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  display: grid;
+  gap: 12px;
+  padding-top: 14px;
+}
+
+.enrichment-proposal--empty {
+  border-block: 1px solid rgba(255, 255, 255, 0.075);
+  padding-block: 14px;
+}
+
+.enrichment-proposal > span,
+.enrichment-proposal__header span {
+  color: var(--primary-strong);
+  display: block;
+  font-size: var(--type-meta);
+  font-weight: 780;
+  margin-bottom: 3px;
+}
+
+.enrichment-proposal > strong,
+.enrichment-proposal__header strong {
+  color: var(--ink);
+  display: block;
+  font-size: 1rem;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.enrichment-proposal > p {
+  color: var(--muted);
+  font-size: var(--type-caption);
+  line-height: 1.45;
+  margin: 0;
+  text-wrap: pretty;
+}
+
+.enrichment-proposal__header {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.enrichment-proposal__header em {
+  background: rgba(245, 177, 85, 0.12);
+  border: 1px solid rgba(245, 177, 85, 0.25);
+  border-radius: 999px;
+  color: var(--warning);
+  font-size: var(--type-meta);
+  font-style: normal;
+  font-weight: 800;
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+
+.enrichment-proposal__header em[data-state="accepted"] {
+  background: rgba(58, 211, 159, 0.1);
+  border-color: rgba(58, 211, 159, 0.2);
+  color: var(--success);
+}
+
+.enrichment-proposal__header em[data-state="rejected"] {
+  background: rgba(244, 114, 132, 0.08);
+  border-color: rgba(244, 114, 132, 0.18);
+  color: var(--danger);
+}
+
+.enrichment-proposal__meta {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+}
+
+.enrichment-proposal__meta div {
+  align-items: start;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(130px, 0.25fr) minmax(0, 1fr);
+  padding: 9px 0;
+}
+
+.enrichment-proposal__meta dt {
+  color: var(--muted);
+  font-size: var(--type-meta);
+  font-weight: 780;
+}
+
+.enrichment-proposal__meta dd {
+  color: var(--ink-soft);
+  font-size: var(--type-caption);
+  font-weight: 650;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.enrichment-proposal blockquote {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 12px;
+  color: var(--ink);
+  font-size: var(--type-body);
+  line-height: 1.55;
+  margin: 0;
+  padding: 12px;
+  text-wrap: pretty;
+}
+
+.enrichment-proposal__quote {
+  color: var(--muted);
+  font-size: var(--type-caption);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.enrichment-proposal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
 .enrichment-task-card {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--line);

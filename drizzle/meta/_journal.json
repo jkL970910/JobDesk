@@ -134,6 +134,13 @@
       "when": 1781907174083,
       "tag": "0018_backfill_source_section_enrichment_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1782020000000,
+      "tag": "0019_enrichment_proposals",
+      "breakpoints": true
     }
   ]
 }

@@ -10,6 +10,8 @@ import {
 } from "../src/server/enrichment-task-repository";
 import { getDb } from "../src/db/client";
 import {
+  enrichmentAnswers,
+  enrichmentProposals,
   enrichmentTaskTargets,
   evidenceItems,
   resumeSourceVersions,
@@ -750,6 +752,133 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       ),
     ).toBe(true);
   }, 20_000);
+
+  it("previews enrichment answers as proposals before committing canonical evidence", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const prompt = `Proposal flow metric ${crypto.randomUUID()}`;
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          taskType: "metric",
+          sourceType: "user_input",
+          sourceLabel: "Proposal flow smoke",
+          prompt,
+        },
+      ],
+    });
+    const queue = await getEnrichmentTaskQueue({
+      limit: 20,
+      sourceType: "user_input",
+      statuses: ["open"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const task = queue.tasks.find((item) => item.prompt === prompt);
+    if (!task) throw new Error("Expected proposal flow task.");
+
+    const answer = `Reduced manual QA review by 18 hours per week through validation dashboards ${crypto.randomUUID()}.`;
+    const answered = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "answer",
+      userAnswer: answer,
+    });
+    expect(answered.status).toBe("saved");
+    if (answered.status !== "saved") throw new Error("Expected saved answer.");
+    expect(answered.task.proposals).toHaveLength(1);
+    expect(answered.task.proposals[0]).toMatchObject({
+      proposal_type: "create_evidence",
+      status: "pending_review",
+      schema_version: "enrichment-proposal-v1",
+    });
+    expect(answered.task.proposals[0]?.proposed_patch_json).toMatchObject({
+      text: answer,
+      evidence_type: "user_confirmed",
+      status: "pending",
+    });
+
+    const answerRows = await db
+      .select()
+      .from(enrichmentAnswers)
+      .where(eq(enrichmentAnswers.taskId, task.id));
+    expect(answerRows).toHaveLength(1);
+    const evidenceBeforeAccept = await db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.text, answer));
+    expect(evidenceBeforeAccept).toHaveLength(0);
+
+    const rejected = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "reject_proposal",
+      proposalId: answered.task.proposals[0]!.id,
+    });
+    expect(rejected.status).toBe("saved");
+    const proposalRowsAfterReject = await db
+      .select()
+      .from(enrichmentProposals)
+      .where(eq(enrichmentProposals.taskId, task.id));
+    expect(proposalRowsAfterReject.some((proposal) => proposal.status === "rejected")).toBe(true);
+    const evidenceAfterReject = await db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.text, answer));
+    expect(evidenceAfterReject).toHaveLength(0);
+
+    const answeredAgain = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "answer",
+      userAnswer: answer,
+    });
+    expect(answeredAgain.status).toBe("saved");
+    if (answeredAgain.status !== "saved") throw new Error("Expected saved answer.");
+    const pendingProposal = answeredAgain.task.proposals.find(
+      (proposal) => proposal.status === "pending_review",
+    );
+    expect(pendingProposal).toBeDefined();
+    if (!pendingProposal) throw new Error("Expected pending proposal.");
+    const accepted = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "accept_proposal",
+      proposalId: pendingProposal.id,
+    });
+    expect(accepted.status).toBe("saved");
+    expect(accepted).toMatchObject({
+      conversionMode: "proposal_commit",
+      evidenceCount: 1,
+    });
+    if (
+      accepted.status !== "saved" ||
+      !("evidenceItemId" in accepted) ||
+      !accepted.evidenceItemId
+    ) {
+      throw new Error("Expected accepted proposal evidence item.");
+    }
+    const [evidence] = await db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.id, accepted.evidenceItemId))
+      .limit(1);
+    expect(evidence).toMatchObject({
+      text: answer,
+      sourceQuote: answer,
+      evidenceType: "user_confirmed",
+      status: "pending",
+      needsUserConfirmation: 1,
+      allowedUsage: [],
+      publicSafeSummary: null,
+    });
+    const [acceptedProposal] = await db
+      .select()
+      .from(enrichmentProposals)
+      .where(eq(enrichmentProposals.id, pendingProposal.id))
+      .limit(1);
+    expect(acceptedProposal).toMatchObject({
+      status: "accepted",
+      committedEvidenceItemId: accepted.evidenceItemId,
+    });
+  });
 
   it("reconciles same-source resume review enrichment tasks to extracted library items", async () => {
     const db = getDb();

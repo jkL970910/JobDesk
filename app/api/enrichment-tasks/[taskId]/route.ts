@@ -17,6 +17,14 @@ const requestSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("reopen") }),
   z.object({ action: z.literal("convert") }),
   z.object({
+    action: z.literal("accept_proposal"),
+    proposalId: z.string().uuid(),
+  }),
+  z.object({
+    action: z.literal("reject_proposal"),
+    proposalId: z.string().uuid(),
+  }),
+  z.object({
     action: z.literal("link"),
     anchor: z.object({
       evidenceItemId: z.string().uuid().nullable().optional(),
@@ -58,8 +66,8 @@ export async function PATCH(
     );
   }
 
-  if (body.data.action === "convert") {
-    schedulePersonalEmbeddingsSync("enrichment_task_convert");
+  if (body.data.action === "convert" || body.data.action === "accept_proposal") {
+    schedulePersonalEmbeddingsSync("enrichment_task_commit");
   }
   return NextResponse.json({ data: result });
 }

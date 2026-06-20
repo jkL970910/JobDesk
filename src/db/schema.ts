@@ -159,6 +159,25 @@ export const enrichmentTaskTargetRoleEnum = pgEnum("enrichment_task_target_role"
   "suggested",
   "previous",
 ]);
+export const enrichmentAnswerStatusEnum = pgEnum("enrichment_answer_status", [
+  "submitted",
+  "applied",
+  "rejected",
+]);
+export const enrichmentProposalTypeEnum = pgEnum("enrichment_proposal_type", [
+  "create_evidence",
+  "update_evidence",
+  "create_initiative",
+  "update_initiative",
+  "update_work_experience",
+  "link_evidence_to_story",
+  "link_story_to_role",
+]);
+export const enrichmentProposalStatusEnum = pgEnum("enrichment_proposal_status", [
+  "pending_review",
+  "accepted",
+  "rejected",
+]);
 export const portfolioProjectTypeEnum = pgEnum("portfolio_project_type", [
   "personal_project",
   "academic_project",
@@ -1029,6 +1048,90 @@ export const enrichmentTaskTargets = pgTable(
   }),
 );
 
+export const enrichmentAnswers = pgTable(
+  "enrichment_answers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => enrichmentTasks.id, { onDelete: "cascade" }),
+    answerText: text("answer_text").notNull(),
+    answerStatus: enrichmentAnswerStatusEnum("answer_status")
+      .notNull()
+      .default("submitted"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    taskStatusIdx: index("enrichment_answers_task_status_idx").on(
+      table.taskId,
+      table.answerStatus,
+      table.createdAt,
+    ),
+    workspaceUpdatedIdx: index("enrichment_answers_workspace_updated_idx").on(
+      table.workspaceId,
+      table.updatedAt,
+    ),
+  }),
+);
+
+export const enrichmentProposals = pgTable(
+  "enrichment_proposals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => enrichmentTasks.id, { onDelete: "cascade" }),
+    answerId: uuid("answer_id").references(() => enrichmentAnswers.id, {
+      onDelete: "set null",
+    }),
+    proposalType: enrichmentProposalTypeEnum("proposal_type").notNull(),
+    targetKind: enrichmentTaskTargetKindEnum("target_kind"),
+    targetId: uuid("target_id"),
+    proposedPatchJson: jsonb("proposed_patch_json")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    evidenceDeltaJson: jsonb("evidence_delta_json").$type<Record<string, unknown>>(),
+    schemaVersion: varchar("schema_version", { length: 80 })
+      .notNull()
+      .default("enrichment-proposal-v1"),
+    status: enrichmentProposalStatusEnum("status").notNull().default("pending_review"),
+    committedEvidenceItemId: uuid("committed_evidence_item_id").references(
+      () => evidenceItems.id,
+      { onDelete: "set null" },
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  },
+  (table) => ({
+    taskStatusIdx: index("enrichment_proposals_task_status_idx").on(
+      table.taskId,
+      table.status,
+      table.updatedAt,
+    ),
+    workspaceStatusIdx: index("enrichment_proposals_workspace_status_idx").on(
+      table.workspaceId,
+      table.status,
+      table.updatedAt,
+    ),
+  }),
+);
+
 export const embeddings = pgTable(
   "embeddings",
   {
@@ -1181,6 +1284,8 @@ export const workspaceRelations = relations(workspaces, ({ many, one }) => ({
   generatedClaims: many(generatedClaims),
   enrichmentTasks: many(enrichmentTasks),
   enrichmentTaskTargets: many(enrichmentTaskTargets),
+  enrichmentAnswers: many(enrichmentAnswers),
+  enrichmentProposals: many(enrichmentProposals),
   embeddings: many(embeddings),
   interviewPrepPacks: many(interviewPrepPacks),
   workflowRuns: many(workflowRuns),
@@ -1308,7 +1413,7 @@ export const generatedClaimRelations = relations(generatedClaims, ({ one }) => (
   }),
 }));
 
-export const enrichmentTaskRelations = relations(enrichmentTasks, ({ one }) => ({
+export const enrichmentTaskRelations = relations(enrichmentTasks, ({ one, many }) => ({
   workspace: one(workspaces, {
     fields: [enrichmentTasks.workspaceId],
     references: [workspaces.id],
@@ -1337,6 +1442,8 @@ export const enrichmentTaskRelations = relations(enrichmentTasks, ({ one }) => (
     fields: [enrichmentTasks.resumeReviewReportId],
     references: [resumeReviewReports.id],
   }),
+  answers: many(enrichmentAnswers),
+  proposals: many(enrichmentProposals),
 }));
 
 export const enrichmentTaskTargetRelations = relations(enrichmentTaskTargets, ({ one }) => ({
@@ -1347,6 +1454,37 @@ export const enrichmentTaskTargetRelations = relations(enrichmentTaskTargets, ({
   task: one(enrichmentTasks, {
     fields: [enrichmentTaskTargets.taskId],
     references: [enrichmentTasks.id],
+  }),
+}));
+
+export const enrichmentAnswerRelations = relations(enrichmentAnswers, ({ one, many }) => ({
+  workspace: one(workspaces, {
+    fields: [enrichmentAnswers.workspaceId],
+    references: [workspaces.id],
+  }),
+  task: one(enrichmentTasks, {
+    fields: [enrichmentAnswers.taskId],
+    references: [enrichmentTasks.id],
+  }),
+  proposals: many(enrichmentProposals),
+}));
+
+export const enrichmentProposalRelations = relations(enrichmentProposals, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [enrichmentProposals.workspaceId],
+    references: [workspaces.id],
+  }),
+  task: one(enrichmentTasks, {
+    fields: [enrichmentProposals.taskId],
+    references: [enrichmentTasks.id],
+  }),
+  answer: one(enrichmentAnswers, {
+    fields: [enrichmentProposals.answerId],
+    references: [enrichmentAnswers.id],
+  }),
+  committedEvidenceItem: one(evidenceItems, {
+    fields: [enrichmentProposals.committedEvidenceItemId],
+    references: [evidenceItems.id],
   }),
 }));
 
