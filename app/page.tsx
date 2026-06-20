@@ -206,56 +206,47 @@ const pageCopy = {
   dashboard: {
     eyebrow: "Overview",
     title: "Dashboard",
-    subtitle:
-      "Your job-search command center: prepare material, create job workspaces, tailor resumes, prep interviews, and track outcomes.",
+    subtitle: "Your next best step across resume, evidence, jobs, and applications.",
   },
   profile: {
     eyebrow: "Resume Workspace",
     title: "Resume",
-    subtitle:
-      "Upload and review old resumes, inspect profile facts, generate variants, and export final resume artifacts.",
+    subtitle: "Review your resume, refresh it with evidence, and export final drafts.",
   },
   evidence: {
     eyebrow: "Material Library",
     title: "Evidence Library",
-    subtitle:
-      "Choose resume-first, material-first, or JD-first intake; turn thin source signals into project stories and source-backed evidence claims.",
+    subtitle: "Build reusable proof for resumes, interviews, and cover letters.",
   },
   jobs: {
     eyebrow: "Job Workspace",
     title: "Jobs",
-    subtitle:
-      "Analyze a target JD, generate a grounded tailored resume, review claim support, and keep the role-specific workflow together.",
+    subtitle: "Analyze a role and create a grounded tailored resume.",
   },
   applications: {
     eyebrow: "Application CRM",
     title: "Applications",
-    subtitle:
-      "Move analyzed jobs through the canonical manual application pipeline without pretending email or auto-apply integrations exist yet.",
+    subtitle: "Track each role from evaluation to offer.",
   },
   interview: {
     eyebrow: "Interview Intelligence",
     title: "Interview Prep",
-    subtitle:
-      "Generate role-specific prep packs from the selected JD, approved evidence, STAR stories, and retrieval context.",
+    subtitle: "Turn resume and role evidence into focused interview prep.",
   },
   recommendations: {
     eyebrow: "Job Scout",
     title: "Recommendations",
-    subtitle:
-      "A future job-scout surface for relevant roles, fit explanations, and create-workspace actions.",
+    subtitle: "Review relevant roles and decide what to pursue next.",
   },
   growth: {
     eyebrow: "Feedback Loop",
     title: "Growth Profile",
-    subtitle:
-      "A future feedback loop for interview reviews, recurring gaps, and practice priorities.",
+    subtitle: "Track recurring gaps and practice priorities.",
   },
   settings: {
-    eyebrow: "System",
+    eyebrow: "Workspace",
     title: "Settings",
-    subtitle:
-      "Personal workspace settings for access, AI configuration, storage, and future integrations.",
+    subtitle: "Manage account, AI access, and advanced diagnostics.",
   },
 } satisfies Record<View, { eyebrow: string; title: string; subtitle: string }>;
 
@@ -361,9 +352,9 @@ export default function HomePage() {
                 key={item.id}
                 onClick={() => navigateToView(item.id)}
                 type="button"
+                title={item.description}
               >
                 <span>{item.label}</span>
-                <small>{item.description}</small>
               </button>
             ))}
           </nav>
@@ -413,22 +404,22 @@ export default function HomePage() {
             {activeView === "recommendations" ? (
               <PlannedReferenceView
                 title="Recommendations"
-                description="This final reference surface will rank and explain relevant jobs from configured sources. It should use profile goals, evidence coverage, job freshness, legitimacy checks, and user dismiss/save behavior once implemented."
+                description="Review relevant roles, understand why they fit, and decide what to save or dismiss."
                 nextSteps={[
-                  "Define job source connectors and freshness policy.",
-                  "Add recommendation ranking service and persisted decisions.",
-                  "Render fit reasons, risk notes, and create-workspace actions from real data.",
+                  "Connect trusted job sources.",
+                  "Show fit reasons and risk notes.",
+                  "Save promising roles into Jobs.",
                 ]}
               />
             ) : null}
             {activeView === "growth" ? (
               <PlannedReferenceView
                 title="Growth Profile"
-                description="This final reference surface will summarize interview reviews and recurring gaps from explicit interview notes and review sessions."
+                description="Track recurring interview gaps and practice priorities from your saved prep work."
                 nextSteps={[
-                  "Add interview review schema and saved feedback entries.",
-                  "Aggregate recurring strengths, weaknesses, and knowledge gaps.",
-                  "Connect recommended practice tasks back to Interview Prep.",
+                  "Save interview notes after each round.",
+                  "Summarize recurring strengths and gaps.",
+                  "Turn gaps into focused practice tasks.",
                 ]}
               />
             ) : null}
@@ -568,7 +559,7 @@ function DashboardView({
       action: "Open evidence",
       detail:
         resumeReadyClaims > 0
-          ? `${resumeReadyClaims} claim${resumeReadyClaims === 1 ? "" : "s"} are resume-safe. ${claimsNeedingReview} still need review.`
+          ? `${resumeReadyClaims} claim${resumeReadyClaims === 1 ? "" : "s"} approved for resume use. ${claimsNeedingReview} still need review.`
           : hasExtractedMaterial
             ? `${claimsNeedingReview} extracted claim${claimsNeedingReview === 1 ? "" : "s"} need truth review and safe wording.`
             : "Import notes, guided answers, or resume text into reusable proof.",
@@ -597,7 +588,7 @@ function DashboardView({
       detail:
         resumeReadyClaims > 0
           ? "Generate a grounded main resume, positioning variant, or refresh an old resume."
-          : "Requires resume-safe evidence before generation is trustworthy.",
+          : "Approve evidence for resume use before generating.",
       id: "export",
       label: "Export",
       metric: resumeReadyClaims > 0 ? "Draftable" : "Blocked",
@@ -650,7 +641,7 @@ function DashboardView({
       ? [
           {
             action: "Approve evidence",
-            detail: "Evidence exists, but nothing is marked resume-safe yet.",
+            detail: "Evidence exists, but nothing is approved for resume use yet.",
             label: "Unlock resume generation",
             target: () => onNavigate("evidence"),
           },
@@ -772,7 +763,7 @@ function DashboardView({
               <p className="panel-kicker">Resume readiness</p>
               <h2>What blocks a trustworthy export?</h2>
             </div>
-            <span>{dashboardLoadState === "loading" ? "Loading" : `${resumeReadyClaims} resume-safe`}</span>
+            <span>{dashboardLoadState === "loading" ? "Loading" : `${resumeReadyClaims} resume-ready`}</span>
           </div>
           <div className="journey-steps">
             {readinessItems.map((step, index) => (
@@ -1247,7 +1238,7 @@ function ProfileReferenceView({
 
   async function generatePositioningReport() {
     setIsGeneratingPositioning(true);
-    setPositioningStatus("Analyzing canonical evidence for target role directions...");
+    setPositioningStatus("Analyzing approved evidence for target role directions...");
     try {
       const response = await fetchJson("/api/profile-positioning", {
         method: "POST",
@@ -1302,7 +1293,7 @@ function ProfileReferenceView({
         ? "Refreshing old resume with current approved evidence..."
         : usePositioning
         ? `Generating ${selectedPositioningDirection?.target_role} resume variant...`
-        : "Generating main resume from resume-safe evidence...",
+        : "Generating main resume from approved evidence...",
     );
     try {
       if (useRefresh && !refreshSourceResumeId) {
@@ -1610,7 +1601,7 @@ function ProfileReferenceView({
             <p className="panel-kicker">Profile Positioning Engine</p>
             <h3>Find role directions your evidence actually supports.</h3>
             <p>
-              Uses canonical profile facts and resume-safe evidence only. It does
+              Uses profile facts and evidence approved for resume use. It does
               not require a JD and does not make unsupported career claims.
             </p>
           </div>
@@ -1632,7 +1623,7 @@ function ProfileReferenceView({
           <article>
             <span>Evidence basis</span>
             <strong>{resumeEligibleEvidence}</strong>
-            <p>{mainResumeReady ? "Resume-safe evidence can support positioning." : "Approve resume-safe evidence first."}</p>
+            <p>{mainResumeReady ? "Approved evidence can support positioning." : "Approve evidence for resume use first."}</p>
           </article>
           <article>
             <span>Latest report</span>
@@ -1740,9 +1731,9 @@ function ProfileReferenceView({
         <div className="main-resume-builder__header">
           <div>
             <p className="panel-kicker">Main Resume Builder</p>
-            <h3>Generate a reusable general resume from canonical evidence.</h3>
+            <h3>Generate a reusable general resume from approved evidence.</h3>
             <p>
-              Uses profile facts plus resume-safe evidence. This is independent of
+              Uses profile facts plus Evidence Library material approved for resume use. This is independent of
               any JD-tailored resume and includes a generated claim ledger for Fact Guard.
             </p>
           </div>
@@ -1864,9 +1855,9 @@ function ProfileReferenceView({
         </div>
         <div className="main-resume-builder__metrics">
           <article>
-            <span>Resume-safe evidence</span>
+            <span>Resume-ready evidence</span>
             <strong>{resumeEligibleEvidence}</strong>
-            <p>{mainResumeReady ? "Ready for main resume generation." : "Approve resume-safe evidence first."}</p>
+            <p>{mainResumeReady ? "Ready for main resume generation." : "Approve evidence for resume use first."}</p>
           </article>
           <article>
             <span>Latest main resume</span>
@@ -2007,7 +1998,7 @@ function ProfileReferenceView({
                     <p>
                       {resumeEligibleEvidence > 0
                         ? `${resumeEligibleEvidence} approved evidence item${resumeEligibleEvidence === 1 ? "" : "s"} available.`
-                        : "Approve at least one resume-safe evidence item first."}
+                        : "Approve at least one evidence item for resume use first."}
                     </p>
                   </li>
                   <li
@@ -2337,77 +2328,73 @@ function SettingsReferenceView() {
         </article>
       </div>
       <section className="diagnostics-panel" aria-label="System diagnostics">
-        <div className="diagnostics-panel__header">
-          <div>
-            <span>Diagnostics</span>
-            <h3>Workflow baseline checks</h3>
-          </div>
-          <p>
-            Read-only runtime status for DB, provider, skills registry, and recent
-            workflow audit rows.
-          </p>
-        </div>
-        {diagnosticsError ? (
-          <p className="diagnostics-panel__error">{diagnosticsError}</p>
-        ) : null}
-        {!diagnostics && !diagnosticsError ? (
-          <p className="diagnostics-panel__loading">Loading diagnostics...</p>
-        ) : null}
-        {diagnostics ? (
-          <>
-            <div className="diagnostics-grid">
-              <DiagnosticMetric
-                label="DB connected"
-                value={diagnostics.db.connected ? "yes" : "no"}
-                tone={diagnostics.db.connected ? "ready" : "blocked"}
-              />
-              <DiagnosticMetric
-                label="AI provider"
-                value={diagnostics.ai.providerEnabled ? "enabled" : "disabled"}
-                tone={diagnostics.ai.providerEnabled ? "ready" : "muted"}
-              />
-              <DiagnosticMetric label="Current model" value={diagnostics.ai.model} />
-              <DiagnosticMetric
-                label="Registry entries"
-                value={String(diagnostics.skills.registryEntries)}
-              />
-              <DiagnosticMetric
-                label="Failed workflows"
-                value={String(diagnostics.workflows.failedCount)}
-                tone={diagnostics.workflows.failedCount > 0 ? "warning" : "ready"}
-              />
-              <DiagnosticMetric
-                label="Last workflow"
-                value={formatDateTime(diagnostics.workflows.lastFinishedAt)}
-              />
-            </div>
-            <div className="diagnostics-detail">
-              <div>
-                <h4>Provider config</h4>
-                <p>
-                  API key {diagnostics.ai.apiKeyConfigured ? "configured" : "missing"} ·{" "}
-                  {diagnostics.ai.transport} · {diagnostics.ai.endpointHost}
-                </p>
+        <details>
+          <summary>
+            <span>Advanced diagnostics</span>
+            <strong>Runtime checks for support and debugging</strong>
+          </summary>
+          {diagnosticsError ? (
+            <p className="diagnostics-panel__error">{diagnosticsError}</p>
+          ) : null}
+          {!diagnostics && !diagnosticsError ? (
+            <p className="diagnostics-panel__loading">Loading diagnostics...</p>
+          ) : null}
+          {diagnostics ? (
+            <>
+              <div className="diagnostics-grid">
+                <DiagnosticMetric
+                  label="Database"
+                  value={diagnostics.db.connected ? "connected" : "offline"}
+                  tone={diagnostics.db.connected ? "ready" : "blocked"}
+                />
+                <DiagnosticMetric
+                  label="AI access"
+                  value={diagnostics.ai.providerEnabled ? "enabled" : "disabled"}
+                  tone={diagnostics.ai.providerEnabled ? "ready" : "muted"}
+                />
+                <DiagnosticMetric label="AI model" value={diagnostics.ai.model} />
+                <DiagnosticMetric
+                  label="Prompt registry"
+                  value={String(diagnostics.skills.registryEntries)}
+                />
+                <DiagnosticMetric
+                  label="Failed jobs"
+                  value={String(diagnostics.workflows.failedCount)}
+                  tone={diagnostics.workflows.failedCount > 0 ? "warning" : "ready"}
+                />
+                <DiagnosticMetric
+                  label="Last run"
+                  value={formatDateTime(diagnostics.workflows.lastFinishedAt)}
+                />
               </div>
-              <div>
-                <h4>Latest workflow runs</h4>
-                {diagnostics.workflows.latest.length > 0 ? (
-                  <ul>
-                    {diagnostics.workflows.latest.map((run) => (
-                      <li key={run.id}>
-                        <strong>{run.workflowType}</strong>
-                        <span>{run.status}</span>
-                        <small>{run.skillId ?? "no skill"} · {run.promptVersion ?? "no prompt"}</small>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>No workflow runs recorded yet.</p>
-                )}
+              <div className="diagnostics-detail">
+                <div>
+                  <h4>AI connection</h4>
+                  <p>
+                    Secret {diagnostics.ai.apiKeyConfigured ? "present" : "missing"} ·{" "}
+                    {diagnostics.ai.transport} · {diagnostics.ai.endpointHost}
+                  </p>
+                </div>
+                <div>
+                  <h4>Recent background jobs</h4>
+                  {diagnostics.workflows.latest.length > 0 ? (
+                    <ul>
+                      {diagnostics.workflows.latest.map((run) => (
+                        <li key={run.id}>
+                          <strong>{run.workflowType}</strong>
+                          <span>{run.status}</span>
+                          <small>{run.skillId ?? "no prompt"} · {run.promptVersion ?? "current"}</small>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No background jobs recorded yet.</p>
+                  )}
+                </div>
               </div>
-            </div>
-          </>
-        ) : null}
+            </>
+          ) : null}
+        </details>
       </section>
     </section>
   );

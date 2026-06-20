@@ -287,7 +287,7 @@ export function ResumeReviewWorkspace({
   async function rerunReview(resume: ResumeSourceReviewSummary) {
     if (
       !window.confirm(
-        `Rerun AI review for ${formatResumeTitle(resume.title)} v${resume.version}? This will make another model/provider call and replace the latest review summary for this saved resume version. The uploaded resume and extracted Evidence Library items remain intact.`,
+        `Rerun review for ${formatResumeTitle(resume.title)} v${resume.version}? This will create a fresh review and replace the latest summary for this saved resume version. The uploaded resume and extracted Evidence Library items remain intact.`,
       )
     ) {
       return;
@@ -575,7 +575,7 @@ function ResumeReviewProgressNotice({
   const stages = [
     {
       label: "Upload and parse",
-      summary: "Read the uploaded file and normalize resume text.",
+      summary: "Read the uploaded file and prepare resume text.",
       detail: "Uploading the resume and extracting readable text.",
     },
     {
@@ -584,9 +584,9 @@ function ResumeReviewProgressNotice({
       detail: "AI is reviewing resume strength, gaps, ATS readability, and evidence opportunities.",
     },
     {
-      label: "Validate contract",
-      summary: "Check that the AI output matches JobDesk's review schema.",
-      detail: "Validating the AI review contract and retrying once if the output is malformed.",
+      label: "Check completeness",
+      summary: "Make sure the report is complete before saving.",
+      detail: "Checking the review for completeness.",
     },
     {
       label: "Save report",
@@ -612,9 +612,9 @@ function ResumeReviewProgressNotice({
         {activeStage.detail}
         {fileName ? ` File: ${fileName}.` : ""}
         {elapsedSeconds >= 60 && elapsedSeconds < 110
-          ? " AI review can take one to two minutes while the provider scores the resume and checks the output contract."
+          ? " Resume review can take one to two minutes for longer files."
           : ""}
-        {elapsedSeconds >= 110 ? " This review is still running because the provider is slow or retrying malformed output. Keep the page open; the saved report will appear here when complete." : ""}
+        {elapsedSeconds >= 110 ? " This review is taking longer than usual. Keep this page open while JobDesk finishes the report." : ""}
       </p>
       <ol className="progress-stages" aria-label="Resume review stages">
         {stages.map((stage, index) => (
@@ -723,7 +723,7 @@ function ResumeReviewReportCard({
           {metadata?.scopeNote ? <p>{metadata.scopeNote}</p> : null}
           {isFallback ? (
             <p className="review-warning">
-              This is a local fallback estimate, not a full AI resume review. The AI response failed validation, so treat this score as directional.
+              This is a quick estimate, not the full resume review. Treat this score as directional and retry when ready.
             </p>
           ) : null}
         </div>
@@ -732,9 +732,9 @@ function ResumeReviewReportCard({
       {isFallback ? (
         <section className="review-retry-panel">
           <div>
-            <h3>AI review did not complete cleanly.</h3>
+            <h3>Full review needs another pass.</h3>
             <p>
-              The uploaded resume is already saved. Retry runs another AI review call for this version; use it instead of uploading the same file again.
+              The uploaded resume is saved. Retry this version instead of uploading the same file again.
             </p>
           </div>
           <button disabled={retryDisabled} type="button" onClick={onRetry}>
@@ -751,10 +751,10 @@ function ResumeReviewReportCard({
           </article>
           <article>
             <span>Review status</span>
-            <strong>{isFallback ? "Fallback estimate" : "AI review complete"}</strong>
+            <strong>{isFallback ? "Quick estimate" : "Review complete"}</strong>
             <p>
               {isFallback
-                ? "Use the retry action above for a full review."
+                ? "Retry when you want the full review."
                 : "Use this review as guidance before turning material into evidence."}
             </p>
           </article>
@@ -762,15 +762,15 @@ function ResumeReviewReportCard({
             <summary>Technical details</summary>
             <dl>
               <div>
-                <dt>Provider</dt>
+                <dt>AI service</dt>
                 <dd>{metadata.provider ?? "unknown"}</dd>
               </div>
               <div>
-                <dt>Model</dt>
+                <dt>AI model</dt>
                 <dd>{metadata.model ?? "model unknown"}</dd>
               </div>
               <div>
-                <dt>Retry count</dt>
+                <dt>Attempts</dt>
                 <dd>{metadata.retryCount ?? 0}</dd>
               </div>
               {metadata.providerFailureKind ? (
@@ -889,7 +889,7 @@ function ResumeReviewReportCard({
           <p>
             {resume.status === "extracted"
               ? "Use Evidence Library to review open tasks, add missing context, and keep approved evidence stable."
-              : "Evidence Library is where review findings become reusable claims, project stories, and resume-safe material."}
+              : "Evidence Library is where review findings become reusable claims, project stories, and resume-ready material."}
           </p>
         </div>
         <ul className="review-next-steps">

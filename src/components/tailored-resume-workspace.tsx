@@ -414,7 +414,7 @@ export function TailoredResumeWorkspace() {
           <ResumeResult exportResume={exportResume} resume={displayResume} />
         ) : (
           <div className="empty-state empty-state--compact">
-            Approve resume-safe evidence, then generate a tailored draft.
+            Approve evidence for resume use, then generate a tailored draft.
           </div>
         )}
       </div>
@@ -454,7 +454,7 @@ function ResumeReadinessChecklist({
       <ReadinessItem
         isReady={approvedResumeEvidenceCount > 0}
         label="Resume evidence"
-        readyText={`${approvedResumeEvidenceCount} approved resume-safe item${approvedResumeEvidenceCount === 1 ? "" : "s"}`}
+        readyText={`${approvedResumeEvidenceCount} approved resume item${approvedResumeEvidenceCount === 1 ? "" : "s"}`}
         todoText={
           needsReviewEvidenceCount > 0
             ? `${needsReviewEvidenceCount} item${needsReviewEvidenceCount === 1 ? "" : "s"} need review or resume approval`

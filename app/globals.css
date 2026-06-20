@@ -3125,6 +3125,44 @@ strong,
   padding-top: 18px;
 }
 
+.diagnostics-panel details {
+  display: grid;
+  gap: 14px;
+}
+
+.diagnostics-panel summary {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  list-style: none;
+  padding: 14px 16px;
+}
+
+.diagnostics-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.diagnostics-panel summary span {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.diagnostics-panel summary strong {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  letter-spacing: -0.01em;
+}
+
 .diagnostics-panel__header {
   align-items: flex-end;
   display: flex;

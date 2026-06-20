@@ -1605,11 +1605,11 @@ export function ProfileEvidenceWorkspace({
         : payload.action === "link"
           ? "Updated enrichment destination."
         : payload.action === "accept_proposal"
-          ? "Accepted proposal and created a pending evidence candidate."
+          ? "Accepted update and saved draft evidence."
         : payload.action === "reject_proposal"
-          ? "Rejected proposed library update."
+          ? "Rejected suggested update."
         : payload.action === "convert"
-          ? "Converted into a pending evidence candidate. Next: review truth, add public-safe wording if needed, then approve for resume."
+          ? "Saved draft evidence. Next: review wording, then approve for resume use."
           : payload.action === "dismiss"
             ? "Dismissed enrichment task."
             : "Reopened enrichment task.";
@@ -2315,7 +2315,7 @@ export function ProfileEvidenceWorkspace({
               description={
                 evidenceFocus
                   ? "These claims are already linked to the selected story target. Review truth, sensitivity, public-safe wording, and resume usage."
-                  : "These evidence claims still need approval, public-safe wording, or resume-safe usage before they can support generated resumes."
+                  : "These evidence claims still need approval, public-safe wording, or resume-use approval before they can support generated resumes."
               }
               emptyMessage={
                 evidenceFocus
@@ -2477,8 +2477,8 @@ function getFileProcessingStages(
       },
       {
         label: "Preserve source",
-        summary: "Keep provenance only when the text still matches the file.",
-        detail: "Preparing source provenance so generated evidence can trace back to this file.",
+        summary: "Keep a trace back to the original file.",
+        detail: "Preparing the source link so draft evidence can trace back to this file.",
       },
       {
         label: "Prepare draft",
@@ -2490,18 +2490,18 @@ function getFileProcessingStages(
   return [
     {
       label: "Upload source",
-      summary: "Send the selected file to the source parser.",
+      summary: "Send the selected file for reading.",
       detail: "Uploading the source file and validating the file type.",
     },
     {
       label: "Extract text",
-      summary: "Read the document text layer and parser warnings.",
-      detail: "Extracting text, parser warnings, word count, and document quality signals.",
+      summary: "Read the document text and quality notes.",
+      detail: "Extracting text, word count, and document quality notes.",
     },
     {
       label: "Store source",
-      summary: "Create a reusable source document record.",
-      detail: "Saving the parsed source so future evidence can retain provenance.",
+      summary: "Save the source for later review.",
+      detail: "Saving the parsed source so later evidence can trace back to the original file.",
     },
     {
       label: "Load editor",
@@ -2538,7 +2538,7 @@ function ProgressNotice({
       </div>
       <p>
         {activeStage.detail}
-        {elapsedSeconds >= 40 ? " Long sources or provider retries can take about a minute." : ""}
+        {elapsedSeconds >= 40 ? " Longer sources can take about a minute." : ""}
       </p>
       <ol className="progress-stages" aria-label="Current extraction stages">
         {stages.map((stage, index) => (
@@ -2571,7 +2571,7 @@ function getProgressStages(mode: "evidence" | "project") {
       {
         label: "Extract project evidence",
         summary: "Identify claims, impact, tools, and scope.",
-        detail: "AI is extracting grounded project claims, impact signals, and missing proof points.",
+        detail: "Finding grounded project claims, impact signals, and missing proof points.",
       },
       {
         label: "Build project card",
@@ -2580,30 +2580,30 @@ function getProgressStages(mode: "evidence" | "project") {
       },
       {
         label: "Save and refresh",
-        summary: "Persist results and prepare cleanup checks.",
+        summary: "Save results and prepare cleanup checks.",
         detail: "Saving project material, refreshing the library, and checking possible overlaps.",
       },
     ];
   }
   return [
     {
-    label: "Read source",
+      label: "Read source",
       summary: "Use the selected reviewed resume or added source text.",
       detail: "Reading the source and preparing it for evidence extraction.",
     },
     {
-      label: "Extract signals",
-      summary: "Find profile facts, evidence claims, and project candidates.",
-      detail: "AI is extracting profile facts, reusable evidence claims, and project-card candidates.",
+      label: "Find useful details",
+      summary: "Find profile facts, evidence claims, and project drafts.",
+      detail: "Finding profile facts, reusable claims, and project drafts.",
     },
     {
       label: "Structure library items",
       summary: "Convert raw signals into reviewable cards.",
-      detail: "Structuring the extracted material into Evidence Library cards with gaps and questions.",
+      detail: "Turning source material into Evidence Library cards with missing details and questions.",
     },
     {
-      label: "Save and dedupe",
-      summary: "Persist results and surface possible overlaps.",
+      label: "Save and review",
+      summary: "Save results and surface possible overlaps.",
       detail: "Saving library items, refreshing review tabs, and preparing possible-overlap cleanup.",
     },
   ];
@@ -2788,7 +2788,7 @@ function ResumeSourcePicker({
     <section className="resume-source-picker">
       <div>
         <span>Use reviewed resume</span>
-        <p>Use reviewed resume version as a provenance source for reusable evidence candidates. This does not replace the Resume Review report.</p>
+        <p>Use this reviewed resume to create draft evidence and work stories. This does not replace the Resume Review report.</p>
       </div>
       <select
         aria-label="Reviewed resume version"
@@ -2980,7 +2980,7 @@ function GuidedMaterialBuilder({
           <span>Guided Material Builder</span>
           <p>
             Answer what you know. The preview becomes source material, then JobDesk
-            extracts evidence candidates for review.
+            creates draft evidence for review.
           </p>
         </div>
         <div className="guided-sync-status" data-state={syncState} aria-live="polite">
@@ -3389,7 +3389,7 @@ function ReadyToUseLibraryView({
           <h3>Ready to Use</h3>
           <p>
             User-approved, external-safe claims that can support resume,
-            interview, and cover-letter workflows.
+            interview, and cover letters.
           </p>
         </div>
         <div className="ready-library__metrics" aria-label="Ready asset counts">
@@ -3402,7 +3402,7 @@ function ReadyToUseLibraryView({
         <div className="empty-state-row">
           <div>
             <strong>No ready assets match these filters.</strong>
-            <p>Approve claims, review external-safe wording, or clear filters to browse candidates.</p>
+            <p>Approve claims, review external-safe wording, or clear filters to browse draft evidence.</p>
           </div>
           <button className="secondary-button" type="button" onClick={onOpenAllEvidence}>
             Browse all evidence
@@ -3603,11 +3603,11 @@ function EnrichmentTaskQueue({
       <div className="section-block__top">
         <div>
           <h3>{queueVariant === "imported" ? "Imported Material" : "Needs Enrichment"}</h3>
-          <p>
-            {queueVariant === "imported"
-              ? "These are imported source-section notes, not questions. Review the roles and stories created from each source section, customize handling, or dismiss notes that are no longer useful."
-              : "These prompts come from resume review findings and concrete extraction gaps. Answer them to strengthen reusable evidence candidates, then approve only the claims that are accurate and reusable."}
-          </p>
+            <p>
+              {queueVariant === "imported"
+                ? "Review imported sections, then decide whether they should become roles, stories, or evidence."
+                : "Answer these questions to strengthen your work stories and resume proof."}
+            </p>
         </div>
         <span>
           {queueVariant === "imported"
@@ -3620,7 +3620,7 @@ function EnrichmentTaskQueue({
         <div className="empty-state-row">
           <div>
             <strong>Evidence enrichment storage is not configured.</strong>
-            <p>Connect the JobDesk database to save and review persistent enrichment tasks.</p>
+            <p>Connect storage to save and review evidence tasks.</p>
           </div>
           <button className="secondary-button" type="button" onClick={onReturnToIntake}>
             Open Add Material
@@ -3646,8 +3646,8 @@ function EnrichmentTaskQueue({
             </strong>
             <p>
               {queueVariant === "imported"
-                ? "When a resume/source import creates section-level notes, they will appear here instead of the question queue."
-                : "Add material or rerun Resume Review to surface concrete evidence gaps."}
+                ? "When a resume or source import creates section-level review items, they will appear here instead of the question queue."
+                : "Add material or rerun Resume Review to surface missing details."}
             </p>
           </div>
           <button className="secondary-button" type="button" onClick={onReturnToIntake}>
@@ -3732,7 +3732,6 @@ function EnrichmentTaskQueue({
                   userAnswer: answer,
                 })
               }
-              onConvert={() => void handleUpdate(selectedTask, { action: "convert" })}
               onAcceptProposal={(proposalId) =>
                 void handleUpdate(selectedTask, { action: "accept_proposal", proposalId })
               }
@@ -3765,7 +3764,6 @@ function EnrichmentTaskFocusPane({
   message,
   onAnswerChange,
   onAcceptProposal,
-  onConvert,
   onCreateLibraryItems,
   onDismiss,
   onLink,
@@ -3790,7 +3788,6 @@ function EnrichmentTaskFocusPane({
   message?: { ok: boolean; text: string };
   onAnswerChange: (answer: string) => void;
   onAcceptProposal: (proposalId: string) => void;
-  onConvert: () => void;
   onCreateLibraryItems: () => void;
   onDismiss: () => void;
   onLink: (anchor: EnrichmentTaskAnchorPatch) => void;
@@ -3926,11 +3923,11 @@ function EnrichmentTaskFocusPane({
             />
           ) : task.status === "answered" ? (
             <div className="enrichment-proposal enrichment-proposal--empty">
-              <span>Proposal needed</span>
+              <span>Suggested update needed</span>
               <strong>Save this answer again to preview the library update.</strong>
               <p>
-                Older answered tasks may not have a proposal yet. Previewing keeps your
-                answer out of the canonical library until you approve the update.
+                Older answered tasks may not have a suggested update yet. Previewing keeps your
+                answer out of the Evidence Library until you approve the update.
               </p>
             </div>
           ) : null}
@@ -3948,16 +3945,6 @@ function EnrichmentTaskFocusPane({
               >
                 Save & preview update
               </button>
-              {task.status === "answered" && !pendingProposal ? (
-                <button
-                  className="secondary-button secondary-button--quiet"
-                  disabled={isPending}
-                  type="button"
-                  onClick={onConvert}
-                >
-                  Legacy convert
-                </button>
-              ) : null}
             </>
           ) : null}
           <button
@@ -4042,18 +4029,18 @@ function SourceSectionReviewPane({
       </div>
       <div className="source-section-review">
         <div className="source-section-review__summary">
-          <span>Extraction note</span>
-          <strong>This is not a question to answer.</strong>
+          <span>Imported section</span>
+          <strong>Review what was imported.</strong>
           <p>
-            JobDesk found a source section during import. Review the roles and stories
+            JobDesk imported a section from your source. Review the roles and stories
             created from it, or choose a different handling path if this section should
-            become specific claims instead.
+            become specific claims.
           </p>
         </div>
         <dl className="source-section-review__meta">
           <div>
             <dt>Imported section</dt>
-            <dd>{sectionName ?? "Source section"}</dd>
+            <dd>{sectionName ?? "Imported section"}</dd>
           </div>
           <div>
             <dt>Why this appears</dt>
@@ -4087,7 +4074,7 @@ function SourceSectionReviewPane({
             type="button"
             onClick={onDismiss}
           >
-            Dismiss note
+            Dismiss
           </button>
         </div>
         {customizing ? (
@@ -4119,7 +4106,7 @@ function SourceSectionReviewPane({
               type="button"
               onClick={onDismiss}
             >
-              Ignore this section note
+              Ignore this imported section
             </button>
           </div>
         ) : null}
@@ -4171,7 +4158,7 @@ function EnrichmentProposalPreview({
   const text =
     typeof proposal.proposed_patch_json.text === "string"
       ? proposal.proposed_patch_json.text
-      : "No proposal text available.";
+      : "No suggested update text available.";
   const sourceQuote =
     typeof proposal.proposed_patch_json.source_quote === "string"
       ? proposal.proposed_patch_json.source_quote
@@ -4180,7 +4167,7 @@ function EnrichmentProposalPreview({
     <div className="enrichment-proposal">
       <div className="enrichment-proposal__header">
         <div>
-          <span>Proposed library update</span>
+          <span>Suggested update</span>
           <strong>{formatEnrichmentProposalType(proposal.proposal_type)}</strong>
         </div>
         <em data-state={proposal.status}>{formatEnrichmentProposalStatus(proposal.status)}</em>
@@ -4191,8 +4178,8 @@ function EnrichmentProposalPreview({
           <dd>{targetLabel}</dd>
         </div>
         <div>
-          <dt>Commit behavior</dt>
-          <dd>Accept creates a pending evidence candidate. Resume-safe approval is separate.</dd>
+          <dt>What happens next</dt>
+          <dd>Accept saves this as draft evidence. You can approve it for resume use after review.</dd>
         </div>
       </dl>
       <blockquote>{text}</blockquote>
@@ -4204,7 +4191,7 @@ function EnrichmentProposalPreview({
           Accept update
         </button>
         <button className="secondary-button" disabled={disabled} type="button" onClick={onReject}>
-          Reject proposal
+          Reject update
         </button>
       </div>
     </div>
@@ -4631,7 +4618,7 @@ function formatEnrichmentTaskScope(scope: EnrichmentTaskItem["target_scope"]) {
 function formatEnrichmentSourceType(type: string) {
   const labels: Record<string, string> = {
     evidence: "evidence card",
-    extraction_note: "extraction note",
+    extraction_note: "imported note",
     jd_gap: "JD gap",
     resume_review: "resume review",
     story_target: "story target",
@@ -4644,7 +4631,7 @@ function formatEnrichmentTargetReason(task: EnrichmentTaskItem) {
   if (isSourceSectionReviewTask(task)) {
     return (
       task.target_reason ||
-      "This source section was imported as structured material. It is not a missing-information question."
+      "This imported section was saved as structured material. It is not a missing-detail question."
     );
   }
   return task.target_reason || "This question needs a target before the answer can be reused safely.";
@@ -4671,7 +4658,7 @@ function formatEnrichmentExpectedOutcome(task: EnrichmentTaskItem) {
 
 function formatEnrichmentStatus(status: EnrichmentTaskItem["status"]) {
   if (status === "answered") return "answer saved";
-  if (status === "converted") return "candidate created";
+  if (status === "converted") return "draft saved";
   if (status === "dismissed") return "dismissed";
   return "open";
 }
@@ -4680,7 +4667,7 @@ function formatEnrichmentProposalType(
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
 ) {
   const labels: Record<EnrichmentTaskItem["proposals"][number]["proposal_type"], string> = {
-    create_evidence: "Create evidence candidate",
+    create_evidence: "Create draft evidence",
     update_evidence: "Update evidence",
     create_initiative: "Create story",
     update_initiative: "Update story",
@@ -4822,7 +4809,7 @@ function groupEnrichmentTasks(tasks: EnrichmentTaskItem[]) {
   const order = ["resume_review", "extraction_note", "evidence", "jd_gap", "story_target", "user_input"];
   const labels: Record<string, string> = {
     evidence: "From Evidence Card",
-    extraction_note: "From Extraction Notes",
+    extraction_note: "From Imported Notes",
     jd_gap: "From JD Gap",
     resume_review: "From Resume Review",
     story_target: "From Story Target",
@@ -4957,7 +4944,7 @@ function summarizeLibraryReadiness({
   let nextActionDetail = "Upload a resume or paste project notes to start the library.";
   if (evidenceItems.length > 0 && evidenceNeedingReview > 0) {
     nextActionTitle = "Review evidence claims";
-    nextActionDetail = "Approve source-backed claims and mark resume-safe summaries before tailoring.";
+    nextActionDetail = "Approve supported claims for resume use before tailoring.";
   } else if (storyTargets.length > 0 && projectsNeedingContext > 0) {
     nextActionTitle = "Enrich story context";
     nextActionDetail = "Add docs, review notes, metrics, or guided answers for thin initiatives/projects.";
@@ -5322,13 +5309,13 @@ function formatEvidenceAssetStatus(item: EvidenceCardItem) {
     !item.needs_user_confirmation &&
     (item.allowed_usage ?? []).includes("resume")
   ) {
-    return "User-confirmed · resume-safe";
+    return "Approved for resume";
   }
   if (item.status === "approved" && !item.needs_user_confirmation) {
     return "User-confirmed";
   }
   if (item.status === "rejected") return "Rejected";
-  return "Extracted candidate";
+  return "Draft evidence";
 }
 
 function formatEvidenceMissingInfo(item: EvidenceCardItem) {
@@ -6518,8 +6505,8 @@ function EvidenceCard({
             <div>
               <span>External-safe review</span>
               <p>
-                Review why this evidence is private, generate a candidate if useful, then approve
-                the wording before resume/interview use.
+                Review why this evidence needs safer wording, generate suggested wording if useful,
+                then approve it before resume or interview use.
               </p>
             </div>
             {safetyNote ? <p className="safe-wording-review__reason">{safetyNote}</p> : null}
@@ -7093,7 +7080,7 @@ function formatStorySourceSummary(evidenceItems: EvidenceCardItem[]) {
 function formatStoryEvidenceStatus(evidenceItems: EvidenceCardItem[]) {
   if (evidenceItems.length === 0) return "needs source";
   if (evidenceItems.some((item) => getEvidenceReadiness(item).state === "resume_ready")) {
-    return "has resume-safe evidence";
+    return "has resume-ready evidence";
   }
   if (evidenceItems.some((item) => item.status === "approved")) return "has approved evidence";
   return "needs review";
