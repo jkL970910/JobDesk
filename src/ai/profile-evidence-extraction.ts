@@ -60,6 +60,8 @@ export function buildProfileEvidenceInstructions(
     "Put tools such as AWS CDK, React, SQL, Kafka, Redis, or Looker into technologies/actions, not separate initiatives.",
     "Put latency, revenue, activation, reliability, cost, or efficiency improvements into results/metrics, not separate initiatives.",
     "Put service/domain context into context/problem. Create separate initiatives only for distinct business problems, systems, ownership scopes, or outcomes.",
+    "Every initiative must set work_experience_ref to the exact draft key of the corresponding work_experience: employer + \" · \" + role_title, for example \"Amazon · Software Dev Engineer Intern\".",
+    "Use work_experience_ref=null only when the source does not identify the employer/role. Null work_experience_ref means the initiative cannot be safely auto-consolidated with other initiatives.",
     "Bad initiative split: 1. AWS infrastructure provisioning with CDK; 2. Session latency optimization with distributed caching; 3. Distributed cloud caching for high-scale delivery service.",
     "Good initiative: internal_title=\"Distributed caching infrastructure for session latency optimization\"; context/problem=\"High-scale delivery service had session/dependency latency constraints.\"; actions=[\"Provisioned distributed caching infrastructure using AWS CDK.\"]; results=[\"Optimized session latency.\"]; technologies=[\"AWS CDK\", \"distributed cache\"].",
     "For each initiative, use internal_title for the source/internal wording and external_safe_title/external_safe_summary for resume-safe wording. If internal wording may expose confidential details, set needs_redaction_review=true and sensitivity_level=private or sensitive.",

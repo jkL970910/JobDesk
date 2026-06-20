@@ -30,6 +30,9 @@ describe("Evidence Library Builder instructions", () => {
 
     expect(instructions).toContain("Initiative granularity rules");
     expect(instructions).toContain("not a single tool, task, system component, or result");
+    expect(instructions).toContain("Every initiative must set work_experience_ref");
+    expect(instructions).toContain("Amazon · Software Dev Engineer Intern");
+    expect(instructions).toContain("Null work_experience_ref means the initiative cannot be safely auto-consolidated");
     expect(instructions).toContain("AWS infrastructure provisioning with CDK");
     expect(instructions).toContain("Distributed caching infrastructure for session latency optimization");
   });

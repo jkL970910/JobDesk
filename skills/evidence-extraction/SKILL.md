@@ -65,6 +65,12 @@ Hard rules:
 - Put service/domain context into `context` or `problem`.
 - Create separate initiatives only when the source describes distinct business
   problems, systems, ownership scopes, or outcomes.
+- Every initiative should set `work_experience_ref` to the exact draft key of
+  the matching work experience: `employer + " · " + role_title`, for example
+  `Amazon · Software Dev Engineer Intern`.
+- Use `work_experience_ref: null` only when the source does not identify the
+  employer/role. A null role reference means the initiative cannot be safely
+  auto-consolidated with other initiatives.
 
 ### Granularity example
 

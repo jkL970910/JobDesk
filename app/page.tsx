@@ -673,7 +673,7 @@ function DashboardView({
       ? [
           {
             action: "Loading",
-            detail: "Checking resume, evidence, jobs, and interviews.",
+            detail: "Checking your workspace.",
             label: "Loading blockers",
             target: () => undefined,
           },
@@ -681,9 +681,9 @@ function DashboardView({
       : priorityItems.length > 0
         ? priorityItems
         : [
-            {
-              action: "Open Evidence",
-              detail: "No urgent blockers found. Continue improving evidence quality or start a target job workflow.",
+          {
+            action: "Open Evidence",
+              detail: "No urgent blockers. Improve evidence or start a job.",
               label: "No critical blockers",
               target: () => onNavigate("evidence"),
             },
@@ -691,21 +691,21 @@ function DashboardView({
   const pipelineItems = [
     {
       action: "Open jobs",
-      detail: jobs[0]?.title ?? "Analyze a specific JD once your evidence base is usable.",
+      detail: jobs[0]?.title ?? "Analyze a role when evidence is ready.",
       label: "Jobs saved",
       metric: `${jobs.length} analyzed`,
       target: () => onNavigate("jobs"),
     },
     {
       action: "Open tracker",
-      detail: activeApplications > 0 ? "Track active follow-ups and stage changes." : "No active applications yet.",
+      detail: activeApplications > 0 ? "Track follow-ups and stage changes." : "No active applications yet.",
       label: "Applied",
       metric: `${activeApplications} active`,
       target: () => onNavigate("applications"),
     },
     {
       action: "Prep interview",
-      detail: interviewJobs > 0 ? "Interview-stage jobs need prep material." : "No interview-stage jobs.",
+      detail: interviewJobs > 0 ? "Interview-stage jobs need prep." : "No interview-stage jobs.",
       label: "Interviewing",
       metric: String(interviewJobs),
       target: () => onNavigate("interview"),
@@ -833,22 +833,19 @@ function DashboardView({
           {[
             {
               action: "Build library",
-              body:
-                "No resume required. Start from project notes, work summaries, performance excerpts, guided answers, or a reviewed resume.",
+              body: "Start from notes, projects, guided answers, or a resume.",
               target: () => onStartMaterialPath("scratch"),
               title: "Build My Evidence Library",
             },
             {
               action: "Create or update",
-              body:
-                "Generate main resumes, positioning variants, refresh an old resume, review versions, and export final artifacts.",
+              body: "Build, refresh, review, and export resumes.",
               target: () => onNavigateResume("build_export"),
               title: "Create or Update My Resume",
             },
             {
               action: "Apply to job",
-              body:
-                "Analyze a specific JD, find evidence gaps, tailor a resume, prepare interview notes, and track the application.",
+              body: "Analyze a JD, tailor a resume, and track the application.",
               target: () => onNavigate("jobs"),
               title: "Apply to a Target Job",
             },
@@ -877,7 +874,7 @@ function determineDashboardNextAction({
 }): DashboardNextAction {
   if (state === "no_resume") {
     return {
-      detail: "Use a resume if you have one. If not, build the Evidence Library directly from guided project answers, work notes, or performance summaries.",
+      detail: "Start with a resume, notes, or project material.",
       label: "Review a resume",
       secondaryLabel: "No resume? Build evidence directly",
       secondaryTarget: "scratch" as MaterialEntryIntent,
@@ -897,7 +894,7 @@ function determineDashboardNextAction({
   }
   if (state === "resume_reviewed") {
     return {
-      detail: "The resume is reviewed. Continue to Evidence to create reusable claims and story targets.",
+      detail: "Turn useful resume details into reusable evidence.",
       label: "Continue to Evidence",
       title: "Turn this review into reusable evidence.",
       resumeTab: "intake_review" as ResumeWorkspaceTab,
@@ -906,16 +903,16 @@ function determineDashboardNextAction({
   }
   if (state === "claims_review_pending" || state === "evidence_extracted") {
     return {
-      detail: "Claims and story targets need review before resume generation is trustworthy.",
+      detail: "Review claims and story context before resume generation.",
       label: "Enrich Evidence",
       title: "Review and enrich the Evidence Library.",
       view: "evidence" as View,
     };
   }
   return {
-    detail: "Reusable evidence is available. You can now move into JD-specific work.",
+    detail: "Reusable evidence is ready for job-specific work.",
     label: "Open Evidence Library",
-    title: "Material is ready for the next workflow.",
+    title: "Material is ready.",
     view: "evidence" as View,
   };
 }
@@ -2307,9 +2304,7 @@ function SettingsReferenceView() {
     <section className="settings-panel settings-panel--quiet">
       <p className="panel-kicker">Settings</p>
       <h2>Workspace settings</h2>
-      <p>
-        Manage account access, workspace data, and support tools.
-      </p>
+      <p>Manage access, data, and AI availability.</p>
       <div className="settings-panel__grid">
         <article>
           <span>Access</span>
@@ -2330,8 +2325,8 @@ function SettingsReferenceView() {
       <section className="diagnostics-panel" aria-label="System diagnostics">
         <details>
           <summary>
-            <span>Support diagnostics</span>
-            <strong>Troubleshooting</strong>
+            <span>Support</span>
+            <strong>View technical status</strong>
           </summary>
           {diagnosticsError ? (
             <p className="diagnostics-panel__error">{diagnosticsError}</p>
@@ -2341,48 +2336,21 @@ function SettingsReferenceView() {
           ) : null}
           {diagnostics ? (
             <>
-              <div className="diagnostics-grid">
+              <div className="diagnostics-summary">
                 <DiagnosticMetric
-                  label="Database"
+                  label="Storage"
                   value={diagnostics.db.connected ? "connected" : "offline"}
                   tone={diagnostics.db.connected ? "ready" : "blocked"}
                 />
                 <DiagnosticMetric
-                  label="AI access"
-                  value={diagnostics.ai.providerEnabled ? "enabled" : "disabled"}
+                  label="AI"
+                  value={diagnostics.ai.providerEnabled ? "available" : "unavailable"}
                   tone={diagnostics.ai.providerEnabled ? "ready" : "muted"}
                 />
                 <DiagnosticMetric
-                  label="Failed jobs"
-                  value={String(diagnostics.workflows.failedCount)}
-                  tone={diagnostics.workflows.failedCount > 0 ? "warning" : "ready"}
-                />
-                <DiagnosticMetric
-                  label="Last run"
+                  label="Last activity"
                   value={formatDateTime(diagnostics.workflows.lastFinishedAt)}
                 />
-              </div>
-              <div className="diagnostics-detail">
-                <div>
-                  <h4>AI setup</h4>
-                  <p>{diagnostics.ai.providerEnabled ? "AI features are available." : "AI features are not available."}</p>
-                </div>
-                <div>
-                  <h4>Recent background jobs</h4>
-                  {diagnostics.workflows.latest.length > 0 ? (
-                    <ul>
-                      {diagnostics.workflows.latest.map((run) => (
-                        <li key={run.id}>
-                          <strong>Background activity</strong>
-                          <span>{formatDiagnosticsStatus(run.status)}</span>
-                          <small>{formatDateTime(run.finishedAt)}</small>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p>No background jobs recorded yet.</p>
-                  )}
-                </div>
               </div>
             </>
           ) : null}

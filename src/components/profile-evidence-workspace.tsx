@@ -1619,7 +1619,7 @@ export function ProfileEvidenceWorkspace({
 
   async function mergeEvidenceCandidate(candidate: DedupeCandidate) {
     const confirmed = window.confirm(
-      "Merge this possible overlap into the kept item? Only do this when both items describe the same claim. The merged-away item will be rejected and linked claims will be marked stale.",
+      "Merge this possible overlap into the kept item? Only do this when both items describe the same claim. Resume claims linked to either item may need another check.",
     );
     if (!confirmed) return;
     const response = await fetchJson("/api/evidence/dedupe", {
@@ -2209,7 +2209,7 @@ export function ProfileEvidenceWorkspace({
               type="button"
               onClick={() => openWorkQueueView("enrichment")}
             >
-              Needs Enrichment ({answerEnrichmentTasks.length})
+              Improve Evidence ({answerEnrichmentTasks.length})
             </button>
             <button
               data-active={workQueueView === "imported"}
@@ -3279,10 +3279,7 @@ function ReadyToUseLibraryView({
         <div>
           <span className="eyebrow">Reusable assets</span>
           <h3>Ready to Use</h3>
-          <p>
-            User-approved, external-safe claims that can support resume,
-            interview, and cover letters.
-          </p>
+          <p>Approved claims ready for resumes, interviews, and cover letters.</p>
         </div>
         <div className="ready-library__metrics" aria-label="Ready asset counts">
           <span><strong>{resumeReadyCount}</strong> resume</span>
@@ -3311,20 +3308,12 @@ function ReadyToUseLibraryView({
               <strong>{item.text}</strong>
               <dl className="ready-asset-card__meta">
                 <div>
-                  <dt>Linked to</dt>
+                  <dt>For</dt>
                   <dd>{formatEvidenceLinkedTarget(item, linkTargets, projects)}</dd>
                 </div>
                 <div>
-                  <dt>Reusable in</dt>
+                  <dt>Use</dt>
                   <dd>{formatReusableUsage(item)}</dd>
-                </div>
-                <div>
-                  <dt>Source</dt>
-                  <dd>{formatEvidenceSource(item)}</dd>
-                </div>
-                <div>
-                  <dt>Updated</dt>
-                  <dd>{formatRelativeDate(item.updatedAt)}</dd>
                 </div>
               </dl>
               <div className="chip-row">
@@ -3344,7 +3333,7 @@ function ReadyToUseLibraryView({
                   {copiedKey === (item.id ?? item.text) ? "Copied" : "Copy claim"}
                 </button>
                 <button className="secondary-button" type="button" onClick={onOpenAllEvidence}>
-                  Review in evidence
+                  Open evidence
                 </button>
               </div>
             </article>
@@ -3494,7 +3483,7 @@ function EnrichmentTaskQueue({
     <section className="section-block enrichment-queue">
       <div className="section-block__top">
         <div>
-          <h3>{queueVariant === "imported" ? "Imported Material" : "Needs Enrichment"}</h3>
+          <h3>{queueVariant === "imported" ? "Imported Material" : "Improve Evidence"}</h3>
             <p>
               {queueVariant === "imported"
                 ? "Review imported sections, then decide whether they should become roles, stories, or evidence."
@@ -3511,8 +3500,8 @@ function EnrichmentTaskQueue({
       {queueStatus === "skipped" ? (
         <div className="empty-state-row">
           <div>
-            <strong>Evidence enrichment storage is not configured.</strong>
-            <p>Connect storage to save and review evidence tasks.</p>
+            <strong>Storage is unavailable.</strong>
+            <p>Try again after setup is fixed.</p>
           </div>
           <button className="secondary-button" type="button" onClick={onReturnToIntake}>
             Open Add Material
@@ -3521,8 +3510,8 @@ function EnrichmentTaskQueue({
       ) : queueStatus === "error" ? (
         <div className="empty-state-row">
           <div>
-            <strong>Could not load enrichment tasks.</strong>
-            <p>Check the local database connection, then reload the workspace.</p>
+            <strong>Could not load review items.</strong>
+            <p>Try reloading the workspace.</p>
           </div>
           <button className="secondary-button" type="button" onClick={onReturnToIntake}>
             Open Add Material
@@ -3534,11 +3523,11 @@ function EnrichmentTaskQueue({
             <strong>
               {queueVariant === "imported"
                 ? "No imported material notes need review."
-                : "No enrichment questions are open."}
+                : "No evidence questions are open."}
             </strong>
             <p>
               {queueVariant === "imported"
-                ? "When a resume or source import creates section-level review items, they will appear here instead of the question queue."
+                ? "Imported section reviews will appear here."
                 : "Add material or rerun Resume Review to surface missing details."}
             </p>
           </div>
@@ -3561,8 +3550,8 @@ function EnrichmentTaskQueue({
         {filteredTasks.length === 0 ? (
           <div className="empty-state-row">
             <div>
-              <strong>No enrichment tasks match these filters.</strong>
-              <p>Clear search or broaden source, scope, status, or unlinked filters.</p>
+              <strong>No items match these filters.</strong>
+              <p>Clear search or broaden the filters.</p>
             </div>
           </div>
         ) : (
@@ -3722,22 +3711,20 @@ function EnrichmentTaskFocusPane({
       <div className="enrichment-focus-pane__top">
         <div>
           <span>
-            Task {taskIndex} of {taskTotal} · {formatEnrichmentTaskScope(task.target_scope)}
+            Question {taskIndex} of {taskTotal} · {formatEnrichmentTaskScope(task.target_scope)}
           </span>
           <h3>{task.prompt}</h3>
-          <p>
-            Source: {task.source_label} · {formatEnrichmentSourceType(task.source_type)}
-          </p>
+          <p>From {task.source_label}</p>
         </div>
         <em data-state={task.status}>{formatEnrichmentStatus(task.status)}</em>
       </div>
       <div className="enrichment-task-card__context">
         <div>
-          <span>Target</span>
+          <span>Linked to</span>
           <strong>{linkedLabel}</strong>
         </div>
         <div>
-          <span>Parent context</span>
+          <span>Under</span>
           <strong>{parentLabel}</strong>
         </div>
         <div>
@@ -3754,9 +3741,7 @@ function EnrichmentTaskFocusPane({
           <div className="enrichment-task-card__stage-header">
             <span>Step 1</span>
             <strong>Choose where this answer belongs</strong>
-            <p>
-              Attach this question to a claim, project/story, or role before writing an answer.
-            </p>
+            <p>Link this question before answering.</p>
           </div>
           <EnrichmentTaskTargetPicker
             disabled={isPending}
@@ -3770,7 +3755,7 @@ function EnrichmentTaskFocusPane({
           <div className="enrichment-task-card__gate">
             <div>
               <strong>No matching target?</strong>
-              <p>Create new material only if this answer does not belong to any existing claim, story, or role.</p>
+              <p>Create new material only if nothing fits.</p>
             </div>
             <button
               className="secondary-button secondary-button--quiet"
@@ -3910,12 +3895,10 @@ function SourceSectionReviewPane({
       <div className="enrichment-focus-pane__top">
         <div>
           <span>
-            Task {taskIndex} of {taskTotal} · Imported material review
+            Review item {taskIndex} of {taskTotal} · Imported material
           </span>
           <h3>{sectionName ? `${sectionName} section imported` : "Imported source section"}</h3>
-          <p>
-            Source: {task.source_label} · {formatEnrichmentSourceType(task.source_type)}
-          </p>
+          <p>From {task.source_label}</p>
         </div>
         <em data-state={task.status}>{formatEnrichmentStatus(task.status)}</em>
       </div>
@@ -3924,9 +3907,7 @@ function SourceSectionReviewPane({
           <span>Imported section</span>
           <strong>Review what was imported.</strong>
           <p>
-            JobDesk imported a section from your source. Review the roles and stories
-            created from it, or choose a different handling path if this section should
-            become specific claims.
+            Review the roles and stories created from this section, or choose a different path.
           </p>
         </div>
         <dl className="source-section-review__meta">
@@ -4473,10 +4454,10 @@ function formatEvidenceActionMessage(
     return "Evidence approved for resume use. It can support main and tailored resume generation.";
   }
   if (action === "reject") {
-    return "Evidence rejected. Existing generated claims that used it are marked stale.";
+    return "Evidence rejected. Related resume claims may need another check.";
   }
   if (action === "edit") {
-    return "Evidence updated. Existing generated claims that used edited text may need revalidation.";
+    return "Evidence updated. Related resume claims may need another check.";
   }
   return "External-safe summary saved and resume/interview use enabled.";
 }
@@ -5684,8 +5665,7 @@ function EvidenceOverlapPanel({
                 <p className="requirement__text">Merge confirmation</p>
                 <p className="requirement__quote">
                   Keep the first evidence claim, merge safe metadata into it, reject
-                  the duplicate claim, and mark generated claims that used either
-                  item as stale.
+                  the duplicate claim, and flag related resume claims for another check.
                 </p>
                 <div className="merge-review__facts">
                   <span>Kept status: {candidate.primary.status}</span>
@@ -5891,7 +5871,7 @@ function StarStoryPanel({
 }
 
 function EvidenceList({
-  description = "Evidence cards are atomic source-backed claims. They support project stories, resumes, interviews, and Fact Guard.",
+  description = "Review claims before using them in resumes or interviews.",
   emptyMessage = "No evidence has been created yet.",
   items,
   linkTargets,
@@ -6234,7 +6214,7 @@ function EvidenceCard({
       setSafeSuggestionStatus(
         payload.data.provider === "ai"
           ? "AI suggested external-safe wording. Review before saving."
-          : "Fallback wording suggested from deterministic redaction. Review before saving.",
+          : "Suggested wording needs review before saving.",
       );
     } finally {
       setIsSuggestingSafeSummary(false);
@@ -6250,9 +6230,9 @@ function EvidenceCard({
         </div>
         <p className="requirement__quote">{readiness.next}</p>
         <p className="requirement__quote">Status: {item.status}</p>
-        <p className="requirement__quote">Reusable in: {formatReusableUsage(item)}</p>
-        <p className="requirement__quote">Source: {formatEvidenceSource(item)}</p>
-        <p className="requirement__quote">Linked to: {linkedTarget}</p>
+        <p className="requirement__quote">Use: {formatReusableUsage(item)}</p>
+        <p className="requirement__quote">From: {formatEvidenceSource(item)}</p>
+        <p className="requirement__quote">For: {linkedTarget}</p>
         <p className="requirement__quote">Missing info: {missingInfo}</p>
         <p className="requirement__quote">Quote: {item.source_quote}</p>
         {item.public_safe_summary ? (
@@ -6270,14 +6250,10 @@ function EvidenceCard({
           <strong>{item.text}</strong>
           <div className="evidence-row__meta">
             <span>{readiness.label}</span>
-            <small>Linked: {linkedTarget}</small>
+            <small>For {linkedTarget}</small>
           </div>
         </div>
         <div className="evidence-row__action">
-          <div className="evidence-row__action-status">
-            <em data-ready={readiness.state === "resume_ready"}>Next action</em>
-            <small>{blocker.label}</small>
-          </div>
           <button
             className="primary-button"
             disabled={isUpdating || !item.id}
@@ -6315,15 +6291,15 @@ function EvidenceCard({
         </p>
       ) : null}
       <details className="evidence-row__details" {...(isEditing ? { open: true } : {})}>
-        <summary>Details and more actions</summary>
+        <summary>More</summary>
         <div className="evidence-row__detail-grid">
-          <p>Next step: {blocker.reason}</p>
+          <p>Why: {blocker.reason}</p>
           <p>Missing: {missingInfo}</p>
           <p>Sensitivity: {formatFilterLabel(item.sensitivity_level)}</p>
-          <p>Source: {formatEvidenceSource(item)}</p>
-          <p>Reusable in: {formatReusableUsage(item)}</p>
+          <p>From: {formatEvidenceSource(item)}</p>
+          <p>Use: {formatReusableUsage(item)}</p>
           <p>Status: {formatEvidenceAssetStatus(item)}</p>
-          <p>Last updated: {formatRelativeDate(item.updatedAt)}</p>
+          <p>Updated: {formatRelativeDate(item.updatedAt)}</p>
           <p>Quote: {formatSourceQuotePreview(item.source_quote)}</p>
           {getPublicSafeSummaryCandidate(item) ? (
             <p>Public-safe wording: {getPublicSafeSummaryCandidate(item)}</p>
@@ -6397,10 +6373,7 @@ function EvidenceCard({
           <div className="safe-wording-review">
             <div>
               <span>External-safe review</span>
-              <p>
-                Review why this evidence needs safer wording, generate suggested wording if useful,
-                then approve it before resume or interview use.
-              </p>
+              <p>Review safe wording before resume or interview use.</p>
             </div>
             {safetyNote ? <p className="safe-wording-review__reason">{safetyNote}</p> : null}
             {safeSuggestion?.blockedTerms.length ? (
@@ -6834,8 +6807,8 @@ function StoryTargetRow({
       <div className="story-target-row__meta">
         <span>{readiness.next}</span>
         <small>Status: {linkedStatus}</small>
-        <small>Reusable in: {linkedUsage}</small>
-        <small>Source: {linkedSource}</small>
+        <small>Use: {linkedUsage}</small>
+        <small>From: {linkedSource}</small>
         {meta.map((item) => (
           <small key={item}>{item}</small>
         ))}

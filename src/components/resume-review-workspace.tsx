@@ -723,7 +723,7 @@ function ResumeReviewReportCard({
           {metadata?.scopeNote ? <p>{metadata.scopeNote}</p> : null}
           {isFallback ? (
             <p className="review-warning">
-              This is a quick estimate, not the full resume review. Treat this score as directional and retry when ready.
+              This quick estimate is incomplete. Run the full review when ready.
             </p>
           ) : null}
         </div>
@@ -733,9 +733,7 @@ function ResumeReviewReportCard({
         <section className="review-retry-panel">
           <div>
             <h3>Full review needs another pass.</h3>
-            <p>
-              The uploaded resume is saved. Retry this version instead of uploading the same file again.
-            </p>
+            <p>The resume is saved. Run the full review again.</p>
           </div>
           <button disabled={retryDisabled} type="button" onClick={onRetry}>
             {retryLabel}
@@ -755,28 +753,16 @@ function ResumeReviewReportCard({
             <p>
               {isFallback
                 ? "Run the full review when ready."
-                : "Use this review as guidance before turning material into evidence."}
+                : "Use the findings to decide what to improve next."}
             </p>
           </article>
-          <details className="review-technical-details">
-            <summary>Support details</summary>
-            <dl>
-              <div>
-                <dt>Review method</dt>
-                <dd>{isFallback ? "Quick estimate" : "AI-assisted review"}</dd>
-              </div>
-              <div>
-                <dt>Attempts</dt>
-                <dd>{metadata.retryCount ?? 0}</dd>
-              </div>
-              {metadata.providerFailureKind ? (
-                <div>
-                  <dt>Why this is limited</dt>
-                  <dd>{formatReviewLimitReason(metadata.providerFailureKind)}</dd>
-                </div>
-              ) : null}
-            </dl>
-          </details>
+          {isFallback && metadata.providerFailureKind ? (
+            <article>
+              <span>Limited result</span>
+              <strong>{formatReviewLimitReason(metadata.providerFailureKind)}</strong>
+              <p>Run the full review again when ready.</p>
+            </article>
+          ) : null}
         </section>
       ) : null}
       {metadata?.tenSecondScan ? (
@@ -1466,11 +1452,11 @@ function normalizeReviewText(value: string) {
 
 function formatReviewConfidence(confidence: number | undefined) {
   if (typeof confidence !== "number" || !Number.isFinite(confidence)) {
-    return "Review confidence was not provided.";
+    return "Confidence unavailable.";
   }
-  if (confidence >= 0.85) return "High confidence review based on the extracted resume text.";
-  if (confidence >= 0.65) return "Moderate confidence review; check the detailed findings before acting.";
-  return "Lower confidence review; use the findings as directional guidance.";
+  if (confidence >= 0.85) return "High confidence.";
+  if (confidence >= 0.65) return "Moderate confidence.";
+  return "Use as directional guidance.";
 }
 
 function formatReviewLimitReason(reason: string) {
