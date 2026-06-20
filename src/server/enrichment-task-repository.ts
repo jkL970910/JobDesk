@@ -381,6 +381,11 @@ export async function updateEnrichmentTask(args: {
       patch,
       deriveTaskTargetMetadata(anchor.anchor, "User selected this destination."),
     );
+    await rejectPendingProposals(db, {
+      workspaceId: workspace.id,
+      taskId: existing.id,
+      now,
+    });
   }
 
   const updated =
@@ -781,6 +786,28 @@ async function acceptEnrichmentProposal(
   },
 ) {
   return db.transaction(async (tx) => {
+    const [pendingProposal] = await tx
+      .select()
+      .from(enrichmentProposals)
+      .where(
+        and(
+          eq(enrichmentProposals.workspaceId, args.task.workspaceId),
+          eq(enrichmentProposals.taskId, args.task.id),
+          eq(enrichmentProposals.id, args.proposalId),
+          eq(enrichmentProposals.status, "pending_review"),
+        ),
+      )
+      .limit(1);
+    if (!pendingProposal) {
+      return { status: "invalid" as const, reason: "proposal_not_found" as const };
+    }
+    if (pendingProposal.proposalType !== "create_evidence") {
+      return { status: "invalid" as const, reason: "unsupported_proposal_type" as const };
+    }
+    const patch = parseCreateEvidenceProposalPatch(pendingProposal.proposedPatchJson);
+    if (!patch) {
+      return { status: "invalid" as const, reason: "invalid_proposal_payload" as const };
+    }
     const [proposal] = await tx
       .update(enrichmentProposals)
       .set({
@@ -799,13 +826,6 @@ async function acceptEnrichmentProposal(
       .returning();
     if (!proposal) {
       return { status: "invalid" as const, reason: "proposal_not_found" as const };
-    }
-    if (proposal.proposalType !== "create_evidence") {
-      return { status: "invalid" as const, reason: "unsupported_proposal_type" as const };
-    }
-    const patch = parseCreateEvidenceProposalPatch(proposal.proposedPatchJson);
-    if (!patch) {
-      return { status: "invalid" as const, reason: "invalid_proposal_payload" as const };
     }
     const content = patch.source_quote || patch.text;
     const [sourceDocument] = await tx
@@ -927,7 +947,67 @@ async function rejectEnrichmentProposal(
     now: Date;
   },
 ) {
-  const [proposal] = await db
+  return db.transaction(async (tx) => {
+    const [proposal] = await tx
+      .update(enrichmentProposals)
+      .set({
+        status: "rejected",
+        updatedAt: args.now,
+        reviewedAt: args.now,
+      })
+      .where(
+        and(
+          eq(enrichmentProposals.workspaceId, args.task.workspaceId),
+          eq(enrichmentProposals.taskId, args.task.id),
+          eq(enrichmentProposals.id, args.proposalId),
+          eq(enrichmentProposals.status, "pending_review"),
+        ),
+      )
+      .returning();
+    if (!proposal) return { status: "invalid" as const, reason: "proposal_not_found" as const };
+    if (proposal.answerId) {
+      await tx
+        .update(enrichmentAnswers)
+        .set({
+          answerStatus: "rejected",
+          updatedAt: args.now,
+        })
+        .where(eq(enrichmentAnswers.id, proposal.answerId));
+    }
+    const [updated] = await tx
+      .select()
+      .from(enrichmentTasks)
+      .where(
+        and(
+          eq(enrichmentTasks.workspaceId, args.task.workspaceId),
+          eq(enrichmentTasks.id, args.task.id),
+        ),
+      )
+      .limit(1);
+    const targetMap = updated ? await getTaskTargetMap(tx, [updated.id]) : new Map();
+    const proposalMap = updated ? await getTaskProposalMap(tx, [updated.id]) : new Map();
+    return updated
+      ? ({
+          status: "saved" as const,
+          task: toEnrichmentTaskPayload(
+            updated,
+            targetMap.get(updated.id),
+            proposalMap.get(updated.id),
+          ),
+        })
+      : ({ status: "not_found" as const });
+  });
+}
+
+async function rejectPendingProposals(
+  db: Pick<DbHandle, "update">,
+  args: {
+    workspaceId: string;
+    taskId: string;
+    now: Date;
+  },
+) {
+  await db
     .update(enrichmentProposals)
     .set({
       status: "rejected",
@@ -936,45 +1016,11 @@ async function rejectEnrichmentProposal(
     })
     .where(
       and(
-        eq(enrichmentProposals.workspaceId, args.task.workspaceId),
-        eq(enrichmentProposals.taskId, args.task.id),
-        eq(enrichmentProposals.id, args.proposalId),
+        eq(enrichmentProposals.workspaceId, args.workspaceId),
+        eq(enrichmentProposals.taskId, args.taskId),
         eq(enrichmentProposals.status, "pending_review"),
       ),
-    )
-    .returning();
-  if (!proposal) return { status: "invalid" as const, reason: "proposal_not_found" as const };
-  if (proposal.answerId) {
-    await db
-      .update(enrichmentAnswers)
-      .set({
-        answerStatus: "rejected",
-        updatedAt: args.now,
-      })
-      .where(eq(enrichmentAnswers.id, proposal.answerId));
-  }
-  const [updated] = await db
-    .select()
-    .from(enrichmentTasks)
-    .where(
-      and(
-        eq(enrichmentTasks.workspaceId, args.task.workspaceId),
-        eq(enrichmentTasks.id, args.task.id),
-      ),
-    )
-    .limit(1);
-  const targetMap = updated ? await getTaskTargetMap(db, [updated.id]) : new Map();
-  const proposalMap = updated ? await getTaskProposalMap(db, [updated.id]) : new Map();
-  return updated
-    ? ({
-        status: "saved" as const,
-        task: toEnrichmentTaskPayload(
-          updated,
-          targetMap.get(updated.id),
-          proposalMap.get(updated.id),
-        ),
-      })
-    : ({ status: "not_found" as const });
+    );
 }
 
 type CreateEvidenceProposalPatch = {

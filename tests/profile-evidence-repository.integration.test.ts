@@ -16,6 +16,7 @@ import {
   evidenceItems,
   resumeSourceVersions,
   sourceDocuments,
+  workExperiences,
 } from "../src/db/schema";
 import {
   getEvidenceDedupeCandidates,
@@ -891,6 +892,126 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       .from(evidenceItems)
       .where(eq(evidenceItems.text, answer));
     expect(duplicateEvidence).toHaveLength(1);
+  });
+
+  it("keeps proposal review state consistent when targets or payloads change", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const prompt = `Proposal consistency ${crypto.randomUUID()}`;
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          taskType: "metric",
+          sourceType: "user_input",
+          sourceLabel: "Proposal consistency smoke",
+          prompt,
+        },
+      ],
+    });
+    const queue = await getEnrichmentTaskQueue({
+      limit: 20,
+      sourceType: "user_input",
+      statuses: ["open"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const task = queue.tasks.find((item) => item.prompt === prompt);
+    if (!task) throw new Error("Expected consistency task.");
+
+    const answer = `Raised activation by 9 percent through onboarding metric reviews ${crypto.randomUUID()}.`;
+    const answered = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "answer",
+      userAnswer: answer,
+    });
+    expect(answered.status).toBe("saved");
+    if (answered.status !== "saved") throw new Error("Expected saved answer.");
+    const staleProposal = answered.task.proposals.find(
+      (proposal) => proposal.status === "pending_review",
+    );
+    if (!staleProposal) throw new Error("Expected pending proposal.");
+
+    const [role] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: `Consistency Co ${crypto.randomUUID()}`,
+        roleTitle: "Product Analyst",
+      })
+      .returning({ id: workExperiences.id });
+    if (!role) throw new Error("Expected role.");
+
+    const linked = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "link",
+      anchor: { workExperienceId: role.id },
+    });
+    expect(linked.status).toBe("saved");
+    const staleProposalAfterLink = await db
+      .select()
+      .from(enrichmentProposals)
+      .where(eq(enrichmentProposals.id, staleProposal.id))
+      .limit(1);
+    expect(staleProposalAfterLink[0]?.status).toBe("rejected");
+    const staleAccept = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "accept_proposal",
+      proposalId: staleProposal.id,
+    });
+    expect(staleAccept).toMatchObject({
+      status: "invalid",
+      reason: "proposal_not_found",
+    });
+
+    const answeredAfterLink = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "answer",
+      userAnswer: answer,
+    });
+    expect(answeredAfterLink.status).toBe("saved");
+    if (answeredAfterLink.status !== "saved") throw new Error("Expected relinked answer.");
+    const linkedProposal = answeredAfterLink.task.proposals.find(
+      (proposal) => proposal.status === "pending_review",
+    );
+    if (!linkedProposal) throw new Error("Expected relinked proposal.");
+    expect(linkedProposal.proposed_patch_json).toMatchObject({
+      related_work_experience_id: role.id,
+    });
+
+    const invalidPayload = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "answer",
+      userAnswer: `${answer} invalid payload check`,
+    });
+    expect(invalidPayload.status).toBe("saved");
+    if (invalidPayload.status !== "saved") throw new Error("Expected invalid payload answer.");
+    const invalidProposal = invalidPayload.task.proposals.find(
+      (proposal) => proposal.status === "pending_review",
+    );
+    if (!invalidProposal) throw new Error("Expected invalid payload proposal.");
+    await db
+      .update(enrichmentProposals)
+      .set({ proposedPatchJson: { text: "" } })
+      .where(eq(enrichmentProposals.id, invalidProposal.id));
+    const invalidAccept = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "accept_proposal",
+      proposalId: invalidProposal.id,
+    });
+    expect(invalidAccept).toMatchObject({
+      status: "invalid",
+      reason: "invalid_proposal_payload",
+    });
+    const invalidProposalAfterAccept = await db
+      .select()
+      .from(enrichmentProposals)
+      .where(eq(enrichmentProposals.id, invalidProposal.id))
+      .limit(1);
+    expect(invalidProposalAfterAccept[0]).toMatchObject({
+      status: "pending_review",
+      committedEvidenceItemId: null,
+    });
   });
 
   it("reconciles same-source resume review enrichment tasks to extracted library items", async () => {

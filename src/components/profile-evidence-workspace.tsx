@@ -1599,11 +1599,11 @@ export function ProfileEvidenceWorkspace({
       return { ok: false, message };
     }
     await refreshLibraryAfterMutation();
-    const message =
+      const message =
       payload.action === "answer"
         ? "Saved answer and prepared a proposed library update."
         : payload.action === "link"
-          ? "Updated enrichment destination."
+          ? "Updated destination. Save & preview again before accepting."
         : payload.action === "accept_proposal"
           ? "Accepted update and saved draft evidence."
         : payload.action === "reject_proposal"
