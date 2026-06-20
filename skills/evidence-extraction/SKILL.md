@@ -40,9 +40,51 @@ is actually supported.
 
 - **Evidence items:** atomic, reusable facts (an achievement, a responsibility, a
   metric, a skill demonstrated).
-- **Project cards:** structured project records (context, problem, role, actions,
-  results, metrics, technologies, stakeholders).
+- **Work initiatives:** coherent employer-internal projects/stories under a role
+  (context, problem, role, actions, results, metrics, technologies,
+  stakeholders).
+- **Project cards:** legacy structured project records. Prefer work initiatives
+  for employer-internal work and portfolio projects for non-employer work.
 - Link evidence to its `related_project_id` where applicable.
+
+## Initiative granularity
+
+An initiative is one coherent project/story under a role. It is not one keyword,
+tool, task, system component, or outcome.
+
+Hard rules:
+
+- Do not create separate initiatives for the technology used, the infrastructure
+  built, and the performance outcome when they refer to the same work.
+- If candidates share the same employer/role, source bullet or adjacent bullets,
+  system/domain, and outcome, merge them into one initiative.
+- Put tools such as AWS CDK, React, SQL, Kafka, Redis, or Looker into
+  `technologies` or `actions`.
+- Put latency, revenue, activation, reliability, cost, or efficiency improvements
+  into `results` or `metrics`.
+- Put service/domain context into `context` or `problem`.
+- Create separate initiatives only when the source describes distinct business
+  problems, systems, ownership scopes, or outcomes.
+
+### Granularity example
+
+Bad split:
+
+1. "AWS infrastructure provisioning with CDK"
+2. "Session latency optimization with distributed caching"
+3. "Distributed cloud caching for high-scale delivery service"
+
+Good single initiative:
+
+```json
+{
+  "internal_title": "Distributed caching infrastructure for session latency optimization",
+  "context": "High-scale delivery service had session/dependency latency constraints.",
+  "actions": ["Provisioned distributed caching infrastructure using AWS CDK."],
+  "results": ["Optimized session latency."],
+  "technologies": ["AWS CDK", "distributed cache"]
+}
+```
 
 ## Sensitivity is set at creation
 
