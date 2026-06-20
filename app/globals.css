@@ -186,8 +186,8 @@ strong,
   box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(180px, auto) minmax(0, 1fr) auto;
-  padding: 10px;
+  grid-template-columns: minmax(230px, auto) minmax(0, 1fr) auto;
+  padding: 12px 14px;
   position: sticky;
   top: 14px;
   z-index: 20;
@@ -199,9 +199,9 @@ strong,
   border-radius: 18px;
   color: var(--ink);
   display: inline-flex;
-  gap: 12px;
+  gap: 14px;
   min-width: 0;
-  padding: 8px 10px;
+  padding: 10px 12px;
   text-align: left;
 }
 
@@ -212,19 +212,20 @@ strong,
 .app-brand__mark {
   align-items: center;
   background: linear-gradient(135deg, #2f73ff, #8bb6ff);
-  border-radius: 14px;
+  border-radius: 16px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.26), 0 10px 28px rgba(79, 140, 255, 0.28);
   color: white;
   display: flex;
   font-weight: 900;
-  height: 42px;
+  font-size: 1.08rem;
+  height: 52px;
   justify-content: center;
-  width: 42px;
+  width: 52px;
 }
 
 .app-brand strong {
   display: block;
-  font-size: 1rem;
+  font-size: 1.18rem;
   letter-spacing: -0.03em;
 }
 
@@ -232,7 +233,7 @@ strong,
 .app-topnav__item small {
   color: var(--faint);
   display: block;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   line-height: 1.15;
   margin-top: 2px;
   white-space: nowrap;
@@ -1068,14 +1069,21 @@ strong,
 }
 
 .entry-path-board article {
-  background: rgba(255, 255, 255, 0.026);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 0;
   display: grid;
-  gap: 8px;
+  gap: 14px;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(0, 1.25fr) auto;
   min-width: 0;
   overflow: hidden;
-  padding: 14px;
+  padding: 16px 0;
+}
+
+.entry-path-board article:first-child {
+  border-top: 0;
 }
 
 .entry-path-board span {
@@ -1095,6 +1103,10 @@ strong,
   line-height: 1.4;
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.entry-path-board button {
+  justify-self: end;
 }
 
 .status-card,
@@ -4660,23 +4672,22 @@ select:focus {
 
 .evidence-priority-queue {
   background:
-    linear-gradient(135deg, rgba(79, 140, 255, 0.11), rgba(79, 140, 255, 0.05)),
-    var(--panel-soft);
-  border: 1px solid rgba(79, 140, 255, 0.22);
-  border-radius: 12px;
+    linear-gradient(90deg, rgba(79, 140, 255, 0.08), rgba(255, 255, 255, 0.012));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 0;
   display: grid;
-  gap: 12px;
-  margin-bottom: 12px;
-  padding: 12px;
+  gap: 14px;
+  margin: 6px 0 18px;
+  padding: 18px 0;
 }
 
 .evidence-priority-queue__header {
   align-items: center;
-  border-bottom: 1px solid var(--line);
   display: grid;
   gap: 12px;
   grid-template-columns: minmax(0, 1fr) auto;
-  padding-bottom: 12px;
+  padding: 0;
 }
 
 .evidence-priority-queue__header span,
@@ -4702,44 +4713,46 @@ select:focus {
 
 .evidence-priority-queue__items {
   display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0;
+  grid-template-columns: 1fr;
 }
 
 .evidence-priority-queue__items button {
-  background: rgba(255, 255, 255, 0.026);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 0;
   color: inherit;
   display: grid;
-  gap: 5px;
+  gap: 14px;
+  grid-template-columns: minmax(150px, 0.9fr) minmax(46px, auto) minmax(0, 1.4fr);
   min-width: 0;
-  padding: 10px;
+  padding: 13px 0;
   text-align: left;
 }
 
 .evidence-priority-queue__items button[data-state="empty"] {
   cursor: default;
-  opacity: 0.58;
+  opacity: 0.52;
 }
 
 .evidence-priority-queue__items button:hover,
 .evidence-priority-queue__items button:focus-visible {
-  background: rgba(255, 255, 255, 0.045);
-  border-color: rgba(79, 140, 255, 0.3);
+  background: rgba(255, 255, 255, 0.025);
   outline: none;
 }
 
 .evidence-priority-queue__items button:disabled:hover,
 .evidence-priority-queue__items button:disabled:focus-visible {
-  background: rgba(255, 255, 255, 0.026);
-  border-color: var(--line);
+  background: transparent;
 }
 
 .evidence-priority-queue__items strong {
   color: var(--ink);
   font-size: 1.18rem;
   line-height: 1;
+  text-align: right;
 }
 
 .evidence-priority-queue__items small {
@@ -7284,7 +7297,6 @@ select:focus {
   .resume-refresh-grid,
   .review-top-fixes__grid,
   .review-finding-grid,
-  .evidence-priority-queue__items,
   .enrichment-task-card__context,
   .enrichment-task-card__target-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7477,6 +7489,34 @@ select:focus {
     grid-template-columns: 1fr;
   }
 
+  .entry-path-board article {
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+
+  .entry-path-board button {
+    justify-self: flex-start;
+  }
+
+  .evidence-priority-queue__header {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .evidence-priority-queue__header .primary-button {
+    justify-self: flex-start;
+  }
+
+  .evidence-priority-queue__items button {
+    gap: 5px;
+    grid-template-columns: 1fr;
+  }
+
+  .evidence-priority-queue__items strong {
+    font-size: 1.05rem;
+    text-align: left;
+  }
+
   .enrichment-task-controls {
     grid-template-columns: 1fr;
   }
@@ -7507,7 +7547,6 @@ select:focus {
   .resume-refresh-grid,
   .review-top-fixes__grid,
   .review-finding-grid,
-  .evidence-priority-queue__items,
   .profile-tabs-preview,
   .profile-live-summary__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7601,7 +7640,6 @@ select:focus {
   .review-detail-tabs,
   .review-top-fixes__grid,
   .review-finding-grid,
-  .evidence-priority-queue__items,
   .resume-version-strip,
   .resume-review-rubric {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7829,7 +7867,6 @@ select:focus {
   .review-detail-tabs,
   .review-top-fixes__grid,
   .review-finding-grid,
-  .evidence-priority-queue__items,
   .enrichment-task-card__context,
   .enrichment-task-card__target-grid,
   .resume-version-strip,

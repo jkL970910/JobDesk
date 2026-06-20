@@ -2077,14 +2077,12 @@ export function ProfileEvidenceWorkspace({
       ) : null}
 
       {activeSection === "review" ? (
-        <div className="panel">
+        <div className="panel material-review-panel">
           <div className="panel__header">
             <div>
               <h2 className="panel__title">Review Material</h2>
               <p className="panel__note">
-                Work experiences, initiatives, portfolio projects, and evidence
-                claims form the source-backed material library for resumes,
-                interviews, and Fact Guard.
+                See what is ready, what needs answers, and what blocks resume export.
               </p>
             </div>
             <button
