@@ -48,7 +48,9 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
 
   it("persists profile, evidence drafts, and project cards", async () => {
     const extraction = buildExtraction();
+    const sourceTitle = `Profile evidence integration ${crypto.randomUUID()}`;
     const result = await persistProfileEvidenceExtraction({
+      sourceTitle,
       sourceText: sampleSourceText,
       extraction,
       provider: "integration-test",
@@ -75,13 +77,18 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
         "star-story-extraction",
       ],
     });
-    const enrichmentQueue = await getEnrichmentTaskQueue(20);
+    const enrichmentQueue = await getEnrichmentTaskQueue({
+      limit: 200,
+      sourceType: "extraction_note",
+      statuses: ["open", "answered"],
+    });
     expect(enrichmentQueue.status).toBe("ready");
     if (enrichmentQueue.status !== "ready") {
       throw new Error("Expected enrichment queue.");
     }
     const metricTask = enrichmentQueue.tasks.find((task) =>
-      task.prompt.includes("Add a concrete activation metric"),
+      task.prompt.includes("Add a concrete activation metric") &&
+      task.source_label === sourceTitle,
     );
     expect(metricTask).toBeDefined();
     if (!metricTask) throw new Error("Expected enrichment task.");
@@ -132,18 +139,25 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(
       afterDifferentSource.tasks.filter((task) => task.prompt === metricTask.prompt).length,
     ).toBeGreaterThanOrEqual(2);
-    await updateEnrichmentTask({
+    const metricAnswered = await updateEnrichmentTask({
       taskId: metricTask.id,
       action: "answer",
       userAnswer: "Improved activation by 12% across three onboarding cohorts.",
     });
+    expect(metricAnswered.status).toBe("saved");
+    if (metricAnswered.status !== "saved") throw new Error("Expected metric answer saved.");
+    const metricProposal = metricAnswered.task.proposals.find(
+      (proposal) => proposal.status === "pending_review",
+    );
+    if (!metricProposal) throw new Error("Expected metric proposal.");
     const converted = await updateEnrichmentTask({
       taskId: metricTask.id,
-      action: "convert",
+      action: "accept_proposal",
+      proposalId: metricProposal.id,
     });
     expect(converted.status).toBe("saved");
     expect(converted).toMatchObject({
-      conversionMode: "fallback",
+      conversionMode: "proposal_commit",
       evidenceCount: 1,
     });
     const aiAnswerPrompt = `AI extraction answer ${result.workflowRunId}`;
@@ -172,7 +186,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       expected_outcome: "clarify_assignment",
       targets: [],
     });
-    const aiAnswer = "Increased onboarding activation by 12% across three cohorts.";
+    const aiAnswer = `Increased onboarding activation by 12% across three cohorts ${crypto.randomUUID()}.`;
     await updateEnrichmentTask({
       taskId: aiTask.id,
       action: "answer",
@@ -211,36 +225,14 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       }),
     });
     expect(aiConverted).toMatchObject({
-      status: "saved",
-      conversionMode: "ai_extraction",
-      evidenceCount: 1,
+      status: "invalid",
+      reason: "proposal_review_required",
     });
-    if (
-      aiConverted.status !== "saved" ||
-      !("evidenceItemId" in aiConverted) ||
-      !aiConverted.evidenceItemId
-    ) {
-      throw new Error("Expected converted AI evidence.");
-    }
-    const [aiEvidence] = await getDb()
+    const aiEvidence = await getDb()
       .select()
       .from(evidenceItems)
-      .where(eq(evidenceItems.id, aiConverted.evidenceItemId))
-      .limit(1);
-    expect(aiEvidence).toMatchObject({
-      needsUserConfirmation: 1,
-    });
-    expect(aiEvidence?.metrics).toEqual([
-      { value: "12%", source_quote: "Increased onboarding activation by 12%" },
-    ]);
-    const [aiSource] = aiEvidence?.sourceDocumentId
-      ? await getDb()
-          .select()
-          .from(sourceDocuments)
-          .where(eq(sourceDocuments.id, aiEvidence.sourceDocumentId))
-          .limit(1)
-      : [];
-    expect(aiSource?.contentText).toBe(aiAnswer);
+      .where(eq(evidenceItems.text, aiAnswer));
+    expect(aiEvidence).toHaveLength(0);
     await upsertEnrichmentTasks(getDb(), {
       workspaceId: result.workspaceId,
       tasks: [
@@ -535,7 +527,6 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     if (duplicateA.status !== "saved" || duplicateB.status !== "saved") {
       throw new Error("Expected duplicate evidence setup to save.");
     }
-
     const dedupe = await getEvidenceDedupeCandidates(20);
     expect(dedupe.status).toBe("ready");
     if (dedupe.status !== "ready") throw new Error("Expected dedupe candidates.");
@@ -838,6 +829,14 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     );
     expect(pendingProposal).toBeDefined();
     if (!pendingProposal) throw new Error("Expected pending proposal.");
+    const legacyConvertWithPendingProposal = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "convert",
+    });
+    expect(legacyConvertWithPendingProposal).toMatchObject({
+      status: "invalid",
+      reason: "proposal_review_required",
+    });
     const accepted = await updateEnrichmentTask({
       taskId: task.id,
       action: "accept_proposal",
@@ -878,6 +877,20 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       status: "accepted",
       committedEvidenceItemId: accepted.evidenceItemId,
     });
+    const secondAccept = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "accept_proposal",
+      proposalId: pendingProposal.id,
+    });
+    expect(secondAccept).toMatchObject({
+      status: "invalid",
+      reason: "proposal_not_found",
+    });
+    const duplicateEvidence = await db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.text, answer));
+    expect(duplicateEvidence).toHaveLength(1);
   });
 
   it("reconciles same-source resume review enrichment tasks to extracted library items", async () => {

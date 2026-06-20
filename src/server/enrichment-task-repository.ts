@@ -312,6 +312,13 @@ export async function updateEnrichmentTask(args: {
   if (!existing) return { status: "not_found" as const };
 
   if (args.action === "convert") {
+    const directConvertAllowed = await canUseLegacyConvert(db, {
+      workspaceId: workspace.id,
+      taskId: existing.id,
+    });
+    if (!directConvertAllowed) {
+      return { status: "invalid" as const, reason: "proposal_review_required" as const };
+    }
     return convertEnrichmentTaskToEvidenceCandidate(db, {
       task: existing,
       now,
@@ -376,18 +383,26 @@ export async function updateEnrichmentTask(args: {
     );
   }
 
-  const [updated] = await db
-    .update(enrichmentTasks)
-    .set(patch)
-    .where(and(eq(enrichmentTasks.workspaceId, workspace.id), eq(enrichmentTasks.id, args.taskId)))
-    .returning();
-  if (updated && args.action === "answer") {
-    await createPendingProposalForAnswer(db, {
-      task: updated,
-      answer: updated.userAnswer ?? "",
-      now,
-    });
-  }
+  const updated =
+    args.action === "answer"
+      ? await saveAnswerAndCreateProposal(db, {
+          workspaceId: workspace.id,
+          taskId: args.taskId,
+          patch,
+          now,
+        })
+      : (
+          await db
+            .update(enrichmentTasks)
+            .set(patch)
+            .where(
+              and(
+                eq(enrichmentTasks.workspaceId, workspace.id),
+                eq(enrichmentTasks.id, args.taskId),
+              ),
+            )
+            .returning()
+        )[0];
   if (updated && args.action === "link") {
     await replaceTaskTargets(db, {
       workspaceId: workspace.id,
@@ -645,7 +660,7 @@ async function convertEnrichmentTaskToEvidenceCandidate(
 }
 
 async function createPendingProposalForAnswer(
-  db: Pick<DbHandle, "insert" | "update" | "select">,
+  db: Pick<DbHandle, "insert" | "update">,
   args: {
     task: typeof enrichmentTasks.$inferSelect;
     answer: string;
@@ -706,6 +721,57 @@ async function createPendingProposalForAnswer(
   return proposal ?? null;
 }
 
+async function saveAnswerAndCreateProposal(
+  db: DbHandle,
+  args: {
+    workspaceId: string;
+    taskId: string;
+    patch: Partial<typeof enrichmentTasks.$inferInsert>;
+    now: Date;
+  },
+) {
+  return db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(enrichmentTasks)
+      .set(args.patch)
+      .where(
+        and(
+          eq(enrichmentTasks.workspaceId, args.workspaceId),
+          eq(enrichmentTasks.id, args.taskId),
+        ),
+      )
+      .returning();
+    if (!updated) return undefined;
+    await createPendingProposalForAnswer(tx, {
+      task: updated,
+      answer: updated.userAnswer ?? "",
+      now: args.now,
+    });
+    return updated;
+  });
+}
+
+async function canUseLegacyConvert(
+  db: Pick<DbHandle, "select">,
+  args: {
+    workspaceId: string;
+    taskId: string;
+  },
+) {
+  const rows = await db
+    .select({ id: enrichmentProposals.id })
+    .from(enrichmentProposals)
+    .where(
+      and(
+        eq(enrichmentProposals.workspaceId, args.workspaceId),
+        eq(enrichmentProposals.taskId, args.taskId),
+        inArray(enrichmentProposals.status, ["pending_review", "accepted"]),
+      ),
+    )
+    .limit(1);
+  return rows.length === 0;
+}
+
 async function acceptEnrichmentProposal(
   db: DbHandle,
   args: {
@@ -716,8 +782,12 @@ async function acceptEnrichmentProposal(
 ) {
   return db.transaction(async (tx) => {
     const [proposal] = await tx
-      .select()
-      .from(enrichmentProposals)
+      .update(enrichmentProposals)
+      .set({
+        status: "accepted",
+        updatedAt: args.now,
+        reviewedAt: args.now,
+      })
       .where(
         and(
           eq(enrichmentProposals.workspaceId, args.task.workspaceId),
@@ -726,7 +796,7 @@ async function acceptEnrichmentProposal(
           eq(enrichmentProposals.status, "pending_review"),
         ),
       )
-      .limit(1);
+      .returning();
     if (!proposal) {
       return { status: "invalid" as const, reason: "proposal_not_found" as const };
     }
@@ -786,7 +856,6 @@ async function acceptEnrichmentProposal(
     await tx
       .update(enrichmentProposals)
       .set({
-        status: "accepted",
         committedEvidenceItemId: evidence.id,
         updatedAt: args.now,
         reviewedAt: args.now,
