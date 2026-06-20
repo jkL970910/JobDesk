@@ -4670,97 +4670,6 @@ select:focus {
   margin: 3px 0 0;
 }
 
-.evidence-priority-queue {
-  background:
-    linear-gradient(90deg, rgba(79, 140, 255, 0.08), rgba(255, 255, 255, 0.012));
-  border-bottom: 1px solid rgba(255, 255, 255, 0.075);
-  border-top: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 0;
-  display: grid;
-  gap: 14px;
-  margin: 6px 0 18px;
-  padding: 18px 0;
-}
-
-.evidence-priority-queue__header {
-  align-items: center;
-  display: grid;
-  gap: 12px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  padding: 0;
-}
-
-.evidence-priority-queue__header span,
-.evidence-priority-queue__items span {
-  color: var(--primary-strong);
-  font-size: 0.66rem;
-  font-weight: 850;
-  letter-spacing: 0.01em;
-}
-
-.evidence-priority-queue__header strong {
-  color: var(--ink);
-  display: block;
-  margin-top: 3px;
-}
-
-.evidence-priority-queue__header p {
-  color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.42;
-  margin: 3px 0 0;
-}
-
-.evidence-priority-queue__items {
-  display: grid;
-  gap: 0;
-  grid-template-columns: 1fr;
-}
-
-.evidence-priority-queue__items button {
-  align-items: center;
-  background: transparent;
-  border: 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.065);
-  border-radius: 0;
-  color: inherit;
-  display: grid;
-  gap: 14px;
-  grid-template-columns: minmax(150px, 0.9fr) minmax(46px, auto) minmax(0, 1.4fr);
-  min-width: 0;
-  padding: 13px 0;
-  text-align: left;
-}
-
-.evidence-priority-queue__items button[data-state="empty"] {
-  cursor: default;
-  opacity: 0.52;
-}
-
-.evidence-priority-queue__items button:hover,
-.evidence-priority-queue__items button:focus-visible {
-  background: rgba(255, 255, 255, 0.025);
-  outline: none;
-}
-
-.evidence-priority-queue__items button:disabled:hover,
-.evidence-priority-queue__items button:disabled:focus-visible {
-  background: transparent;
-}
-
-.evidence-priority-queue__items strong {
-  color: var(--ink);
-  font-size: 1.18rem;
-  line-height: 1;
-  text-align: right;
-}
-
-.evidence-priority-queue__items small {
-  color: var(--muted);
-  font-size: 0.74rem;
-  line-height: 1.35;
-}
-
 .enrichment-queue {
   background: rgba(255, 255, 255, 0.022);
 }
@@ -7543,25 +7452,6 @@ select:focus {
   .story-assignment-confirmed button,
   .story-assignment-control button {
     justify-self: flex-start;
-  }
-
-  .evidence-priority-queue__header {
-    align-items: stretch;
-    grid-template-columns: 1fr;
-  }
-
-  .evidence-priority-queue__header .primary-button {
-    justify-self: flex-start;
-  }
-
-  .evidence-priority-queue__items button {
-    gap: 5px;
-    grid-template-columns: 1fr;
-  }
-
-  .evidence-priority-queue__items strong {
-    font-size: 1.05rem;
-    text-align: left;
   }
 
   .enrichment-task-controls {
