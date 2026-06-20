@@ -6642,11 +6642,47 @@ select:focus {
   margin: 0;
 }
 
+.story-target-row__assignment[data-state="assigned"] {
+  align-items: center;
+}
+
+.story-assignment-confirmed {
+  align-items: center;
+  background: rgba(70, 211, 154, 0.055);
+  border: 1px solid rgba(70, 211, 154, 0.16);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 10px 12px;
+}
+
+.story-assignment-confirmed span {
+  color: var(--accent);
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.story-assignment-confirmed strong {
+  font-size: 0.9rem;
+  margin: 3px 0 0;
+}
+
+.story-assignment-confirmed small {
+  color: var(--muted);
+  display: block;
+  font-size: 0.73rem;
+  margin-top: 3px;
+}
+
 .story-assignment-control {
   align-items: end;
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
 }
 
 .story-assignment-control label,
@@ -7495,6 +7531,17 @@ select:focus {
   }
 
   .entry-path-board button {
+    justify-self: flex-start;
+  }
+
+  .story-assignment-confirmed,
+  .story-assignment-control {
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+
+  .story-assignment-confirmed button,
+  .story-assignment-control button {
     justify-self: flex-start;
   }
 
