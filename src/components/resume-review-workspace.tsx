@@ -763,7 +763,7 @@ function ResumeReviewReportCard({
             <dl>
               <div>
                 <dt>Review method</dt>
-                <dd>{metadata.provider ?? "unknown"}</dd>
+                <dd>{isFallback ? "Quick estimate" : "AI-assisted review"}</dd>
               </div>
               <div>
                 <dt>Attempts</dt>
@@ -772,7 +772,7 @@ function ResumeReviewReportCard({
               {metadata.providerFailureKind ? (
                 <div>
                   <dt>Why this is limited</dt>
-                  <dd>{metadata.providerFailureKind}</dd>
+                  <dd>{formatReviewLimitReason(metadata.providerFailureKind)}</dd>
                 </div>
               ) : null}
             </dl>
@@ -1471,6 +1471,16 @@ function formatReviewConfidence(confidence: number | undefined) {
   if (confidence >= 0.85) return "High confidence review based on the extracted resume text.";
   if (confidence >= 0.65) return "Moderate confidence review; check the detailed findings before acting.";
   return "Lower confidence review; use the findings as directional guidance.";
+}
+
+function formatReviewLimitReason(reason: string) {
+  const copy: Record<string, string> = {
+    contract_invalid: "The full review came back incomplete.",
+    invalid_response: "The full review was not usable.",
+    provider_error: "The review service did not complete successfully.",
+    timeout: "The full review took too long to finish.",
+  };
+  return copy[reason] ?? "The full review was not available.";
 }
 
 function isFallbackResume(resume: ResumeSourceReviewSummary) {

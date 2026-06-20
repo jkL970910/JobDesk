@@ -318,7 +318,7 @@ function AuthShell({
         <p className="panel-kicker">JobDesk account</p>
         <h1>{title}</h1>
         <p>
-          Build a private evidence library, generate grounded resumes, and keep every source scoped to your workspace.
+          Turn your resume and work notes into job-ready evidence and grounded drafts.
         </p>
         {children}
       </section>

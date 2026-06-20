@@ -246,7 +246,7 @@ const pageCopy = {
   settings: {
     eyebrow: "Workspace",
     title: "Settings",
-    subtitle: "Manage account, AI access, and advanced diagnostics.",
+    subtitle: "Manage account access, workspace data, and support tools.",
   },
 } satisfies Record<View, { eyebrow: string; title: string; subtitle: string }>;
 
@@ -2308,7 +2308,7 @@ function SettingsReferenceView() {
       <p className="panel-kicker">Settings</p>
       <h2>Workspace settings</h2>
       <p>
-        Review account access, storage, AI availability, and recent activity.
+        Manage account access, workspace data, and support tools.
       </p>
       <div className="settings-panel__grid">
         <article>
@@ -2331,7 +2331,7 @@ function SettingsReferenceView() {
         <details>
           <summary>
             <span>Support diagnostics</span>
-            <strong>Technical status for support</strong>
+            <strong>Troubleshooting</strong>
           </summary>
           {diagnosticsError ? (
             <p className="diagnostics-panel__error">{diagnosticsError}</p>
@@ -2373,8 +2373,8 @@ function SettingsReferenceView() {
                     <ul>
                       {diagnostics.workflows.latest.map((run) => (
                         <li key={run.id}>
-                          <strong>{run.workflowType}</strong>
-                          <span>{run.status}</span>
+                          <strong>Background activity</strong>
+                          <span>{formatDiagnosticsStatus(run.status)}</span>
                           <small>{formatDateTime(run.finishedAt)}</small>
                         </li>
                       ))}
@@ -2421,6 +2421,12 @@ function formatDateTime(value: string | null) {
   } catch {
     return value;
   }
+}
+
+function formatDiagnosticsStatus(value: string) {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function getViewFromLocationHash(): View {

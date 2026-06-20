@@ -6383,8 +6383,8 @@ function EvidenceCard({
         </div>
         <div className="evidence-row__action">
           <div className="evidence-row__action-status">
-            <em data-ready={readiness.state === "resume_ready"}>{readiness.label}</em>
-            <small>{linkedTarget}</small>
+            <em data-ready={readiness.state === "resume_ready"}>Next action</em>
+            <small>{blocker.label}</small>
           </div>
           <button
             className="primary-button"
