@@ -89,7 +89,7 @@ body::before {
 }
 
 .focus-glow-card {
-  border-radius: inherit;
+  border-radius: var(--radius);
   position: relative;
 }
 
@@ -936,6 +936,41 @@ strong,
 
 .workflow-stepper--dashboard {
   margin: 8px 0 16px;
+}
+
+.readiness-details {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.readiness-details summary {
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: var(--type-caption);
+  font-weight: 760;
+  list-style: none;
+}
+
+.readiness-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.readiness-details summary::after {
+  color: var(--muted);
+  content: "Show details";
+  float: right;
+  font-size: var(--type-meta);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.readiness-details[open] summary::after {
+  content: "Hide details";
+}
+
+.readiness-details .journey-steps {
+  margin-top: 10px;
 }
 
 .journey-step {

@@ -2,7 +2,6 @@
 
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -58,14 +57,16 @@ export function CountUpMetric({
   const prefersReducedMotion = usePrefersReducedMotion();
   const [displayValue, setDisplayValue] = useState(value);
   const previousValue = useRef(value);
+  const displayValueRef = useRef(value);
 
   useEffect(() => {
     if (prefersReducedMotion) {
       setDisplayValue(value);
+      displayValueRef.current = value;
       previousValue.current = value;
       return;
     }
-    const from = previousValue.current;
+    const from = displayValueRef.current;
     const delta = value - from;
     if (delta === 0) return;
     const startedAt = performance.now();
@@ -73,7 +74,9 @@ export function CountUpMetric({
     function tick(now: number) {
       const progress = Math.min(1, (now - startedAt) / durationMs);
       const eased = 1 - Math.pow(1 - progress, 3);
-      setDisplayValue(Math.round(from + delta * eased));
+      const nextValue = Math.round(from + delta * eased);
+      displayValueRef.current = nextValue;
+      setDisplayValue(nextValue);
       if (progress < 1) {
         frame = window.requestAnimationFrame(tick);
       } else {
@@ -134,10 +137,19 @@ type WorkflowStepperProps = {
 };
 
 export function WorkflowStepper({ className = "", steps }: WorkflowStepperProps) {
+  const activeStepId =
+    steps.find((step) => step.state === "active")?.id ??
+    steps.find((step) => step.state === "blocked")?.id ??
+    null;
   return (
     <ol className={["workflow-stepper", className].filter(Boolean).join(" ")}>
       {steps.map((step, index) => (
-        <li className="workflow-stepper__item" data-state={step.state} key={step.id}>
+        <li
+          aria-current={step.id === activeStepId ? "step" : undefined}
+          className="workflow-stepper__item"
+          data-state={step.state}
+          key={step.id}
+        >
           <span className="workflow-stepper__dot">{index + 1}</span>
           <span className="workflow-stepper__label">{step.label}</span>
           {step.metric ? <strong>{step.metric}</strong> : null}
@@ -169,8 +181,4 @@ function usePrefersReducedMotion() {
   }, []);
 
   return prefersReducedMotion;
-}
-
-export function useStableMotionKey(parts: Array<string | number | null | undefined>) {
-  return useMemo(() => parts.filter((part) => part !== null && part !== undefined).join(":"), [parts]);
 }

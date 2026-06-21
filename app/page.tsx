@@ -602,6 +602,7 @@ function DashboardView({
       target: () => onNavigateResume("build_export"),
     },
   ];
+  const actionableReadinessItems = readinessItems.filter((step) => step.state !== "complete");
   const priorityItems = [
     ...(claimsNeedingReview > 0
       ? [
@@ -790,21 +791,28 @@ function DashboardView({
               state: step.state as "active" | "blocked" | "complete" | "idle",
             }))}
           />
-          <div className="journey-steps">
-            {readinessItems.map((step, index) => (
-              <article className="journey-step" data-state={step.state} key={step.id}>
-                <div className="journey-step__number">{index + 1}</div>
-                <div>
-                  <span>{step.label}</span>
-                  <strong>{step.metric}</strong>
-                  <p>{step.detail}</p>
-                </div>
-                <button disabled={dashboardLoadState === "loading"} onClick={step.target} type="button">
-                  {step.action}
-                </button>
-              </article>
-            ))}
-          </div>
+          <details className="readiness-details">
+            <summary>
+              {actionableReadinessItems.length > 0
+                ? `${actionableReadinessItems.length} readiness item${actionableReadinessItems.length === 1 ? "" : "s"} need attention`
+                : "All readiness steps are on track"}
+            </summary>
+            <div className="journey-steps">
+              {(actionableReadinessItems.length > 0 ? actionableReadinessItems : readinessItems).map((step, index) => (
+                <article className="journey-step" data-state={step.state} key={step.id}>
+                  <div className="journey-step__number">{index + 1}</div>
+                  <div>
+                    <span>{step.label}</span>
+                    <strong>{step.metric}</strong>
+                    <p>{step.detail}</p>
+                  </div>
+                  <button disabled={dashboardLoadState === "loading"} onClick={step.target} type="button">
+                    {step.action}
+                  </button>
+                </article>
+              ))}
+            </div>
+          </details>
         </div>
 
         <div className="pipeline-panel" aria-label="Application pipeline">
