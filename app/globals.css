@@ -2573,7 +2573,7 @@ strong,
   border-radius: 16px;
   display: grid;
   gap: 0;
-  grid-template-columns: minmax(136px, 0.16fr) minmax(0, 1fr);
+  grid-template-columns: 1fr;
   min-height: 0;
   overflow: hidden;
   padding: 0;
@@ -3040,6 +3040,7 @@ strong,
 }
 
 .review-radar-card,
+.review-score-compact,
 .review-dimension-card {
   background:
     linear-gradient(135deg, rgba(79, 140, 255, 0.07), transparent 48%),
@@ -3047,6 +3048,59 @@ strong,
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 16px;
+}
+
+.review-dimension-side {
+  display: grid;
+  gap: 12px;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.review-score-compact {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  min-height: 104px;
+}
+
+.review-score-compact div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.review-score-compact div:first-child span {
+  color: var(--faint);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.review-score-compact div:first-child strong {
+  color: var(--accent);
+  font-size: clamp(4.2rem, 7vw, 6.4rem);
+  font-weight: 950;
+  letter-spacing: -0.105em;
+  line-height: 0.78;
+}
+
+.review-score-compact div:last-child {
+  align-content: center;
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.review-score-compact div:last-child span {
+  background: rgba(255, 255, 255, 0.065);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  font-weight: 850;
+  padding: 6px 9px;
+  white-space: nowrap;
 }
 
 .review-radar-card {
@@ -9033,6 +9087,10 @@ select:focus {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
+  .review-dimension-workbench {
+    grid-template-columns: 1fr;
+  }
+
   .resume-review-report__hero {
     align-items: flex-start;
     grid-template-columns: 1fr;
@@ -9858,6 +9916,15 @@ select:focus {
   .resume-review-report__hero {
     align-items: stretch;
     display: grid;
+  }
+
+  .review-score-compact {
+    align-items: flex-start;
+    display: grid;
+  }
+
+  .review-score-compact div:last-child {
+    justify-items: start;
   }
 
   .workspace-tabs {

@@ -740,10 +740,6 @@ function ResumeReviewReportCard({
   return (
     <section className="panel resume-review-report">
       <div className="resume-review-report__hero">
-        <div className="resume-review-report__score">
-          <span>Score</span>
-          <strong>{review.overallScore}</strong>
-        </div>
         <div className="resume-review-report__summary">
           <div className="resume-review-report__title">
             <div>
@@ -808,9 +804,12 @@ function ResumeReviewReportCard({
       ) : null}
       <ReviewDimensionWorkbench
         dimensions={dimensions}
+        confidenceLabel={confidenceLabel}
         missingEvidenceQuestions={missingEvidenceQuestions}
         onSelect={setSelectedDimensionId}
         selectedDimension={selectedDimension}
+        statusLabel={statusLabel}
+        totalScore={review.overallScore}
       />
       {reviewActions.length ? (
         <section className="review-action-list">
@@ -909,15 +908,21 @@ type ReviewFinding = {
 };
 
 function ReviewDimensionWorkbench({
+  confidenceLabel,
   dimensions,
   missingEvidenceQuestions,
   onSelect,
   selectedDimension,
+  statusLabel,
+  totalScore,
 }: {
+  confidenceLabel: string;
   dimensions: ReviewDimension[];
   missingEvidenceQuestions: string[];
   onSelect: (id: string) => void;
   selectedDimension: ReviewDimension;
+  statusLabel: string;
+  totalScore: number;
 }) {
   const evidencePrompts = missingEvidenceQuestions.slice(0, 3);
   return (
@@ -940,42 +945,54 @@ function ReviewDimensionWorkbench({
           ))}
         </div>
       </div>
-      <article className="review-dimension-card" data-state={selectedDimension.status}>
-        <div className="review-dimension-card__top">
+      <div className="review-dimension-side">
+        <article className="review-score-compact">
           <div>
-            <p className="panel-kicker">Selected dimension</p>
-            <h3>{selectedDimension.label}</h3>
-          </div>
-          <strong>
-            {selectedDimension.score}/{selectedDimension.maxScore}
-          </strong>
-        </div>
-        <div className="review-dimension-card__body">
-          <div>
-            <span>Reviewer note</span>
-            <p>{selectedDimension.note}</p>
+            <span>Score</span>
+            <strong>{totalScore}</strong>
           </div>
           <div>
-            <span>Rewrite logic</span>
-            <p>{dimensionRewriteGuidance(selectedDimension)}</p>
+            <span>{confidenceLabel}</span>
+            <span>{statusLabel}</span>
           </div>
-          <div>
-            <span>Evidence/history to enrich</span>
-            {evidencePrompts.length ? (
-              <ul>
-                {evidencePrompts.map((prompt) => (
-                  <li key={prompt}>{prompt}</li>
-                ))}
-              </ul>
-            ) : (
-              <p>Use Add Material only if this dimension needs more specific metrics, project context, or external-safe wording.</p>
-            )}
+        </article>
+        <article className="review-dimension-card" data-state={selectedDimension.status}>
+          <div className="review-dimension-card__top">
+            <div>
+              <p className="panel-kicker">Selected dimension</p>
+              <h3>{selectedDimension.label}</h3>
+            </div>
+            <strong>
+              {selectedDimension.score}/{selectedDimension.maxScore}
+            </strong>
           </div>
-        </div>
-        <p className="review-dimension-card__hint">
-          Use the main Evidence Library action for this review when you are ready to create or refine reusable material.
-        </p>
-      </article>
+          <div className="review-dimension-card__body">
+            <div>
+              <span>Reviewer note</span>
+              <p>{selectedDimension.note}</p>
+            </div>
+            <div>
+              <span>Rewrite logic</span>
+              <p>{dimensionRewriteGuidance(selectedDimension)}</p>
+            </div>
+            <div>
+              <span>Evidence/history to enrich</span>
+              {evidencePrompts.length ? (
+                <ul>
+                  {evidencePrompts.map((prompt) => (
+                    <li key={prompt}>{prompt}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p>Use Add Material only if this dimension needs more specific metrics, project context, or external-safe wording.</p>
+              )}
+            </div>
+          </div>
+          <p className="review-dimension-card__hint">
+            Use the main Evidence Library action for this review when you are ready to create or refine reusable material.
+          </p>
+        </article>
+      </div>
     </section>
   );
 }
