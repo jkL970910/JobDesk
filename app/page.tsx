@@ -369,7 +369,7 @@ export default function HomePage() {
           </div>
         </header>
 
-        <section className="app-content">
+        <section className="app-content" data-view={activeView}>
           <header className="app-content__header">
             <div>
               <p className="app-content__eyebrow">{activeCopy.eyebrow}</p>
@@ -789,7 +789,7 @@ function DashboardView({
   ];
 
   return (
-    <MotionPanel className="dashboard-grid">
+    <MotionPanel className="dashboard-grid dashboard-figma-shell">
       <section className="dashboard-metric-strip" aria-label="Workspace metrics">
         {dashboardMetrics.map((metric) => (
           <button
@@ -808,7 +808,7 @@ function DashboardView({
         ))}
       </section>
 
-      <section className="overview-lanes" aria-label="Business overview">
+      <section className="overview-lanes overview-lanes--figma" aria-label="Business overview">
         <div className="dashboard-main-lane">
           <section className="next-actions-panel" aria-label="Next actions">
             <div className="dashboard-section-heading">
@@ -866,6 +866,18 @@ function DashboardView({
                   </button>
                 </article>
               </div>
+            </div>
+          </section>
+
+          <section className="weekly-activity-panel" aria-label="Weekly applications">
+            <div className="dashboard-section-heading">
+              <p className="panel-kicker">Weekly Applications</p>
+              <span>{activeApplications} active</span>
+            </div>
+            <div className="weekly-activity-bars" aria-hidden="true">
+              {[1, 2, 2, 3, 2, Math.max(1, activeApplications)].map((value, index) => (
+                <span key={`${value}-${index}`} style={{ height: `${28 + value * 16}px` }} />
+              ))}
             </div>
           </section>
         </div>
@@ -1124,20 +1136,30 @@ function ResumeWorkspaceView({
   return (
     <div className="resume-workspace">
       <div className="resume-workspace__tabs" role="tablist" aria-label="Resume workspace sections">
-        {tabs.map((tab) => (
-          <button
-            aria-selected={activeTab === tab.id}
-            className="resume-workspace__tab"
-            data-active={activeTab === tab.id}
-            key={tab.id}
-            onClick={() => onTabChange(tab.id)}
-            role="tab"
-            type="button"
-          >
-            <span>{tab.label}</span>
-            <small>{tab.body}</small>
-          </button>
-        ))}
+        {tabs.map((tab, index) => {
+          const active = activeTab === tab.id;
+          const done =
+            tab.id === "intake_review" &&
+            (activeTab === "profile_facts" || activeTab === "build_export");
+          return (
+            <div className="resume-workspace__step" key={tab.id}>
+              <button
+                aria-selected={active}
+                className="resume-workspace__tab"
+                data-active={active}
+                data-done={done}
+                onClick={() => onTabChange(tab.id)}
+                role="tab"
+                type="button"
+              >
+                <i>{done && !active ? "✓" : index + 1}</i>
+                <span>{tab.label}</span>
+                <small>{tab.body}</small>
+              </button>
+              {index < tabs.length - 1 ? <b aria-hidden="true">›</b> : null}
+            </div>
+          );
+        })}
       </div>
 
       {activeTab === "intake_review" ? (
@@ -1333,6 +1355,74 @@ function ProfileReferenceView({
   const latestMainResumeClaimStats = latestMainResume
     ? getMainResumeClaimStats(latestMainResume)
     : null;
+  const missingProfileAreas = [
+    profileFacts.email && profileFacts.phone ? null : "Contact",
+    displayedRoleCount ? null : "Roles",
+    profileFacts.education.length ? null : "Education",
+    profileFacts.skills.length ? null : "Skills",
+  ].filter(Boolean) as string[];
+  const profileFactsMetrics = [
+    {
+      detail:
+        [profileFacts.email, profileFacts.phone].filter(Boolean).join(" · ") ||
+        "Name, email, or phone still missing.",
+      label: "Contact",
+      value: profileFacts.name || profileFacts.email ? "Present" : "Pending",
+    },
+    {
+      detail:
+        profileFacts.experience.slice(0, 2).join(" · ") ||
+        (displayedRoleCount
+          ? "Work experience records are present."
+          : "Extract a resume to populate work history."),
+      label: "Roles",
+      value: displayedRoleCount ? `${displayedRoleCount}` : "0",
+    },
+    {
+      detail:
+        profileFacts.education.slice(0, 2).join(" · ") ||
+        "Education facts are not extracted yet.",
+      label: "Education",
+      value: profileFacts.education.length ? `${profileFacts.education.length}` : "0",
+    },
+    {
+      detail:
+        profileFacts.skills.slice(0, 8).join(", ") ||
+        "Skill signals appear after profile extraction.",
+      label: "Skills",
+      value: profileFacts.skills.length ? `${profileFacts.skills.length}` : "0",
+    },
+  ];
+  const buildExportMetrics = [
+    {
+      detail: mainResumeReady ? "Ready for generation." : "Approve evidence first.",
+      label: "Resume-ready evidence",
+      value: `${resumeEligibleEvidence}`,
+    },
+    {
+      detail: latestMainResume
+        ? `${formatMainResumeMode(latestMainResume)} · ${formatDateTime(latestMainResume.updatedAt)}`
+        : "No main resume yet.",
+      label: "Latest resume",
+      value: latestMainResume ? formatMainResumeUserState(latestMainResume) : "None",
+    },
+    {
+      detail: latestMainResumeClaimStats
+        ? `${latestMainResumeClaimStats.supported}/${latestMainResumeClaimStats.total} supported`
+        : "Runs after generation.",
+      label: "Fact Guard",
+      value: latestMainResume
+        ? formatFactGuardSummary(latestMainResume, latestMainResumeClaimStats)
+        : "Not run",
+    },
+    {
+      detail: latestPositioningReport
+        ? formatDateTime(latestPositioningReport.updatedAt)
+        : "Optional role direction analysis.",
+      label: "Directions",
+      value: `${latestPositioningReport?.report.directions.length ?? 0}`,
+    },
+  ];
   const exportUsesLengthConstraint = exportPagePolicy !== "unrestricted";
 
   async function generatePositioningReport() {
@@ -1597,388 +1687,319 @@ function ProfileReferenceView({
     <div className="profile-reference">
       {focus === "facts" ? (
         <>
-          <section className="profile-card">
-            <p className="panel-kicker">Factual snapshot</p>
-            <h2>{profileDisplayName}</h2>
-            <p>{profileSnapshotCopy(resumePrepState)}</p>
-            <div className="profile-card__facts">
-              <span>{profileFacts.email ?? "Email pending"}</span>
-              <span>{profileFacts.phone ?? "Phone pending"}</span>
-              <span>{profileFacts.skills.length ? `${profileFacts.skills.length} skills` : "Skills pending"}</span>
-              <span>{displayedRoleCount ? `${displayedRoleCount} roles` : "Roles pending"}</span>
-            </div>
-          </section>
-
-          <section className="profile-live-summary" data-state={loadState}>
-            <div className="profile-live-summary__header">
+          <section className="profile-facts-panel" data-state={loadState}>
+            <div className="profile-facts-panel__header">
               <div>
-                <p className="panel-kicker">Profile completeness</p>
-                <h3>
-                  {extractionStatus}
-                </h3>
+                <p className="panel-kicker">Profile Facts</p>
+                <h2>{profileDisplayName}</h2>
+                <p>{profileSnapshotCopy(resumePrepState)}</p>
               </div>
-              <span>{loadState}</span>
+              <div className="profile-facts-panel__chips" aria-label="Profile status">
+                <span>{extractionStatus}</span>
+                <span>{displayedEvidenceCount} evidence</span>
+                <span>{displayedStoryCount} stories</span>
+              </div>
             </div>
-            <div className="profile-live-summary__grid">
-              <article>
-                <span>Contact</span>
-                <strong>{profileFacts.name || profileFacts.email ? "Present" : "Pending"}</strong>
-                <p>{[profileFacts.email, profileFacts.phone].filter(Boolean).join(" · ") || "Name, email, and phone are not fully extracted."}</p>
-              </article>
-              <article>
-                <span>Roles</span>
-                <strong>{displayedRoleCount}</strong>
-                <p>{displayedRoleCount ? "Work history facts exist in the library." : "Work history pending extraction."}</p>
-              </article>
-              <article>
-                <span>Education</span>
-                <strong>{profileFacts.education.length}</strong>
-                <p>{profileFacts.education.length ? "Education facts extracted." : "Education pending extraction."}</p>
-              </article>
-              <article>
-                <span>Skills</span>
-                <strong>{profileFacts.skills.length}</strong>
-                <p>{profileFacts.skills.length ? "Skill signals extracted." : "Skills pending extraction."}</p>
-              </article>
-            </div>
-          </section>
 
-          <section className="profile-fact-grid">
-            <article>
-              <span>Contact facts</span>
-              <strong>{profileFacts.name ?? library?.profile?.displayName ?? (hasExtractedMaterial ? "Pending promotion" : "Pending")}</strong>
-              <p>{[profileFacts.email, profileFacts.phone].filter(Boolean).join(" · ") || "Run resume extraction to populate contact facts."}</p>
-            </article>
-            <article>
-              <span>Roles</span>
-              <strong>{displayedRoleCount ? `${displayedRoleCount} extracted` : "Pending"}</strong>
-              <p>{profileFacts.experience.slice(0, 2).join(" · ") || (displayedRoleCount ? "Work experience records are present in Evidence Library." : "Extract a resume or source document to populate work history.")}</p>
-            </article>
-            <article>
-              <span>Education</span>
-              <strong>{profileFacts.education.length ? `${profileFacts.education.length} entries` : "Pending"}</strong>
-              <p>{profileFacts.education.slice(0, 2).join(" · ") || "Education facts are not extracted yet."}</p>
-            </article>
-            <article>
-              <span>Skills</span>
-              <strong>{profileFacts.skills.length ? `${profileFacts.skills.length} signals` : "Pending"}</strong>
-              <p>{profileFacts.skills.slice(0, 8).join(", ") || "Skills will appear after profile extraction."}</p>
-            </article>
-          </section>
-
-          <section className="handoff-panel">
-            <div>
-              <p className="panel-kicker">Missing profile areas</p>
-              <h3>{hasExtractedMaterial ? "Improve coverage from Evidence Library." : "Extract source material to populate Profile."}</h3>
-              <p>
-                {hasExtractedMaterial
-                  ? `${displayedEvidenceCount} evidence item${displayedEvidenceCount === 1 ? "" : "s"} and ${displayedStoryCount} story target${displayedStoryCount === 1 ? "" : "s"} exist. If facts look thin here, promote or enrich them from Evidence Library.`
-                  : "Profile stays read-only until Resume Review or Add Material creates extracted facts."}
-              </p>
+            <div className="profile-facts-panel__metrics">
+              {profileFactsMetrics.map((metric) => (
+                <article key={metric.label}>
+                  <span>{metric.label}</span>
+                  <strong>{metric.value}</strong>
+                  <p>{metric.detail}</p>
+                </article>
+              ))}
             </div>
-            <button
-              type="button"
-              onClick={() =>
-                resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
-                  ? onNavigateResume("intake_review")
-                  : onNavigate("evidence")
-              }
-            >
-              {resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
-                ? "Open Resume Review"
-                : "Open Evidence Library"}
-            </button>
+
+            <div className="profile-facts-panel__coverage">
+              <div>
+                <p className="panel-kicker">Improve coverage</p>
+                <h3>
+                  {missingProfileAreas.length
+                    ? `${missingProfileAreas.join(", ")} need attention`
+                    : "Core profile facts are covered"}
+                </h3>
+                <p>
+                  {hasExtractedMaterial
+                    ? "Use Evidence Library to strengthen or promote facts before building a resume."
+                    : "Start with Resume Review to extract profile facts and work material."}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
+                    ? onNavigateResume("intake_review")
+                    : onNavigate("evidence")
+                }
+              >
+                {resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
+                  ? "Open Resume Review"
+                  : "Open Evidence Library"}
+              </button>
+            </div>
           </section>
         </>
       ) : null}
 
       {focus === "builder" ? (
         <>
-      <section className="positioning-engine">
-        <div className="positioning-engine__header">
-          <div>
-            <p className="panel-kicker">Profile Positioning Engine</p>
-            <h3>Find role directions your evidence actually supports.</h3>
-            <p>
-              Uses profile facts and evidence approved for resume use. It does
-              not require a JD and does not make unsupported career claims.
-            </p>
-          </div>
-          <button
-            className="primary-button"
-            disabled={!mainResumeReady || isGeneratingPositioning}
-            type="button"
-            onClick={() => void generatePositioningReport()}
-          >
-            {isGeneratingPositioning ? "Analyzing..." : "Analyze positioning"}
-          </button>
-        </div>
-        <div className="main-resume-builder__metrics">
-          <article>
-            <span>Directions</span>
-            <strong>{latestPositioningReport?.report.directions.length ?? 0}</strong>
-            <p>{latestPositioningReport ? "Role hypotheses are evidence-backed." : "Generate a report from approved evidence."}</p>
-          </article>
-          <article>
-            <span>Evidence basis</span>
-            <strong>{resumeEligibleEvidence}</strong>
-            <p>{mainResumeReady ? "Approved evidence can support positioning." : "Approve evidence for resume use first."}</p>
-          </article>
-          <article>
-            <span>Latest report</span>
-            <strong>{latestPositioningReport ? latestPositioningReport.status : "None"}</strong>
-            <p>{latestPositioningReport ? formatDateTime(latestPositioningReport.updatedAt) : "No positioning report generated yet."}</p>
-          </article>
-        </div>
-        {positioningStatus ? <p className="status">{positioningStatus}</p> : null}
-        {latestPositioningReport ? (
-          <div className="positioning-engine__body">
-            <div className="positioning-engine__summary">
-              <strong>{latestPositioningReport.report.summary}</strong>
-              <p>
-                Strengths: {latestPositioningReport.report.global_strengths.slice(0, 3).join(", ") || "None captured yet."}
-              </p>
-              <p>
-                Gaps: {latestPositioningReport.report.global_gaps.slice(0, 3).join(", ") || "No major gaps listed."}
-              </p>
+          <section className="build-export-panel">
+            <div className="build-export-panel__header">
+              <div>
+                <p className="panel-kicker">Build & Export</p>
+                <h3>Turn approved evidence into a resume draft.</h3>
+              </div>
+              <span>{latestMainResume ? formatMainResumeUserState(latestMainResume) : "No draft yet"}</span>
             </div>
-            <div className="positioning-direction-grid" role="list">
-              {latestPositioningReport.report.directions.map((direction) => {
-                const selected = direction.id === selectedPositioningDirection?.id;
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className="positioning-direction-card"
-                    data-selected={selected}
-                    key={direction.id}
-                    onClick={() => setSelectedPositioningDirectionId(direction.id)}
-                    role="listitem"
-                    type="button"
-                  >
-                    <span>{direction.role_family}</span>
-                    <strong>{direction.target_role}</strong>
-                    <em>
-                      {formatPositioningSupportLevel(direction.support_level)} ·{" "}
-                      {direction.fit_score}/100 · {direction.confidence}
-                    </em>
-                    <p>{direction.positioning_angle}</p>
-                    <small>
-                      {direction.supporting_evidence.length} evidence cited ·{" "}
-                      {direction.missing_evidence_questions.length} gaps
-                    </small>
-                  </button>
-                );
-              })}
+
+            <div className="build-export-panel__metrics">
+              {buildExportMetrics.map((metric) => (
+                <article key={metric.label}>
+                  <span>{metric.label}</span>
+                  <strong>{metric.value}</strong>
+                  <p>{metric.detail}</p>
+                </article>
+              ))}
             </div>
-            {selectedPositioningDirection ? (
-              <div className="positioning-direction-detail">
+
+            <div className="build-export-panel__actions">
+              <article className="build-export-action build-export-action--primary">
                 <div>
-                  <p className="panel-kicker">Selected direction</p>
-                  <h4>{selectedPositioningDirection.target_role}</h4>
-                  <span className="positioning-support-badge" data-level={selectedPositioningDirection.support_level}>
-                    {formatPositioningSupportLevel(selectedPositioningDirection.support_level)}
-                  </span>
-                  <p>{selectedPositioningDirection.evidence_strength_explanation}</p>
+                  <span>Main resume</span>
+                  <strong>Generate general draft</strong>
+                  <p>Uses approved evidence and runs Fact Guard before final export.</p>
                 </div>
-                <div className="positioning-detail-grid">
-                  <article>
-                    <span>Evidence cited</span>
-                    <strong>{selectedPositioningDirection.supporting_evidence.length}</strong>
-                    <p>
-                      {selectedPositioningDirection.supporting_evidence
-                        .slice(0, 2)
-                        .map((item) => item.reason)
-                        .join(" ")}
-                    </p>
-                  </article>
-                  <article>
-                    <span>Keywords</span>
-                    <strong>{selectedPositioningDirection.resume_emphasis.keywords.length}</strong>
-                    <p>{selectedPositioningDirection.resume_emphasis.keywords.slice(0, 8).join(", ")}</p>
-                  </article>
-                  <article>
-                    <span>Missing proof</span>
-                    <strong>{selectedPositioningDirection.missing_evidence_questions.length}</strong>
-                    {selectedPositioningDirection.missing_evidence_questions.length > 0 ? (
-                      <ul className="compact-gap-list">
-                        {selectedPositioningDirection.missing_evidence_questions
-                          .slice(0, 3)
-                          .map((question) => (
-                            <li key={question}>{question}</li>
-                          ))}
-                      </ul>
-                    ) : (
-                      <p>No missing evidence question listed.</p>
-                    )}
-                  </article>
+                <button
+                  className="primary-button"
+                  disabled={!mainResumeReady || isGeneratingMainResume}
+                  type="button"
+                  onClick={() => void generateMainResume({ mode: "main_resume" })}
+                >
+                  {isGeneratingMainResume ? "Generating..." : "Generate"}
+                </button>
+              </article>
+
+              <article className="build-export-action">
+                <div>
+                  <span>Positioning</span>
+                  <strong>{latestPositioningReport?.report.directions.length ?? 0} directions</strong>
+                  <p>Find role directions your evidence can support.</p>
                 </div>
-                <div className="actions actions--compact">
-                  <button className="secondary-button" onClick={() => onNavigate("evidence")} type="button">
-                    View supporting evidence
-                  </button>
-                  <button className="secondary-button" onClick={() => void createPositioningEnrichmentTasks()} type="button">
-                    Create enrichment tasks
-                  </button>
+                <button
+                  className="secondary-button"
+                  disabled={!mainResumeReady || isGeneratingPositioning}
+                  type="button"
+                  onClick={() => void generatePositioningReport()}
+                >
+                  {isGeneratingPositioning ? "Analyzing..." : "Analyze"}
+                </button>
+              </article>
+
+              <details className="build-export-action build-export-action--details">
+                <summary>
+                  <span>Refresh old resume</span>
+                  <strong>{refreshSourceResumeId ? "Ready to refresh" : "Select source"}</strong>
+                </summary>
+                <div className="resume-refresh-grid">
+                  <label>
+                    <span>Old resume</span>
+                    <select
+                      value={refreshSourceResumeId}
+                      onChange={(event) => setRefreshSourceResumeId(event.target.value)}
+                    >
+                      <option value="">Select a resume version</option>
+                      {resumes.map((resume) => (
+                        <option key={resume.id} value={resume.id}>
+                          {formatResumeTitle(resume.title)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Update mode</span>
+                    <select
+                      value={refreshMode}
+                      onChange={(event) => setRefreshMode(event.target.value as typeof refreshMode)}
+                    >
+                      <option value="conservative_update">Conservative update</option>
+                      <option value="balanced_rewrite">Balanced rewrite</option>
+                      <option value="strategic_reposition">Strategic reposition</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Length</span>
+                    <select
+                      value={refreshTargetLength}
+                      onChange={(event) =>
+                        setRefreshTargetLength(event.target.value as typeof refreshTargetLength)
+                      }
+                    >
+                      <option value="one_page">One page</option>
+                      <option value="standard">Standard</option>
+                      <option value="detailed">Detailed</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Tone</span>
+                    <select
+                      value={refreshTone}
+                      onChange={(event) => setRefreshTone(event.target.value as typeof refreshTone)}
+                    >
+                      <option value="concise">Concise</option>
+                      <option value="executive">Executive</option>
+                      <option value="technical">Technical</option>
+                      <option value="product">Product</option>
+                    </select>
+                  </label>
                 </div>
+                <div className="resume-refresh-options">
+                  <label>
+                    <input
+                      checked={refreshPreserveSectionOrder}
+                      onChange={(event) => setRefreshPreserveSectionOrder(event.target.checked)}
+                      type="checkbox"
+                    />
+                    Preserve section order
+                  </label>
+                  <label>
+                    <input
+                      checked={refreshAtsFriendly}
+                      onChange={(event) => setRefreshAtsFriendly(event.target.checked)}
+                      type="checkbox"
+                    />
+                    ATS-friendly wording
+                  </label>
+                </div>
+                <button
+                  className="secondary-button"
+                  disabled={!mainResumeReady || !refreshSourceResumeId || isGeneratingMainResume}
+                  onClick={() => void generateMainResume({ mode: "resume_refresh" })}
+                  type="button"
+                >
+                  Refresh selected resume
+                </button>
+              </details>
+            </div>
+
+            {selectedPositioningDirection ? (
+              <div className="positioning-variant-callout">
+                <div>
+                  <strong>{selectedPositioningDirection.target_role} variant ready</strong>
+                  <p>Generate a variant with this positioning angle. Fact Guard still validates every claim.</p>
+                </div>
+                <button
+                  className="secondary-button"
+                  disabled={!mainResumeReady || isGeneratingMainResume}
+                  type="button"
+                  onClick={() => void generateMainResume({ mode: "positioning_variant" })}
+                >
+                  Generate this variant
+                </button>
               </div>
             ) : null}
-          </div>
-        ) : null}
-      </section>
 
-      <section className="main-resume-builder">
-        <div className="main-resume-builder__header">
-          <div>
-            <p className="panel-kicker">Main Resume Builder</p>
-            <h3>Generate a reusable general resume from approved evidence.</h3>
-            <p>
-              Uses profile facts plus Evidence Library material approved for resume use. This is independent of
-              any JD-tailored resume and includes a generated claim ledger for Fact Guard.
-            </p>
-          </div>
-          <button
-            className="primary-button"
-            disabled={!mainResumeReady || isGeneratingMainResume}
-            type="button"
-            onClick={() => void generateMainResume({ mode: "main_resume" })}
-          >
-            {isGeneratingMainResume ? "Generating..." : "Generate main resume"}
-          </button>
-        </div>
-        {selectedPositioningDirection ? (
-          <div className="positioning-variant-callout">
-            <div>
-              <strong>{selectedPositioningDirection.target_role} variant ready</strong>
-              <p>
-                Generate a Main Resume variant using this positioning angle. Fact
-                Guard will still validate the generated claims.
-              </p>
-            </div>
-            <button
-              className="secondary-button"
-              disabled={!mainResumeReady || isGeneratingMainResume}
-              type="button"
-              onClick={() => void generateMainResume({ mode: "positioning_variant" })}
-            >
-              Generate this variant
-            </button>
-          </div>
-        ) : null}
-        <div className="resume-refresh-panel">
-          <div>
-            <p className="panel-kicker">Resume Refresh</p>
-            <h4>Refresh an old resume using current evidence.</h4>
-            <p>
-              Select a reviewed resume as the structure baseline. JobDesk does not
-              re-extract evidence by default; the Evidence Library remains the fact source.
-            </p>
-          </div>
-          <div className="resume-refresh-grid">
-            <label>
-              <span>Old resume</span>
-              <select
-                value={refreshSourceResumeId}
-                onChange={(event) => setRefreshSourceResumeId(event.target.value)}
-              >
-                <option value="">Select a resume version</option>
-                {resumes.map((resume) => (
-                  <option key={resume.id} value={resume.id}>
-                    {formatResumeTitle(resume.title)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Update mode</span>
-              <select
-                value={refreshMode}
-                onChange={(event) => setRefreshMode(event.target.value as typeof refreshMode)}
-              >
-                <option value="conservative_update">Conservative update</option>
-                <option value="balanced_rewrite">Balanced rewrite</option>
-                <option value="strategic_reposition">Strategic reposition</option>
-              </select>
-            </label>
-            <label>
-              <span>Length</span>
-              <select
-                value={refreshTargetLength}
-                onChange={(event) =>
-                  setRefreshTargetLength(event.target.value as typeof refreshTargetLength)
-                }
-              >
-                <option value="one_page">One page</option>
-                <option value="standard">Standard</option>
-                <option value="detailed">Detailed</option>
-              </select>
-            </label>
-            <label>
-              <span>Tone</span>
-              <select
-                value={refreshTone}
-                onChange={(event) => setRefreshTone(event.target.value as typeof refreshTone)}
-              >
-                <option value="concise">Concise</option>
-                <option value="executive">Executive</option>
-                <option value="technical">Technical</option>
-                <option value="product">Product</option>
-              </select>
-            </label>
-          </div>
-          <div className="resume-refresh-options">
-            <label>
-              <input
-                checked={refreshPreserveSectionOrder}
-                onChange={(event) => setRefreshPreserveSectionOrder(event.target.checked)}
-                type="checkbox"
-              />
-              Preserve section order
-            </label>
-            <label>
-              <input
-                checked={refreshAtsFriendly}
-                onChange={(event) => setRefreshAtsFriendly(event.target.checked)}
-                type="checkbox"
-              />
-              ATS-friendly wording
-            </label>
-          </div>
-          <button
-            className="secondary-button"
-            disabled={!mainResumeReady || !refreshSourceResumeId || isGeneratingMainResume}
-            onClick={() => void generateMainResume({ mode: "resume_refresh" })}
-            type="button"
-          >
-            Refresh selected resume
-          </button>
-        </div>
-        <div className="main-resume-builder__metrics">
-          <article>
-            <span>Resume-ready evidence</span>
-            <strong>{resumeEligibleEvidence}</strong>
-            <p>{mainResumeReady ? "Ready for main resume generation." : "Approve evidence for resume use first."}</p>
-          </article>
-          <article>
-            <span>Latest main resume</span>
-            <strong>{latestMainResume ? formatMainResumeUserState(latestMainResume) : "None"}</strong>
-            <p>
-              {latestMainResume
-                ? `${formatMainResumeMode(latestMainResume)} · ${formatDateTime(latestMainResume.updatedAt)}`
-                : "No generated main resume yet."}
-            </p>
-          </article>
-          <article>
-            <span>Fact Guard</span>
-            <strong>{latestMainResume ? formatFactGuardSummary(latestMainResume, latestMainResumeClaimStats) : "Not run"}</strong>
-            <p>
-              {latestMainResumeClaimStats
-                ? `${latestMainResumeClaimStats.needsReview} claim${latestMainResumeClaimStats.needsReview === 1 ? "" : "s"} need review before final export.`
-                : latestMainResume
-                  ? "No claim ledger entries."
-                  : "Generated with the first main resume."}
-            </p>
-          </article>
-        </div>
+            {positioningStatus ? <p className="status">{positioningStatus}</p> : null}
+
+            {latestPositioningReport ? (
+              <details className="build-export-details">
+                <summary>
+                  <span>Positioning report</span>
+                  <strong>{latestPositioningReport.report.summary}</strong>
+                </summary>
+                <div className="positioning-engine__body">
+                  <div className="positioning-engine__summary">
+                    <strong>{latestPositioningReport.report.summary}</strong>
+                    <p>
+                      Strengths: {latestPositioningReport.report.global_strengths.slice(0, 3).join(", ") || "None captured yet."}
+                    </p>
+                    <p>
+                      Gaps: {latestPositioningReport.report.global_gaps.slice(0, 3).join(", ") || "No major gaps listed."}
+                    </p>
+                  </div>
+                  <div className="positioning-direction-grid" role="list">
+                    {latestPositioningReport.report.directions.map((direction) => {
+                      const selected = direction.id === selectedPositioningDirection?.id;
+                      return (
+                        <button
+                          aria-pressed={selected}
+                          className="positioning-direction-card"
+                          data-selected={selected}
+                          key={direction.id}
+                          onClick={() => setSelectedPositioningDirectionId(direction.id)}
+                          role="listitem"
+                          type="button"
+                        >
+                          <span>{direction.role_family}</span>
+                          <strong>{direction.target_role}</strong>
+                          <em>
+                            {formatPositioningSupportLevel(direction.support_level)} ·{" "}
+                            {direction.fit_score}/100 · {direction.confidence}
+                          </em>
+                          <p>{direction.positioning_angle}</p>
+                          <small>
+                            {direction.supporting_evidence.length} evidence cited ·{" "}
+                            {direction.missing_evidence_questions.length} gaps
+                          </small>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {selectedPositioningDirection ? (
+                    <div className="positioning-direction-detail">
+                      <div>
+                        <p className="panel-kicker">Selected direction</p>
+                        <h4>{selectedPositioningDirection.target_role}</h4>
+                        <span className="positioning-support-badge" data-level={selectedPositioningDirection.support_level}>
+                          {formatPositioningSupportLevel(selectedPositioningDirection.support_level)}
+                        </span>
+                        <p>{selectedPositioningDirection.evidence_strength_explanation}</p>
+                      </div>
+                      <div className="positioning-detail-grid">
+                        <article>
+                          <span>Evidence cited</span>
+                          <strong>{selectedPositioningDirection.supporting_evidence.length}</strong>
+                          <p>
+                            {selectedPositioningDirection.supporting_evidence
+                              .slice(0, 2)
+                              .map((item) => item.reason)
+                              .join(" ")}
+                          </p>
+                        </article>
+                        <article>
+                          <span>Keywords</span>
+                          <strong>{selectedPositioningDirection.resume_emphasis.keywords.length}</strong>
+                          <p>{selectedPositioningDirection.resume_emphasis.keywords.slice(0, 8).join(", ")}</p>
+                        </article>
+                        <article>
+                          <span>Missing proof</span>
+                          <strong>{selectedPositioningDirection.missing_evidence_questions.length}</strong>
+                          {selectedPositioningDirection.missing_evidence_questions.length > 0 ? (
+                            <ul className="compact-gap-list">
+                              {selectedPositioningDirection.missing_evidence_questions
+                                .slice(0, 3)
+                                .map((question) => (
+                                  <li key={question}>{question}</li>
+                                ))}
+                            </ul>
+                          ) : (
+                            <p>No missing evidence question listed.</p>
+                          )}
+                        </article>
+                      </div>
+                      <div className="actions actions--compact">
+                        <button className="secondary-button" onClick={() => onNavigate("evidence")} type="button">
+                          View supporting evidence
+                        </button>
+                        <button className="secondary-button" onClick={() => void createPositioningEnrichmentTasks()} type="button">
+                          Create enrichment tasks
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </details>
+            ) : null}
         {mainResumeStatus ? <p className="status">{mainResumeStatus}</p> : null}
         {latestMainResume ? (
           <section className="main-resume-builder__preview final-review-panel" aria-label="Main resume final review">

@@ -525,7 +525,8 @@ export function ProfileEvidenceWorkspace({
 
   useEffect(() => {
     setSelectedEntryIntent(entryIntent);
-    setHasChosenMaterialType(Boolean(initialResumeSourceVersionId) || entryIntent !== "resume");
+    setHasChosenMaterialType(Boolean(initialResumeSourceVersionId));
+    setIsEditingMaterialType(false);
   }, [entryIntent, initialResumeSourceVersionId]);
 
   useEffect(() => {
@@ -1272,8 +1273,7 @@ export function ProfileEvidenceWorkspace({
   const entryGuidance = getEntryGuidance(selectedEntryIntent);
   const selectedResumeSource =
     resumeSources.find((resume) => resume.id === selectedResumeSourceId) ?? null;
-  const showMaterialTypePicker =
-    isEditingMaterialType || (!hasActiveSourceMaterial && !hasChosenMaterialType);
+  const showMaterialTypePicker = isEditingMaterialType || !hasChosenMaterialType;
 
   function buildGuidedPreview(fields: GuidedMaterialFields) {
     return buildGuidedMaterialMarkdown(fields, selectedStoryTarget
@@ -1838,7 +1838,10 @@ export function ProfileEvidenceWorkspace({
           <IntakeStageHeader
             activeIntent={selectedEntryIntent}
             isChoosingMaterialType={showMaterialTypePicker}
-            onChangeMaterialType={() => setIsEditingMaterialType(true)}
+            onChangeMaterialType={() => {
+              setHasChosenMaterialType(false);
+              setIsEditingMaterialType(true);
+            }}
             onReviewMaterial={() => setActiveSection("review")}
             onShowSource={() => setIsEditingMaterialType(false)}
             projectFormState={projectFormState}
@@ -1861,7 +1864,10 @@ export function ProfileEvidenceWorkspace({
           ) : (
             <MaterialSelectionSummary
               activeIntent={selectedEntryIntent}
-              onChangeType={() => setIsEditingMaterialType(true)}
+              onChangeType={() => {
+                setHasChosenMaterialType(false);
+                setIsEditingMaterialType(true);
+              }}
               selectedResume={selectedResumeSource}
               sourceTitle={
                 selectedEntryIntent === "scratch"
@@ -1870,7 +1876,7 @@ export function ProfileEvidenceWorkspace({
               }
             />
           )}
-          {selectedEntryIntent !== "scratch" ? (
+          {!showMaterialTypePicker && selectedEntryIntent !== "scratch" ? (
             <section className="source-active-form">
               {selectedEntryIntent === "resume" ? (
                 <>
@@ -1976,7 +1982,7 @@ export function ProfileEvidenceWorkspace({
             </section>
           ) : null}
 
-          {selectedEntryIntent === "scratch" ? (
+          {!showMaterialTypePicker && selectedEntryIntent === "scratch" ? (
           <section className="section-block section-block--builder source-active-form">
             <h3>Work Story Builder</h3>
             <p className="panel__note">
@@ -2110,7 +2116,7 @@ export function ProfileEvidenceWorkspace({
               />
             ) : null}
           </section>
-          ) : selectedEntryIntent === "resume" ? (
+          ) : !showMaterialTypePicker && selectedEntryIntent === "resume" ? (
             <section className="source-path-handoff">
               <div>
                 <span>Story context comes next</span>
@@ -2122,7 +2128,7 @@ export function ProfileEvidenceWorkspace({
                 Add work notes
               </button>
             </section>
-          ) : (
+          ) : !showMaterialTypePicker ? (
             <section className="source-path-handoff" data-secondary="true">
               <div>
                 <span>JD-first is secondary during resume prep</span>
@@ -2134,7 +2140,7 @@ export function ProfileEvidenceWorkspace({
                 Back to resume intake
               </button>
             </section>
-          )}
+          ) : null}
         </div>
       ) : null}
 
@@ -4642,8 +4648,13 @@ function isSourceSectionReviewTask(task: EnrichmentTaskItem) {
 function looksLikeSourceSectionNote(prompt: string) {
   const normalized = prompt.trim().toLowerCase().replace(/\s+/g, " ");
   return (
+    /\b(work\s+experience|work\s+experiences|experience|education|skills?|projects?|certifications?|summary|profile)\s+section\b/.test(normalized) ||
+    /\b(extraction|extracted|imported)\s+notes?\b/.test(normalized) ||
+    /\bthese\s+story\s+fragments\s+were\s+merged\b/.test(normalized) ||
+    /\bwere\s+merged;\s*please\s+review\b/.test(normalized) ||
     /\b(entries|items|details)\s+were\s+extracted\s+from\s+the\s+.+\s+section\b/.test(normalized) ||
-    /\b.+\s+was\s+extracted\s+from\s+the\s+.+\s+section\b/.test(normalized)
+    /\b.+\s+was\s+extracted\s+from\s+the\s+.+\s+section\b/.test(normalized) ||
+    /\bextracted\s+from\s+the\s+.+\s+section\b/.test(normalized)
   );
 }
 
