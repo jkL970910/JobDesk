@@ -746,6 +746,16 @@ function ResumeReviewReportCard({
               <strong>{activeQuestionCount || missingEvidenceQuestions.length}</strong>
               Evidence tasks
             </span>
+            {metadata ? (
+              <span>
+                <strong>{Math.round((metadata.confidence ?? 0) * 100)}%</strong>
+                Confidence
+              </span>
+            ) : null}
+            <span>
+              <strong>{isFallback ? "Quick" : "Done"}</strong>
+              Status
+            </span>
           </div>
           {isFallback ? (
             <p className="review-warning">
@@ -772,31 +782,6 @@ function ResumeReviewReportCard({
           <button disabled={retryDisabled} type="button" onClick={onRetry}>
             {retryLabel}
           </button>
-        </section>
-      ) : null}
-      {metadata ? (
-        <section className="resume-review-meta">
-          <article>
-            <span>Review confidence</span>
-            <strong>{Math.round((metadata.confidence ?? 0) * 100)}%</strong>
-            <p>{formatReviewConfidence(metadata.confidence)}</p>
-          </article>
-          <article>
-            <span>Review status</span>
-            <strong>{isFallback ? "Quick estimate" : "Review complete"}</strong>
-            <p>
-              {isFallback
-                ? "Run the full review when ready."
-                : "Use the findings to decide what to improve next."}
-            </p>
-          </article>
-          {isFallback && metadata.providerFailureKind ? (
-            <article>
-              <span>Limited result</span>
-              <strong>{formatReviewLimitReason(metadata.providerFailureKind)}</strong>
-              <p>Run the full review again when ready.</p>
-            </article>
-          ) : null}
         </section>
       ) : null}
       {metadata?.tenSecondScan ? (

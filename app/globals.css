@@ -986,9 +986,17 @@ strong,
   text-align: right;
 }
 
+.dashboard-metric-strip button > strong {
+  bottom: 14px;
+  font-size: clamp(3.25rem, 5.8vw, 5.75rem);
+  line-height: 0.82;
+  position: absolute;
+  right: 14px;
+}
+
 .dashboard-metric-strip small {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.92rem;
   font-weight: 780;
   letter-spacing: -0.01em;
 }
@@ -1982,18 +1990,19 @@ strong,
   border: 1px solid var(--line);
   border-radius: 24px;
   display: grid;
-  gap: 18px;
+  gap: 14px;
   grid-template-columns: minmax(0, 1fr);
-  min-height: 210px;
-  padding: 20px;
+  min-height: 148px;
+  padding: 16px 18px;
   position: relative;
 }
 
 .resume-review-report__hero h2 {
-  font-size: clamp(1.35rem, 2.6vw, 2.1rem);
+  font-size: clamp(1.12rem, 1.9vw, 1.62rem);
   letter-spacing: -0.04em;
   line-height: 1.05;
-  margin: 8px 0;
+  margin: 5px 0 0;
+  max-width: 880px;
 }
 
 .resume-review-report__hero p {
@@ -2004,8 +2013,8 @@ strong,
 .resume-review-report__stats {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 14px;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .resume-review-report__stats span {
@@ -2014,24 +2023,24 @@ strong,
   border-radius: 14px;
   color: var(--muted);
   display: grid;
-  font-size: 0.74rem;
+  font-size: 0.68rem;
   font-weight: 820;
   gap: 3px;
-  min-width: 116px;
-  padding: 10px 12px;
+  min-width: 94px;
+  padding: 8px 10px;
   text-transform: uppercase;
 }
 
 .resume-review-report__stats strong {
   color: var(--ink);
-  font-size: clamp(1.85rem, 3vw, 2.7rem);
+  font-size: clamp(1.35rem, 2.2vw, 2rem);
   font-weight: 920;
   letter-spacing: -0.065em;
   line-height: 0.98;
 }
 
 .resume-review-report__cta {
-  min-width: 190px;
+  min-width: 176px;
 }
 
 .resume-review-report__actions {
