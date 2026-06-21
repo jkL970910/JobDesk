@@ -86,9 +86,11 @@ type ResumeParseStatus = {
 export function ResumeReviewWorkspace({
   onExtractToEvidence,
   onOpenEvidenceReview,
+  onOpenEvidenceTask,
 }: {
   onExtractToEvidence: (resumeSourceVersionId: string) => void;
   onOpenEvidenceReview: (tab?: "enrichment" | "projects" | "unlinked" | "cleanup" | "stories") => void;
+  onOpenEvidenceTask: (taskId: string) => void;
 }) {
   const { fetchJson } = useAccess();
   const [resumes, setResumes] = useState<ResumeSourceReviewSummary[]>([]);
@@ -331,6 +333,7 @@ export function ResumeReviewWorkspace({
               : onExtractToEvidence(selectedResume.id)
           }
           onOpenEvidenceTasks={() => onOpenEvidenceReview("enrichment")}
+          onOpenEvidenceTask={onOpenEvidenceTask}
           onRetry={() => void rerunReview(selectedResume)}
           enrichmentTasks={enrichmentTasks}
           retryDisabled={Boolean(activeOperation)}
@@ -650,6 +653,7 @@ function ResumeReviewReportCard({
   enrichmentTasks,
   onContinueToEvidence,
   onOpenEvidenceTasks,
+  onOpenEvidenceTask,
   onRetry,
   resume,
   retryDisabled,
@@ -658,6 +662,7 @@ function ResumeReviewReportCard({
   enrichmentTasks: EnrichmentTaskSummary[];
   onContinueToEvidence: () => void;
   onOpenEvidenceTasks: () => void;
+  onOpenEvidenceTask: (taskId: string) => void;
   onRetry: () => void;
   resume: ResumeSourceReviewSummary;
   retryDisabled: boolean;
@@ -715,7 +720,12 @@ function ResumeReviewReportCard({
   const statusLabel = isFallback ? "Quick estimate" : "Review complete";
   const actionCandidates = [
     ...topFixes.map((fix) => ({
-      action: fix.label === "Evidence" ? "Open Evidence" : "Review detail",
+      action:
+        fix.label === "Evidence"
+          ? "Open Evidence"
+          : fix.label === "Fix"
+            ? "Open fixes"
+            : "Open rewrites",
       detail: fix.item,
       key: `${fix.label}-${fix.item}`,
       label: fix.label,
@@ -732,7 +742,7 @@ function ResumeReviewReportCard({
       detail: item.question,
       key: `task-${item.question}`,
       label: formatEnrichmentTaskStatus(item.status),
-      onClick: item.taskId ? onOpenEvidenceTasks : onContinueToEvidence,
+      onClick: item.taskId ? () => onOpenEvidenceTask(item.taskId!) : onContinueToEvidence,
     })),
   ];
   const reviewActions = showAllEvidenceTasks ? actionCandidates : actionCandidates.slice(0, 6);
@@ -1140,25 +1150,28 @@ function ReviewFindingBoard({
           <p className="panel-kicker">Detail notes</p>
           <h3>{activeDetailHeading(visibleTitles)}</h3>
         </div>
+        <span>{visibleGroups.reduce((sum, group) => sum + group.items.length, 0)} items</span>
       </div>
       {visibleGroups.map((group) => (
         <div className="review-finding-group" key={group.title}>
           <div className="review-finding-group__top">
             <h4>{group.title}</h4>
           </div>
-          <div className="review-finding-grid">
+          <div className="review-finding-list">
             {group.items.map((item) => (
               <article
                 className="review-finding-card"
                 data-tone={item.tone}
                 key={item.id}
               >
-                <span className="review-finding-card__badge">{item.badge}</span>
-                <strong>{item.title}</strong>
-                <p>{item.detail}</p>
+                <div>
+                  <span className="review-finding-card__badge">{item.badge}</span>
+                  <strong>{item.title}</strong>
+                  <p>{item.detail}</p>
+                </div>
                 <div className="review-finding-card__meta">
-                  <span>{item.why}</span>
-                  <small>{item.nextStep}</small>
+                  <span>{item.nextStep}</span>
+                  <small>{item.why}</small>
                 </div>
               </article>
             ))}
@@ -1192,6 +1205,9 @@ function ReviewDetailTabs({
     { id: "privacy", label: "Privacy", titles: ["Privacy and confidentiality"] },
   ];
   const active = tabs.find((tab) => tab.id === activeTab) ?? tabs[0]!;
+  const summaryItems = findingGroups
+    .flatMap((group) => group.items.slice(0, 2).map((item) => ({ ...item, groupTitle: group.title })))
+    .slice(0, 6);
   return (
     <section className="review-detail-panel">
       <div className="review-detail-panel__header">
@@ -1213,11 +1229,31 @@ function ReviewDetailTabs({
       </div>
       {active.id === "summary" ? (
         <section className="review-summary-card">
-          <div>
-            <p className="panel-kicker">Summary</p>
-            <h3>Full review notes</h3>
-            <p>Use the tabs for strengths, fixes, evidence gaps, rewrites, ATS notes, and privacy checks.</p>
+          <div className="review-summary-card__top">
+            <div>
+              <p className="panel-kicker">Summary</p>
+              <h3>Review triage</h3>
+            </div>
+            <span>{summaryItems.length} highlights</span>
           </div>
+          <div className="review-summary-card__items">
+            {summaryItems.map((item) => (
+              <button
+                data-tone={item.tone}
+                key={`${item.groupTitle}-${item.id}`}
+                type="button"
+                onClick={() => {
+                  const matchingTab = tabs.find((tab) => tab.titles?.includes(item.groupTitle));
+                  if (matchingTab) onSelect(matchingTab.id);
+                }}
+              >
+                <span>{item.groupTitle}</span>
+                <strong>{item.title}</strong>
+                <small>{item.nextStep}</small>
+              </button>
+            ))}
+          </div>
+          {metadataScan ? <p>{metadataScan}</p> : null}
         </section>
       ) : (
         <ReviewFindingBoard

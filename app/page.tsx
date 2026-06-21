@@ -283,6 +283,7 @@ export default function HomePage() {
     useState<"review" | "intake">("review");
   const [materialReviewTab, setMaterialReviewTab] =
     useState<MaterialReviewTab>("enrichment");
+  const [focusedEvidenceTaskId, setFocusedEvidenceTaskId] = useState<string | null>(null);
   const [resumeWorkspaceTab, setResumeWorkspaceTab] =
     useState<ResumeWorkspaceTab>(() =>
       typeof window !== "undefined" && window.location.hash.replace(/^#\/?/, "") === "resume-review"
@@ -335,8 +336,15 @@ export default function HomePage() {
     setAppView("evidence");
   }
   function openEvidenceReview(tab: MaterialReviewTab = "enrichment") {
+    setFocusedEvidenceTaskId(null);
     setMaterialInitialSection("review");
     setMaterialReviewTab(tab);
+    setAppView("evidence");
+  }
+  function openEvidenceTask(taskId: string) {
+    setFocusedEvidenceTaskId(taskId);
+    setMaterialInitialSection("review");
+    setMaterialReviewTab("enrichment");
     setAppView("evidence");
   }
   function navigateToView(view: View) {
@@ -412,12 +420,14 @@ export default function HomePage() {
                 onExtractResumeToEvidence={extractResumeToEvidence}
                 onNavigate={setAppView}
                 onOpenEvidenceReview={openEvidenceReview}
+                onOpenEvidenceTask={openEvidenceTask}
                 onTabChange={setResumeWorkspaceTab}
               />
             ) : null}
             {activeView === "evidence" ? (
               <ProfileEvidenceWorkspace
                 entryIntent={materialEntryIntent}
+                initialFocusedTaskId={focusedEvidenceTaskId}
                 initialSection={materialInitialSection}
                 initialResumeSourceVersionId={selectedResumeSourceVersionId}
                 initialReviewTab={materialReviewTab}
@@ -1108,12 +1118,14 @@ function ResumeWorkspaceView({
   onExtractResumeToEvidence,
   onNavigate,
   onOpenEvidenceReview,
+  onOpenEvidenceTask,
   onTabChange,
 }: {
   activeTab: ResumeWorkspaceTab;
   onExtractResumeToEvidence: (resumeSourceVersionId: string) => void;
   onNavigate: (view: View) => void;
   onOpenEvidenceReview: (tab?: MaterialReviewTab) => void;
+  onOpenEvidenceTask: (taskId: string) => void;
   onTabChange: (tab: ResumeWorkspaceTab) => void;
 }) {
   const tabs = [
@@ -1167,6 +1179,7 @@ function ResumeWorkspaceView({
         <ResumeReviewWorkspace
           onExtractToEvidence={onExtractResumeToEvidence}
           onOpenEvidenceReview={onOpenEvidenceReview}
+          onOpenEvidenceTask={onOpenEvidenceTask}
         />
       ) : null}
       {activeTab === "profile_facts" || activeTab === "build_export" ? (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import { useAccess } from "./access-provider";
 import {
@@ -426,11 +426,13 @@ type StoryAssignmentPatch =
 
 export function ProfileEvidenceWorkspace({
   entryIntent = "resume",
+  initialFocusedTaskId = null,
   initialSection = "review",
   initialReviewTab = "enrichment",
   initialResumeSourceVersionId = null,
 }: {
   entryIntent?: MaterialEntryIntent;
+  initialFocusedTaskId?: string | null;
   initialSection?: "review" | "intake";
   initialReviewTab?: MaterialReviewTab;
   initialResumeSourceVersionId?: string | null;
@@ -536,6 +538,13 @@ export function ProfileEvidenceWorkspace({
   useEffect(() => {
     openReviewDestination(initialReviewTab);
   }, [initialReviewTab]);
+
+  useEffect(() => {
+    if (!initialFocusedTaskId) return;
+    setActiveSection("review");
+    setLibraryMode("work_queue");
+    setWorkQueueView("enrichment");
+  }, [initialFocusedTaskId]);
 
   useEffect(() => {
     if (!isExtracting) {
@@ -2318,6 +2327,7 @@ export function ProfileEvidenceWorkspace({
           {workQueueView === "enrichment" ? (
             <EnrichmentTaskQueue
               evidenceItems={evidenceItems}
+              focusedTaskId={initialFocusedTaskId}
               initiatives={initiatives}
               linkTargets={linkTargets}
               onCreateLibraryItems={openCreateLibraryItemsForTask}
@@ -2334,6 +2344,7 @@ export function ProfileEvidenceWorkspace({
           {workQueueView === "imported" ? (
             <EnrichmentTaskQueue
               evidenceItems={evidenceItems}
+              focusedTaskId={initialFocusedTaskId}
               initiatives={initiatives}
               linkTargets={linkTargets}
               onCreateLibraryItems={openCreateLibraryItemsForTask}
@@ -3408,6 +3419,7 @@ function ReadyToUseLibraryView({
 
 function EnrichmentTaskQueue({
   evidenceItems,
+  focusedTaskId,
   initiatives,
   linkTargets,
   onCreateLibraryItems,
@@ -3421,6 +3433,7 @@ function EnrichmentTaskQueue({
   workExperiences,
 }: {
   evidenceItems: EvidenceCardItem[];
+  focusedTaskId?: string | null;
   initiatives: InitiativeItem[];
   linkTargets: EvidenceLinkTargets;
   onCreateLibraryItems: (task: EnrichmentTaskItem) => void;
@@ -3464,6 +3477,7 @@ function EnrichmentTaskQueue({
     unlinkedOnly: false,
   });
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const consumedFocusedTaskId = useRef<string | null>(null);
   const filteredTasks = filterEnrichmentTasks(actionableTasks, taskFilters);
   const groupedTasks = groupEnrichmentTasks(filteredTasks);
   const selectedTask =
@@ -3483,6 +3497,15 @@ function EnrichmentTaskQueue({
   const taskFilterOptions = buildEnrichmentTaskFilterOptions(actionableTasks);
 
   useEffect(() => {
+    if (
+      focusedTaskId &&
+      consumedFocusedTaskId.current !== focusedTaskId &&
+      filteredTasks.some((task) => task.id === focusedTaskId)
+    ) {
+      consumedFocusedTaskId.current = focusedTaskId;
+      if (selectedTaskId !== focusedTaskId) setSelectedTaskId(focusedTaskId);
+      return;
+    }
     if (filteredTasks.length === 0) {
       if (selectedTaskId !== null) setSelectedTaskId(null);
       return;
@@ -3490,7 +3513,7 @@ function EnrichmentTaskQueue({
     if (!selectedTaskId || !filteredTasks.some((task) => task.id === selectedTaskId)) {
       setSelectedTaskId(filteredTasks[0]!.id);
     }
-  }, [filteredTasks, selectedTaskId]);
+  }, [filteredTasks, focusedTaskId, selectedTaskId]);
 
   async function handleUpdate(
     task: EnrichmentTaskItem,
@@ -3751,6 +3774,8 @@ function EnrichmentTaskFocusPane({
   workExperiences: WorkExperienceItem[];
 }) {
   const hasLibraryAnchor = taskHasReusableLibraryAnchor(task);
+  const requiresTargetBeforeAnswer = shouldRequireTargetBeforeAnswer(task);
+  const canAnswerNow = hasLibraryAnchor || !requiresTargetBeforeAnswer;
   const linkedLabel = formatEnrichmentTaskAnchor(task, evidenceItems, linkTargets);
   const parentLabel = formatEnrichmentTaskParent(task, linkTargets);
   const pendingProposal =
@@ -3803,7 +3828,7 @@ function EnrichmentTaskFocusPane({
           <strong>{formatEnrichmentExpectedOutcome(task)}</strong>
         </div>
       </div>
-      {!hasLibraryAnchor ? (
+      {!hasLibraryAnchor && requiresTargetBeforeAnswer ? (
         <div className="enrichment-task-card__stage">
           <div className="enrichment-task-card__stage-header">
             <span>Step 1</span>
@@ -3836,7 +3861,7 @@ function EnrichmentTaskFocusPane({
       ) : (
         <>
           <details className="enrichment-task-card__target-picker">
-            <summary>Change target</summary>
+            <summary>{hasLibraryAnchor ? "Change target" : "Assign to a specific target"}</summary>
             <EnrichmentTaskTargetPicker
               disabled={isPending}
               evidenceItems={evidenceItems}
@@ -3879,7 +3904,7 @@ function EnrichmentTaskFocusPane({
       )}
       <div className="enrichment-focus-pane__footer">
         <div className="actions actions--compact">
-          {hasLibraryAnchor ? (
+          {canAnswerNow ? (
             <>
               <button
                 className="secondary-button"
@@ -4574,6 +4599,9 @@ function formatEnrichmentTargetReason(task: EnrichmentTaskItem) {
       "This imported section was saved as structured material. It is not a missing-detail question."
     );
   }
+  if (!shouldRequireTargetBeforeAnswer(task)) {
+    return task.target_reason || "This is a general context question. You can answer first and assign it later if needed.";
+  }
   return task.target_reason || "This question needs a target before the answer can be reused safely.";
 }
 
@@ -4582,7 +4610,7 @@ function formatEnrichmentExpectedOutcome(task: EnrichmentTaskItem) {
     return "be reviewed as imported material before it becomes specific evidence or story updates.";
   }
   if (task.target_scope === "assign_later") {
-    return "be assigned before it creates or strengthens reusable material.";
+    return "be saved as context first, then reviewed before it becomes reusable evidence.";
   }
   if (task.target_scope === "evidence_detail") {
     return "be used to create or strengthen material for this specific claim.";
@@ -4632,6 +4660,15 @@ function taskHasReusableLibraryAnchor(task: EnrichmentTaskItem) {
       task.work_experience_id ||
       task.initiative_id ||
       task.portfolio_project_id,
+  );
+}
+
+function shouldRequireTargetBeforeAnswer(task: EnrichmentTaskItem) {
+  if (isSourceSectionReviewTask(task)) return false;
+  return (
+    task.target_scope === "evidence_detail" ||
+    task.target_scope === "story_context" ||
+    task.target_scope === "role_context"
   );
 }
 
