@@ -711,6 +711,22 @@ function ResumeReviewReportCard({
     ...missingEvidenceQuestions.map((item) => ({ item, label: "Evidence" })),
     ...recommendedActions.map((item) => ({ item, label: "Rewrite" })),
   ].slice(0, 3);
+  const reviewActions = [
+    ...topFixes.map((fix) => ({
+      action: fix.label === "Evidence" ? "Open Evidence" : "Review detail",
+      detail: fix.item,
+      key: `${fix.label}-${fix.item}`,
+      label: fix.label,
+      onClick: fix.label === "Evidence" ? onOpenEvidenceTasks : undefined,
+    })),
+    ...visibleQuestionStatuses.map((item) => ({
+      action: item.taskId ? "Open task" : "Create item",
+      detail: item.question,
+      key: `task-${item.question}`,
+      label: formatEnrichmentTaskStatus(item.status),
+      onClick: item.taskId ? onOpenEvidenceTasks : onContinueToEvidence,
+    })),
+  ].slice(0, 6);
   return (
     <section className="panel resume-review-report">
       <div className="resume-review-report__hero">
@@ -737,13 +753,15 @@ function ResumeReviewReportCard({
             </p>
           ) : null}
         </div>
-        <button
-          className="primary-button resume-review-report__cta"
-          type="button"
-          onClick={activeQuestionCount > 0 ? onOpenEvidenceTasks : onContinueToEvidence}
-        >
-          {activeQuestionCount > 0 ? "Open evidence tasks" : "Continue to Evidence"}
-        </button>
+        <div className="resume-review-report__actions">
+          <button
+            className="primary-button resume-review-report__cta"
+            type="button"
+            onClick={activeQuestionCount > 0 ? onOpenEvidenceTasks : onContinueToEvidence}
+          >
+            {activeQuestionCount > 0 ? "Open evidence tasks" : "Continue to Evidence"}
+          </button>
+        </div>
       </div>
       {isFallback ? (
         <section className="review-retry-panel">
@@ -787,57 +805,34 @@ function ResumeReviewReportCard({
           <p>{metadata.tenSecondScan}</p>
         </section>
       ) : null}
-      {topFixes.length ? (
-        <section className="review-top-fixes">
-          <div className="review-top-fixes__header">
-            <div>
-              <p className="panel-kicker">Triage</p>
-              <h3>Top recommended fixes</h3>
-            </div>
-          </div>
-          <div className="review-top-fixes__grid">
-            {topFixes.map((fix) => (
-              <article key={`${fix.label}-${fix.item}`}>
-                <span>{fix.label}</span>
-                <p>{fix.item}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
-      {missingEvidenceQuestions.length ? (
-        <section className="review-enrichment-handoff">
-          <div className="review-enrichment-handoff__top">
-            <div>
-              <p className="panel-kicker">Evidence tasks</p>
-              <h3>
-                {activeQuestionCount > 0
-                  ? `${activeQuestionCount} active enrichment task${activeQuestionCount === 1 ? "" : "s"}`
-                  : `${missingEvidenceQuestions.length} evidence gap${missingEvidenceQuestions.length === 1 ? "" : "s"}`}
-              </h3>
-              <p>
-                Preview the highest-priority gaps here, or open the Evidence Library queue to answer them.
-              </p>
-            </div>
+      <ReviewDimensionWorkbench
+        dimensions={dimensions}
+        missingEvidenceQuestions={missingEvidenceQuestions}
+        onSelect={setSelectedDimensionId}
+        selectedDimension={selectedDimension}
+      />
+      {reviewActions.length ? (
+        <section className="review-action-list">
+          <div className="review-action-list__header">
+            <p className="panel-kicker">Action List</p>
             <button
               className="secondary-button"
               type="button"
               onClick={activeQuestionCount > 0 ? onOpenEvidenceTasks : onContinueToEvidence}
             >
-              Open task queue
+              {activeQuestionCount > 0 ? "Open task queue" : "Continue to Evidence"}
             </button>
           </div>
-          <div className="review-enrichment-status-list">
-            {visibleQuestionStatuses.map((item) => (
-              <article key={item.question}>
-                <span data-state={item.status}>{formatEnrichmentTaskStatus(item.status)}</span>
-                <p>{item.question}</p>
-                <button
-                  type="button"
-                  onClick={item.taskId ? onOpenEvidenceTasks : onContinueToEvidence}
-                >
-                  {item.taskId ? "Open task" : "Create item"}
-                </button>
+          <div className="review-action-list__items">
+            {reviewActions.map((item) => (
+              <article key={item.key}>
+                <span>{item.label}</span>
+                <p>{item.detail}</p>
+                {item.onClick ? (
+                  <button type="button" onClick={item.onClick}>
+                    {item.action}
+                  </button>
+                ) : null}
               </article>
             ))}
           </div>
@@ -854,12 +849,6 @@ function ResumeReviewReportCard({
           ) : null}
         </section>
       ) : null}
-      <ReviewDimensionWorkbench
-        dimensions={dimensions}
-        missingEvidenceQuestions={missingEvidenceQuestions}
-        onSelect={setSelectedDimensionId}
-        selectedDimension={selectedDimension}
-      />
       <ReviewDetailTabs
         activeTab={activeDetailTab}
         atsNotes={atsNotes}
@@ -1208,6 +1197,9 @@ function ReviewDetailTabs({
   const active = tabs.find((tab) => tab.id === activeTab) ?? tabs[0]!;
   return (
     <section className="review-detail-panel">
+      <div className="review-detail-panel__header">
+        <p className="panel-kicker">Details</p>
+      </div>
       <div className="review-detail-tabs" role="tablist" aria-label="Resume review details">
         {tabs.map((tab) => (
           <button

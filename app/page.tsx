@@ -825,7 +825,6 @@ function DashboardView({
           <div className="journey-panel__header">
             <div>
               <p className="panel-kicker">Resume readiness</p>
-              <h2>What blocks a trustworthy export?</h2>
             </div>
             <span>
               {dashboardLoadState === "loading" ? (
@@ -868,13 +867,31 @@ function DashboardView({
               ))}
             </div>
           </details>
+          <section className="priority-board priority-board--inline" aria-label="Attention queue">
+            <div className="priority-board__header">
+              <p className="panel-kicker">Attention Queue</p>
+            </div>
+            <div className="priority-board__list">
+              {visiblePriorityItems.map((item, index) => (
+                <article className="priority-row" key={item.label}>
+                  <span>{index + 1}</span>
+                  <div>
+                    <strong>{item.label}</strong>
+                    <p>{item.detail}</p>
+                  </div>
+                  <button disabled={dashboardLoadState === "loading"} type="button" onClick={item.target}>
+                    {item.action}
+                  </button>
+                </article>
+              ))}
+            </div>
+          </section>
         </div>
 
         <div className="pipeline-panel" aria-label="Application pipeline">
           <div className="journey-panel__header">
             <div>
               <p className="panel-kicker">Application pipeline</p>
-              <h2>What needs follow-up?</h2>
             </div>
             <span>
               {dashboardLoadState === "loading" ? (
@@ -900,27 +917,6 @@ function DashboardView({
               </article>
             ))}
           </div>
-        </div>
-      </section>
-
-      <section className="priority-board" aria-label="Attention queue">
-        <div className="priority-board__header">
-          <p className="panel-kicker">Attention Queue</p>
-          <h2>The highest-impact items to unblock progress.</h2>
-        </div>
-        <div className="priority-board__list">
-          {visiblePriorityItems.map((item, index) => (
-            <article className="priority-row" key={item.label}>
-              <span>{index + 1}</span>
-              <div>
-                <strong>{item.label}</strong>
-                <p>{item.detail}</p>
-              </div>
-              <button disabled={dashboardLoadState === "loading"} type="button" onClick={item.target}>
-                {item.action}
-              </button>
-            </article>
-          ))}
         </div>
       </section>
 
