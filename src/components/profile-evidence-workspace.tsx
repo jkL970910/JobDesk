@@ -3090,25 +3090,17 @@ function LibraryOverviewSummary({
       {extraction ? <ProfileSummary extraction={extraction} /> : <LibrarySummary library={library} />}
       <div className="library-readiness">
         <article>
-          <span>Projects needing context</span>
+          <span>Thin stories</span>
           <strong>{summary.projectsNeedingContext}</strong>
-          <p>
-            {summary.projectsNeedingContext > 0
-              ? "Add problem, role, actions, results, metrics, and public-safe wording."
-              : `${summary.storyReadyProjects} story target${summary.storyReadyProjects === 1 ? "" : "s"} ready`}
-          </p>
+          <p>{summary.storyReadyProjects} ready</p>
         </article>
         <article>
-          <span>Claims awaiting review</span>
+          <span>Claims to review</span>
           <strong>{summary.evidenceNeedingReview}</strong>
-          <p>
-            {summary.evidenceNeedingReview > 0
-              ? "Review truth, confirmation, sensitivity, and resume usage."
-              : `${summary.resumeReadyEvidence} resume-ready claim${summary.resumeReadyEvidence === 1 ? "" : "s"}`}
-          </p>
+          <p>{summary.resumeReadyEvidence} resume-ready</p>
         </article>
         <article>
-          <span>Next best action</span>
+          <span>Next</span>
           <strong>{summary.nextActionTitle}</strong>
           <p>{summary.nextActionDetail}</p>
         </article>

@@ -725,6 +725,43 @@ function DashboardView({
       target: () => onNavigate("interview"),
     },
   ];
+  const dashboardMetrics = [
+    {
+      action: () => onNavigateResume("intake_review"),
+      label: "Resume score",
+      value: latestResume?.latestReview?.overallScore ?? 0,
+      suffix: latestResume?.latestReview ? "" : " pending",
+      tone: latestResume?.latestReview ? "ready" : "muted",
+    },
+    {
+      action: () => onNavigate("evidence"),
+      label: "Resume-ready",
+      value: resumeReadyClaims,
+      suffix: " claims",
+      tone: resumeReadyClaims > 0 ? "ready" : "blocked",
+    },
+    {
+      action: () => onNavigate("evidence"),
+      label: "Need review",
+      value: claimsNeedingReview,
+      suffix: " claims",
+      tone: claimsNeedingReview > 0 ? "warning" : "ready",
+    },
+    {
+      action: () => onNavigate("evidence"),
+      label: "Thin stories",
+      value: thinStories,
+      suffix: "",
+      tone: thinStories > 0 ? "warning" : "ready",
+    },
+    {
+      action: () => onNavigate("applications"),
+      label: "Active apps",
+      value: activeApplications,
+      suffix: "",
+      tone: activeApplications > 0 ? "ready" : "muted",
+    },
+  ];
 
   return (
     <MotionPanel className="dashboard-grid">
@@ -764,6 +801,24 @@ function DashboardView({
           </div>
         </article>
       </FocusGlowCard>
+
+      <section className="dashboard-metric-strip" aria-label="Workspace metrics">
+        {dashboardMetrics.map((metric) => (
+          <button
+            data-tone={metric.tone}
+            disabled={dashboardLoadState === "loading"}
+            key={metric.label}
+            type="button"
+            onClick={metric.action}
+          >
+            <span>{metric.label}</span>
+            <strong>
+              <CountUpMetric value={metric.value} />
+              {metric.suffix ? <small>{metric.suffix}</small> : null}
+            </strong>
+          </button>
+        ))}
+      </section>
 
       <section className="overview-lanes" aria-label="Business overview">
         <div className="journey-panel readiness-strip" aria-label="Resume readiness">

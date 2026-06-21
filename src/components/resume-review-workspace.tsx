@@ -717,17 +717,33 @@ function ResumeReviewReportCard({
         <div>
           <p className="panel-kicker">General resume score</p>
           <h2>{formatResumeTitle(resume.title)}</h2>
-          <p>
-            v{resume.version} · {resume.sourceKind.toUpperCase()} · {resume.status}
-          </p>
-          {metadata?.scopeNote ? <p>{metadata.scopeNote}</p> : null}
+          <div className="resume-review-report__stats" aria-label="Review summary">
+            <span>
+              <strong>{review.overallScore}</strong>
+              Score
+            </span>
+            <span>
+              <strong>{topFixes.length}</strong>
+              Top fixes
+            </span>
+            <span>
+              <strong>{activeQuestionCount || missingEvidenceQuestions.length}</strong>
+              Evidence tasks
+            </span>
+          </div>
           {isFallback ? (
             <p className="review-warning">
               This quick estimate is incomplete. Run the full review when ready.
             </p>
           ) : null}
         </div>
-        <strong>{review.overallScore}</strong>
+        <button
+          className="primary-button resume-review-report__cta"
+          type="button"
+          onClick={activeQuestionCount > 0 ? onOpenEvidenceTasks : onContinueToEvidence}
+        >
+          {activeQuestionCount > 0 ? "Open evidence tasks" : "Continue to Evidence"}
+        </button>
       </div>
       {isFallback ? (
         <section className="review-retry-panel">
