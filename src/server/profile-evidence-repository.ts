@@ -1850,6 +1850,168 @@ export async function keepStoryOverlapSeparate(args: {
   };
 }
 
+export async function mergeStoryTargets(args: {
+  storyType: StoryTargetType;
+  primaryStoryId: string;
+  duplicateStoryIds: string[];
+}) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+  const duplicateIds = Array.from(new Set(args.duplicateStoryIds));
+  if (duplicateIds.length === 0) {
+    return { status: "invalid" as const, reason: "missing_duplicate_story" as const };
+  }
+  if (duplicateIds.includes(args.primaryStoryId)) {
+    return { status: "invalid" as const, reason: "same_story_id" as const };
+  }
+  if (args.storyType !== "initiative") {
+    return { status: "invalid" as const, reason: "unsupported_story_type" as const };
+  }
+
+  const mergeResult = await getDb().transaction(async (tx) => {
+    const workspace = await getCurrentWorkspace(tx);
+    const rows = await tx
+      .select()
+      .from(initiatives)
+      .where(
+        and(
+          eq(initiatives.workspaceId, workspace.id),
+          inArray(initiatives.id, [args.primaryStoryId, ...duplicateIds]),
+        ),
+      );
+    const primary = rows.find((story) => story.id === args.primaryStoryId);
+    const duplicates = duplicateIds
+      .map((id) => rows.find((story) => story.id === id))
+      .filter((story): story is typeof initiatives.$inferSelect => Boolean(story));
+    if (!primary || duplicates.length !== duplicateIds.length) {
+      return { status: "not_found" as const };
+    }
+    if (duplicates.some((duplicate) => duplicate.workspaceId !== primary.workspaceId)) {
+      return { status: "invalid" as const, reason: "cross_workspace_story_merge" as const };
+    }
+    if (primary.status === "rejected" || duplicates.some((duplicate) => duplicate.status === "rejected")) {
+      return { status: "invalid" as const, reason: "rejected_story" as const };
+    }
+    const now = new Date();
+    const mergedMetrics = duplicates.reduce(
+      (metrics, duplicate) => mergeJsonArrays(metrics, duplicate.metrics),
+      primary.metrics,
+    );
+    await tx
+      .update(initiatives)
+      .set({
+        workExperienceId:
+          primary.workExperienceId ??
+          duplicates.find((duplicate) => duplicate.workExperienceId)?.workExperienceId ??
+          null,
+        sourceDocumentId:
+          primary.sourceDocumentId ??
+          duplicates.find((duplicate) => duplicate.sourceDocumentId)?.sourceDocumentId ??
+          null,
+        externalSafeTitle:
+          primary.externalSafeTitle ??
+          firstInitiativeValue(duplicates, "externalSafeTitle"),
+        context: mergeNullableText(primary.context, duplicates.map((duplicate) => duplicate.context)),
+        problem: mergeNullableText(primary.problem, duplicates.map((duplicate) => duplicate.problem)),
+        role: mergeNullableText(primary.role, duplicates.map((duplicate) => duplicate.role)),
+        actions: duplicates.reduce(
+          (items, duplicate) => mergeStringArrays(items, duplicate.actions),
+          primary.actions,
+        ),
+        results: duplicates.reduce(
+          (items, duplicate) => mergeStringArrays(items, duplicate.results),
+          primary.results,
+        ),
+        metrics: mergedMetrics,
+        technologies: duplicates.reduce(
+          (items, duplicate) => mergeStringArrays(items, duplicate.technologies),
+          primary.technologies,
+        ),
+        stakeholders: duplicates.reduce(
+          (items, duplicate) => mergeStringArrays(items, duplicate.stakeholders),
+          primary.stakeholders,
+        ),
+        externalSafeSummary:
+          primary.externalSafeSummary ??
+          firstInitiativeValue(duplicates, "externalSafeSummary"),
+        sensitivityLevel: maxSensitivity([
+          primary.sensitivityLevel,
+          ...duplicates.map((duplicate) => duplicate.sensitivityLevel),
+        ]),
+        needsRedactionReview:
+          primary.needsRedactionReview === 1 ||
+          duplicates.some((duplicate) => duplicate.needsRedactionReview === 1)
+            ? 1
+            : 0,
+        status:
+          primary.status === "approved" || duplicates.some((duplicate) => duplicate.status === "approved")
+            ? "approved"
+            : primary.status,
+        updatedAt: now,
+      })
+      .where(and(eq(initiatives.workspaceId, workspace.id), eq(initiatives.id, primary.id)));
+
+    const movedEvidence = await tx
+      .update(evidenceItems)
+      .set({
+        relatedInitiativeId: primary.id,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(evidenceItems.workspaceId, workspace.id),
+          inArray(evidenceItems.relatedInitiativeId, duplicateIds),
+        ),
+      )
+      .returning({ id: evidenceItems.id });
+
+    const primaryEvidence = await tx
+      .select({ id: evidenceItems.id })
+      .from(evidenceItems)
+      .where(
+        and(
+          eq(evidenceItems.workspaceId, workspace.id),
+          eq(evidenceItems.relatedInitiativeId, primary.id),
+        ),
+      );
+
+    await tx
+      .update(initiatives)
+      .set({
+        status: "rejected",
+        updatedAt: now,
+      })
+      .where(and(eq(initiatives.workspaceId, workspace.id), inArray(initiatives.id, duplicateIds)));
+
+    return {
+      status: "merged" as const,
+      storyType: "initiative" as const,
+      primaryStoryId: primary.id,
+      duplicateStoryId: duplicateIds[0],
+      duplicateStoryIds: duplicateIds,
+      duplicateStoryCount: duplicateIds.length,
+      impactedEvidenceIds: Array.from(
+        new Set([...movedEvidence.map((item) => item.id), ...primaryEvidence.map((item) => item.id)]),
+      ),
+      movedEvidenceCount: movedEvidence.length,
+      mergedMetricCount: mergedMetrics.length,
+    };
+  });
+
+  if (mergeResult.status === "merged" && mergeResult.impactedEvidenceIds.length > 0) {
+    const staleResult = await markClaimsStaleForEvidenceIds(mergeResult.impactedEvidenceIds).catch(() => ({
+      status: "skipped" as const,
+      reason: "stale_mark_failed" as const,
+    }));
+    return {
+      ...mergeResult,
+      staleClaimCount: staleResult.status === "saved" ? staleResult.staleCount : 0,
+    };
+  }
+  return mergeResult;
+}
+
 export async function mergeEvidenceItems(args: {
   primaryEvidenceId: string;
   duplicateEvidenceId: string;
@@ -3151,6 +3313,18 @@ function firstProjectValue(
   key: "context" | "problem" | "role" | "publicSafeSummary",
 ) {
   return projects.map((project) => project[key]).find(Boolean) ?? null;
+}
+
+function firstInitiativeValue(
+  stories: Array<typeof initiatives.$inferSelect>,
+  key: "externalSafeTitle" | "externalSafeSummary",
+) {
+  return stories.map((story) => story[key]).find(Boolean) ?? null;
+}
+
+function mergeNullableText(primary: string | null, values: Array<string | null>) {
+  const merged = mergeStringArrays(primary ? [primary] : [], values.filter((value): value is string => Boolean(value)));
+  return merged.length > 0 ? merged.join(" ") : null;
 }
 
 function scoreEvidenceSimilarity(left: string, right: string) {

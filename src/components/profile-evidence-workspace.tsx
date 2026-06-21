@@ -3,6 +3,11 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 
 import { useAccess } from "./access-provider";
+import {
+  AnimatedQueueList,
+  GradualBlur,
+  MotionPanel,
+} from "./ui/motion-primitives";
 
 import {
   buildGuidedMaterialMarkdown,
@@ -1688,6 +1693,63 @@ export function ProfileEvidenceWorkspace({
     await refreshLibraryAfterMutation();
   }
 
+  async function mergeStoryCandidate(candidate: StoryDedupeCandidate) {
+    const confirmed = window.confirm(
+      "Merge these story targets into the kept story? Linked evidence will move to the kept story, and duplicate stories will leave the active list.",
+    );
+    if (!confirmed) return;
+    const response = await fetchJson("/api/story-targets/dedupe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "merge",
+        storyType: candidate.primary.storyType,
+        primaryStoryId: candidate.primary.id,
+        duplicateStoryIds: candidate.duplicateStoryIds,
+      }),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      const message = payload?.error ?? "Failed to merge story targets.";
+      setError(message);
+      throw new Error(message);
+    }
+    setResult(null);
+    setStatus("Merged duplicate stories into the kept story.");
+    await refreshLibraryAfterMutation();
+  }
+
+  async function mergeStoryTargetsManually(primaryStoryId: string, duplicateStoryId: string) {
+    const confirmed = window.confirm(
+      "Merge the selected story into this story? Linked evidence will move to this story, and the duplicate will leave the active list.",
+    );
+    if (!confirmed) return { ok: false, message: "Merge cancelled." };
+    const response = await fetchJson("/api/story-targets/dedupe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "merge",
+        storyType: "initiative",
+        primaryStoryId,
+        duplicateStoryIds: [duplicateStoryId],
+      }),
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string }
+      | null;
+    if (!response.ok) {
+      const message = payload?.error ?? "Failed to merge stories.";
+      setError(message);
+      return { ok: false, message };
+    }
+    setResult(null);
+    setStatus("Merged story and moved linked evidence.");
+    await refreshLibraryAfterMutation();
+    return { ok: true, message: "Merged story and moved linked evidence." };
+  }
+
   async function updateProject(
     project: {
       id?: string;
@@ -2182,6 +2244,7 @@ export function ProfileEvidenceWorkspace({
                 <StoryMaterialList
                   evidenceItems={evidenceItems}
                   initiatives={initiatives}
+                  onMergeStory={mergeStoryTargetsManually}
                   onAssignStory={updateStoryAssignment}
                   onEnrichStory={startProjectEnrichment}
                   onReviewClaims={reviewClaimsForStory}
@@ -2358,6 +2421,7 @@ export function ProfileEvidenceWorkspace({
               onEvidenceKeepSeparate={keepEvidenceCandidateSeparate}
               onEvidenceMerge={mergeEvidenceCandidate}
               onStoryKeepSeparate={keepStoryCandidateSeparate}
+              onStoryMerge={mergeStoryCandidate}
               onRefresh={() => void refreshLibraryAfterMutation()}
               storyCandidates={storyDedupeCandidates}
             />
@@ -3555,7 +3619,7 @@ function EnrichmentTaskQueue({
             </div>
           </div>
         ) : (
-        <div className="enrichment-focus-shell">
+        <MotionPanel className="enrichment-focus-shell">
           <aside className="enrichment-task-rail" aria-label="Enrichment task queue">
             {groupedTasks.map((group) => (
               <section className="enrichment-task-group" key={group.key}>
@@ -3563,8 +3627,12 @@ function EnrichmentTaskQueue({
                   <span>{group.label}</span>
                   <strong>{group.tasks.length}</strong>
                 </div>
-                <div className="enrichment-task-list">
-                  {group.tasks.map((task) => (
+                <AnimatedQueueList
+                  className="enrichment-task-list"
+                  getKey={(task) => task.id}
+                  items={group.tasks}
+                >
+                  {(task) => (
                     <button
                       className="enrichment-task-row"
                       data-active={selectedTask?.id === task.id}
@@ -3578,10 +3646,11 @@ function EnrichmentTaskQueue({
                         {formatEnrichmentStatus(task.status)} · {formatEnrichmentSourceType(task.source_type)}
                       </small>
                     </button>
-                  ))}
-                </div>
+                  )}
+                </AnimatedQueueList>
               </section>
             ))}
+            <GradualBlur />
           </aside>
           {selectedTask ? (
             <EnrichmentTaskFocusPane
@@ -3626,7 +3695,7 @@ function EnrichmentTaskQueue({
               workExperiences={workExperiences}
             />
           ) : null}
-        </div>
+        </MotionPanel>
         )}
         </>
       )}
@@ -5417,6 +5486,7 @@ function DedupePanel({
   onEvidenceKeepSeparate,
   onEvidenceMerge,
   onStoryKeepSeparate,
+  onStoryMerge,
   onRefresh,
   storyCandidates,
 }: {
@@ -5424,6 +5494,7 @@ function DedupePanel({
   onEvidenceKeepSeparate: (candidate: DedupeCandidate) => Promise<void>;
   onEvidenceMerge: (candidate: DedupeCandidate) => void;
   onStoryKeepSeparate: (candidate: StoryDedupeCandidate) => Promise<void>;
+  onStoryMerge: (candidate: StoryDedupeCandidate) => Promise<void>;
   onRefresh: () => void;
   storyCandidates: StoryDedupeCandidate[];
 }) {
@@ -5467,6 +5538,7 @@ function DedupePanel({
         <StoryOverlapPanel
           candidates={storyCandidates}
           onKeepSeparate={onStoryKeepSeparate}
+          onMerge={onStoryMerge}
         />
       ) : (
         <EvidenceOverlapPanel
@@ -5482,9 +5554,11 @@ function DedupePanel({
 function StoryOverlapPanel({
   candidates,
   onKeepSeparate,
+  onMerge,
 }: {
   candidates: StoryDedupeCandidate[];
   onKeepSeparate: (candidate: StoryDedupeCandidate) => Promise<void>;
+  onMerge: (candidate: StoryDedupeCandidate) => Promise<void>;
 }) {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [messageById, setMessageById] = useState<Record<string, string>>({});
@@ -5505,6 +5579,28 @@ function StoryOverlapPanel({
       setMessageById((messages) => ({
         ...messages,
         [key]: caught instanceof Error ? caught.message : "Keep-separate decision failed.",
+      }));
+    } finally {
+      setPendingId(null);
+    }
+  }
+  async function merge(candidate: StoryDedupeCandidate) {
+    const key = `${candidate.primary.id}-${candidate.duplicate.id}`;
+    setPendingId(key);
+    setMessageById((messages) => ({
+      ...messages,
+      [key]: "Merging story targets...",
+    }));
+    try {
+      await onMerge(candidate);
+      setMessageById((messages) => ({
+        ...messages,
+        [key]: "Merged into the kept story.",
+      }));
+    } catch (caught) {
+      setMessageById((messages) => ({
+        ...messages,
+        [key]: caught instanceof Error ? caught.message : "Story merge failed.",
       }));
     } finally {
       setPendingId(null);
@@ -5535,6 +5631,16 @@ function StoryOverlapPanel({
               <StoryOverlapSummary label="Possible duplicate" story={candidate.duplicate} />
             </div>
             <div className="actions actions--compact">
+              {candidate.primary.storyType === "initiative" ? (
+                <button
+                  className="primary-button"
+                  disabled={Boolean(pendingId)}
+                  type="button"
+                  onClick={() => void merge(candidate)}
+                >
+                  {isPending ? "Merging..." : "Merge stories"}
+                </button>
+              ) : null}
               <button
                 className="secondary-button"
                 disabled={Boolean(pendingId)}
@@ -6493,6 +6599,7 @@ function StoryMaterialList({
   initiatives,
   onAssignStory,
   onEnrichStory,
+  onMergeStory,
   onReviewClaims,
   onReviewStarStory,
   portfolioProjects,
@@ -6505,6 +6612,10 @@ function StoryMaterialList({
     patch: StoryAssignmentPatch,
   ) => Promise<{ ok: boolean; message: string }>;
   onEnrichStory: (project: StoryEnrichmentTarget) => void;
+  onMergeStory: (
+    primaryStoryId: string,
+    duplicateStoryId: string,
+  ) => Promise<{ ok: boolean; message: string }>;
   onReviewClaims: (target: StoryEnrichmentTarget) => void;
   onReviewStarStory: (target: StoryEnrichmentTarget) => void;
   portfolioProjects: PortfolioProjectItem[];
@@ -6512,6 +6623,14 @@ function StoryMaterialList({
 }) {
   const hasAny =
     workExperiences.length > 0 || initiatives.length > 0 || portfolioProjects.length > 0;
+  const evidenceCountByInitiative = new Map<string, number>();
+  for (const item of evidenceItems) {
+    if (!item.related_initiative_id) continue;
+    evidenceCountByInitiative.set(
+      item.related_initiative_id,
+      (evidenceCountByInitiative.get(item.related_initiative_id) ?? 0) + 1,
+    );
+  }
   if (!hasAny) {
     return (
       <section className="section-block">
@@ -6582,12 +6701,19 @@ function StoryMaterialList({
                     kind="Work initiative"
                     onAssignStory={onAssignStory}
                     onEnrichStory={onEnrichStory}
+                    onMergeStory={onMergeStory}
                     onReviewClaims={onReviewClaims}
                     onReviewStarStory={onReviewStarStory}
                     story={initiative}
                     title={initiative.external_safe_title ?? initiative.internal_title}
                     targetType="initiative"
                     workExperiences={workExperiences}
+                    mergeOptions={initiatives.filter(
+                      (option) =>
+                        option.id &&
+                        option.id !== initiative.id,
+                    )}
+                    mergeOptionEvidenceCounts={evidenceCountByInitiative}
                   />
                 ))}
               </article>
@@ -6609,12 +6735,19 @@ function StoryMaterialList({
                 kind="Standalone initiative"
                 onAssignStory={onAssignStory}
                 onEnrichStory={onEnrichStory}
+                onMergeStory={onMergeStory}
                 onReviewClaims={onReviewClaims}
                 onReviewStarStory={onReviewStarStory}
                 story={initiative}
                 title={initiative.external_safe_title ?? initiative.internal_title}
                 targetType="initiative"
                 workExperiences={workExperiences}
+                mergeOptions={initiatives.filter(
+                  (option) =>
+                    option.id &&
+                    option.id !== initiative.id,
+                )}
+                mergeOptionEvidenceCounts={evidenceCountByInitiative}
               />
             ))}
         </div>
@@ -6631,6 +6764,7 @@ function StoryMaterialList({
               kind={formatPortfolioProjectType(project.project_type)}
               onAssignStory={onAssignStory}
               onEnrichStory={onEnrichStory}
+              onMergeStory={onMergeStory}
               onReviewClaims={onReviewClaims}
               onReviewStarStory={onReviewStarStory}
               story={project}
@@ -6648,8 +6782,11 @@ function StoryMaterialList({
 function StoryTargetRow({
   evidenceItems,
   kind,
+  mergeOptions = [],
+  mergeOptionEvidenceCounts,
   onAssignStory,
   onEnrichStory,
+  onMergeStory,
   onReviewClaims,
   onReviewStarStory,
   story,
@@ -6659,11 +6796,17 @@ function StoryTargetRow({
 }: {
   evidenceItems: EvidenceCardItem[];
   kind: string;
+  mergeOptions?: InitiativeItem[];
+  mergeOptionEvidenceCounts?: Map<string, number>;
   onAssignStory: (
     target: StoryEnrichmentTarget,
     patch: StoryAssignmentPatch,
   ) => Promise<{ ok: boolean; message: string }>;
   onEnrichStory: (project: StoryEnrichmentTarget) => void;
+  onMergeStory: (
+    primaryStoryId: string,
+    duplicateStoryId: string,
+  ) => Promise<{ ok: boolean; message: string }>;
   onReviewClaims: (target: StoryEnrichmentTarget) => void;
   onReviewStarStory: (target: StoryEnrichmentTarget) => void;
   story: InitiativeItem | PortfolioProjectItem;
@@ -6677,6 +6820,9 @@ function StoryTargetRow({
     null,
   );
   const [isAssigning, setIsAssigning] = useState(false);
+  const [mergeMessage, setMergeMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [mergeTargetId, setMergeTargetId] = useState("");
+  const [isMergingStory, setIsMergingStory] = useState(false);
   const [newRoleDraft, setNewRoleDraft] = useState({
     employer: "",
     endDate: "",
@@ -6722,6 +6868,7 @@ function StoryTargetRow({
     ? workExperiences.find((experience) => experience.id === currentWorkExperienceId) ?? null
     : null;
   const canAssignRole = targetType === "initiative" && Boolean(target);
+  const canMergeStory = targetType === "initiative" && Boolean(story.id) && mergeOptions.length > 0;
   async function handleAssignExisting(workExperienceId: string) {
     if (!target || target.targetType !== "initiative") return;
     setIsAssigning(true);
@@ -6772,6 +6919,23 @@ function StoryTargetRow({
       }
     } finally {
       setIsAssigning(false);
+    }
+  }
+  async function handleMergeStory() {
+    if (!story.id || !mergeTargetId) {
+      setMergeMessage({ ok: false, text: "Choose another story to merge first." });
+      return;
+    }
+    setIsMergingStory(true);
+    setMergeMessage({ ok: true, text: "Merging story..." });
+    try {
+      const result = await onMergeStory(story.id, mergeTargetId);
+      setMergeMessage({ ok: result.ok, text: result.message });
+      if (result.ok) {
+        setMergeTargetId("");
+      }
+    } finally {
+      setIsMergingStory(false);
     }
   }
   return (
@@ -6963,6 +7127,50 @@ function StoryTargetRow({
           ) : null}
         </div>
       ) : null}
+      {canMergeStory ? (
+        <details className="story-target-row__details">
+          <summary>Merge with another story</summary>
+          <p>
+            Use this when two initiatives are fragments of the same project. This story stays,
+            including its role assignment; linked evidence from the selected story moves here.
+          </p>
+          <div className="story-assignment-control">
+            <label>
+              <span>Story to merge into this one</span>
+              <select
+                disabled={isMergingStory}
+                value={mergeTargetId}
+                onChange={(event) => {
+                  setMergeTargetId(event.target.value);
+                  setMergeMessage(null);
+                }}
+              >
+                <option value="">Choose a duplicate story</option>
+                {mergeOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {formatMergeStoryOptionLabel({
+                      claimCount: option.id ? mergeOptionEvidenceCounts?.get(option.id) ?? 0 : 0,
+                      option,
+                      workExperiences,
+                    })}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="secondary-button"
+              disabled={isMergingStory || !mergeTargetId}
+              type="button"
+              onClick={() => void handleMergeStory()}
+            >
+              {isMergingStory ? "Merging..." : "Merge selected story"}
+            </button>
+          </div>
+          {mergeMessage ? (
+            <p className={mergeMessage.ok ? "status" : "error"}>{mergeMessage.text}</p>
+          ) : null}
+        </details>
+      ) : null}
       <details className="story-target-row__details">
         <summary>View story detail</summary>
         {story.context ? <p>Context: {story.context}</p> : null}
@@ -7005,6 +7213,23 @@ function formatStoryEvidenceStatus(evidenceItems: EvidenceCardItem[]) {
   }
   if (evidenceItems.some((item) => item.status === "approved")) return "has approved evidence";
   return "needs review";
+}
+
+function formatMergeStoryOptionLabel({
+  claimCount,
+  option,
+  workExperiences,
+}: {
+  claimCount: number;
+  option: InitiativeItem;
+  workExperiences: WorkExperienceItem[];
+}) {
+  const title = option.external_safe_title ?? option.internal_title;
+  const role = option.work_experience_id
+    ? workExperiences.find((experience) => experience.id === option.work_experience_id)
+    : null;
+  const roleLabel = role ? `${role.employer} ${role.role_title}` : "Standalone";
+  return `${title} · ${roleLabel} · ${claimCount} claim${claimCount === 1 ? "" : "s"}`;
 }
 
 function formatPortfolioProjectType(type: string) {

@@ -14,6 +14,8 @@ import {
   enrichmentProposals,
   enrichmentTaskTargets,
   evidenceItems,
+  generatedClaims,
+  initiatives,
   resumeSourceVersions,
   sourceDocuments,
   workExperiences,
@@ -28,6 +30,7 @@ import {
   keepProjectOverlapSeparate,
   mergeEvidenceItems,
   mergeProjectCards,
+  mergeStoryTargets,
   persistProfileEvidenceExtraction,
   updateEvidenceItem,
 } from "../src/server/profile-evidence-repository";
@@ -1126,6 +1129,201 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       targetRole: "primary",
     });
   });
+
+  it("merges initiative story targets and moves linked evidence", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const now = new Date();
+    const [experience] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: `Nimbus ${crypto.randomUUID()}`,
+        roleTitle: "Software Development Engineer Intern",
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: workExperiences.id });
+    if (!experience) throw new Error("Expected work experience.");
+    const [wrongExperience] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: `Wrong role ${crypto.randomUUID()}`,
+        roleTitle: "Infrastructure Intern",
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: workExperiences.id });
+    if (!wrongExperience) throw new Error("Expected wrong work experience.");
+
+    const createdInitiatives = await db
+      .insert(initiatives)
+      .values([
+        {
+          workspaceId: workspace.id,
+          workExperienceId: experience.id,
+          internalTitle: "Distributed cache infrastructure for session latency",
+          externalSafeTitle: "Distributed cache infrastructure",
+          context: "High-scale session service",
+          problem: "Session lookup latency",
+          actions: ["Provisioned distributed cache infrastructure"],
+          results: ["Reduced p95 latency"],
+          metrics: [{ value: "p95 420 ms to 180 ms" }],
+          technologies: ["distributed cache"],
+          stakeholders: [],
+          sensitivityLevel: "private",
+          needsRedactionReview: 1,
+          status: "approved",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          workspaceId: workspace.id,
+          workExperienceId: wrongExperience.id,
+          internalTitle: "AWS CDK provisioning",
+          externalSafeTitle: "AWS CDK provisioning",
+          context: "Cache infrastructure",
+          actions: ["Built AWS CDK deployment path"],
+          results: [],
+          metrics: [],
+          technologies: ["AWS CDK"],
+          stakeholders: [],
+          sensitivityLevel: "private",
+          needsRedactionReview: 0,
+          status: "pending",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          workspaceId: workspace.id,
+          workExperienceId: experience.id,
+          internalTitle: "Session latency optimization",
+          externalSafeTitle: "Session latency optimization",
+          context: "Session dependency path",
+          actions: ["Integrated cache into session dependency path"],
+          results: ["Improved session lookup latency"],
+          metrics: [],
+          technologies: ["session cache"],
+          stakeholders: [],
+          sensitivityLevel: "private",
+          needsRedactionReview: 0,
+          status: "pending",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ])
+      .returning({ id: initiatives.id });
+    const [primary, duplicateA, duplicateB] = createdInitiatives;
+    if (!primary || !duplicateA || !duplicateB) throw new Error("Expected initiatives.");
+
+    const evidenceRows = await db
+      .insert(evidenceItems)
+      .values([
+        {
+          workspaceId: workspace.id,
+          text: "Provisioned distributed cache infrastructure.",
+          sourceQuote: "Provisioned distributed cache infrastructure.",
+          evidenceType: "extracted",
+          sensitivityLevel: "private",
+          relatedInitiativeId: primary.id,
+          status: "pending",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          workspaceId: workspace.id,
+          text: "Built AWS CDK deployment path.",
+          sourceQuote: "Built AWS CDK deployment path.",
+          evidenceType: "extracted",
+          sensitivityLevel: "private",
+          relatedInitiativeId: duplicateA.id,
+          status: "pending",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          workspaceId: workspace.id,
+          text: "Integrated cache into session dependency path.",
+          sourceQuote: "Integrated cache into session dependency path.",
+          evidenceType: "extracted",
+          sensitivityLevel: "private",
+          relatedInitiativeId: duplicateB.id,
+          status: "pending",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ])
+      .returning({ id: evidenceItems.id });
+    const duplicateEvidenceIds = evidenceRows.slice(1).map((item) => item.id);
+    await db.insert(generatedClaims).values({
+      workspaceId: workspace.id,
+      claimText: "Built AWS CDK cache infrastructure.",
+      section: "experience",
+      evidenceIds: [duplicateEvidenceIds[0]!],
+      sourceQuotes: ["Built AWS CDK deployment path."],
+      supportStatus: "supported",
+      claimStatus: "supported",
+      riskLevel: "low",
+      lastValidatedAt: now,
+      createdAt: now,
+    });
+
+    const merge = await mergeStoryTargets({
+      storyType: "initiative",
+      primaryStoryId: primary.id,
+      duplicateStoryIds: [duplicateA.id, duplicateB.id],
+    });
+    expect(merge).toMatchObject({
+      status: "merged",
+      primaryStoryId: primary.id,
+      duplicateStoryCount: 2,
+      movedEvidenceCount: 2,
+      staleClaimCount: 1,
+    });
+
+    const initiativeRows = await db
+      .select()
+      .from(initiatives)
+      .where(eq(initiatives.workspaceId, workspace.id));
+    const updatedPrimary = initiativeRows.find((initiative) => initiative.id === primary.id);
+    expect(updatedPrimary?.actions).toEqual(
+      expect.arrayContaining([
+        "Provisioned distributed cache infrastructure",
+        "Built AWS CDK deployment path",
+        "Integrated cache into session dependency path",
+      ]),
+    );
+    expect(updatedPrimary?.technologies).toEqual(
+      expect.arrayContaining(["distributed cache", "AWS CDK", "session cache"]),
+    );
+    expect(updatedPrimary).toMatchObject({
+      status: "approved",
+      workExperienceId: experience.id,
+    });
+    expect(
+      initiativeRows
+        .filter((initiative) => [duplicateA.id, duplicateB.id].includes(initiative.id))
+        .every((initiative) => initiative.status === "rejected"),
+    ).toBe(true);
+
+    const movedEvidence = await db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.workspaceId, workspace.id));
+    expect(
+      movedEvidence
+        .filter((item) => evidenceRows.map((evidence) => evidence.id).includes(item.id))
+        .every((item) => item.relatedInitiativeId === primary.id),
+    ).toBe(true);
+    const claims = await db
+      .select()
+      .from(generatedClaims)
+      .where(eq(generatedClaims.workspaceId, workspace.id));
+    expect(claims.some((claim) => claim.claimStatus === "stale")).toBe(true);
+  }, 20_000);
 });
 
 const duplicateSourceText = [

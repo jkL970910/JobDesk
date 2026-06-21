@@ -42,6 +42,10 @@
   --app-max-width: 1500px;
   --app-topbar-space: 92px;
   --app-header-space: 150px;
+  --motion-fast: 180ms;
+  --motion-medium: 420ms;
+  --motion-slow: 720ms;
+  --focus-glow: 0 0 0 1px rgba(158, 195, 255, 0.22), 0 22px 90px rgba(79, 140, 255, 0.16);
 }
 
 * {
@@ -77,6 +81,193 @@ body::before {
   pointer-events: none;
   position: fixed;
   z-index: -1;
+}
+
+.motion-panel {
+  animation: motion-panel-in var(--motion-medium) var(--ease-out) both;
+  animation-delay: var(--motion-delay, 0ms);
+}
+
+.focus-glow-card {
+  border-radius: inherit;
+  position: relative;
+}
+
+.focus-glow-card::before {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(158, 195, 255, 0.2), transparent 28rem),
+    linear-gradient(135deg, rgba(79, 140, 255, 0.18), transparent 34%);
+  border: 1px solid rgba(158, 195, 255, 0.18);
+  border-radius: inherit;
+  content: "";
+  inset: -1px;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  transition: opacity var(--motion-medium) var(--ease-out), box-shadow var(--motion-medium) var(--ease-out);
+  z-index: 0;
+}
+
+.focus-glow-card[data-active="true"]::before {
+  box-shadow: var(--focus-glow);
+  opacity: 1;
+}
+
+.focus-glow-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.count-up-metric {
+  font-variant-numeric: tabular-nums;
+}
+
+.animated-queue-list {
+  display: grid;
+  gap: inherit;
+}
+
+.animated-queue-list__item {
+  animation: queue-item-in var(--motion-medium) var(--ease-out) both;
+  animation-delay: var(--motion-delay, 0ms);
+}
+
+.workflow-stepper {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.workflow-stepper__item {
+  align-items: center;
+  color: var(--muted);
+  display: grid;
+  gap: 5px;
+  grid-template-columns: auto 1fr;
+  min-width: 0;
+  position: relative;
+}
+
+.workflow-stepper__item::after {
+  background: rgba(255, 255, 255, 0.08);
+  content: "";
+  height: 1px;
+  left: 26px;
+  position: absolute;
+  right: -8px;
+  top: 13px;
+  z-index: 0;
+}
+
+.workflow-stepper__item:last-child::after {
+  display: none;
+}
+
+.workflow-stepper__dot {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 760;
+  height: 26px;
+  justify-content: center;
+  position: relative;
+  width: 26px;
+  z-index: 1;
+}
+
+.workflow-stepper__label {
+  color: var(--ink-soft);
+  font-size: var(--type-caption);
+  font-weight: 760;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-stepper__item strong {
+  color: var(--ink);
+  font-size: var(--type-caption);
+  font-weight: 720;
+  grid-column: 2;
+}
+
+.workflow-stepper__item[data-state="active"] .workflow-stepper__dot,
+.workflow-stepper__item[data-state="complete"] .workflow-stepper__dot {
+  background: var(--primary-soft);
+  border-color: rgba(158, 195, 255, 0.36);
+  color: var(--primary-strong);
+}
+
+.workflow-stepper__item[data-state="blocked"] .workflow-stepper__dot {
+  background: var(--warning-soft);
+  border-color: rgba(243, 199, 117, 0.34);
+  color: var(--warning);
+}
+
+.gradual-blur {
+  inset-inline: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.gradual-blur[data-edge="bottom"] {
+  background: linear-gradient(to bottom, transparent, rgba(7, 10, 17, 0.82));
+  bottom: 0;
+  height: 56px;
+}
+
+.gradual-blur[data-edge="top"] {
+  background: linear-gradient(to top, transparent, rgba(7, 10, 17, 0.82));
+  height: 56px;
+  top: 0;
+}
+
+@keyframes motion-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes queue-item-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .focus-glow-card::before {
+    box-shadow: none;
+  }
+
+  .gradual-blur {
+    display: none;
+  }
 }
 
 button,
@@ -741,6 +932,10 @@ strong,
   display: grid;
   gap: 0;
   grid-template-columns: 1fr;
+}
+
+.workflow-stepper--dashboard {
+  margin: 8px 0 16px;
 }
 
 .journey-step {

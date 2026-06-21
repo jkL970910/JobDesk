@@ -12,6 +12,12 @@ import {
 import { ResumeReviewWorkspace } from "../src/components/resume-review-workspace";
 import { TailoredResumeWorkspace } from "../src/components/tailored-resume-workspace";
 import { AccountMenu, useAccess } from "../src/components/access-provider";
+import {
+  CountUpMetric,
+  FocusGlowCard,
+  MotionPanel,
+  WorkflowStepper,
+} from "../src/components/ui/motion-primitives";
 
 type View =
   | "dashboard"
@@ -720,41 +726,43 @@ function DashboardView({
   ];
 
   return (
-    <div className="dashboard-grid">
-      <article className="next-action-card next-action-card--compact">
-        <div>
-          <p className="panel-kicker">Next</p>
-          <h2>{displayNextAction.title}</h2>
-          <p>{displayNextAction.detail}</p>
-        </div>
-        <div className="next-action-card__actions">
-          <button
-            disabled={dashboardLoadState === "loading"}
-            type="button"
-            onClick={() =>
-              displayNextAction.resumeTab
-                ? onNavigateResume(displayNextAction.resumeTab)
-                : onNavigate(displayNextAction.view)
-            }
-          >
-            {displayNextAction.label}
-          </button>
-          {(() => {
-            const secondaryTarget = displayNextAction.secondaryTarget;
-            if (!displayNextAction.secondaryLabel || !secondaryTarget) return null;
-            return (
-              <button
-                className="next-action-card__secondary"
-                disabled={dashboardLoadState === "loading"}
-                type="button"
-                onClick={() => onStartMaterialPath(secondaryTarget)}
-              >
-                {displayNextAction.secondaryLabel}
-              </button>
-            );
-          })()}
-        </div>
-      </article>
+    <MotionPanel className="dashboard-grid">
+      <FocusGlowCard>
+        <article className="next-action-card next-action-card--compact">
+          <div>
+            <p className="panel-kicker">Next</p>
+            <h2>{displayNextAction.title}</h2>
+            <p>{displayNextAction.detail}</p>
+          </div>
+          <div className="next-action-card__actions">
+            <button
+              disabled={dashboardLoadState === "loading"}
+              type="button"
+              onClick={() =>
+                displayNextAction.resumeTab
+                  ? onNavigateResume(displayNextAction.resumeTab)
+                  : onNavigate(displayNextAction.view)
+              }
+            >
+              {displayNextAction.label}
+            </button>
+            {(() => {
+              const secondaryTarget = displayNextAction.secondaryTarget;
+              if (!displayNextAction.secondaryLabel || !secondaryTarget) return null;
+              return (
+                <button
+                  className="next-action-card__secondary"
+                  disabled={dashboardLoadState === "loading"}
+                  type="button"
+                  onClick={() => onStartMaterialPath(secondaryTarget)}
+                >
+                  {displayNextAction.secondaryLabel}
+                </button>
+              );
+            })()}
+          </div>
+        </article>
+      </FocusGlowCard>
 
       <section className="overview-lanes" aria-label="Business overview">
         <div className="journey-panel readiness-strip" aria-label="Resume readiness">
@@ -763,8 +771,25 @@ function DashboardView({
               <p className="panel-kicker">Resume readiness</p>
               <h2>What blocks a trustworthy export?</h2>
             </div>
-            <span>{dashboardLoadState === "loading" ? "Loading" : `${resumeReadyClaims} resume-ready`}</span>
+            <span>
+              {dashboardLoadState === "loading" ? (
+                "Loading"
+              ) : (
+                <>
+                  <CountUpMetric value={resumeReadyClaims} /> resume-ready
+                </>
+              )}
+            </span>
           </div>
+          <WorkflowStepper
+            className="workflow-stepper--dashboard"
+            steps={readinessItems.map((step) => ({
+              id: step.id,
+              label: step.label,
+              metric: step.metric,
+              state: step.state as "active" | "blocked" | "complete" | "idle",
+            }))}
+          />
           <div className="journey-steps">
             {readinessItems.map((step, index) => (
               <article className="journey-step" data-state={step.state} key={step.id}>
@@ -788,7 +813,15 @@ function DashboardView({
               <p className="panel-kicker">Application pipeline</p>
               <h2>What needs follow-up?</h2>
             </div>
-            <span>{dashboardLoadState === "loading" ? "Loading" : `${activeApplications} active`}</span>
+            <span>
+              {dashboardLoadState === "loading" ? (
+                "Loading"
+              ) : (
+                <>
+                  <CountUpMetric value={activeApplications} /> active
+                </>
+              )}
+            </span>
           </div>
           <div className="pipeline-list">
             {pipelineItems.map((item) => (
@@ -860,7 +893,7 @@ function DashboardView({
           ))}
         </section>
       ) : null}
-    </div>
+    </MotionPanel>
   );
 }
 
