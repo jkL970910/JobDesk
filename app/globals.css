@@ -1250,12 +1250,26 @@ strong,
   padding: 26px 0 18px;
 }
 
+.app-content[data-view="dashboard"] .app-content__header {
+  padding: 18px 0 14px;
+}
+
+.app-content[data-view="dashboard"] .app-content__eyebrow {
+  display: none;
+}
+
 .app-content[data-view="dashboard"] .app-content__header h1,
 .app-content[data-view="profile"] .app-content__header h1 {
   font-size: clamp(2rem, 3vw, 2.8rem);
   letter-spacing: -0.055em;
   line-height: 0.98;
   margin: 3px 0 5px;
+}
+
+.app-content[data-view="dashboard"] .app-content__header h1 {
+  font-size: clamp(1.7rem, 2.15vw, 2.35rem);
+  letter-spacing: -0.045em;
+  margin: 0 0 4px;
 }
 
 .app-content[data-view="dashboard"] .app-content__header p:not(.app-content__eyebrow),
@@ -1280,11 +1294,12 @@ strong,
 }
 
 .dashboard-figma-shell .dashboard-metric-strip button {
+  align-content: start;
   background: transparent;
   border-left-color: var(--line);
-  gap: 3px;
-  min-height: 84px;
-  padding: 15px 20px;
+  gap: 8px;
+  min-height: 76px;
+  padding: 16px 22px 14px;
 }
 
 .dashboard-figma-shell .dashboard-metric-strip button:hover {
@@ -1292,15 +1307,25 @@ strong,
 }
 
 .dashboard-figma-shell .dashboard-metric-strip span {
-  font-size: 0.66rem;
-  font-weight: 780;
-  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 820;
+  letter-spacing: 0.06em;
+}
+
+.dashboard-figma-shell .dashboard-metric-strip strong {
+  align-self: start;
+  display: flex;
+  justify-self: start;
+  margin-top: 0;
+  text-align: left;
 }
 
 .dashboard-figma-shell .dashboard-metric-strip button > strong {
   bottom: auto;
-  font-size: clamp(1.8rem, 3vw, 2.35rem);
-  line-height: 1;
+  font-size: clamp(2.25rem, 3.4vw, 3.15rem);
+  letter-spacing: -0.075em;
+  line-height: 0.88;
   position: static;
   right: auto;
 }
@@ -2480,30 +2505,30 @@ strong,
 }
 
 .resume-review-report__hero {
-  align-items: end;
   background:
     linear-gradient(135deg, rgba(79, 140, 255, 0.12), rgba(255, 255, 255, 0.026)),
     rgba(255, 255, 255, 0.018);
   border: 1px solid var(--line);
   border-radius: 20px;
   display: grid;
-  gap: 16px;
-  grid-template-columns: minmax(116px, 0.16fr) minmax(0, 1fr) auto;
-  min-height: 124px;
-  padding: 16px;
+  gap: 0;
+  grid-template-columns: minmax(136px, 0.16fr) minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
   position: relative;
 }
 
 .resume-review-report__score {
   align-self: stretch;
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.085);
-  border-radius: 16px;
+  background: rgba(79, 140, 255, 0.07);
+  border-right: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 0;
   display: grid;
-  gap: 6px;
+  gap: 8px;
   justify-items: flex-start;
-  min-width: 116px;
-  padding: 12px;
+  min-width: 136px;
+  padding: 18px 18px 16px;
 }
 
 .resume-review-report__score span {
@@ -2517,7 +2542,7 @@ strong,
 .resume-review-report__score strong {
   color: var(--accent);
   display: block;
-  font-size: clamp(3.4rem, 5.4vw, 6rem);
+  font-size: clamp(4.15rem, 6.2vw, 6.4rem);
   font-weight: 940;
   letter-spacing: -0.095em;
   line-height: 0.82;
@@ -2525,16 +2550,16 @@ strong,
 
 .resume-review-report__summary {
   display: grid;
-  gap: 12px;
   min-width: 0;
 }
 
 .resume-review-report__title {
   align-items: flex-start;
   display: flex;
-  gap: 12px;
+  gap: 18px;
   justify-content: space-between;
   min-width: 0;
+  padding: 18px 20px 14px;
 }
 
 .resume-review-report__hero h2 {
@@ -2559,7 +2584,6 @@ strong,
 }
 
 .resume-review-report__stats span {
-  background: rgba(255, 255, 255, 0.024);
   border: 0;
   border-left: 1px solid rgba(255, 255, 255, 0.085);
   border-radius: 0;
@@ -2567,28 +2591,37 @@ strong,
   display: grid;
   font-size: 0.68rem;
   font-weight: 820;
-  gap: 3px;
+  gap: 7px;
+  justify-content: start;
   min-width: 0;
-  padding: 7px 10px;
+  padding: 16px 18px 17px;
   text-transform: uppercase;
 }
 
 .resume-review-report__stats span:first-child {
-  border-left: 0;
-  padding-left: 0;
+  border-left-color: rgba(255, 255, 255, 0.085);
 }
 
 .resume-review-report__stats strong {
   color: var(--ink);
-  font-size: clamp(1.55rem, 2.45vw, 2.45rem);
+  font-size: clamp(2rem, 3.2vw, 3rem);
   font-weight: 920;
   letter-spacing: -0.065em;
-  line-height: 0.98;
+  line-height: 0.9;
 }
 
 .resume-review-report__badges {
-  display: flex;
+  align-items: flex-end;
+  display: grid;
   flex: 0 0 auto;
+  gap: 8px;
+  justify-content: flex-end;
+  min-width: 188px;
+}
+
+.resume-review-report__status {
+  align-items: center;
+  display: flex;
   flex-wrap: wrap;
   gap: 7px;
   justify-content: flex-end;
@@ -2618,7 +2651,9 @@ strong,
 }
 
 .resume-review-report__cta {
-  min-width: 176px;
+  justify-self: flex-end;
+  min-width: 0;
+  padding-inline: 14px;
 }
 
 .resume-review-report__actions {
@@ -8616,6 +8651,24 @@ select:focus {
     grid-template-columns: 1fr;
   }
 
+  .resume-review-report__score {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+    border-right: 0;
+  }
+
+  .resume-review-report__title {
+    display: grid;
+  }
+
+  .resume-review-report__badges {
+    justify-content: flex-start;
+    min-width: 0;
+  }
+
+  .resume-review-report__status {
+    justify-content: flex-start;
+  }
+
   .resume-review-report__cta {
     justify-self: flex-start;
   }
@@ -9273,6 +9326,11 @@ select:focus {
   .resume-review-report__stats {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .resume-review-report__stats span {
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.085);
   }
 
   .resume-review-report__cta {

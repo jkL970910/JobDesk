@@ -747,8 +747,17 @@ function ResumeReviewReportCard({
               <h2>{formatResumeTitle(resume.title)}</h2>
             </div>
             <div className="resume-review-report__badges">
-              <span>{confidenceLabel}</span>
-              <span data-state={isFallback ? "warning" : "ready"}>{statusLabel}</span>
+              <div className="resume-review-report__status">
+                <span>{confidenceLabel}</span>
+                <span data-state={isFallback ? "warning" : "ready"}>{statusLabel}</span>
+              </div>
+              <button
+                className="primary-button resume-review-report__cta"
+                type="button"
+                onClick={activeQuestionCount > 0 ? onOpenEvidenceTasks : onContinueToEvidence}
+              >
+                {activeQuestionCount > 0 ? "Open evidence tasks" : "Continue to Evidence"}
+              </button>
             </div>
           </div>
           <div className="resume-review-report__stats" aria-label="Review summary">
@@ -774,15 +783,6 @@ function ResumeReviewReportCard({
               This quick estimate is incomplete. Run the full review when ready.
             </p>
           ) : null}
-        </div>
-        <div className="resume-review-report__actions">
-          <button
-            className="primary-button resume-review-report__cta"
-            type="button"
-            onClick={activeQuestionCount > 0 ? onOpenEvidenceTasks : onContinueToEvidence}
-          >
-            {activeQuestionCount > 0 ? "Open evidence tasks" : "Continue to Evidence"}
-          </button>
         </div>
       </div>
       {isFallback ? (
