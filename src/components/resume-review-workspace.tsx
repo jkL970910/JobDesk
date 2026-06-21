@@ -739,52 +739,6 @@ function ResumeReviewReportCard({
   const hiddenActionCount = Math.max(0, actionCandidates.length - reviewActions.length);
   return (
     <section className="panel resume-review-report">
-      <div className="resume-review-report__hero">
-        <div className="resume-review-report__summary">
-          <div className="resume-review-report__title">
-            <div>
-              <p className="panel-kicker">Resume Review</p>
-              <h2>{formatResumeTitle(resume.title)}</h2>
-            </div>
-            <div className="resume-review-report__badges">
-              <div className="resume-review-report__status">
-                <span>{confidenceLabel}</span>
-                <span data-state={isFallback ? "warning" : "ready"}>{statusLabel}</span>
-              </div>
-              <button
-                className="primary-button resume-review-report__cta"
-                type="button"
-                onClick={activeQuestionCount > 0 ? onOpenEvidenceTasks : onContinueToEvidence}
-              >
-                {activeQuestionCount > 0 ? "Open evidence tasks" : "Continue to Evidence"}
-              </button>
-            </div>
-          </div>
-          <div className="resume-review-report__stats" aria-label="Review summary">
-            <span>
-              <strong>{topFixes.length}</strong>
-              Top fixes
-            </span>
-            <span>
-              <strong>{activeQuestionCount || missingEvidenceQuestions.length}</strong>
-              Evidence tasks
-            </span>
-            <span>
-              <strong>{atsIssueCount}</strong>
-              ATS notes
-            </span>
-            <span>
-              <strong>{privacyReviewCount}</strong>
-              Privacy checks
-            </span>
-          </div>
-          {isFallback ? (
-            <p className="review-warning">
-              This quick estimate is incomplete. Run the full review when ready.
-            </p>
-          ) : null}
-        </div>
-      </div>
       {isFallback ? (
         <section className="review-retry-panel">
           <div>
@@ -803,12 +757,19 @@ function ResumeReviewReportCard({
         </section>
       ) : null}
       <ReviewDimensionWorkbench
+        activeQuestionCount={activeQuestionCount}
+        atsIssueCount={atsIssueCount}
+        ctaLabel={activeQuestionCount > 0 ? "Open evidence tasks" : "Continue to Evidence"}
         dimensions={dimensions}
         confidenceLabel={confidenceLabel}
         missingEvidenceQuestions={missingEvidenceQuestions}
+        onCtaClick={activeQuestionCount > 0 ? onOpenEvidenceTasks : onContinueToEvidence}
         onSelect={setSelectedDimensionId}
+        privacyReviewCount={privacyReviewCount}
+        resumeTitle={formatResumeTitle(resume.title)}
         selectedDimension={selectedDimension}
         statusLabel={statusLabel}
+        topFixCount={topFixes.length}
         totalScore={review.overallScore}
       />
       {reviewActions.length ? (
@@ -908,23 +869,38 @@ type ReviewFinding = {
 };
 
 function ReviewDimensionWorkbench({
+  activeQuestionCount,
+  atsIssueCount,
+  ctaLabel,
   confidenceLabel,
   dimensions,
   missingEvidenceQuestions,
+  onCtaClick,
   onSelect,
+  privacyReviewCount,
+  resumeTitle,
   selectedDimension,
   statusLabel,
+  topFixCount,
   totalScore,
 }: {
+  activeQuestionCount: number;
+  atsIssueCount: number;
+  ctaLabel: string;
   confidenceLabel: string;
   dimensions: ReviewDimension[];
   missingEvidenceQuestions: string[];
+  onCtaClick: () => void;
   onSelect: (id: string) => void;
+  privacyReviewCount: number;
+  resumeTitle: string;
   selectedDimension: ReviewDimension;
   statusLabel: string;
+  topFixCount: number;
   totalScore: number;
 }) {
   const evidencePrompts = missingEvidenceQuestions.slice(0, 3);
+  const evidenceTaskCount = activeQuestionCount || missingEvidenceQuestions.length;
   return (
     <section className="review-dimension-workbench">
       <div className="review-radar-card" aria-label="Resume review dimension scores">
@@ -947,13 +923,40 @@ function ReviewDimensionWorkbench({
       </div>
       <div className="review-dimension-side">
         <article className="review-score-compact">
-          <div>
-            <span>Score</span>
-            <strong>{totalScore}</strong>
+          <div className="review-score-compact__identity">
+            <span>Resume Review</span>
+            <strong>{resumeTitle}</strong>
+            <p>
+              <b>{totalScore}</b>
+              <small>Score</small>
+            </p>
           </div>
-          <div>
-            <span>{confidenceLabel}</span>
-            <span>{statusLabel}</span>
+          <div className="review-score-compact__actions">
+            <div className="review-score-compact__badges">
+              <span>{confidenceLabel}</span>
+              <span>{statusLabel}</span>
+            </div>
+            <button className="primary-button" type="button" onClick={onCtaClick}>
+              {ctaLabel}
+            </button>
+          </div>
+          <div className="review-score-compact__stats" aria-label="Review summary">
+            <span>
+              <strong>{topFixCount}</strong>
+              Fixes
+            </span>
+            <span>
+              <strong>{evidenceTaskCount}</strong>
+              Tasks
+            </span>
+            <span>
+              <strong>{atsIssueCount}</strong>
+              ATS
+            </span>
+            <span>
+              <strong>{privacyReviewCount}</strong>
+              Privacy
+            </span>
           </div>
         </article>
         <article className="review-dimension-card" data-state={selectedDimension.status}>

@@ -374,8 +374,7 @@ small {
 strong,
 .status-card strong,
 .journey-step strong,
-.main-resume-builder__metrics strong,
-.resume-review-report__hero > strong {
+.main-resume-builder__metrics strong {
   font-variant-numeric: tabular-nums;
 }
 
@@ -2565,187 +2564,11 @@ strong,
   gap: 12px;
 }
 
-.resume-review-report__hero {
-  background:
-    linear-gradient(135deg, rgba(79, 140, 255, 0.12), rgba(255, 255, 255, 0.026)),
-    rgba(255, 255, 255, 0.018);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  display: grid;
-  gap: 0;
-  grid-template-columns: 1fr;
-  min-height: 0;
-  overflow: hidden;
-  padding: 0;
-  position: relative;
-}
-
-.resume-review-report__score {
-  align-self: stretch;
-  background: rgba(79, 140, 255, 0.07);
-  border-right: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 0;
-  display: grid;
-  gap: 6px;
-  justify-items: flex-start;
-  min-width: 136px;
-  padding: 14px 16px 13px;
-}
-
-.resume-review-report__score span {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 860;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.resume-review-report__score strong {
-  color: var(--accent);
-  display: block;
-  font-size: clamp(3.6rem, 5.4vw, 5.4rem);
-  font-weight: 940;
-  letter-spacing: -0.095em;
-  line-height: 0.82;
-}
-
-.resume-review-report__summary {
-  display: grid;
-  min-width: 0;
-}
-
-.resume-review-report__title {
-  align-items: flex-start;
-  display: flex;
-  gap: 18px;
-  justify-content: space-between;
-  min-width: 0;
-  padding: 14px 18px 11px;
-}
-
-.resume-review-report__hero h2 {
-  font-size: clamp(1.05rem, 1.35vw, 1.34rem);
-  letter-spacing: -0.04em;
-  line-height: 1.05;
-  margin: 4px 0 0;
-  max-width: 880px;
-  overflow-wrap: anywhere;
-}
-
-.resume-review-report__hero p {
-  color: var(--muted);
-  margin: 0;
-}
-
-.resume-review-report__stats {
-  display: grid;
-  gap: 0;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  overflow: hidden;
-}
-
-.resume-review-report__stats span {
-  border: 0;
-  border-left: 1px solid rgba(255, 255, 255, 0.085);
-  border-radius: 0;
-  color: var(--muted);
-  display: grid;
-  font-size: 0.68rem;
-  font-weight: 820;
-  gap: 7px;
-  justify-content: start;
-  min-width: 0;
-  padding: 13px 18px 14px;
-  text-transform: uppercase;
-}
-
-.resume-review-report__stats span:first-child {
-  border-left-color: rgba(255, 255, 255, 0.085);
-}
-
-.resume-review-report__stats strong {
-  color: var(--ink);
-  font-size: clamp(2.35rem, 3.8vw, 3.55rem);
-  font-weight: 920;
-  letter-spacing: -0.065em;
-  line-height: 0.9;
-}
-
-.resume-review-report__badges {
-  align-items: flex-end;
-  display: grid;
-  flex: 0 0 auto;
-  gap: 8px;
-  justify-content: flex-end;
-  min-width: 188px;
-}
-
-.resume-review-report__status {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  justify-content: flex-end;
-}
-
-.resume-review-report__badges span {
-  background: rgba(79, 140, 255, 0.11);
-  border: 1px solid rgba(79, 140, 255, 0.22);
-  border-radius: 999px;
-  color: var(--primary-strong);
-  font-size: 0.74rem;
-  font-weight: 850;
-  padding: 6px 9px;
-  white-space: nowrap;
-}
-
-.resume-review-report__badges span[data-state="ready"] {
-  background: rgba(45, 212, 169, 0.1);
-  border-color: rgba(45, 212, 169, 0.2);
-  color: var(--accent);
-}
-
-.resume-review-report__badges span[data-state="warning"] {
-  background: rgba(255, 184, 107, 0.1);
-  border-color: rgba(255, 184, 107, 0.22);
-  color: #ffcf9c;
-}
-
-.resume-review-report__cta {
-  justify-self: flex-end;
-  min-width: 0;
-  padding-inline: 14px;
-}
-
 .resume-review-report__actions {
   align-self: end;
   display: flex;
   justify-content: flex-end;
   min-width: 0;
-}
-
-.resume-review-report__hero .review-warning {
-  background: rgba(255, 184, 107, 0.1);
-  border: 1px solid rgba(255, 184, 107, 0.22);
-  border-radius: 9px;
-  color: #ffd4a0;
-  margin-top: 10px;
-  padding: 9px 10px;
-}
-
-.resume-review-report__hero > strong {
-  align-items: center;
-  background: linear-gradient(135deg, #367dff, #93bdff);
-  border-radius: 24px;
-  box-shadow: 0 18px 46px rgba(79, 140, 255, 0.24);
-  color: white;
-  display: flex;
-  flex: 0 0 auto;
-  font-size: 2.4rem;
-  font-weight: 900;
-  height: 112px;
-  justify-content: center;
-  width: 112px;
 }
 
 .resume-review-rubric {
@@ -3057,19 +2880,20 @@ strong,
 }
 
 .review-score-compact {
-  align-items: center;
-  display: flex;
-  gap: 18px;
-  justify-content: space-between;
-  min-height: 104px;
-}
-
-.review-score-compact div:first-child {
+  align-items: start;
   display: grid;
-  gap: 3px;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 0;
 }
 
-.review-score-compact div:first-child span {
+.review-score-compact__identity {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.review-score-compact__identity > span {
   color: var(--faint);
   font-size: 0.68rem;
   font-weight: 900;
@@ -3077,22 +2901,53 @@ strong,
   text-transform: uppercase;
 }
 
-.review-score-compact div:first-child strong {
+.review-score-compact__identity > strong {
+  color: var(--ink);
+  font-size: clamp(1.05rem, 1.35vw, 1.35rem);
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  overflow-wrap: anywhere;
+}
+
+.review-score-compact__identity p {
+  align-items: flex-end;
+  display: flex;
+  gap: 9px;
+  margin: 0;
+}
+
+.review-score-compact__identity b {
   color: var(--accent);
-  font-size: clamp(4.2rem, 7vw, 6.4rem);
+  font-size: clamp(4.6rem, 7.2vw, 6.8rem);
   font-weight: 950;
   letter-spacing: -0.105em;
   line-height: 0.78;
 }
 
-.review-score-compact div:last-child {
-  align-content: center;
+.review-score-compact__identity small {
+  color: var(--faint);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.045em;
+  padding-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.review-score-compact__actions {
+  align-content: start;
   display: grid;
   gap: 8px;
   justify-items: end;
 }
 
-.review-score-compact div:last-child span {
+.review-score-compact__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: flex-end;
+}
+
+.review-score-compact__badges span {
   background: rgba(255, 255, 255, 0.065);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
@@ -3101,6 +2956,45 @@ strong,
   font-weight: 850;
   padding: 6px 9px;
   white-space: nowrap;
+}
+
+.review-score-compact__actions button {
+  justify-self: end;
+  padding-inline: 14px;
+  white-space: nowrap;
+}
+
+.review-score-compact__stats {
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  display: grid;
+  gap: 0;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding-top: 12px;
+}
+
+.review-score-compact__stats span {
+  border-left: 1px solid rgba(255, 255, 255, 0.075);
+  color: var(--muted);
+  display: grid;
+  font-size: 0.66rem;
+  font-weight: 850;
+  gap: 5px;
+  padding-inline: 12px;
+  text-transform: uppercase;
+}
+
+.review-score-compact__stats span:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.review-score-compact__stats strong {
+  color: var(--ink);
+  font-size: clamp(1.7rem, 2.7vw, 2.45rem);
+  font-weight: 920;
+  letter-spacing: -0.06em;
+  line-height: 0.9;
 }
 
 .review-radar-card {
@@ -9091,33 +8985,6 @@ select:focus {
     grid-template-columns: 1fr;
   }
 
-  .resume-review-report__hero {
-    align-items: flex-start;
-    grid-template-columns: 1fr;
-  }
-
-  .resume-review-report__score {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
-    border-right: 0;
-  }
-
-  .resume-review-report__title {
-    display: grid;
-  }
-
-  .resume-review-report__badges {
-    justify-content: flex-start;
-    min-width: 0;
-  }
-
-  .resume-review-report__status {
-    justify-content: flex-start;
-  }
-
-  .resume-review-report__cta {
-    justify-self: flex-start;
-  }
-
   .review-switcher {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -9807,20 +9674,6 @@ select:focus {
     grid-template-columns: 1fr;
   }
 
-  .resume-review-report__stats {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .resume-review-report__stats span {
-    border-left: 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.085);
-  }
-
-  .resume-review-report__cta {
-    justify-self: stretch;
-  }
-
   .resume-review-report__actions {
     justify-content: stretch;
   }
@@ -9913,18 +9766,25 @@ select:focus {
     justify-content: stretch;
   }
 
-  .resume-review-report__hero {
-    align-items: stretch;
-    display: grid;
-  }
-
   .review-score-compact {
     align-items: flex-start;
     display: grid;
+    grid-template-columns: 1fr;
   }
 
-  .review-score-compact div:last-child {
+  .review-score-compact__actions,
+  .review-score-compact__badges {
     justify-items: start;
+  }
+
+  .review-score-compact__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 12px;
+  }
+
+  .review-score-compact__stats span:nth-child(odd) {
+    border-left: 0;
+    padding-left: 0;
   }
 
   .workspace-tabs {
