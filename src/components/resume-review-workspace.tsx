@@ -685,10 +685,6 @@ function ResumeReviewReportCard({
     resume,
     tasks: enrichmentTasks,
   });
-  const visibleQuestionStatuses = showAllEvidenceTasks
-    ? questionStatuses
-    : questionStatuses.slice(0, 5);
-  const hiddenQuestionCount = Math.max(0, questionStatuses.length - visibleQuestionStatuses.length);
   const activeQuestionCount = questionStatuses.filter(
     (item) => item.taskId && (item.status === "open" || item.status === "answered"),
   ).length;
@@ -717,22 +713,30 @@ function ResumeReviewReportCard({
     ? `${Math.round((metadata.confidence ?? 0) * 100)}% confidence`
     : "Confidence unavailable";
   const statusLabel = isFallback ? "Quick estimate" : "Review complete";
-  const reviewActions = [
+  const actionCandidates = [
     ...topFixes.map((fix) => ({
       action: fix.label === "Evidence" ? "Open Evidence" : "Review detail",
       detail: fix.item,
       key: `${fix.label}-${fix.item}`,
       label: fix.label,
-      onClick: fix.label === "Evidence" ? onOpenEvidenceTasks : undefined,
+      onClick:
+        fix.label === "Evidence"
+          ? onOpenEvidenceTasks
+          : () =>
+              setActiveDetailTab(
+                fix.label === "Fix" ? "fixes" : fix.label === "Rewrite" ? "rewrite" : "summary",
+              ),
     })),
-    ...visibleQuestionStatuses.map((item) => ({
+    ...questionStatuses.map((item) => ({
       action: item.taskId ? "Open task" : "Create item",
       detail: item.question,
       key: `task-${item.question}`,
       label: formatEnrichmentTaskStatus(item.status),
       onClick: item.taskId ? onOpenEvidenceTasks : onContinueToEvidence,
     })),
-  ].slice(0, 6);
+  ];
+  const reviewActions = showAllEvidenceTasks ? actionCandidates : actionCandidates.slice(0, 6);
+  const hiddenActionCount = Math.max(0, actionCandidates.length - reviewActions.length);
   return (
     <section className="panel resume-review-report">
       <div className="resume-review-report__hero">
@@ -833,7 +837,7 @@ function ResumeReviewReportCard({
               </article>
             ))}
           </div>
-          {questionStatuses.length > 5 ? (
+          {actionCandidates.length > 6 ? (
             <button
               className="review-enrichment-toggle"
               type="button"
@@ -841,7 +845,7 @@ function ResumeReviewReportCard({
             >
               {showAllEvidenceTasks
                 ? "Show fewer tasks"
-                : `Show ${hiddenQuestionCount} more task${hiddenQuestionCount === 1 ? "" : "s"}`}
+                : `Show ${hiddenActionCount} more task${hiddenActionCount === 1 ? "" : "s"}`}
             </button>
           ) : null}
         </section>

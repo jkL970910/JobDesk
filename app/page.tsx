@@ -43,10 +43,30 @@ type EvidenceLibrarySummary = {
     allowed_usage: string[];
     public_safe_summary?: string | null;
     needs_user_confirmation?: boolean;
+    related_work_experience_id?: string | null;
+    related_initiative_id?: string | null;
+    related_portfolio_project_id?: string | null;
   }>;
-  workExperiences: Array<{ id: string; status: string }>;
-  initiatives: Array<{ id: string; status: string }>;
-  portfolioProjects: Array<{ id: string; status: string }>;
+  workExperiences: Array<{
+    id: string;
+    employer?: string | null;
+    role_title?: string | null;
+    team?: string | null;
+    location?: string | null;
+    start_date?: string | null;
+    end_date?: string | null;
+    summary?: string | null;
+    status: string;
+    updatedAt?: string;
+  }>;
+  initiatives: Array<{
+    id: string;
+    internal_title?: string | null;
+    external_safe_title?: string | null;
+    status: string;
+    work_experience_id?: string | null;
+  }>;
+  portfolioProjects: Array<{ id: string; status: string; title?: string | null }>;
   projectCards: Array<{ id: string; status: string }>;
 };
 
@@ -267,7 +287,7 @@ export default function HomePage() {
     useState<ResumeWorkspaceTab>(() =>
       typeof window !== "undefined" && window.location.hash.replace(/^#\/?/, "") === "resume-review"
         ? "intake_review"
-        : "build_export",
+        : "intake_review",
     );
   const [selectedResumeSourceVersionId, setSelectedResumeSourceVersionId] =
     useState<string | null>(null);
@@ -326,7 +346,7 @@ export default function HomePage() {
     }
     setAppView(view);
   }
-  function navigateToResume(tab: ResumeWorkspaceTab = "build_export") {
+  function navigateToResume(tab: ResumeWorkspaceTab = "intake_review") {
     setResumeWorkspaceTab(tab);
     setAppView("profile");
   }
@@ -1124,7 +1144,7 @@ function ResumeWorkspaceView({
     {
       body: "Inspect the factual career snapshot built from reviewed resumes and Evidence Library material.",
       id: "profile_facts",
-      label: "Profile Facts",
+      label: "Career Profile",
     },
     {
       body: "Generate main resumes, refresh old versions, review claim support, and export final artifacts.",
@@ -1393,6 +1413,14 @@ function ProfileReferenceView({
       value: profileFacts.skills.length ? `${profileFacts.skills.length}` : "0",
     },
   ];
+  const roleCoverage = buildCareerRoleCoverage(library);
+  const sourceSummary = buildCareerSourceSummary({
+    latestResume,
+    mainResumes,
+    profileUpdatedAt: library?.profile?.updatedAt ?? null,
+    resumes,
+  });
+  const identityInitials = getProfileInitials(profileDisplayName);
   const buildExportMetrics = [
     {
       detail: mainResumeReady ? "Ready for generation." : "Approve evidence first.",
@@ -1686,45 +1714,124 @@ function ProfileReferenceView({
   return (
     <div className="profile-reference">
       {focus === "facts" ? (
-        <>
-          <section className="profile-facts-panel" data-state={loadState}>
-            <div className="profile-facts-panel__header">
-              <div>
-                <p className="panel-kicker">Profile Facts</p>
+        <section className="career-profile-shell" data-state={loadState}>
+          <div className="career-profile-main">
+            <section className="career-profile-identity">
+              <div className="career-profile-avatar" aria-hidden="true">
+                {identityInitials}
+              </div>
+              <div className="career-profile-identity__body">
+                <p className="panel-kicker">Career Profile</p>
                 <h2>{profileDisplayName}</h2>
                 <p>{profileSnapshotCopy(resumePrepState)}</p>
+                <div className="career-profile-status" aria-label="Profile status">
+                  <span>{extractionStatus}</span>
+                  <span>{displayedRoleCount} roles</span>
+                  <span>{displayedEvidenceCount} evidence</span>
+                  <span>{displayedStoryCount} stories</span>
+                </div>
               </div>
-              <div className="profile-facts-panel__chips" aria-label="Profile status">
-                <span>{extractionStatus}</span>
-                <span>{displayedEvidenceCount} evidence</span>
-                <span>{displayedStoryCount} stories</span>
+            </section>
+
+            <section className="career-profile-card career-profile-card--facts">
+              <header className="career-profile-card__header">
+                <div>
+                  <p className="panel-kicker">Snapshot</p>
+                  <h3>Core facts</h3>
+                </div>
+                <span>
+                  {missingProfileAreas.length
+                    ? `${missingProfileAreas.length} gaps`
+                    : "Covered"}
+                </span>
+              </header>
+              <div className="career-profile-fact-grid">
+                {profileFactsMetrics.map((metric) => (
+                  <article key={metric.label}>
+                    <span>{metric.label}</span>
+                    <strong>{metric.value}</strong>
+                    <p>{metric.detail}</p>
+                  </article>
+                ))}
               </div>
-            </div>
+            </section>
 
-            <div className="profile-facts-panel__metrics">
-              {profileFactsMetrics.map((metric) => (
-                <article key={metric.label}>
-                  <span>{metric.label}</span>
-                  <strong>{metric.value}</strong>
-                  <p>{metric.detail}</p>
-                </article>
-              ))}
-            </div>
+            <section className="career-profile-card">
+              <header className="career-profile-card__header">
+                <div>
+                  <p className="panel-kicker">Experience</p>
+                  <h3>Work history coverage</h3>
+                </div>
+                <span>{roleCoverage.length} roles</span>
+              </header>
+              <div className="career-role-list">
+                {roleCoverage.length ? (
+                  roleCoverage.map((role) => (
+                    <article className="career-role-row" key={role.id}>
+                      <div className="career-role-row__main">
+                        <span>{role.dateRange}</span>
+                        <strong>{role.title}</strong>
+                        <p>{role.meta}</p>
+                      </div>
+                      <div className="career-role-row__metrics">
+                        <span>{role.resumeReadyCount} resume-ready</span>
+                        <span>{role.evidenceCount} evidence</span>
+                        <span>{role.storyCount} stories</span>
+                      </div>
+                      <div className="career-role-row__readiness" aria-label={`${role.readinessScore}% readiness`}>
+                        <div>
+                          <span style={{ width: `${role.readinessScore}%` }} />
+                        </div>
+                        <strong>{role.readinessScore}%</strong>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <article className="career-profile-empty">
+                    <strong>No work history yet</strong>
+                    <p>Run Resume Review or extract evidence to build role-level history.</p>
+                    <button type="button" onClick={() => onNavigateResume("intake_review")}>
+                      Open Resume Review
+                    </button>
+                  </article>
+                )}
+              </div>
+            </section>
+          </div>
 
-            <div className="profile-facts-panel__coverage">
-              <div>
-                <p className="panel-kicker">Improve coverage</p>
+          <aside className="career-profile-sidebar" aria-label="Career profile actions">
+            <section className="career-profile-side-card career-profile-side-card--score">
+              <p className="panel-kicker">Evidence coverage</p>
+              <strong>{resumeEligibleEvidence}</strong>
+              <span>resume-ready claims</span>
+              <p>{claimsNeedingReview} claims need review before they can support final drafts.</p>
+            </section>
+
+            <section className="career-profile-side-card">
+              <header>
+                <p className="panel-kicker">Sources</p>
+                <h3>Profile inputs</h3>
+              </header>
+              <div className="career-source-list">
+                {sourceSummary.map((item) => (
+                  <article key={item.label}>
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                    <p>{item.detail}</p>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <section className="career-profile-side-card career-profile-side-card--actions">
+              <header>
+                <p className="panel-kicker">Next</p>
                 <h3>
                   {missingProfileAreas.length
-                    ? `${missingProfileAreas.join(", ")} need attention`
-                    : "Core profile facts are covered"}
+                    ? `Fill ${missingProfileAreas[0]} next`
+                    : "Build from approved evidence"}
                 </h3>
-                <p>
-                  {hasExtractedMaterial
-                    ? "Use Evidence Library to strengthen or promote facts before building a resume."
-                    : "Start with Resume Review to extract profile facts and work material."}
-                </p>
-              </div>
+              </header>
               <button
                 type="button"
                 onClick={() =>
@@ -1737,9 +1844,12 @@ function ProfileReferenceView({
                   ? "Open Resume Review"
                   : "Open Evidence Library"}
               </button>
-            </div>
-          </section>
-        </>
+              <button type="button" onClick={() => onNavigateResume("build_export")}>
+                Build main resume
+              </button>
+            </section>
+          </aside>
+        </section>
       ) : null}
 
       {focus === "builder" ? (
@@ -2211,6 +2321,124 @@ function extractProfileFacts(profile: unknown) {
     phone: extractFactValue(record.phone),
     skills: extractFactList(record.skills),
   };
+}
+
+function buildCareerRoleCoverage(library: EvidenceLibrarySummary | null) {
+  const evidenceItems = library?.evidenceItems ?? [];
+  const initiatives = library?.initiatives ?? [];
+  return (library?.workExperiences ?? []).map((experience, index) => {
+    const linkedEvidence = evidenceItems.filter(
+      (item) => item.related_work_experience_id === experience.id,
+    );
+    const linkedInitiatives = initiatives.filter(
+      (initiative) => initiative.work_experience_id === experience.id,
+    );
+    const resumeReadyCount = linkedEvidence.filter(isResumeReadyClaim).length;
+    const approvedStoryCount = linkedInitiatives.filter(
+      (initiative) => initiative.status === "approved",
+    ).length;
+    const readinessScore = Math.min(
+      100,
+      Math.round(
+        resumeReadyCount * 18 +
+          linkedEvidence.length * 6 +
+          approvedStoryCount * 10 +
+          linkedInitiatives.length * 4,
+      ),
+    );
+    const employer = cleanDisplayText(experience.employer);
+    const roleTitle = cleanDisplayText(experience.role_title);
+    const team = cleanDisplayText(experience.team);
+    const location = cleanDisplayText(experience.location);
+    const title =
+      [employer, roleTitle].filter(Boolean).join(" · ") || `Work experience ${index + 1}`;
+    const metaParts = [team, location, cleanDisplayText(experience.summary)].filter(Boolean);
+    return {
+      dateRange: formatRoleDateRange(experience),
+      evidenceCount: linkedEvidence.length,
+      id: experience.id,
+      meta: metaParts.slice(0, 2).join(" · ") || "No role summary yet",
+      readinessScore,
+      resumeReadyCount,
+      storyCount: linkedInitiatives.length,
+      title,
+    };
+  });
+}
+
+function buildCareerSourceSummary({
+  latestResume,
+  mainResumes,
+  profileUpdatedAt,
+  resumes,
+}: {
+  latestResume: ResumeReviewSummary | null;
+  mainResumes: MainResumeSummary[];
+  profileUpdatedAt: string | null;
+  resumes: ResumeReviewSummary[];
+}) {
+  const latestMainResume = mainResumes[0] ?? null;
+  return [
+    {
+      detail: latestResume
+        ? formatResumeTitle(latestResume.title)
+        : "Upload a resume to start the profile.",
+      label: "Latest resume",
+      value: latestResume?.latestReview
+        ? `Score ${latestResume.latestReview.overallScore}`
+        : latestResume
+          ? "Saved"
+          : "Missing",
+    },
+    {
+      detail: profileUpdatedAt
+        ? `Updated ${formatDateTime(profileUpdatedAt)}`
+        : "Run extraction from reviewed material.",
+      label: "Profile facts",
+      value: profileUpdatedAt ? "Extracted" : "Pending",
+    },
+    {
+      detail: latestMainResume
+        ? `${formatMainResumeMode(latestMainResume)} · ${formatDateTime(latestMainResume.updatedAt)}`
+        : "Generate after evidence is approved.",
+      label: "Main resume",
+      value: latestMainResume ? formatMainResumeUserState(latestMainResume) : "None",
+    },
+    {
+      detail: `${resumes.length} uploaded or reviewed source${resumes.length === 1 ? "" : "s"}.`,
+      label: "Versions",
+      value: `${resumes.length}`,
+    },
+  ];
+}
+
+function getProfileInitials(name: string) {
+  const parts = name
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0 || name === "Career profile") return "JP";
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function formatRoleDateRange(experience: EvidenceLibrarySummary["workExperiences"][number]) {
+  const start = cleanDisplayText(experience.start_date);
+  const end = cleanDisplayText(experience.end_date);
+  if (start && end) return `${start} - ${end}`;
+  if (start) return `${start} - present`;
+  if (end) return `Until ${end}`;
+  return "Dates pending";
+}
+
+function cleanDisplayText(value: string | null | undefined) {
+  if (!value) return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "{}" || trimmed === "null") return "";
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) return "";
+  return trimmed;
 }
 
 function getMainResumeClaimStats(resume: MainResumeSummary) {
