@@ -711,6 +711,12 @@ function ResumeReviewReportCard({
     ...missingEvidenceQuestions.map((item) => ({ item, label: "Evidence" })),
     ...recommendedActions.map((item) => ({ item, label: "Rewrite" })),
   ].slice(0, 3);
+  const atsIssueCount = atsNotes.length;
+  const privacyReviewCount = riskFlags.length;
+  const confidenceLabel = metadata
+    ? `${Math.round((metadata.confidence ?? 0) * 100)}% confidence`
+    : "Confidence unavailable";
+  const statusLabel = isFallback ? "Quick estimate" : "Review complete";
   const reviewActions = [
     ...topFixes.map((fix) => ({
       action: fix.label === "Evidence" ? "Open Evidence" : "Review detail",
@@ -730,14 +736,22 @@ function ResumeReviewReportCard({
   return (
     <section className="panel resume-review-report">
       <div className="resume-review-report__hero">
-        <div>
-          <p className="panel-kicker">General resume score</p>
-          <h2>{formatResumeTitle(resume.title)}</h2>
+        <div className="resume-review-report__score">
+          <span>Score</span>
+          <strong>{review.overallScore}</strong>
+        </div>
+        <div className="resume-review-report__summary">
+          <div className="resume-review-report__title">
+            <div>
+              <p className="panel-kicker">Resume Review</p>
+              <h2>{formatResumeTitle(resume.title)}</h2>
+            </div>
+            <div className="resume-review-report__badges">
+              <span>{confidenceLabel}</span>
+              <span data-state={isFallback ? "warning" : "ready"}>{statusLabel}</span>
+            </div>
+          </div>
           <div className="resume-review-report__stats" aria-label="Review summary">
-            <span>
-              <strong>{review.overallScore}</strong>
-              Score
-            </span>
             <span>
               <strong>{topFixes.length}</strong>
               Top fixes
@@ -746,15 +760,13 @@ function ResumeReviewReportCard({
               <strong>{activeQuestionCount || missingEvidenceQuestions.length}</strong>
               Evidence tasks
             </span>
-            {metadata ? (
-              <span>
-                <strong>{Math.round((metadata.confidence ?? 0) * 100)}%</strong>
-                Confidence
-              </span>
-            ) : null}
             <span>
-              <strong>{isFallback ? "Quick" : "Done"}</strong>
-              Status
+              <strong>{atsIssueCount}</strong>
+              ATS notes
+            </span>
+            <span>
+              <strong>{privacyReviewCount}</strong>
+              Privacy checks
             </span>
           </div>
           {isFallback ? (
@@ -854,29 +866,6 @@ function ResumeReviewReportCard({
           ) : null}
         </section>
       ) : null}
-      <div className="handoff-panel">
-        <div>
-          <p className="panel-kicker">What happens next</p>
-          <h3>Review findings become reusable evidence.</h3>
-          <p>
-            {resume.status === "extracted"
-              ? "Use Evidence Library to review open tasks, add missing context, and keep approved evidence stable."
-              : "Evidence Library is where review findings become reusable claims, project stories, and resume-ready material."}
-          </p>
-        </div>
-        <ul className="review-next-steps">
-          <li>Create library items before saving enrichment answers.</li>
-          <li>Approve only accurate, public-safe claims for resume use.</li>
-          <li>Add work notes when a finding needs deeper project context.</li>
-        </ul>
-        <button
-          className="primary-button handoff-panel__action"
-          type="button"
-          onClick={onContinueToEvidence}
-        >
-          Continue to Evidence Library
-        </button>
-      </div>
     </section>
   );
 }
@@ -1124,10 +1113,9 @@ function ReviewFindingBoard({
     <section className="review-finding-board">
       <div className="review-finding-board__header">
         <div>
-          <p className="panel-kicker">Actionable findings</p>
-          <h3>Use the review as an edit and evidence backlog.</h3>
+          <p className="panel-kicker">Detail notes</p>
+          <h3>{activeDetailHeading(visibleTitles)}</h3>
         </div>
-        <p>Cards separate what to preserve, what to rewrite, and what needs source-backed proof.</p>
       </div>
       {visibleGroups.map((group) => (
         <div className="review-finding-group" key={group.title}>
@@ -1203,8 +1191,8 @@ function ReviewDetailTabs({
         <section className="review-summary-card">
           <div>
             <p className="panel-kicker">Summary</p>
-            <h3>{metadataScan ? "Recruiter skim result" : "Review summary"}</h3>
-            <p>{metadataScan || "Use the tabs to inspect strengths, fixes, evidence gaps, rewrite suggestions, ATS notes, and privacy risks."}</p>
+            <h3>Full review notes</h3>
+            <p>Use the tabs for strengths, fixes, evidence gaps, rewrites, ATS notes, and privacy checks.</p>
           </div>
         </section>
       ) : (
@@ -1218,6 +1206,12 @@ function ReviewDetailTabs({
       ) : null}
     </section>
   );
+}
+
+function activeDetailHeading(visibleTitles?: string[]) {
+  const title = visibleTitles?.[0];
+  if (!title) return "Review detail";
+  return title;
 }
 
 function reviewActionLabel(

@@ -14,7 +14,6 @@ import { TailoredResumeWorkspace } from "../src/components/tailored-resume-works
 import { AccountMenu, useAccess } from "../src/components/access-provider";
 import {
   CountUpMetric,
-  FocusGlowCard,
   MotionPanel,
   WorkflowStepper,
 } from "../src/components/ui/motion-primitives";
@@ -695,36 +694,62 @@ function DashboardView({
               target: () => onNavigate("evidence"),
             },
           ];
-  const pipelineItems = [
+  const openDisplayNextAction = () => {
+    if (displayNextAction.resumeTab) {
+      onNavigateResume(displayNextAction.resumeTab);
+      return;
+    }
+    onNavigate(displayNextAction.view);
+  };
+  const nextActionRows = [
     {
-      action: "Open jobs",
-      detail: jobs[0]?.title ?? "Analyze a role when evidence is ready.",
-      label: "Jobs saved",
-      metric: `${jobs.length} analyzed`,
-      target: () => onNavigate("jobs"),
+      action: displayNextAction.label,
+      detail: displayNextAction.detail,
+      label: displayNextAction.title.replace(/[.!?]$/, ""),
+      target: openDisplayNextAction,
+    },
+    ...visiblePriorityItems,
+  ].slice(0, 4);
+  const appliedJobs = jobs.filter((job) => job.application_status === "applied").length;
+  const respondedJobs = jobs.filter((job) => job.application_status === "responded").length;
+  const offerJobs = jobs.filter((job) => job.application_status === "offer").length;
+  const applicationStages = [
+    {
+      label: "Saved",
+      value: jobs.length,
     },
     {
-      action: "Open tracker",
-      detail: activeApplications > 0 ? "Track follow-ups and stage changes." : "No active applications yet.",
       label: "Applied",
-      metric: `${activeApplications} active`,
-      target: () => onNavigate("applications"),
+      value: appliedJobs,
     },
     {
-      action: "Prep interview",
-      detail: interviewJobs > 0 ? "Interview-stage jobs need prep." : "No interview-stage jobs.",
-      label: "Interviewing",
-      metric: String(interviewJobs),
-      target: () => onNavigate("interview"),
+      label: "Responded",
+      value: respondedJobs,
     },
     {
-      action: "View prep",
-      detail: prepPacks.length > 0 ? "Prep packs are ready for reviewed jobs." : "Create prep after JD analysis.",
-      label: "Prep packs",
-      metric: String(prepPacks.length),
-      target: () => onNavigate("interview"),
+      label: "Interview",
+      value: interviewJobs,
+    },
+    {
+      label: "Offer",
+      value: offerJobs,
     },
   ];
+  const applicationStageMax = Math.max(1, ...applicationStages.map((stage) => stage.value));
+  const recentJobWorkspaces = jobs.slice(0, 4);
+  const resumeScore = latestResume?.latestReview?.overallScore ?? 0;
+  const resumeHealthIssue =
+    claimsNeedingReview > 0
+      ? `${claimsNeedingReview} claim${claimsNeedingReview === 1 ? "" : "s"} need review`
+      : thinStories > 0
+        ? `${thinStories} stor${thinStories === 1 ? "y needs" : "ies need"} context`
+        : resumeReadyClaims === 0
+          ? "No resume-ready evidence yet"
+          : "Ready to draft grounded resumes";
+  const primaryReadinessAction = actionableReadinessItems[0] ?? readinessItems[0] ?? {
+    action: "Open dashboard",
+    target: () => onNavigate("dashboard"),
+  };
   const dashboardMetrics = [
     {
       action: () => onNavigateResume("intake_review"),
@@ -765,43 +790,6 @@ function DashboardView({
 
   return (
     <MotionPanel className="dashboard-grid">
-      <FocusGlowCard>
-        <article className="next-action-card next-action-card--compact">
-          <div>
-            <p className="panel-kicker">Next</p>
-            <h2>{displayNextAction.title}</h2>
-            <p>{displayNextAction.detail}</p>
-          </div>
-          <div className="next-action-card__actions">
-            <button
-              disabled={dashboardLoadState === "loading"}
-              type="button"
-              onClick={() =>
-                displayNextAction.resumeTab
-                  ? onNavigateResume(displayNextAction.resumeTab)
-                  : onNavigate(displayNextAction.view)
-              }
-            >
-              {displayNextAction.label}
-            </button>
-            {(() => {
-              const secondaryTarget = displayNextAction.secondaryTarget;
-              if (!displayNextAction.secondaryLabel || !secondaryTarget) return null;
-              return (
-                <button
-                  className="next-action-card__secondary"
-                  disabled={dashboardLoadState === "loading"}
-                  type="button"
-                  onClick={() => onStartMaterialPath(secondaryTarget)}
-                >
-                  {displayNextAction.secondaryLabel}
-                </button>
-              );
-            })()}
-          </div>
-        </article>
-      </FocusGlowCard>
-
       <section className="dashboard-metric-strip" aria-label="Workspace metrics">
         {dashboardMetrics.map((metric) => (
           <button
@@ -821,59 +809,15 @@ function DashboardView({
       </section>
 
       <section className="overview-lanes" aria-label="Business overview">
-        <div className="journey-panel readiness-strip" aria-label="Resume readiness">
-          <div className="journey-panel__header">
-            <div>
-              <p className="panel-kicker">Resume readiness</p>
+        <div className="dashboard-main-lane">
+          <section className="next-actions-panel" aria-label="Next actions">
+            <div className="dashboard-section-heading">
+              <p className="panel-kicker">Next Actions</p>
+              <span>{nextActionRows.length} priority</span>
             </div>
-            <span>
-              {dashboardLoadState === "loading" ? (
-                "Loading"
-              ) : (
-                <>
-                  <CountUpMetric value={resumeReadyClaims} /> resume-ready
-                </>
-              )}
-            </span>
-          </div>
-          <WorkflowStepper
-            className="workflow-stepper--dashboard"
-            steps={readinessItems.map((step) => ({
-              id: step.id,
-              label: step.label,
-              metric: step.metric,
-              state: step.state as "active" | "blocked" | "complete" | "idle",
-            }))}
-          />
-          <details className="readiness-details" open>
-            <summary>
-              {actionableReadinessItems.length > 0
-                ? `${actionableReadinessItems.length} readiness item${actionableReadinessItems.length === 1 ? "" : "s"} need attention`
-                : "All readiness steps are on track"}
-            </summary>
-            <div className="journey-steps">
-              {(actionableReadinessItems.length > 0 ? actionableReadinessItems : readinessItems).map((step, index) => (
-                <article className="journey-step" data-state={step.state} key={step.id}>
-                  <div className="journey-step__number">{index + 1}</div>
-                  <div>
-                    <span>{step.label}</span>
-                    <strong>{step.metric}</strong>
-                    <p>{step.detail}</p>
-                  </div>
-                  <button disabled={dashboardLoadState === "loading"} onClick={step.target} type="button">
-                    {step.action}
-                  </button>
-                </article>
-              ))}
-            </div>
-          </details>
-          <section className="priority-board priority-board--inline" aria-label="Attention queue">
-            <div className="priority-board__header">
-              <p className="panel-kicker">Attention Queue</p>
-            </div>
-            <div className="priority-board__list">
-              {visiblePriorityItems.map((item, index) => (
-                <article className="priority-row" key={item.label}>
+            <div className="next-actions-list">
+              {nextActionRows.map((item, index) => (
+                <article className="next-action-row" data-primary={index === 0 ? "true" : "false"} key={`${item.label}-${index}`}>
                   <span>{index + 1}</span>
                   <div>
                     <strong>{item.label}</strong>
@@ -886,13 +830,49 @@ function DashboardView({
               ))}
             </div>
           </section>
+
+          <section className="resume-health-panel" aria-label="Resume health">
+            <div className="dashboard-section-heading">
+              <p className="panel-kicker">Resume Health</p>
+              <span>
+                <CountUpMetric value={resumeReadyClaims} /> ready
+              </span>
+            </div>
+            <div className="resume-health-grid">
+              <article className="resume-health-score">
+                <span>Score</span>
+                <strong>{latestResume?.latestReview ? <CountUpMetric value={resumeScore} /> : "—"}</strong>
+                <small>{latestResume ? formatResumeTitle(latestResume.title) : "No resume yet"}</small>
+              </article>
+              <div className="resume-health-workflow">
+                <WorkflowStepper
+                  className="workflow-stepper--dashboard"
+                  steps={readinessItems.map((step) => ({
+                    id: step.id,
+                    label: step.label,
+                    metric: step.metric,
+                    state: step.state as "active" | "blocked" | "complete" | "idle",
+                  }))}
+                />
+                <article className="resume-health-focus">
+                  <span>Top issue</span>
+                  <strong>{resumeHealthIssue}</strong>
+                  <button
+                    disabled={dashboardLoadState === "loading"}
+                    type="button"
+                    onClick={primaryReadinessAction.target}
+                  >
+                    {primaryReadinessAction.action}
+                  </button>
+                </article>
+              </div>
+            </div>
+          </section>
         </div>
 
         <div className="pipeline-panel" aria-label="Application pipeline">
-          <div className="journey-panel__header">
-            <div>
-              <p className="panel-kicker">Application pipeline</p>
-            </div>
+          <div className="dashboard-section-heading">
+            <p className="panel-kicker">Application Pipeline</p>
             <span>
               {dashboardLoadState === "loading" ? (
                 "Loading"
@@ -903,20 +883,50 @@ function DashboardView({
               )}
             </span>
           </div>
-          <div className="pipeline-list">
-            {pipelineItems.map((item) => (
-              <article className="pipeline-row" key={item.label}>
-                <div>
-                  <span>{item.label}</span>
-                  <strong>{item.metric}</strong>
-                  <p>{item.detail}</p>
+          <div className="pipeline-stage-list">
+            {applicationStages.map((stage) => (
+              <article className="pipeline-stage-row" key={stage.label}>
+                <div className="pipeline-stage-row__top">
+                  <span>{stage.label}</span>
+                  <strong>
+                    <CountUpMetric value={stage.value} />
+                  </strong>
                 </div>
-                <button disabled={dashboardLoadState === "loading"} type="button" onClick={item.target}>
-                  {item.action}
-                </button>
+                <div className="pipeline-stage-bar" aria-hidden="true">
+                  <span style={{ width: `${Math.max(5, Math.round((stage.value / applicationStageMax) * 100))}%` }} />
+                </div>
               </article>
             ))}
           </div>
+          <div className="pipeline-summary-row">
+            <button disabled={dashboardLoadState === "loading"} type="button" onClick={() => onNavigate("jobs")}>
+              Add target job
+            </button>
+            <button disabled={dashboardLoadState === "loading"} type="button" onClick={() => onNavigate("applications")}>
+              Open tracker
+            </button>
+          </div>
+          <section className="job-workspaces-panel" aria-label="Job workspaces">
+            <div className="dashboard-section-heading dashboard-section-heading--small">
+              <p className="panel-kicker">Job Workspaces</p>
+              <span>{jobs.length} saved</span>
+            </div>
+            <div className="job-workspace-list">
+              {recentJobWorkspaces.length > 0 ? (
+                recentJobWorkspaces.map((job) => (
+                  <button disabled={dashboardLoadState === "loading"} key={job.id} type="button" onClick={() => onNavigate("jobs")}>
+                    <span>{job.title}</span>
+                    <small>{job.application_status ?? "saved"}</small>
+                  </button>
+                ))
+              ) : (
+                <article className="job-workspace-empty">
+                  <strong>No target jobs yet</strong>
+                  <p>Analyze a role when you are ready to tailor.</p>
+                </article>
+              )}
+            </div>
+          </section>
         </div>
       </section>
 
