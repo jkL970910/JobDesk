@@ -995,90 +995,6 @@ strong,
   grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
 }
 
-.dashboard-metric-strip {
-  display: grid;
-  gap: 0;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  overflow: hidden;
-}
-
-.dashboard-metric-strip button {
-  background: rgba(255, 255, 255, 0.018);
-  border: 0;
-  border-left: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 0;
-  color: var(--ink);
-  cursor: pointer;
-  display: grid;
-  gap: 6px;
-  min-height: 96px;
-  padding: 13px 16px;
-  position: relative;
-  text-align: left;
-  transition: border-color 160ms var(--ease-out), background 160ms var(--ease-out), transform 160ms var(--ease-out);
-}
-
-.dashboard-metric-strip button:first-child {
-  border-left: 0;
-}
-
-.dashboard-metric-strip button:hover {
-  background: rgba(79, 140, 255, 0.07);
-  border-color: rgba(121, 164, 255, 0.24);
-  transform: none;
-}
-
-.dashboard-metric-strip span {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 860;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
-}
-
-.dashboard-metric-strip strong {
-  align-items: baseline;
-  align-self: end;
-  color: var(--ink);
-  display: flex;
-  flex-wrap: wrap;
-  font-size: clamp(2.8rem, 4vw, 4.5rem);
-  font-weight: 920;
-  gap: 5px;
-  justify-self: end;
-  letter-spacing: -0.085em;
-  line-height: 0.95;
-  margin-top: 12px;
-  text-align: right;
-}
-
-.dashboard-metric-strip button > strong {
-  bottom: 12px;
-  font-size: clamp(3rem, 5vw, 5.1rem);
-  line-height: 0.82;
-  position: absolute;
-  right: 16px;
-}
-
-.dashboard-metric-strip small {
-  color: var(--muted);
-  font-size: 0.92rem;
-  font-weight: 780;
-  letter-spacing: -0.01em;
-}
-
-.dashboard-metric-strip button[data-tone="ready"] strong {
-  color: var(--accent);
-}
-
-.dashboard-metric-strip button[data-tone="warning"] strong {
-  color: var(--warning);
-}
-
-.dashboard-metric-strip button[data-tone="blocked"] strong {
-  color: #ff9f9f;
-}
-
 .dashboard-main-lane,
 .next-actions-panel,
 .resume-health-panel,
@@ -1314,66 +1230,55 @@ strong,
   min-height: calc(100dvh - var(--app-topbar-space) - 104px);
 }
 
-.dashboard-figma-shell .dashboard-metric-strip {
+.pipeline-compact-metrics {
   border-bottom: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.dashboard-figma-shell .dashboard-metric-strip button {
-  align-content: start;
+.pipeline-compact-metrics button {
   background: transparent;
-  border-left-color: var(--line);
+  border: 0;
+  border-left: 1px solid var(--line);
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
   gap: 8px;
-  min-height: 76px;
-  padding: 16px 22px 14px;
-}
-
-.dashboard-figma-shell .dashboard-metric-strip button:hover {
-  background: rgba(79, 140, 255, 0.045);
-}
-
-.dashboard-figma-shell .dashboard-metric-strip span {
-  color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 820;
-  letter-spacing: 0.06em;
-}
-
-.dashboard-figma-shell .dashboard-metric-strip strong {
-  align-self: start;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  justify-self: start;
-  margin-top: 0;
+  min-width: 0;
+  padding: 14px 16px;
   text-align: left;
 }
 
-.dashboard-figma-shell .dashboard-metric-strip button > strong {
-  bottom: auto;
-  font-size: clamp(3.25rem, 5.2vw, 5.4rem);
-  letter-spacing: -0.075em;
-  line-height: 0.8;
-  position: static;
-  right: auto;
+.pipeline-compact-metrics button:first-child {
+  border-left: 0;
 }
 
-.dashboard-figma-shell .dashboard-metric-strip .count-up-metric {
+.pipeline-compact-metrics button:hover {
+  background: rgba(79, 140, 255, 0.045);
+}
+
+.pipeline-compact-metrics span {
+  color: var(--faint);
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.pipeline-compact-metrics strong {
   color: var(--ink);
-  display: block;
-  font-size: clamp(3.25rem, 5.2vw, 5.4rem);
-  font-weight: 940;
-  letter-spacing: -0.09em;
-  line-height: 0.8;
+  font-size: clamp(1.9rem, 3vw, 2.8rem);
+  font-weight: 930;
+  letter-spacing: -0.07em;
+  line-height: 0.9;
 }
 
-.dashboard-figma-shell .dashboard-metric-strip small {
-  color: var(--muted);
-  display: block;
-  font-size: 0.84rem;
-  font-weight: 780;
-  letter-spacing: 0.01em;
-  line-height: 1;
-  margin-top: 0;
+.pipeline-compact-metrics button[data-tone="ready"] strong {
+  color: var(--accent);
+}
+
+.pipeline-compact-metrics button[data-tone="warning"] strong {
+  color: var(--warning);
 }
 
 .overview-lanes--figma {
@@ -2882,14 +2787,15 @@ strong,
 .review-score-compact {
   align-items: start;
   display: grid;
-  gap: 14px;
+  gap: 11px;
   grid-template-columns: minmax(0, 1fr) auto;
   min-height: 0;
+  padding: 14px;
 }
 
 .review-score-compact__identity {
   display: grid;
-  gap: 7px;
+  gap: 5px;
   min-width: 0;
 }
 
@@ -2903,7 +2809,7 @@ strong,
 
 .review-score-compact__identity > strong {
   color: var(--ink);
-  font-size: clamp(1.05rem, 1.35vw, 1.35rem);
+  font-size: clamp(0.95rem, 1.15vw, 1.18rem);
   letter-spacing: -0.035em;
   line-height: 1.08;
   overflow-wrap: anywhere;
@@ -2918,7 +2824,7 @@ strong,
 
 .review-score-compact__identity b {
   color: var(--accent);
-  font-size: clamp(4.6rem, 7.2vw, 6.8rem);
+  font-size: clamp(3.15rem, 5vw, 4.4rem);
   font-weight: 950;
   letter-spacing: -0.105em;
   line-height: 0.78;
@@ -2926,7 +2832,7 @@ strong,
 
 .review-score-compact__identity small {
   color: var(--faint);
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   font-weight: 900;
   letter-spacing: 0.045em;
   padding-bottom: 6px;
@@ -2936,7 +2842,7 @@ strong,
 .review-score-compact__actions {
   align-content: start;
   display: grid;
-  gap: 8px;
+  gap: 7px;
   justify-items: end;
 }
 
@@ -2952,15 +2858,16 @@ strong,
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
   color: var(--ink-soft);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 850;
-  padding: 6px 9px;
+  padding: 5px 8px;
   white-space: nowrap;
 }
 
 .review-score-compact__actions button {
   justify-self: end;
-  padding-inline: 14px;
+  font-size: 0.76rem;
+  padding: 8px 11px;
   white-space: nowrap;
 }
 
@@ -2970,7 +2877,7 @@ strong,
   gap: 0;
   grid-column: 1 / -1;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  padding-top: 12px;
+  padding-top: 10px;
 }
 
 .review-score-compact__stats span {
@@ -2979,8 +2886,8 @@ strong,
   display: grid;
   font-size: 0.66rem;
   font-weight: 850;
-  gap: 5px;
-  padding-inline: 12px;
+  gap: 4px;
+  padding-inline: 9px;
   text-transform: uppercase;
 }
 
@@ -2991,7 +2898,7 @@ strong,
 
 .review-score-compact__stats strong {
   color: var(--ink);
-  font-size: clamp(1.7rem, 2.7vw, 2.45rem);
+  font-size: clamp(1.28rem, 2vw, 1.75rem);
   font-weight: 920;
   letter-spacing: -0.06em;
   line-height: 0.9;
@@ -8950,7 +8857,6 @@ select:focus {
 
   .status-board,
   .dashboard-summary,
-  .dashboard-metric-strip,
   .entry-path-board,
   .downstream-board,
   .project-source-modes,
@@ -9309,7 +9215,7 @@ select:focus {
     border-top: 1px solid var(--line);
   }
 
-  .dashboard-figma-shell .dashboard-metric-strip {
+  .pipeline-compact-metrics {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
@@ -9375,7 +9281,7 @@ select:focus {
     width: 100%;
   }
 
-  .dashboard-figma-shell .dashboard-metric-strip,
+  .pipeline-compact-metrics,
   .career-profile-sidebar,
   .career-profile-fact-grid,
   .profile-facts-panel__metrics,
@@ -9656,7 +9562,6 @@ select:focus {
   .status-board,
   .entry-path-board,
   .downstream-board,
-  .dashboard-metric-strip,
   .review-switcher,
   .profile-tabs-preview,
   .profile-live-summary__grid,

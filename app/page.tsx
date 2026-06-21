@@ -770,64 +770,29 @@ function DashboardView({
     action: "Open dashboard",
     target: () => onNavigate("dashboard"),
   };
-  const dashboardMetrics = [
+  const pipelineMetrics = [
     {
-      action: () => onNavigateResume("intake_review"),
-      label: "Resume score",
-      value: latestResume?.latestReview?.overallScore ?? 0,
-      suffix: latestResume?.latestReview ? "" : " pending",
-      tone: latestResume?.latestReview ? "ready" : "muted",
+      action: () => onNavigate("applications"),
+      label: "Active",
+      value: activeApplications,
+      tone: activeApplications > 0 ? "ready" : "muted",
     },
     {
-      action: () => onNavigate("evidence"),
-      label: "Resume-ready",
-      value: resumeReadyClaims,
-      suffix: " claims",
-      tone: resumeReadyClaims > 0 ? "ready" : "blocked",
-    },
-    {
-      action: () => onNavigate("evidence"),
-      label: "Need review",
-      value: claimsNeedingReview,
-      suffix: " claims",
-      tone: claimsNeedingReview > 0 ? "warning" : "ready",
-    },
-    {
-      action: () => onNavigate("evidence"),
-      label: "Thin stories",
-      value: thinStories,
-      suffix: "",
-      tone: thinStories > 0 ? "warning" : "ready",
+      action: () => onNavigate("jobs"),
+      label: "Jobs",
+      value: jobs.length,
+      tone: jobs.length > 0 ? "ready" : "muted",
     },
     {
       action: () => onNavigate("applications"),
-      label: "Active apps",
-      value: activeApplications,
-      suffix: "",
-      tone: activeApplications > 0 ? "ready" : "muted",
+      label: "Follow-up",
+      value: applicationStages.find((stage) => stage.label === "Follow-up")?.value ?? 0,
+      tone: (applicationStages.find((stage) => stage.label === "Follow-up")?.value ?? 0) > 0 ? "warning" : "ready",
     },
   ];
 
   return (
     <MotionPanel className="dashboard-grid dashboard-figma-shell">
-      <section className="dashboard-metric-strip" aria-label="Workspace metrics">
-        {dashboardMetrics.map((metric) => (
-          <button
-            data-tone={metric.tone}
-            disabled={dashboardLoadState === "loading"}
-            key={metric.label}
-            type="button"
-            onClick={metric.action}
-          >
-            <span>{metric.label}</span>
-            <strong>
-              <CountUpMetric value={metric.value} />
-              {metric.suffix ? <small>{metric.suffix}</small> : null}
-            </strong>
-          </button>
-        ))}
-      </section>
-
       <section className="overview-lanes overview-lanes--figma" aria-label="Business overview">
         <div className="dashboard-main-lane">
           <section className="next-actions-panel" aria-label="Next actions">
@@ -915,6 +880,22 @@ function DashboardView({
               )}
             </span>
           </div>
+          <section className="pipeline-compact-metrics" aria-label="Pipeline metrics">
+            {pipelineMetrics.map((metric) => (
+              <button
+                data-tone={metric.tone}
+                disabled={dashboardLoadState === "loading"}
+                key={metric.label}
+                type="button"
+                onClick={metric.action}
+              >
+                <span>{metric.label}</span>
+                <strong>
+                  <CountUpMetric value={metric.value} />
+                </strong>
+              </button>
+            ))}
+          </section>
           <div className="pipeline-stage-list">
             {applicationStages.map((stage) => (
               <article className="pipeline-stage-row" key={stage.label}>
