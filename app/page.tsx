@@ -791,7 +791,7 @@ function DashboardView({
               state: step.state as "active" | "blocked" | "complete" | "idle",
             }))}
           />
-          <details className="readiness-details">
+          <details className="readiness-details" open>
             <summary>
               {actionableReadinessItems.length > 0
                 ? `${actionableReadinessItems.length} readiness item${actionableReadinessItems.length === 1 ? "" : "s"} need attention`
