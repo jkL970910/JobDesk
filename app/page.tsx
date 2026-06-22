@@ -1272,6 +1272,13 @@ function ProfileReferenceView({
   );
   const [mainResumeStatus, setMainResumeStatus] = useState<string | null>(null);
   const [positioningStatus, setPositioningStatus] = useState<string | null>(null);
+  const [profileActionStatus, setProfileActionStatus] = useState<string | null>(null);
+  const [activeProfileFactEditor, setActiveProfileFactEditor] =
+    useState<ProfileGapIntent | null>(null);
+  const [profileFactDraft, setProfileFactDraft] = useState("");
+  const [isSavingProfileFact, setIsSavingProfileFact] = useState(false);
+  const [isExtractingResumeLibrary, setIsExtractingResumeLibrary] = useState(false);
+  const [profileReloadKey, setProfileReloadKey] = useState(0);
   const [isGeneratingMainResume, setIsGeneratingMainResume] = useState(false);
   const [isGeneratingPositioning, setIsGeneratingPositioning] = useState(false);
   const [refreshSourceResumeId, setRefreshSourceResumeId] = useState("");
@@ -1356,7 +1363,7 @@ function ProfileReferenceView({
     return () => {
       cancelled = true;
     };
-  }, [fetchJson]);
+  }, [fetchJson, profileReloadKey]);
 
   const resumeEligibleEvidence =
     countResumeReadyClaims(library?.evidenceItems ?? []);
@@ -1464,6 +1471,9 @@ function ProfileReferenceView({
       label: `${metric.label} details`,
     }));
   const firstMissingProfileGap = profileGapIntents[0] ?? null;
+  const needsLibraryExtraction = Boolean(
+    latestResume?.latestReview && !hasExtractedMaterial,
+  );
   const roleCoverage = buildCareerRoleCoverage(library);
   const sourceSummary = buildCareerSourceSummary({
     latestResume,
@@ -1503,6 +1513,122 @@ function ProfileReferenceView({
     },
   ];
   const exportUsesLengthConstraint = exportPagePolicy !== "unrestricted";
+
+  function openProfileFactEditor(gap: ProfileGapIntent) {
+    const copy = profileFactInlineCopy(gap.field);
+    setActiveProfileFactEditor(gap);
+    setProfileFactDraft(copy.template);
+    setProfileActionStatus(null);
+  }
+
+  async function extractLatestResumeToLibrary() {
+    if (!latestResume) {
+      onNavigateResume("intake_review");
+      return;
+    }
+    setIsExtractingResumeLibrary(true);
+    setProfileActionStatus(`Creating library items from ${formatResumeTitle(latestResume.title)}...`);
+    try {
+      const resumeResponse = await fetchJson(`/api/resume-review/${latestResume.id}`);
+      const resumePayload = (await resumeResponse.json().catch(() => null)) as
+        | {
+            data?: {
+              status: string;
+              resume?: {
+                id: string;
+                sourceDocumentId?: string;
+                sourceText: string;
+                title: string;
+              };
+            };
+            error?: string;
+          }
+        | null;
+      if (!resumeResponse.ok || resumePayload?.data?.status !== "ready" || !resumePayload.data.resume) {
+        setProfileActionStatus(resumePayload?.error ?? "Could not load reviewed resume source.");
+        return;
+      }
+      const resume = resumePayload.data.resume;
+      const extractionResponse = await fetchJson("/api/profile-evidence/extract", {
+        body: JSON.stringify({
+          resumeSourceVersionId: resume.id,
+          sourceDocumentId: resume.sourceDocumentId,
+          sourceText: resume.sourceText,
+          sourceTitle: formatResumeTitle(resume.title),
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      const extractionPayload = (await extractionResponse.json().catch(() => null)) as
+        | { error?: string; kind?: string }
+        | null;
+      if (!extractionResponse.ok) {
+        setProfileActionStatus(
+          extractionPayload?.error
+            ? `${extractionPayload.error}${extractionPayload.kind ? ` (${extractionPayload.kind})` : ""}`
+            : "Could not create library items from this resume.",
+        );
+        return;
+      }
+      setProfileActionStatus("Library items created. Core facts and evidence are refreshing.");
+      setProfileReloadKey((key) => key + 1);
+      window.dispatchEvent(new Event("jobdesk:evidence-library-updated"));
+    } catch (error) {
+      setProfileActionStatus(
+        error instanceof Error ? error.message : "Could not create library items from this resume.",
+      );
+    } finally {
+      setIsExtractingResumeLibrary(false);
+    }
+  }
+
+  async function saveProfileFactSource() {
+    if (!activeProfileFactEditor) return;
+    const copy = profileFactInlineCopy(activeProfileFactEditor.field);
+    const trimmed = profileFactDraft.trim();
+    if (trimmed.length < 40) {
+      setProfileActionStatus("Add a few concrete details before saving this profile source.");
+      return;
+    }
+    const sourceText =
+      trimmed.length >= 80
+        ? trimmed
+        : `${trimmed}\n\nUse these facts only to update ${copy.title.toLowerCase()} in my JobDesk profile.`;
+    setIsSavingProfileFact(true);
+    setProfileActionStatus(`Saving ${copy.title.toLowerCase()}...`);
+    try {
+      const response = await fetchJson("/api/profile-evidence/extract", {
+        body: JSON.stringify({
+          sourceText,
+          sourceTitle: `Profile fact update · ${copy.title}`,
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; kind?: string }
+        | null;
+      if (!response.ok) {
+        setProfileActionStatus(
+          payload?.error
+            ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
+            : "Could not save profile source.",
+        );
+        return;
+      }
+      setProfileActionStatus(`${copy.title} saved. Profile facts are refreshing.`);
+      setActiveProfileFactEditor(null);
+      setProfileFactDraft("");
+      setProfileReloadKey((key) => key + 1);
+      window.dispatchEvent(new Event("jobdesk:evidence-library-updated"));
+    } catch (error) {
+      setProfileActionStatus(
+        error instanceof Error ? error.message : "Could not save profile source.",
+      );
+    } finally {
+      setIsSavingProfileFact(false);
+    }
+  }
 
   async function generatePositioningReport() {
     setIsGeneratingPositioning(true);
@@ -1784,6 +1910,43 @@ function ProfileReferenceView({
               </div>
             </section>
 
+            {needsLibraryExtraction ? (
+              <section className="career-profile-extract-banner" aria-live="polite">
+                <div>
+                  <span>Resume reviewed, library not created yet</span>
+                  <strong>Core facts and evidence are empty until you create library items.</strong>
+                  <p>
+                    Resume Review only scored the source. Create library items when you want JobDesk
+                    to fill Contact, Roles, Education, Skills, and reusable evidence from that resume.
+                  </p>
+                  {profileActionStatus ? <small>{profileActionStatus}</small> : null}
+                </div>
+                <div className="career-profile-extract-banner__actions">
+                  <button
+                    className="primary-button"
+                    disabled={isExtractingResumeLibrary}
+                    type="button"
+                    onClick={() => void extractLatestResumeToLibrary()}
+                  >
+                    {isExtractingResumeLibrary ? "Creating..." : "Create Library Items"}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() =>
+                      firstMissingProfileGap
+                        ? openProfileFactEditor(firstMissingProfileGap)
+                        : onNavigateResume("intake_review")
+                    }
+                  >
+                    Add manually
+                  </button>
+                </div>
+              </section>
+            ) : profileActionStatus ? (
+              <p className="career-profile-action-status">{profileActionStatus}</p>
+            ) : null}
+
             <section className="career-profile-card career-profile-card--facts">
               <header className="career-profile-card__header">
                 <div>
@@ -1794,8 +1957,12 @@ function ProfileReferenceView({
                   className="career-profile-card__link"
                   type="button"
                   onClick={() => {
+                    if (needsLibraryExtraction) {
+                      void extractLatestResumeToLibrary();
+                      return;
+                    }
                     if (firstMissingProfileGap) {
-                      onOpenProfileGapMaterial(firstMissingProfileGap);
+                      openProfileFactEditor(firstMissingProfileGap);
                       return;
                     }
                     if (resumePrepState === "no_resume" || resumePrepState === "resume_uploaded") {
@@ -1829,10 +1996,14 @@ function ProfileReferenceView({
                         type="button"
                         onClick={() => {
                           if (metric.kind === "roles") {
-                            onNavigateResume("intake_review");
+                            if (needsLibraryExtraction) {
+                              void extractLatestResumeToLibrary();
+                            } else {
+                              onNavigateResume("intake_review");
+                            }
                             return;
                           }
-                          onOpenProfileGapMaterial({
+                          openProfileFactEditor({
                             field: metric.kind,
                             label: `${metric.label} details`,
                           });
@@ -1845,6 +2016,48 @@ function ProfileReferenceView({
                 ))}
               </div>
             </section>
+
+            {activeProfileFactEditor ? (
+              <section className="career-profile-card career-profile-fact-editor" aria-live="polite">
+                <header className="career-profile-card__header">
+                  <div>
+                    <p className="panel-kicker">Manual profile update</p>
+                    <h3>{profileFactInlineCopy(activeProfileFactEditor.field).title}</h3>
+                  </div>
+                  <button
+                    className="career-profile-card__link"
+                    type="button"
+                    onClick={() => {
+                      setActiveProfileFactEditor(null);
+                      setProfileFactDraft("");
+                    }}
+                  >
+                    Close
+                  </button>
+                </header>
+                <div className="career-profile-fact-editor__body">
+                  <p>{profileFactInlineCopy(activeProfileFactEditor.field).description}</p>
+                  <label>
+                    <span>{profileFactInlineCopy(activeProfileFactEditor.field).inputLabel}</span>
+                    <textarea
+                      value={profileFactDraft}
+                      onChange={(event) => setProfileFactDraft(event.target.value)}
+                    />
+                  </label>
+                  <div className="career-profile-fact-editor__actions">
+                    <button
+                      className="primary-button"
+                      disabled={isSavingProfileFact}
+                      type="button"
+                      onClick={() => void saveProfileFactSource()}
+                    >
+                      {isSavingProfileFact ? "Saving..." : "Save profile source"}
+                    </button>
+                    <span>{profileActionStatus ?? "This updates profile facts, not work stories."}</span>
+                  </div>
+                </div>
+              </section>
+            ) : null}
 
             <section className="career-profile-card">
               <header className="career-profile-card__header">
@@ -1877,9 +2090,20 @@ function ProfileReferenceView({
                 ) : (
                   <article className="career-profile-empty">
                     <strong>No work history yet</strong>
-                    <p>Run Resume Review or extract evidence to build role-level history.</p>
-                    <button type="button" onClick={() => onNavigateResume("intake_review")}>
-                      Open Resume Review
+                    <p>
+                      {needsLibraryExtraction
+                        ? "Your resume is reviewed. Create library items to populate roles and work history."
+                        : "Run Resume Review or create library items to build role-level history."}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        needsLibraryExtraction
+                          ? void extractLatestResumeToLibrary()
+                          : onNavigateResume("intake_review")
+                      }
+                    >
+                      {needsLibraryExtraction ? "Extract roles from resume" : "Open Resume Review"}
                     </button>
                   </article>
                 )}
@@ -1922,13 +2146,21 @@ function ProfileReferenceView({
               </header>
               <button
                 type="button"
-                onClick={() =>
-                  resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
-                    ? onNavigateResume("intake_review")
-                    : onNavigate("evidence")
-                }
+                onClick={() => {
+                  if (needsLibraryExtraction) {
+                    void extractLatestResumeToLibrary();
+                    return;
+                  }
+                  if (resumePrepState === "no_resume" || resumePrepState === "resume_uploaded") {
+                    onNavigateResume("intake_review");
+                    return;
+                  }
+                  onNavigate("evidence");
+                }}
               >
-                {resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
+                {needsLibraryExtraction
+                  ? "Create Library Items"
+                  : resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
                   ? "Open Resume Review"
                   : "Open Evidence Library"}
               </button>
@@ -2629,12 +2861,43 @@ function profileSnapshotCopy(state: ResumePrepWorkflowState) {
     return "Read-only profile facts from the latest extracted source. Use Evidence Library to improve coverage.";
   }
   if (state === "resume_uploaded" || state === "resume_reviewed") {
-    return "A resume exists, but profile facts have not been extracted into the library yet.";
+    return "Resume reviewed, profile facts not extracted yet. Create library items when you want JobDesk to remember this source.";
   }
   if (state === "claims_review_pending" || state === "evidence_extracted") {
     return "Profile facts are partially available. Review claims and enrich thin story targets before treating this as ready.";
   }
   return "Upload and review a resume before profile facts can be shown.";
+}
+
+function profileFactInlineCopy(field: ProfileGapIntent["field"]) {
+  if (field === "contact") {
+    return {
+      description:
+        "Add contact details you want JobDesk to reuse across resumes and profile summaries.",
+      inputLabel: "Contact details",
+      template:
+        "Name:\nEmail:\nPhone:\nCity / region:\nLinkedIn:\nPortfolio / GitHub:",
+      title: "Add contact details",
+    };
+  }
+  if (field === "education") {
+    return {
+      description:
+        "Add education facts that should appear in your career profile and resume drafts.",
+      inputLabel: "Education details",
+      template:
+        "School:\nDegree / program:\nField of study:\nGraduation date:\nGPA / honors, if relevant:\nRelevant coursework or certifications:",
+      title: "Add education details",
+    };
+  }
+  return {
+    description:
+      "Add or correct skills that should be reusable in resumes, interviews, and profile summaries.",
+    inputLabel: "Skills details",
+    template:
+      "Programming languages:\nFrameworks / libraries:\nTools / platforms:\nMethods / domain knowledge:\nSkills to remove or avoid:",
+    title: "Add skills details",
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

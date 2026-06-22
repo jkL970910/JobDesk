@@ -4155,6 +4155,69 @@ strong,
   overflow: hidden;
 }
 
+.career-profile-extract-banner {
+  align-items: center;
+  background:
+    radial-gradient(circle at 6% 0%, rgba(79, 140, 255, 0.2), transparent 34%),
+    rgba(79, 140, 255, 0.08);
+  border: 1px solid rgba(79, 140, 255, 0.24);
+  border-radius: 18px;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 16px 18px;
+}
+
+.career-profile-extract-banner span,
+.career-profile-fact-editor__body label span {
+  color: var(--primary-strong);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.career-profile-extract-banner strong {
+  color: var(--ink);
+  display: block;
+  font-size: clamp(1.05rem, 1.8vw, 1.35rem);
+  letter-spacing: -0.03em;
+  margin-top: 5px;
+}
+
+.career-profile-extract-banner p,
+.career-profile-extract-banner small,
+.career-profile-action-status,
+.career-profile-fact-editor__body p,
+.career-profile-fact-editor__actions span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin: 6px 0 0;
+}
+
+.career-profile-extract-banner small,
+.career-profile-action-status {
+  color: var(--ink-soft);
+}
+
+.career-profile-action-status {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 14px;
+  margin: 0;
+  padding: 11px 14px;
+}
+
+.career-profile-extract-banner__actions,
+.career-profile-fact-editor__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .career-profile-card__header,
 .career-profile-side-card header {
   align-items: center;
@@ -4255,6 +4318,38 @@ strong,
   color: var(--ink);
   outline: none;
   text-decoration: underline;
+}
+
+.career-profile-fact-editor__body {
+  display: grid;
+  gap: 13px;
+  padding: 18px;
+}
+
+.career-profile-fact-editor__body label {
+  display: grid;
+  gap: 8px;
+}
+
+.career-profile-fact-editor__body textarea {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.105);
+  border-radius: 14px;
+  color: var(--ink);
+  font: inherit;
+  min-height: 190px;
+  padding: 13px;
+  resize: vertical;
+}
+
+.career-profile-fact-editor__body textarea:focus {
+  border-color: rgba(79, 140, 255, 0.42);
+  box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.09);
+  outline: none;
+}
+
+.career-profile-fact-editor__actions {
+  justify-content: flex-start;
 }
 
 .career-profile-skills-list {
