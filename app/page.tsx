@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ApplicationTrackerWorkspace } from "../src/components/application-tracker-workspace";
 import { InterviewPrepWorkspace } from "../src/components/interview-prep-workspace";
@@ -1281,6 +1281,7 @@ function ProfileReferenceView({
   const [profileFactDraft, setProfileFactDraft] = useState("");
   const [isSavingProfileFact, setIsSavingProfileFact] = useState(false);
   const [profileReloadKey, setProfileReloadKey] = useState(0);
+  const profileFactEditorRef = useRef<HTMLElement | null>(null);
   const [isGeneratingMainResume, setIsGeneratingMainResume] = useState(false);
   const [isGeneratingPositioning, setIsGeneratingPositioning] = useState(false);
   const [refreshSourceResumeId, setRefreshSourceResumeId] = useState("");
@@ -1420,15 +1421,14 @@ function ProfileReferenceView({
     profileFacts.education.length ? null : "Education",
     profileFacts.skills.length ? null : "Skills",
   ].filter(Boolean) as string[];
+  const contactDetail = [profileFacts.email, profileFacts.phone].filter(Boolean).join(" · ");
   const profileFactsMetrics = [
     {
-      detail:
-        [profileFacts.email, profileFacts.phone].filter(Boolean).join(" · ") ||
-        "Name, email, or phone still missing.",
+      detail: contactDetail || "Name, email, or phone still missing.",
       kind: "contact",
       label: "Contact",
       missing: !profileFacts.email || !profileFacts.phone,
-      value: profileFacts.name || profileFacts.email ? "Present" : "Pending",
+      value: profileFacts.name || profileFacts.email || "Pending",
     },
     {
       detail:
@@ -1522,6 +1522,17 @@ function ProfileReferenceView({
     setProfileFactDraft(copy.template);
     setProfileActionStatus(null);
   }
+
+  useEffect(() => {
+    if (!activeProfileFactEditor) return;
+    window.setTimeout(() => {
+      profileFactEditorRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      profileFactEditorRef.current?.querySelector("textarea")?.focus();
+    }, 50);
+  }, [activeProfileFactEditor]);
 
   function openLatestResumeInEvidenceIntake() {
     if (!latestResume) {
@@ -1966,7 +1977,11 @@ function ProfileReferenceView({
             </section>
 
             {activeProfileFactEditor ? (
-              <section className="career-profile-card career-profile-fact-editor" aria-live="polite">
+              <section
+                className="career-profile-card career-profile-fact-editor"
+                ref={profileFactEditorRef}
+                aria-live="polite"
+              >
                 <header className="career-profile-card__header">
                   <div>
                     <p className="panel-kicker">Manual profile update</p>
@@ -2588,7 +2603,7 @@ function extractProfileFacts(profile: unknown) {
     experience: extractFactList(record.experience),
     name: extractFactValue(record.name ?? contact.name),
     phone: extractFactValue(record.phone ?? contact.phone),
-    skills: extractFactList(record.skills),
+    skills: extractSkillFacts(record.skills),
   };
 }
 
@@ -2782,8 +2797,23 @@ function formatExportResultStatus(
 function extractFactValue(value: unknown): string | null {
   if (typeof value === "string" && value.trim()) return value.trim();
   if (isRecord(value)) {
-    const nested = value.value ?? value.text ?? value.name ?? value.title;
+    const nested =
+      value.value ??
+      value.text ??
+      value.name ??
+      value.title ??
+      value.institution ??
+      value.school ??
+      value.university ??
+      value.college ??
+      value.degree ??
+      value.program ??
+      value.field_of_study ??
+      value.fieldOfStudy ??
+      value.field ??
+      value.major;
     if (typeof nested === "string" && nested.trim()) return nested.trim();
+    if (isRecord(nested)) return extractFactValue(nested);
   }
   return null;
 }
@@ -2802,8 +2832,8 @@ function extractFactList(value: unknown): string[] {
         item.role,
         item.title,
         item.employer,
-        item.school,
         item.institution,
+        item.school,
         item.university,
         item.college,
         item.degree,
@@ -2815,11 +2845,46 @@ function extractFactList(value: unknown): string[] {
         item.name,
         item.value,
       ]
-        .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-        .map((part) => part.trim());
+        .map(extractFactValue)
+        .filter((part): part is string => Boolean(part));
       return parts.slice(0, 2).join(" · ");
     })
     .filter(Boolean);
+}
+
+function extractSkillFacts(value: unknown): string[] {
+  const rawValues = extractFactList(value);
+  const categoryLabels = new Set([
+    "framework",
+    "frameworks",
+    "infrastructure",
+    "programming language",
+    "programming languages",
+    "language",
+    "languages",
+    "tools",
+    "platforms",
+    "methods",
+  ]);
+  const seen = new Set<string>();
+  const skills: string[] = [];
+  for (const raw of rawValues) {
+    const normalizedRaw = raw.replace(/\s+/g, " ").trim();
+    const withoutCategory = normalizedRaw.replace(
+      /^(programming languages?|frameworks?|infrastructure|tools?|platforms?|methods?)\s*:\s*/i,
+      "",
+    );
+    for (const part of withoutCategory.split(/[;,]/)) {
+      const skill = part.trim();
+      if (!skill) continue;
+      const key = skill.toLowerCase();
+      if (categoryLabels.has(key)) continue;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      skills.push(skill);
+    }
+  }
+  return skills;
 }
 
 function profileSnapshotCopy(state: ResumePrepWorkflowState) {
