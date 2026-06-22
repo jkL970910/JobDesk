@@ -1219,6 +1219,7 @@ function ResumeWorkspaceView({
         <ProfileReferenceView
           focus={activeTab === "profile_facts" ? "facts" : "builder"}
           onNavigate={onNavigate}
+          onExtractResumeToEvidence={onExtractResumeToEvidence}
           onOpenProfileGapMaterial={onOpenProfileGapMaterial}
           onNavigateResume={onTabChange}
         />
@@ -1251,11 +1252,13 @@ function formatPositioningSupportLevel(
 function ProfileReferenceView({
   focus,
   onNavigate,
+  onExtractResumeToEvidence,
   onOpenProfileGapMaterial,
   onNavigateResume,
 }: {
   focus: "facts" | "builder";
   onNavigate: (view: View) => void;
+  onExtractResumeToEvidence: (resumeSourceVersionId: string) => void;
   onOpenProfileGapMaterial: (gap: ProfileGapIntent) => void;
   onNavigateResume: (tab: ResumeWorkspaceTab) => void;
 }) {
@@ -1277,7 +1280,6 @@ function ProfileReferenceView({
     useState<ProfileGapIntent | null>(null);
   const [profileFactDraft, setProfileFactDraft] = useState("");
   const [isSavingProfileFact, setIsSavingProfileFact] = useState(false);
-  const [isExtractingResumeLibrary, setIsExtractingResumeLibrary] = useState(false);
   const [profileReloadKey, setProfileReloadKey] = useState(0);
   const [isGeneratingMainResume, setIsGeneratingMainResume] = useState(false);
   const [isGeneratingPositioning, setIsGeneratingPositioning] = useState(false);
@@ -1521,65 +1523,12 @@ function ProfileReferenceView({
     setProfileActionStatus(null);
   }
 
-  async function extractLatestResumeToLibrary() {
+  function openLatestResumeInEvidenceIntake() {
     if (!latestResume) {
       onNavigateResume("intake_review");
       return;
     }
-    setIsExtractingResumeLibrary(true);
-    setProfileActionStatus(`Creating library items from ${formatResumeTitle(latestResume.title)}...`);
-    try {
-      const resumeResponse = await fetchJson(`/api/resume-review/${latestResume.id}`);
-      const resumePayload = (await resumeResponse.json().catch(() => null)) as
-        | {
-            data?: {
-              status: string;
-              resume?: {
-                id: string;
-                sourceDocumentId?: string;
-                sourceText: string;
-                title: string;
-              };
-            };
-            error?: string;
-          }
-        | null;
-      if (!resumeResponse.ok || resumePayload?.data?.status !== "ready" || !resumePayload.data.resume) {
-        setProfileActionStatus(resumePayload?.error ?? "Could not load reviewed resume source.");
-        return;
-      }
-      const resume = resumePayload.data.resume;
-      const extractionResponse = await fetchJson("/api/profile-evidence/extract", {
-        body: JSON.stringify({
-          resumeSourceVersionId: resume.id,
-          sourceDocumentId: resume.sourceDocumentId,
-          sourceText: resume.sourceText,
-          sourceTitle: formatResumeTitle(resume.title),
-        }),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      });
-      const extractionPayload = (await extractionResponse.json().catch(() => null)) as
-        | { error?: string; kind?: string }
-        | null;
-      if (!extractionResponse.ok) {
-        setProfileActionStatus(
-          extractionPayload?.error
-            ? `${extractionPayload.error}${extractionPayload.kind ? ` (${extractionPayload.kind})` : ""}`
-            : "Could not create library items from this resume.",
-        );
-        return;
-      }
-      setProfileActionStatus("Library items created. Core facts and evidence are refreshing.");
-      setProfileReloadKey((key) => key + 1);
-      window.dispatchEvent(new Event("jobdesk:evidence-library-updated"));
-    } catch (error) {
-      setProfileActionStatus(
-        error instanceof Error ? error.message : "Could not create library items from this resume.",
-      );
-    } finally {
-      setIsExtractingResumeLibrary(false);
-    }
+    onExtractResumeToEvidence(latestResume.id);
   }
 
   async function saveProfileFactSource() {
@@ -1916,19 +1865,18 @@ function ProfileReferenceView({
                   <span>Resume reviewed, library not created yet</span>
                   <strong>Core facts and evidence are empty until you create library items.</strong>
                   <p>
-                    Resume Review only scored the source. Create library items when you want JobDesk
-                    to fill Contact, Roles, Education, Skills, and reusable evidence from that resume.
+                    Resume Review only scored the source. Open Add Material to confirm the resume
+                    version and text before creating Core Facts, Roles, Education, Skills, and evidence.
                   </p>
                   {profileActionStatus ? <small>{profileActionStatus}</small> : null}
                 </div>
                 <div className="career-profile-extract-banner__actions">
                   <button
                     className="primary-button"
-                    disabled={isExtractingResumeLibrary}
                     type="button"
-                    onClick={() => void extractLatestResumeToLibrary()}
+                    onClick={openLatestResumeInEvidenceIntake}
                   >
-                    {isExtractingResumeLibrary ? "Creating..." : "Create Library Items"}
+                    Open Add Material
                   </button>
                   <button
                     className="secondary-button"
@@ -1958,7 +1906,7 @@ function ProfileReferenceView({
                   type="button"
                   onClick={() => {
                     if (needsLibraryExtraction) {
-                      void extractLatestResumeToLibrary();
+                      openLatestResumeInEvidenceIntake();
                       return;
                     }
                     if (firstMissingProfileGap) {
@@ -1997,7 +1945,7 @@ function ProfileReferenceView({
                         onClick={() => {
                           if (metric.kind === "roles") {
                             if (needsLibraryExtraction) {
-                              void extractLatestResumeToLibrary();
+                              openLatestResumeInEvidenceIntake();
                             } else {
                               onNavigateResume("intake_review");
                             }
@@ -2099,11 +2047,11 @@ function ProfileReferenceView({
                       type="button"
                       onClick={() =>
                         needsLibraryExtraction
-                          ? void extractLatestResumeToLibrary()
+                          ? openLatestResumeInEvidenceIntake()
                           : onNavigateResume("intake_review")
                       }
                     >
-                      {needsLibraryExtraction ? "Extract roles from resume" : "Open Resume Review"}
+                      {needsLibraryExtraction ? "Open Add Material" : "Open Resume Review"}
                     </button>
                   </article>
                 )}
@@ -2148,7 +2096,7 @@ function ProfileReferenceView({
                 type="button"
                 onClick={() => {
                   if (needsLibraryExtraction) {
-                    void extractLatestResumeToLibrary();
+                    openLatestResumeInEvidenceIntake();
                     return;
                   }
                   if (resumePrepState === "no_resume" || resumePrepState === "resume_uploaded") {
@@ -2159,7 +2107,7 @@ function ProfileReferenceView({
                 }}
               >
                 {needsLibraryExtraction
-                  ? "Create Library Items"
+                  ? "Open Add Material"
                   : resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
                   ? "Open Resume Review"
                   : "Open Evidence Library"}
@@ -2633,12 +2581,13 @@ function ProfileReferenceView({
 
 function extractProfileFacts(profile: unknown) {
   const record = isRecord(profile) ? profile : {};
+  const contact = isRecord(record.contact) ? record.contact : {};
   return {
     education: extractFactList(record.education),
-    email: extractFactValue(record.email),
+    email: extractFactValue(record.email ?? contact.email),
     experience: extractFactList(record.experience),
-    name: extractFactValue(record.name),
-    phone: extractFactValue(record.phone),
+    name: extractFactValue(record.name ?? contact.name),
+    phone: extractFactValue(record.phone ?? contact.phone),
     skills: extractFactList(record.skills),
   };
 }
@@ -2848,7 +2797,24 @@ function extractFactList(value: unknown): string[] {
     .map((item) => {
       if (typeof item === "string") return item.trim();
       if (!isRecord(item)) return "";
-      const parts = [item.role_title, item.role, item.title, item.employer, item.school, item.degree, item.name, item.value]
+      const parts = [
+        item.role_title,
+        item.role,
+        item.title,
+        item.employer,
+        item.school,
+        item.institution,
+        item.university,
+        item.college,
+        item.degree,
+        item.program,
+        item.field_of_study,
+        item.fieldOfStudy,
+        item.field,
+        item.major,
+        item.name,
+        item.value,
+      ]
         .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
         .map((part) => part.trim());
       return parts.slice(0, 2).join(" · ");

@@ -128,6 +128,36 @@ describe("ProfileEvidenceExtraction", () => {
     expect(parsed.profile.phone?.confidence).toBe(0.75);
   });
 
+  it("keeps education items returned with common provider field aliases", () => {
+    const parsed = ProfileEvidenceExtraction.parse({
+      profile: {
+        name: "Jane Doe",
+        education: [
+          {
+            school: "University of Ottawa",
+            program: "Master of Engineering",
+            field: "Computer Engineering",
+            graduation_date: "May 2023",
+          },
+        ],
+        skills: [],
+      },
+      work_experiences: [],
+      initiatives: [],
+      portfolio_projects: [],
+      evidence_items: [],
+      project_cards: [],
+    });
+
+    expect(parsed.profile.education).toHaveLength(1);
+    expect(parsed.profile.education[0]).toMatchObject({
+      institution: { value: "University of Ottawa" },
+      degree: { value: "Master of Engineering" },
+      field_of_study: { value: "Computer Engineering" },
+      end_date: { value: "May 2023" },
+    });
+  });
+
   it("normalizes verbal confidence values from provider output", () => {
     const parsed = ProfileEvidenceExtraction.parse({
       profile: {

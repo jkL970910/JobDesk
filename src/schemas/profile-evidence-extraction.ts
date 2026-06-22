@@ -124,6 +124,36 @@ const LooseEducationItem = z.preprocess((value) => {
       end_date: null,
     };
   }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    return {
+      ...record,
+      institution:
+        record.institution ??
+        record.school ??
+        record.university ??
+        record.college ??
+        record.name,
+      degree:
+        record.degree ??
+        record.program ??
+        record.qualification ??
+        record.title,
+      field_of_study:
+        record.field_of_study ??
+        record.fieldOfStudy ??
+        record.field ??
+        record.major,
+      start_date: record.start_date ?? record.startDate ?? record.start,
+      end_date:
+        record.end_date ??
+        record.endDate ??
+        record.graduation_date ??
+        record.graduationDate ??
+        record.date ??
+        record.end,
+    };
+  }
   return value;
 }, EducationItem);
 
