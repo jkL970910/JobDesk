@@ -490,6 +490,7 @@ export function ProfileEvidenceWorkspace({
   const [selectedResumeSourceId, setSelectedResumeSourceId] = useState<string>(
     initialResumeSourceVersionId ?? "",
   );
+  const [resumeSourceEditable, setResumeSourceEditable] = useState(false);
   const [selectedResumeSourceLoading, setSelectedResumeSourceLoading] = useState(false);
   const [result, setResult] = useState<ProfileEvidenceExtraction | null>(null);
   const [library, setLibrary] = useState<EvidenceLibrary | null>(null);
@@ -701,6 +702,7 @@ export function ProfileEvidenceWorkspace({
   async function loadResumeSourceIntoIntake(resumeSourceVersionId: string) {
     if (!resumeSourceVersionId) {
       setSelectedResumeSourceId("");
+      setResumeSourceEditable(false);
       updateSourceDraft("resume", { text: "", title: "", sourceDocumentId: undefined });
       setFileStatus(null);
       setStatus("Ready for a new resume. Select a reviewed version, upload a file, or paste resume text.");
@@ -726,6 +728,7 @@ export function ProfileEvidenceWorkspace({
         | null;
       if (response.status === 404) {
         setSelectedResumeSourceId("");
+        setResumeSourceEditable(false);
         updateSourceDraft("resume", { text: "", title: "", sourceDocumentId: undefined });
         setFileStatus(null);
         setError("That reviewed resume was deleted. Select another resume or upload a new one.");
@@ -741,6 +744,7 @@ export function ProfileEvidenceWorkspace({
         title: formatResumeTitle(payload.data.resume.title),
         sourceDocumentId: payload.data.resume.sourceDocumentId,
       });
+      setResumeSourceEditable(false);
       setFileStatus(`Using reviewed resume ${formatResumeTitle(payload.data.resume.title)}`);
     } finally {
       setSelectedResumeSourceLoading(false);
@@ -1390,6 +1394,7 @@ export function ProfileEvidenceWorkspace({
 
   function resetResumeSourceDraft() {
     setSelectedResumeSourceId("");
+    setResumeSourceEditable(false);
     updateSourceDraft("resume", { sourceDocumentId: undefined, text: "", title: "" });
   }
 
@@ -1421,6 +1426,7 @@ export function ProfileEvidenceWorkspace({
   function selectEntryIntent(intent: MaterialEntryIntent) {
     setSelectedEntryIntent(intent);
     setActiveProfileGap(null);
+    if (intent !== "resume") setResumeSourceEditable(false);
     setHasChosenMaterialType(true);
     setIsEditingMaterialType(false);
     setError(null);
@@ -1445,6 +1451,7 @@ export function ProfileEvidenceWorkspace({
 
   function openGenericSourceIntake() {
     setActiveProfileGap(null);
+    setResumeSourceEditable(false);
     setHasChosenMaterialType(false);
     setSelectedStoryTarget(null);
     setEvidenceFocus(null);
@@ -1946,6 +1953,7 @@ export function ProfileEvidenceWorkspace({
                     onSelect={(resumeSourceVersionId) => {
                       clearSharedFileState();
                       setSelectedResumeSourceId(resumeSourceVersionId);
+                      setResumeSourceEditable(false);
                       void loadResumeSourceIntoIntake(resumeSourceVersionId);
                     }}
                     resumes={resumeSources}
@@ -1992,8 +2000,14 @@ export function ProfileEvidenceWorkspace({
               ) : null}
               {parseCard ? <SourceParseStatusCard card={parseCard} /> : null}
               <label className="source-field source-field--textarea">
-                <span>{selectedEntryIntent === "jd" ? "JD gap source text" : "Resume source text"}</span>
-                <small>{selectedEntryIntent === "jd" ? "Paste evidence-gap notes from a JD review, or route to Jobs for full JD analysis later." : "Read-only preview from Resume Review. Upload and review new resumes in the Resume Review workspace."}</small>
+                <span>{selectedEntryIntent === "jd" ? "JD gap source text" : "Resume extraction copy"}</span>
+                <small>
+                  {selectedEntryIntent === "jd"
+                    ? "Paste evidence-gap notes from a JD review, or route to Jobs for full JD analysis later."
+                    : resumeSourceEditable
+                      ? "Editing this copy affects this extraction only. The original Resume Review version stays unchanged."
+                      : "Locked to the reviewed resume. Edit a copy only when parsing or review text needs correction before extraction."}
+                </small>
                 <textarea
                   aria-label="Resume or career source text"
                   className="jd-input jd-input--compact"
@@ -2002,10 +2016,10 @@ export function ProfileEvidenceWorkspace({
                       ? "Paste JD gap notes or missing-evidence prompts here..."
                       : "Select a reviewed resume version from Resume Review..."
                   }
-                  readOnly={selectedEntryIntent === "resume"}
+                  readOnly={selectedEntryIntent === "resume" && !resumeSourceEditable}
                   value={sourceText}
                   onChange={(event) => {
-                    if (selectedEntryIntent === "resume") return;
+                    if (selectedEntryIntent === "resume" && !resumeSourceEditable) return;
                     updateActiveSourceDraft({
                       sourceDocumentId: undefined,
                       text: event.target.value,
@@ -2015,6 +2029,38 @@ export function ProfileEvidenceWorkspace({
                   spellCheck={false}
                 />
               </label>
+              {selectedEntryIntent === "resume" ? (
+                <div className="source-copy-controls">
+                  <div>
+                    <strong>
+                      {resumeSourceEditable ? "Extraction copy is editable" : "Using reviewed resume source"}
+                    </strong>
+                    <p>
+                      {resumeSourceEditable
+                        ? "Create Library Items will use this edited text and keep the reviewed resume intact."
+                        : "Use the reviewed source as-is, or edit a copy if the parsed text needs cleanup before extraction."}
+                    </p>
+                  </div>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => {
+                      if (!resumeSourceEditable) {
+                        setResumeSourceEditable(true);
+                        updateActiveSourceDraft({ sourceDocumentId: undefined });
+                        setStatus("Editing extraction copy. Original reviewed resume stays unchanged.");
+                      } else {
+                        if (selectedResumeSourceId) {
+                          void loadResumeSourceIntoIntake(selectedResumeSourceId);
+                        }
+                        setStatus("Restored reviewed resume source.");
+                      }
+                    }}
+                  >
+                    {resumeSourceEditable ? "Reset to reviewed source" : "Edit extraction copy"}
+                  </button>
+                </div>
+              ) : null}
               <div className="actions">
                 <button
                   className="primary-button"

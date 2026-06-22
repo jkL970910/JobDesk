@@ -6503,23 +6503,29 @@ select:focus {
 
 .material-selection-summary {
   align-items: stretch;
-  background: rgba(255, 255, 255, 0.018);
-  border: 1px solid rgba(255, 255, 255, 0.065);
-  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.012);
+  border: 1px solid rgba(255, 255, 255, 0.045);
+  border-radius: 12px;
   display: grid;
   gap: 10px;
   grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr) auto;
-  margin-bottom: 14px;
-  padding: 12px;
+  margin-bottom: 10px;
+  padding: 10px;
 }
 
 .material-selection-summary article {
-  background: rgba(255, 255, 255, 0.026);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  background: transparent;
+  border: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 0;
   display: grid;
   gap: 5px;
-  padding: 10px;
+  padding: 4px 0 4px 12px;
+}
+
+.material-selection-summary article:first-child {
+  border-left: 0;
+  padding-left: 0;
 }
 
 .material-selection-summary span {
@@ -6759,10 +6765,35 @@ select:focus {
 }
 
 .source-active-form {
-  background: rgba(255, 255, 255, 0.018);
-  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.012);
+  border: 1px solid rgba(255, 255, 255, 0.055);
   border-radius: 12px;
   padding: 12px;
+}
+
+.source-copy-controls {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px;
+}
+
+.source-copy-controls strong {
+  color: var(--ink);
+  display: block;
+  font-size: 0.86rem;
+  margin-bottom: 3px;
+}
+
+.source-copy-controls p {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.38;
+  margin: 0;
 }
 
 .library-next-action {
