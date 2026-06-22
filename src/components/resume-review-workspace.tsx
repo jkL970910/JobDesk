@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type DragEvent } from "react";
+import { useEffect, useState, type DragEvent, type ReactNode } from "react";
 
 import { useAccess } from "./access-provider";
 
@@ -339,9 +339,31 @@ export function ResumeReviewWorkspace({
           retryDisabled={Boolean(activeOperation)}
           retryLabel={reviewActionLabel(selectedResume, activeOperation)}
           resume={selectedResume}
+          sourceControls={
+            <ResumeReviewSourceControls
+              activeOperation={activeOperation}
+              duplicateResume={duplicateResume}
+              isDragActive={isDragActive}
+              isUploading={isUploading}
+              onDelete={deleteResume}
+              onDismissDuplicate={() => setDuplicateResume(null)}
+              onDrag={handleResumeDrag}
+              onDragEnd={handleResumeDragEnd}
+              onDrop={handleResumeDrop}
+              onReviewExistingDuplicate={() => {
+                if (duplicateResume) setSelectedId(duplicateResume.id);
+              }}
+              onRerun={rerunReview}
+              onSelect={setSelectedId}
+              onUpload={uploadResume}
+              resumes={resumes}
+              selectedResume={selectedResume}
+              status={status}
+            />
+          }
         />
       ) : null}
-      <div className="panel">
+      {!selectedResume?.latestReview || isUploading ? <div className="panel">
         <div className="panel__header">
           <div>
             <h2 className="panel__title">Resume Review</h2>
@@ -411,7 +433,7 @@ export function ResumeReviewWorkspace({
             </div>
           </div>
         ) : null}
-        {selectedResume ? (
+        {selectedResume && !selectedResume.latestReview ? (
           <section className="resume-current-summary">
             <div>
               <span>Current resume</span>
@@ -428,7 +450,7 @@ export function ResumeReviewWorkspace({
             </div>
           </section>
         ) : null}
-        {resumes.length > 0 ? (
+        {resumes.length > 0 && !selectedResume?.latestReview ? (
           <div className="resume-version-strip" role="list" aria-label="Resume versions">
             {resumes.map((resume) => (
               <article
@@ -474,23 +496,117 @@ export function ResumeReviewWorkspace({
             No reviewed resume versions yet. Your uploaded resume will appear here after review.
           </div>
         )}
-        {selectedResume?.latestReview && !isUploading ? (
-          <details className="resume-secondary-upload">
-            <summary>Upload another resume version</summary>
-            <ResumeUploadZone
-              compact
-              isDragActive={isDragActive}
-              isUploading={isUploading}
-              status={status}
-              onChange={uploadResume}
-              onDrag={handleResumeDrag}
-              onDragEnd={handleResumeDragEnd}
-              onDrop={handleResumeDrop}
-            />
-          </details>
-        ) : null}
-      </div>
+      </div> : null}
     </section>
+  );
+}
+
+function ResumeReviewSourceControls({
+  activeOperation,
+  duplicateResume,
+  isDragActive,
+  isUploading,
+  onDelete,
+  onDismissDuplicate,
+  onDrag,
+  onDragEnd,
+  onDrop,
+  onReviewExistingDuplicate,
+  onRerun,
+  onSelect,
+  onUpload,
+  resumes,
+  selectedResume,
+  status,
+}: {
+  activeOperation: string | null;
+  duplicateResume: ResumeSourceReviewSummary | null;
+  isDragActive: boolean;
+  isUploading: boolean;
+  onDelete: (resume: ResumeSourceReviewSummary) => void;
+  onDismissDuplicate: () => void;
+  onDrag: (event: DragEvent<HTMLLabelElement>) => void;
+  onDragEnd: (event: DragEvent<HTMLLabelElement>) => void;
+  onDrop: (event: DragEvent<HTMLLabelElement>) => void;
+  onReviewExistingDuplicate: () => void;
+  onRerun: (resume: ResumeSourceReviewSummary) => void;
+  onSelect: (resumeId: string) => void;
+  onUpload: (file: File | null) => void;
+  resumes: ResumeSourceReviewSummary[];
+  selectedResume: ResumeSourceReviewSummary;
+  status: string;
+}) {
+  return (
+    <article className="review-source-card">
+      <div className="review-source-card__top">
+        <div>
+          <span>Resume source</span>
+          <strong>{formatResumeTitle(selectedResume.title)}</strong>
+          <p>
+            v{selectedResume.version} · {selectedResume.status} · updated{" "}
+            {new Date(selectedResume.updatedAt).toLocaleDateString()}
+          </p>
+        </div>
+        <button
+          disabled={Boolean(activeOperation)}
+          type="button"
+          onClick={() => void onRerun(selectedResume)}
+        >
+          {reviewActionLabel(selectedResume, activeOperation)}
+        </button>
+      </div>
+      {duplicateResume ? (
+        <div className="review-source-card__notice">
+          <span>Duplicate detected</span>
+          <p>{formatResumeTitle(duplicateResume.title)} already exists as v{duplicateResume.version}.</p>
+          <div>
+            <button type="button" onClick={onReviewExistingDuplicate}>
+              Review existing
+            </button>
+            <button type="button" onClick={onDismissDuplicate}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {resumes.length > 1 ? (
+        <details className="review-source-card__details">
+          <summary>Switch version</summary>
+          <div className="review-source-version-list">
+            {resumes.map((resume) => (
+              <div data-active={resume.id === selectedResume.id} key={resume.id}>
+                <button type="button" onClick={() => onSelect(resume.id)}>
+                  <span>v{resume.version}</span>
+                  <strong>{formatResumeTitle(resume.title)}</strong>
+                  <small>{resume.latestReview ? `Score ${resume.latestReview.overallScore}` : "No review"}</small>
+                </button>
+                <button
+                  aria-label={`Delete ${formatResumeTitle(resume.title)}`}
+                  disabled={Boolean(activeOperation)}
+                  type="button"
+                  onClick={() => void onDelete(resume)}
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+      <details className="review-source-card__details">
+        <summary>Upload another version</summary>
+        <ResumeUploadZone
+          compact
+          isDragActive={isDragActive}
+          isUploading={isUploading}
+          status={status}
+          onChange={onUpload}
+          onDrag={onDrag}
+          onDragEnd={onDragEnd}
+          onDrop={onDrop}
+        />
+      </details>
+    </article>
   );
 }
 
@@ -658,6 +774,7 @@ function ResumeReviewReportCard({
   resume,
   retryDisabled,
   retryLabel,
+  sourceControls,
 }: {
   enrichmentTasks: EnrichmentTaskSummary[];
   onContinueToEvidence: () => void;
@@ -667,6 +784,7 @@ function ResumeReviewReportCard({
   resume: ResumeSourceReviewSummary;
   retryDisabled: boolean;
   retryLabel: string;
+  sourceControls?: ReactNode;
 }) {
   const review = resume.latestReview;
   if (!review) return null;
@@ -771,6 +889,8 @@ function ResumeReviewReportCard({
         atsIssueCount={atsIssueCount}
         ctaLabel={activeQuestionCount > 0 ? "Open evidence tasks" : "Continue to Evidence"}
         dimensions={dimensions}
+        fairnessNote={metadata?.fairnessCheck?.note ?? ""}
+        fairnessSignals={fairnessSignals}
         confidenceLabel={confidenceLabel}
         missingEvidenceQuestions={missingEvidenceQuestions}
         onCtaClick={activeQuestionCount > 0 ? onOpenEvidenceTasks : onContinueToEvidence}
@@ -779,6 +899,7 @@ function ResumeReviewReportCard({
         resumeTitle={formatResumeTitle(resume.title)}
         selectedDimension={selectedDimension}
         statusLabel={statusLabel}
+        sourceControls={sourceControls}
         topFixCount={topFixes.length}
         totalScore={review.overallScore}
       />
@@ -827,22 +948,7 @@ function ResumeReviewReportCard({
         findingGroups={findingGroups}
         metadataScan={metadata?.tenSecondScan ?? ""}
         onSelect={setActiveDetailTab}
-        resumeTitle={formatResumeTitle(resume.title)}
-        totalScore={review.overallScore}
       />
-      {metadata?.fairnessCheck ? (
-        <section className="review-scan-card">
-          <h3>Fairness check</h3>
-          <p>{metadata.fairnessCheck.note}</p>
-          {fairnessSignals.length ? (
-            <ul>
-              {fairnessSignals.map((signal) => (
-                <li key={signal}>{signal}</li>
-              ))}
-            </ul>
-          ) : null}
-        </section>
-      ) : null}
     </section>
   );
 }
@@ -887,6 +993,8 @@ function ReviewDimensionWorkbench({
   ctaLabel,
   confidenceLabel,
   dimensions,
+  fairnessNote,
+  fairnessSignals,
   missingEvidenceQuestions,
   onCtaClick,
   onSelect,
@@ -894,6 +1002,7 @@ function ReviewDimensionWorkbench({
   resumeTitle,
   selectedDimension,
   statusLabel,
+  sourceControls,
   topFixCount,
   totalScore,
 }: {
@@ -902,6 +1011,8 @@ function ReviewDimensionWorkbench({
   ctaLabel: string;
   confidenceLabel: string;
   dimensions: ReviewDimension[];
+  fairnessNote: string;
+  fairnessSignals: string[];
   missingEvidenceQuestions: string[];
   onCtaClick: () => void;
   onSelect: (id: string) => void;
@@ -909,6 +1020,7 @@ function ReviewDimensionWorkbench({
   resumeTitle: string;
   selectedDimension: ReviewDimension;
   statusLabel: string;
+  sourceControls?: ReactNode;
   topFixCount: number;
   totalScore: number;
 }) {
@@ -1008,6 +1120,23 @@ function ReviewDimensionWorkbench({
             Use the main Evidence Library action for this review when you are ready to create or refine reusable material.
           </p>
         </article>
+        {fairnessNote ? (
+          <article className="review-side-note">
+            <div>
+              <span>Fairness check</span>
+              <strong>Reviewed neutrally</strong>
+            </div>
+            <p>{fairnessNote}</p>
+            {fairnessSignals.length ? (
+              <ul>
+                {fairnessSignals.slice(0, 3).map((signal) => (
+                  <li key={signal}>{signal}</li>
+                ))}
+              </ul>
+            ) : null}
+          </article>
+        ) : null}
+        {sourceControls}
       </div>
     </section>
   );
@@ -1192,8 +1321,6 @@ function ReviewDetailTabs({
   findingGroups,
   metadataScan,
   onSelect,
-  resumeTitle,
-  totalScore,
 }: {
   activeTab: ReviewDetailTab;
   atsNotes: string[];
@@ -1201,8 +1328,6 @@ function ReviewDetailTabs({
   findingGroups: ReviewFindingGroup[];
   metadataScan: string;
   onSelect: (tab: ReviewDetailTab) => void;
-  resumeTitle: string;
-  totalScore: number;
 }) {
   const tabs: Array<{ id: ReviewDetailTab; label: string; titles?: string[] }> = [
     { id: "summary", label: "Summary" },
@@ -1247,7 +1372,6 @@ function ReviewDetailTabs({
           dimensions={dimensions}
           metadataScan={metadataScan}
           onSelect={onSelect}
-          resumeTitle={resumeTitle}
           strongestDimension={strongestDimension}
           summaryItems={summaryItems}
           tabs={tabs}
@@ -1255,7 +1379,6 @@ function ReviewDetailTabs({
           topFix={topFix}
           topGap={topGap}
           topStrength={topStrength}
-          totalScore={totalScore}
           weakestDimension={weakestDimension}
         />
       ) : (
@@ -1275,7 +1398,6 @@ function ReviewSummaryReport({
   dimensions,
   metadataScan,
   onSelect,
-  resumeTitle,
   strongestDimension,
   summaryItems,
   tabs,
@@ -1283,13 +1405,11 @@ function ReviewSummaryReport({
   topFix,
   topGap,
   topStrength,
-  totalScore,
   weakestDimension,
 }: {
   dimensions: ReviewDimension[];
   metadataScan: string;
   onSelect: (tab: ReviewDetailTab) => void;
-  resumeTitle: string;
   strongestDimension?: ReviewDimension;
   summaryItems: Array<ReviewFinding & { groupTitle: string }>;
   tabs: Array<{ id: ReviewDetailTab; label: string; titles?: string[] }>;
@@ -1297,23 +1417,11 @@ function ReviewSummaryReport({
   topFix?: ReviewFinding;
   topGap?: ReviewFinding;
   topStrength?: ReviewFinding;
-  totalScore: number;
   weakestDimension?: ReviewDimension;
 }) {
-  const scoreTone = totalScore >= 80 ? "strong" : totalScore >= 65 ? "watch" : "weak";
   return (
     <section className="review-summary-report">
-      <div className="review-summary-report__hero" data-state={scoreTone}>
-        <div>
-          <p className="panel-kicker">Summary</p>
-          <h3>{resumeTitle}</h3>
-          <p>{metadataScan || "Resume review is ready. Start with the highest-impact fixes and evidence gaps below."}</p>
-        </div>
-        <strong>
-          {totalScore}
-          <span>score</span>
-        </strong>
-      </div>
+      {metadataScan ? <p className="review-summary-report__scan">{metadataScan}</p> : null}
       <div className="review-summary-report__grid">
         <article className="review-summary-report__main">
           <div className="review-summary-report__section">
