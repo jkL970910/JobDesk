@@ -1141,18 +1141,25 @@ async function reviseEnrichmentProposal(
       .returning();
     if (!nextProposal) throw new Error("Failed to create revised enrichment proposal.");
 
-    await tx.insert(enrichmentProposalRevisions).values({
-      workspaceId: args.task.workspaceId,
-      taskId: args.task.id,
-      proposalId: proposal.id,
-      nextProposalId: nextProposal.id,
-      actor: revisedText ? "user" : "ai",
-      mode: revisedText ? "manual_edit" : "ai_revision",
-      instruction: revisionInstruction || null,
-      previousText: revisedPatch.previousText,
-      revisedText: revisedPatch.patch.text,
-      createdAt: args.now,
-    });
+    try {
+      await tx.insert(enrichmentProposalRevisions).values({
+        workspaceId: args.task.workspaceId,
+        taskId: args.task.id,
+        proposalId: proposal.id,
+        nextProposalId: nextProposal.id,
+        actor: revisedText ? "user" : "ai",
+        mode: revisedText ? "manual_edit" : "ai_revision",
+        instruction: revisionInstruction || null,
+        previousText: revisedPatch.previousText,
+        revisedText: revisedPatch.patch.text,
+        createdAt: args.now,
+      });
+    } catch (error) {
+      if (!isMissingProposalRevisionsTableError(error)) throw error;
+      console.warn(
+        "[enrichment] proposal revision history table is unavailable; revised proposal saved without history",
+      );
+    }
 
     const [updated] = await tx
       .select()
@@ -1771,11 +1778,22 @@ async function getTaskProposalRevisionMap(
   taskIds: string[],
 ) {
   if (taskIds.length === 0) return new Map<string, EnrichmentProposalRevisionPayload[]>();
-  const rows = await db
-    .select()
-    .from(enrichmentProposalRevisions)
-    .where(inArray(enrichmentProposalRevisions.taskId, taskIds))
-    .orderBy(enrichmentProposalRevisions.createdAt);
+  let rows: Array<typeof enrichmentProposalRevisions.$inferSelect>;
+  try {
+    rows = await db
+      .select()
+      .from(enrichmentProposalRevisions)
+      .where(inArray(enrichmentProposalRevisions.taskId, taskIds))
+      .orderBy(enrichmentProposalRevisions.createdAt);
+  } catch (error) {
+    if (isMissingProposalRevisionsTableError(error)) {
+      console.warn(
+        "[enrichment] proposal revision history table is unavailable; returning tasks without revision history",
+      );
+      return new Map<string, EnrichmentProposalRevisionPayload[]>();
+    }
+    throw error;
+  }
   const map = new Map<string, EnrichmentProposalRevisionPayload[]>();
   for (const row of rows) {
     const revisions = map.get(row.taskId) ?? [];
@@ -1793,6 +1811,18 @@ async function getTaskProposalRevisionMap(
     map.set(row.taskId, revisions);
   }
   return map;
+}
+
+function isMissingProposalRevisionsTableError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const message =
+    "message" in error && typeof error.message === "string" ? error.message : "";
+  const code = "code" in error && typeof error.code === "string" ? error.code : "";
+  return (
+    code === "42P01" ||
+    /enrichment_proposal_revisions/i.test(message) ||
+    /relation .* does not exist/i.test(message)
+  );
 }
 
 async function replaceTaskTargets(
