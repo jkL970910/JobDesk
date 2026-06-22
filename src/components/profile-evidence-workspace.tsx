@@ -480,6 +480,7 @@ export function ProfileEvidenceWorkspace({
     useState<"synced" | "edited" | "stale">("synced");
   const [selectedStoryTarget, setSelectedStoryTarget] =
     useState<StoryEnrichmentTarget | null>(null);
+  const [activeProfileGap, setActiveProfileGap] = useState<ProfileGapIntent | null>(null);
   const [evidenceFocus, setEvidenceFocus] = useState<EvidenceFocus>(null);
   const [starStoryFocus, setStarStoryFocus] = useState<StarStoryFocus>(null);
   const [fileStatus, setFileStatus] = useState<string | null>(null);
@@ -555,25 +556,18 @@ export function ProfileEvidenceWorkspace({
   useEffect(() => {
     if (!initialProfileGap) return;
     const guidance = profileGapGuidance(initialProfileGap.field);
-    const nextFields: GuidedMaterialFields = {
-      ...emptyGuidedMaterialFields,
-      actions: guidance.actions,
-      companyOrContext: guidance.context,
-      ownership: guidance.ownership,
-      problem: guidance.problem,
-      projectOrInitiativeTitle: initialProfileGap.label,
-    };
     setActiveSection("intake");
     setSelectedEntryIntent("scratch");
     setHasChosenMaterialType(true);
     setIsEditingMaterialType(false);
     setProjectSourceMode("guided");
+    setActiveProfileGap(initialProfileGap);
     setSelectedStoryTarget(null);
     setProjectNoteTitle(initialProfileGap.label);
-    setGuidedMaterialFields(nextFields);
-    setProjectNoteText(buildGuidedMaterialMarkdown(nextFields, { targetTitle: initialProfileGap.label }));
+    setGuidedMaterialFields(emptyGuidedMaterialFields);
+    setProjectNoteText(guidance.template);
     setProjectSourceDocumentId(undefined);
-    setGuidedPreviewState("synced");
+    setGuidedPreviewState("edited");
     setStatus(guidance.status);
     setError(null);
   }, [initialProfileGap]);
@@ -1152,7 +1146,11 @@ export function ProfileEvidenceWorkspace({
 
   function runProjectEnrichment() {
     setError(null);
-    setStatus("Enriching project notes into reusable evidence.");
+    setStatus(
+      activeProfileGap
+        ? "Saving profile source material for review."
+        : "Enriching project notes into reusable evidence.",
+    );
     setIsProjectEnriching(true);
     void (async () => {
       try {
@@ -1182,7 +1180,11 @@ export function ProfileEvidenceWorkspace({
           );
           return;
         }
-        setStatus(`Project material added · ${formatStatus(payload.meta)}`);
+        setStatus(
+          activeProfileGap
+            ? `Profile source saved · ${formatStatus(payload.meta)}`
+            : `Project material added · ${formatStatus(payload.meta)}`,
+        );
         if (payload.meta.persistence?.status === "saved") {
           await refreshLibraryAfterMutation();
           setResult(null);
@@ -1196,7 +1198,9 @@ export function ProfileEvidenceWorkspace({
                 payload.data.portfolio_projects.length),
             workExperienceCount:
               payload.meta.persistence.workExperienceCount ?? payload.data.work_experiences.length,
-            sourceTitle: projectNoteTitle.trim() || "Project source",
+            sourceTitle:
+              projectNoteTitle.trim() ||
+              (activeProfileGap ? profileFactSourceCopy(activeProfileGap.field).title : "Project source"),
             type: "project",
           });
           setActiveSection("review");
@@ -1209,7 +1213,9 @@ export function ProfileEvidenceWorkspace({
             projectCount: payload.data.project_cards.length,
             storyCount: payload.data.initiatives.length + payload.data.portfolio_projects.length,
             workExperienceCount: payload.data.work_experiences.length,
-            sourceTitle: projectNoteTitle.trim() || "Project source",
+            sourceTitle:
+              projectNoteTitle.trim() ||
+              (activeProfileGap ? profileFactSourceCopy(activeProfileGap.field).title : "Project source"),
             type: "project",
           });
           setActiveSection("review");
@@ -1218,7 +1224,9 @@ export function ProfileEvidenceWorkspace({
         setError(
           caught instanceof Error
             ? caught.message
-            : "Project evidence enrichment failed.",
+            : activeProfileGap
+              ? "Profile source save failed."
+              : "Project evidence enrichment failed.",
         );
       } finally {
         setIsProjectEnriching(false);
@@ -1229,9 +1237,11 @@ export function ProfileEvidenceWorkspace({
   const sourceIsReady = sourceText.trim().length >= 80;
   const guidedReadiness = getGuidedMaterialReadiness(guidedMaterialFields);
   const projectNoteIsReady =
-    projectSourceMode === "guided"
-      ? guidedReadiness.isReady && hasGuidedMaterialContent(projectNoteText)
-      : projectNoteText.trim().length >= 80;
+    activeProfileGap
+      ? projectNoteText.trim().length >= 40
+      : projectSourceMode === "guided"
+        ? guidedReadiness.isReady && hasGuidedMaterialContent(projectNoteText)
+        : projectNoteText.trim().length >= 80;
   const sourceFormState = getLocalFormState({
     error,
     isRunning: isExtracting,
@@ -1375,6 +1385,7 @@ export function ProfileEvidenceWorkspace({
     setGuidedMaterialFields(emptyGuidedMaterialFields);
     setGuidedPreviewState("synced");
     setSelectedStoryTarget(null);
+    setActiveProfileGap(null);
   }
 
   function resetResumeSourceDraft() {
@@ -1409,6 +1420,7 @@ export function ProfileEvidenceWorkspace({
 
   function selectEntryIntent(intent: MaterialEntryIntent) {
     setSelectedEntryIntent(intent);
+    setActiveProfileGap(null);
     setHasChosenMaterialType(true);
     setIsEditingMaterialType(false);
     setError(null);
@@ -1432,6 +1444,7 @@ export function ProfileEvidenceWorkspace({
   }
 
   function openGenericSourceIntake() {
+    setActiveProfileGap(null);
     setHasChosenMaterialType(false);
     setSelectedStoryTarget(null);
     setEvidenceFocus(null);
@@ -1872,13 +1885,16 @@ export function ProfileEvidenceWorkspace({
             <div>
               <h2 className="panel__title">Add Material</h2>
               <p className="panel__note">
-                {entryGuidance.summary}
+                {activeProfileGap
+                  ? "Add missing profile facts as source material without turning them into work stories."
+                  : entryGuidance.summary}
               </p>
             </div>
           </div>
           <IntakeStageHeader
             activeIntent={selectedEntryIntent}
             isChoosingMaterialType={showMaterialTypePicker}
+            profileGap={activeProfileGap}
             onChangeMaterialType={() => {
               setHasChosenMaterialType(false);
               setIsEditingMaterialType(true);
@@ -1909,6 +1925,7 @@ export function ProfileEvidenceWorkspace({
                 setHasChosenMaterialType(false);
                 setIsEditingMaterialType(true);
               }}
+              profileGap={activeProfileGap}
               selectedResume={selectedResumeSource}
               sourceTitle={
                 selectedEntryIntent === "scratch"
@@ -2024,139 +2041,156 @@ export function ProfileEvidenceWorkspace({
           ) : null}
 
           {!showMaterialTypePicker && selectedEntryIntent === "scratch" ? (
-          <section className="section-block section-block--builder source-active-form">
-            <h3>Work Story Builder</h3>
-            <p className="panel__note">
-              {entryGuidance.enrichmentHint}
-            </p>
-            <ProjectSourceModePicker
-              activeMode={projectSourceMode}
-              onSelect={selectProjectSourceMode}
-            />
-            {selectedStoryTarget ? (
-              <section className="guided-target-card">
-                <span>Target-aware enrichment</span>
-                <strong>{selectedStoryTarget.targetTitle}</strong>
-                <p>
-                  Guided answers will be saved as source material and linked back to this{" "}
-                  {selectedStoryTarget.targetType.replace(/_/g, " ")} when extracted evidence is safe to associate.
+            activeProfileGap ? (
+              <ProfileFactSourceForm
+                error={error}
+                field={activeProfileGap.field}
+                isRunning={isProjectEnriching}
+                onRun={runProjectEnrichment}
+                onTextChange={(value) => {
+                  setProjectNoteText(value);
+                  setProjectSourceDocumentId(undefined);
+                  setGuidedPreviewState("edited");
+                }}
+                projectFormState={projectFormState}
+                sourceText={projectNoteText}
+                status={status}
+              />
+            ) : (
+              <section className="section-block section-block--builder source-active-form">
+                <h3>Work Story Builder</h3>
+                <p className="panel__note">
+                  {entryGuidance.enrichmentHint}
                 </p>
-                {selectedStoryTarget.missingFields?.length ? (
-                  <small>Missing: {selectedStoryTarget.missingFields.join(", ")}</small>
+                <ProjectSourceModePicker
+                  activeMode={projectSourceMode}
+                  onSelect={selectProjectSourceMode}
+                />
+                {selectedStoryTarget ? (
+                  <section className="guided-target-card">
+                    <span>Target-aware enrichment</span>
+                    <strong>{selectedStoryTarget.targetTitle}</strong>
+                    <p>
+                      Guided answers will be saved as source material and linked back to this{" "}
+                      {selectedStoryTarget.targetType.replace(/_/g, " ")} when extracted evidence is safe to associate.
+                    </p>
+                    {selectedStoryTarget.missingFields?.length ? (
+                      <small>Missing: {selectedStoryTarget.missingFields.join(", ")}</small>
+                    ) : null}
+                  </section>
+                ) : null}
+                <div className="source-controls">
+                  <label className="source-field">
+                    <span>Work story title</span>
+                    <input
+                      className="source-input"
+                      type="text"
+                      value={projectNoteTitle}
+                      onChange={(event) => setProjectNoteTitle(event.target.value)}
+                    />
+                  </label>
+                  {projectSourceMode === "upload" ? (
+                    <label className="file-import">
+                      <span>Import project files</span>
+                      <input
+                        accept=".pdf,.docx,.txt,.md,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+                        multiple
+                        type="file"
+                        onChange={(event) => {
+                          void importProjectNoteFiles(event.target.files);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                  ) : null}
+                </div>
+                {fileStatus ? <p className="source-status">{fileStatus}</p> : null}
+                {fileProcessing ? (
+                  <FileProcessingNotice
+                    elapsedSeconds={fileProcessingElapsedSeconds}
+                    processing={fileProcessing}
+                  />
+                ) : null}
+                {parseCard ? <SourceParseStatusCard card={parseCard} /> : null}
+                {projectSourceMode === "guided" ? (
+                  <GuidedMaterialBuilder
+                    fields={guidedMaterialFields}
+                    onChange={(fields) => {
+                      setGuidedMaterialFields(fields);
+                      setProjectSourceDocumentId(undefined);
+                      if (guidedPreviewState === "synced") {
+                        setProjectNoteText(buildGuidedPreview(fields));
+                      } else {
+                        setGuidedPreviewState("stale");
+                      }
+                      if (!projectNoteTitle.trim() && fields.projectOrInitiativeTitle.trim()) {
+                        setProjectNoteTitle(`${fields.projectOrInitiativeTitle.trim()} guided material`);
+                      }
+                    }}
+                    onSyncPreview={() => syncGuidedPreview()}
+                    syncState={guidedPreviewState}
+                  />
+                ) : null}
+                <label className="source-field source-field--textarea">
+                  <span>{projectSourceMode === "guided" ? "Generated source preview" : "Work story material"}</span>
+                  <small>
+                    {projectSourceMode === "guided"
+                      ? guidedPreviewState === "stale"
+                        ? "Guided answers changed after manual edits. Update the preview when you want to replace it with the structured answers."
+                        : guidedPreviewState === "edited"
+                          ? "This preview has manual edits and will be sent to extraction as written."
+                          : "Guided answers sync here as the final material sent to extraction. Edit only if you want to adjust the source wording."
+                      : projectSourceMode === "upload"
+                        ? "Imported files append here. Edit or combine the parsed material before adding it."
+                        : "Paste project notes, work summaries, performance review excerpts, or STAR notes here."}
+                  </small>
+                  <textarea
+                    aria-label="Project note source text"
+                    className="jd-input jd-input--compact"
+                    placeholder="Paste project notes, design docs, project summaries, performance review excerpts, or guided STAR notes here..."
+                    value={projectNoteText}
+                    onChange={(event) => {
+                      setProjectNoteText(event.target.value);
+                      setProjectSourceDocumentId(undefined);
+                      if (projectSourceMode !== "guided") {
+                        clearSharedFileState();
+                      }
+                      if (projectSourceMode === "guided") {
+                        setGuidedPreviewState("edited");
+                      }
+                    }}
+                    spellCheck={false}
+                  />
+                </label>
+                <div className="actions">
+                  <button
+                    className="primary-button"
+                    disabled={isProjectEnriching || !projectNoteIsReady}
+                    type="button"
+                    onClick={runProjectEnrichment}
+                  >
+                    {isProjectEnriching
+                      ? "Adding..."
+                      : selectedStoryTarget
+                        ? "Strengthen selected story"
+                        : "Add material to library"}
+                  </button>
+                  <span className="status">
+                    {projectSourceMode === "guided" && !projectNoteIsReady
+                      ? guidedReadiness.missingReason ?? "Add real guided answers before continuing."
+                      : status}
+                  </span>
+                </div>
+                <FormStatePill state={projectFormState} />
+                {isProjectEnriching ? (
+                  <ProgressNotice
+                    elapsedSeconds={projectElapsedSeconds}
+                    label="Adding work story material"
+                    mode="project"
+                  />
                 ) : null}
               </section>
-            ) : null}
-            <div className="source-controls">
-              <label className="source-field">
-                <span>Work story title</span>
-                <input
-                  className="source-input"
-                  type="text"
-                  value={projectNoteTitle}
-                  onChange={(event) => setProjectNoteTitle(event.target.value)}
-                />
-              </label>
-              {projectSourceMode === "upload" ? (
-              <label className="file-import">
-                <span>Import project files</span>
-                <input
-                  accept=".pdf,.docx,.txt,.md,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
-                  multiple
-                  type="file"
-                  onChange={(event) => {
-                    void importProjectNoteFiles(event.target.files);
-                    event.currentTarget.value = "";
-                  }}
-                />
-              </label>
-              ) : null}
-            </div>
-            {fileStatus ? <p className="source-status">{fileStatus}</p> : null}
-            {fileProcessing ? (
-              <FileProcessingNotice
-                elapsedSeconds={fileProcessingElapsedSeconds}
-                processing={fileProcessing}
-              />
-            ) : null}
-            {parseCard ? <SourceParseStatusCard card={parseCard} /> : null}
-            {projectSourceMode === "guided" ? (
-              <GuidedMaterialBuilder
-                fields={guidedMaterialFields}
-                onChange={(fields) => {
-                  setGuidedMaterialFields(fields);
-                  setProjectSourceDocumentId(undefined);
-                  if (guidedPreviewState === "synced") {
-                    setProjectNoteText(buildGuidedPreview(fields));
-                  } else {
-                    setGuidedPreviewState("stale");
-                  }
-                  if (!projectNoteTitle.trim() && fields.projectOrInitiativeTitle.trim()) {
-                    setProjectNoteTitle(`${fields.projectOrInitiativeTitle.trim()} guided material`);
-                  }
-                }}
-                onSyncPreview={() => syncGuidedPreview()}
-                syncState={guidedPreviewState}
-              />
-            ) : null}
-            <label className="source-field source-field--textarea">
-              <span>{projectSourceMode === "guided" ? "Generated source preview" : "Work story material"}</span>
-              <small>
-                {projectSourceMode === "guided"
-                  ? guidedPreviewState === "stale"
-                    ? "Guided answers changed after manual edits. Update the preview when you want to replace it with the structured answers."
-                    : guidedPreviewState === "edited"
-                      ? "This preview has manual edits and will be sent to extraction as written."
-                      : "Guided answers sync here as the final material sent to extraction. Edit only if you want to adjust the source wording."
-                  : projectSourceMode === "upload"
-                    ? "Imported files append here. Edit or combine the parsed material before adding it."
-                    : "Paste project notes, work summaries, performance review excerpts, or STAR notes here."}
-              </small>
-              <textarea
-                aria-label="Project note source text"
-                className="jd-input jd-input--compact"
-                placeholder="Paste project notes, design docs, project summaries, performance review excerpts, or guided STAR notes here..."
-                value={projectNoteText}
-                onChange={(event) => {
-                  setProjectNoteText(event.target.value);
-                  setProjectSourceDocumentId(undefined);
-                  if (projectSourceMode !== "guided") {
-                    clearSharedFileState();
-                  }
-                  if (projectSourceMode === "guided") {
-                    setGuidedPreviewState("edited");
-                  }
-                }}
-                spellCheck={false}
-              />
-            </label>
-            <div className="actions">
-              <button
-                className="primary-button"
-                disabled={isProjectEnriching || !projectNoteIsReady}
-                type="button"
-                onClick={runProjectEnrichment}
-              >
-                {isProjectEnriching
-                  ? "Adding..."
-                  : selectedStoryTarget
-                    ? "Strengthen selected story"
-                    : "Add material to library"}
-              </button>
-              <span className="status">
-                {projectSourceMode === "guided" && !projectNoteIsReady
-                  ? guidedReadiness.missingReason ?? "Add real guided answers before continuing."
-                  : status}
-              </span>
-            </div>
-            <FormStatePill state={projectFormState} />
-            {isProjectEnriching ? (
-              <ProgressNotice
-                elapsedSeconds={projectElapsedSeconds}
-                label="Adding work story material"
-                mode="project"
-              />
-            ) : null}
-          </section>
+            )
           ) : !showMaterialTypePicker && selectedEntryIntent === "resume" ? (
             <section className="source-path-handoff">
               <div>
@@ -2807,26 +2841,34 @@ function OnboardingPaths({
 function MaterialSelectionSummary({
   activeIntent,
   onChangeType,
+  profileGap,
   selectedResume,
   sourceTitle,
 }: {
   activeIntent: MaterialEntryIntent;
   onChangeType: () => void;
+  profileGap?: ProfileGapIntent | null;
   selectedResume: ResumeSourceSummary | null;
   sourceTitle: string;
 }) {
   const sourceLabel =
-    activeIntent === "scratch"
+    profileGap
+      ? "Profile facts"
+      : activeIntent === "scratch"
       ? "Work notes or guided answers"
       : activeIntent === "jd"
         ? "JD gap notes"
         : "Reviewed resume";
   const title =
-    activeIntent === "resume" && selectedResume
+    profileGap
+      ? profileFactSourceCopy(profileGap.field).title
+      : activeIntent === "resume" && selectedResume
       ? `v${selectedResume.version} · ${formatResumeTitle(selectedResume.title)}`
       : sourceTitle.trim() || "Source selected";
   const detail =
-    activeIntent === "resume"
+    profileGap
+      ? "Add source material for profile facts. This is not a work story."
+      : activeIntent === "resume"
       ? selectedResume?.status === "extracted"
         ? "Library items already exist for this resume. You can review or add more material below."
         : "Create library items before answering review-generated enrichment prompts."
@@ -2844,7 +2886,9 @@ function MaterialSelectionSummary({
         <span>Selected source</span>
         <strong>{title}</strong>
         <p>
-          {activeIntent === "resume" && selectedResume?.latestReview
+          {profileGap
+            ? "Use the form below to add or correct this profile section."
+            : activeIntent === "resume" && selectedResume?.latestReview
             ? `Resume Review score ${selectedResume.latestReview.overallScore}`
             : "Edit the source below if the material is incomplete."}
         </p>
@@ -2972,6 +3016,70 @@ function ProjectSourceModePicker({
         </button>
       ))}
     </div>
+  );
+}
+
+function ProfileFactSourceForm({
+  error,
+  field,
+  isRunning,
+  onRun,
+  onTextChange,
+  projectFormState,
+  sourceText,
+  status,
+}: {
+  error: string | null;
+  field: ProfileGapIntent["field"];
+  isRunning: boolean;
+  onRun: () => void;
+  onTextChange: (value: string) => void;
+  projectFormState: LocalFormState;
+  sourceText: string;
+  status: string;
+}) {
+  const copy = profileFactSourceCopy(field);
+  return (
+    <section className="profile-fact-source-form source-active-form">
+      <div className="profile-fact-source-form__header">
+        <div>
+          <span>Profile fact source</span>
+          <h3>{copy.title}</h3>
+          <p>{copy.description}</p>
+        </div>
+      </div>
+      <label className="source-field source-field--textarea profile-fact-source-form__input">
+        <span>{copy.inputLabel}</span>
+        <small>{copy.helper}</small>
+        <textarea
+          aria-label={copy.inputLabel}
+          className="jd-input jd-input--compact"
+          placeholder={copy.placeholder}
+          value={sourceText}
+          onChange={(event) => onTextChange(event.target.value)}
+          spellCheck
+        />
+      </label>
+      <div className="profile-fact-source-form__examples" aria-label="Suggested fields">
+        {copy.examples.map((example) => (
+          <span key={example}>{example}</span>
+        ))}
+      </div>
+      <div className="actions">
+        <button
+          className="primary-button"
+          disabled={isRunning || sourceText.trim().length < 40}
+          type="button"
+          onClick={onRun}
+        >
+          {isRunning ? "Saving..." : "Save profile source"}
+        </button>
+        <span className={error ? "status status--error" : "status"}>
+          {error ?? status}
+        </span>
+      </div>
+      <FormStatePill state={projectFormState} />
+    </section>
   );
 }
 
@@ -4404,6 +4512,7 @@ function IntakeStageHeader({
   onChangeMaterialType,
   onReviewMaterial,
   onShowSource,
+  profileGap,
   projectFormState,
   sourceFormState,
 }: {
@@ -4412,6 +4521,7 @@ function IntakeStageHeader({
   onChangeMaterialType: () => void;
   onReviewMaterial: () => void;
   onShowSource: () => void;
+  profileGap?: ProfileGapIntent | null;
   projectFormState: LocalFormState;
   sourceFormState: LocalFormState;
 }) {
@@ -4456,9 +4566,23 @@ function IntakeStageHeader({
       summary: sourceReady ? "source ready" : "add source",
     },
     {
-      label: activeIntent === "scratch" ? "Strengthen story" : "Create library items",
+      label: profileGap
+        ? "Save profile source"
+        : activeIntent === "scratch"
+          ? "Strengthen story"
+          : "Create library items",
       state: createLibraryState,
-      summary: sourceComplete ? "created" : sourceReady ? "ready" : "waiting",
+      summary: profileGap
+        ? sourceComplete
+          ? "saved"
+          : sourceReady
+            ? "ready"
+            : "waiting"
+        : sourceComplete
+          ? "created"
+          : sourceReady
+            ? "ready"
+            : "waiting",
     },
     {
       label: "Review material",
@@ -7618,28 +7742,53 @@ function formatParseWarning(warning: string) {
 function profileGapGuidance(field: ProfileGapIntent["field"]) {
   if (field === "contact") {
     return {
-      actions: "Add the exact contact details you want JobDesk to remember: name, email, phone, city/region, LinkedIn, portfolio, GitHub, or personal site.",
-      context: "Career profile contact details",
-      ownership: "I am confirming my own public contact details for resume/profile use.",
-      problem: "The current Career Profile is missing contact facts.",
-      status: "Add contact details in the guided fields, then save them as source material for review.",
+      template:
+        "Contact details to add:\n- Name:\n- Email:\n- Phone:\n- City / region:\n- LinkedIn:\n- Portfolio / GitHub / personal site:\n\nUse only details I want JobDesk to remember for resume and profile workflows.",
+      status: "Add contact details below, then save them as profile source material.",
     };
   }
   if (field === "education") {
     return {
-      actions: "Add school, degree, program, graduation date, GPA or honors if relevant, coursework, certifications, or academic projects that should appear in your profile.",
-      context: "Career profile education details",
-      ownership: "I am confirming my education history and credential details.",
-      problem: "The current Career Profile is missing education facts.",
-      status: "Add education details in the guided fields, then save them as source material for review.",
+      template:
+        "Education details to add:\n- School:\n- Degree / program:\n- Graduation date:\n- GPA / honors, if relevant:\n- Relevant coursework:\n- Certifications or academic projects:\n\nUse only education facts that are accurate and reusable for resume/profile workflows.",
+      status: "Add education details below, then save them as profile source material.",
     };
   }
   return {
-    actions: "Add or correct skills that should appear in your profile, grouped by programming languages, tools, frameworks, domain knowledge, or methods.",
-    context: "Career profile skills details",
-    ownership: "I am confirming skills that are safe to reuse for resume and interview material.",
-    problem: "The current Career Profile needs more skill detail or cleanup.",
-    status: "Add skill details in the guided fields, then save them as source material for review.",
+    template:
+      "Skills to add or correct:\n- Programming languages:\n- Frameworks / libraries:\n- Tools / platforms:\n- Methods / domain knowledge:\n- Skills to remove or avoid:\n\nGroup skills clearly so JobDesk can update the profile without turning this into a work story.",
+    status: "Add skill details below, then save them as profile source material.",
+  };
+}
+
+function profileFactSourceCopy(field: ProfileGapIntent["field"]) {
+  if (field === "contact") {
+    return {
+      description: "Add only contact details you want reused across resume and profile workflows.",
+      examples: ["Name", "Email", "Phone", "LinkedIn", "Portfolio", "Location"],
+      helper: "This is profile data, not a work story. It will be saved as source material for profile review.",
+      inputLabel: "Contact details",
+      placeholder: "Name:\nEmail:\nPhone:\nLinkedIn:\nPortfolio:\nCity / region:",
+      title: "Add contact information",
+    };
+  }
+  if (field === "education") {
+    return {
+      description: "Add education facts that should appear in your career profile.",
+      examples: ["School", "Degree", "Program", "Graduation", "GPA", "Coursework"],
+      helper: "This updates source material for profile facts. It is not treated as a project or role.",
+      inputLabel: "Education details",
+      placeholder: "School:\nDegree / program:\nGraduation date:\nRelevant coursework:\nCertifications:\nAcademic projects:",
+      title: "Add education details",
+    };
+  }
+  return {
+    description: "Add or clean up skills that should be reusable in resumes and interviews.",
+    examples: ["Languages", "Frameworks", "Tools", "Methods", "Domain knowledge"],
+    helper: "Group skills clearly. Remove anything that should not be reused.",
+    inputLabel: "Skills details",
+    placeholder: "Programming languages:\nFrameworks:\nTools:\nMethods:\nSkills to remove:",
+    title: "Add skills details",
   };
 }
 
