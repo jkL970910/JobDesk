@@ -3498,6 +3498,7 @@ strong,
   gap: 12px;
   grid-template-columns: minmax(0, 1fr) minmax(180px, auto);
   padding: 4px 0 4px 12px;
+  scroll-margin-block: 160px;
   text-align: left;
   transition:
     background 160ms ease,

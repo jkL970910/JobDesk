@@ -826,17 +826,24 @@ function ResumeReviewReportCard({
     strengths,
     weaknesses,
   });
+  useEffect(() => {
+    if (!selectedFindingId) return;
+    const scrollToFinding = () => {
+      document
+        .getElementById(reviewFindingDomId(selectedFindingId))
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+    window.requestAnimationFrame(scrollToFinding);
+    const timeoutId = window.setTimeout(scrollToFinding, 120);
+    return () => window.clearTimeout(timeoutId);
+  }, [activeDetailTab, selectedFindingId]);
+
   function openReviewFinding(target: {
     findingId: string;
     tab: ReviewDetailTab;
   }) {
     setSelectedFindingId(target.findingId);
     setActiveDetailTab(target.tab);
-    window.requestAnimationFrame(() => {
-      document
-        .getElementById(reviewFindingDomId(target.findingId))
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
   }
   const weaknessFindings =
     findingGroups.find((group) => group.title === "Weaknesses to fix")?.items ?? [];
