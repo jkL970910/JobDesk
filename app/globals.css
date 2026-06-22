@@ -2560,23 +2560,20 @@ strong,
   gap: 12px;
 }
 
-.review-top-fixes__header,
-.review-summary-card {
+.review-top-fixes__header {
   align-items: center;
   display: flex;
   gap: 14px;
   justify-content: space-between;
 }
 
-.review-top-fixes__header h3,
-.review-summary-card h3 {
+.review-top-fixes__header h3 {
   color: var(--ink);
   font-size: 1.04rem;
   margin: 5px 0 0;
 }
 
-.review-top-fixes__header button,
-.review-summary-card button {
+.review-top-fixes__header button {
   background: linear-gradient(135deg, #367dff, #93bdff);
   border: 0;
   border-radius: 999px;
@@ -2607,8 +2604,7 @@ strong,
   text-transform: uppercase;
 }
 
-.review-top-fixes__grid p,
-.review-summary-card p {
+.review-top-fixes__grid p {
   color: var(--muted);
   font-size: 0.84rem;
   line-height: 1.46;
@@ -3152,102 +3148,174 @@ strong,
   outline: none;
 }
 
-.review-summary-card {
+.review-summary-card,
+.review-summary-report {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
-.review-summary-card__top {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
+.review-summary-report__hero {
+  align-items: end;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(79, 140, 255, 0.18), transparent 38%),
+    rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 18px;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 18px;
 }
 
-.review-summary-card h3,
-.review-summary-card__top h3 {
+.review-summary-report__hero h3 {
   color: var(--ink);
-  font-size: 1.04rem;
-  margin: 5px 0 0;
+  font-size: clamp(1.45rem, 2.45vw, 2.2rem);
+  letter-spacing: -0.045em;
+  line-height: 1;
+  margin: 5px 0 8px;
 }
 
-.review-summary-card__top > span,
+.review-summary-report__hero p {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+  margin: 0;
+  max-width: 760px;
+}
+
+.review-summary-report__hero > strong {
+  color: var(--accent);
+  display: grid;
+  font-size: clamp(3rem, 6vw, 5.6rem);
+  font-weight: 950;
+  letter-spacing: -0.105em;
+  line-height: 0.78;
+  text-align: right;
+}
+
+.review-summary-report__hero > strong span {
+  color: var(--faint);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.055em;
+  line-height: 1;
+  margin-top: 8px;
+  text-transform: uppercase;
+}
+
+.review-summary-report__grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(260px, 0.65fr);
+}
+
+.review-summary-report__main,
+.review-summary-report__side {
+  display: grid;
+  gap: 10px;
+}
+
+.review-summary-report__section,
+.review-summary-report__mini {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 14px;
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+}
+
+.review-summary-report__section {
+  border-left: 3px solid var(--accent);
+}
+
+.review-summary-report__section[data-tone="warning"] {
+  border-left-color: var(--warning);
+}
+
+.review-summary-report__section[data-tone="risk"] {
+  border-left-color: #ff7e7e;
+}
+
+.review-summary-report__section span,
+.review-summary-report__mini span,
+.review-summary-report__links span,
+.review-finding-board__header > span {
+  color: var(--faint);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .review-finding-board__header > span {
   background: rgba(255, 255, 255, 0.055);
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 999px;
   color: var(--ink-soft);
-  font-size: 0.72rem;
-  font-weight: 850;
   padding: 6px 9px;
   white-space: nowrap;
 }
 
-.review-summary-card p {
+.review-summary-report__section strong {
+  color: var(--ink);
+  font-size: clamp(1rem, 1.35vw, 1.2rem);
+  line-height: 1.15;
+}
+
+.review-summary-report__mini strong {
+  color: var(--ink);
+  font-size: clamp(1.2rem, 1.8vw, 1.55rem);
+  line-height: 1;
+}
+
+.review-summary-report__section p,
+.review-summary-report__mini p {
   color: var(--muted);
   font-size: 0.84rem;
   line-height: 1.46;
   margin: 0;
 }
 
-.review-summary-card__items {
+.review-summary-report__links {
   display: grid;
   gap: 8px;
 }
 
-.review-summary-card__items button {
+.review-summary-report__links button {
   align-items: center;
   background: transparent;
-  border: 0;
-  border-left: 2px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 12px;
   color: var(--ink);
   display: grid;
-  gap: 7px;
-  grid-template-columns: minmax(82px, 0.25fr) minmax(0, 1fr) auto;
-  padding: 8px 0 8px 12px;
+  gap: 6px;
+  padding: 10px;
   text-align: left;
 }
 
-.review-summary-card__items button[data-tone="positive"] {
-  border-left-color: var(--accent);
+.review-summary-report__links button[data-tone="positive"] {
+  border-color: rgba(99, 211, 176, 0.2);
 }
 
-.review-summary-card__items button[data-tone="warning"] {
-  border-left-color: var(--warning);
+.review-summary-report__links button[data-tone="warning"] {
+  border-color: rgba(255, 184, 107, 0.2);
 }
 
-.review-summary-card__items button[data-tone="risk"] {
-  border-left-color: #ff7e7e;
+.review-summary-report__links button[data-tone="risk"] {
+  border-color: rgba(255, 126, 126, 0.2);
 }
 
-.review-summary-card__items button:hover,
-.review-summary-card__items button:focus-visible {
+.review-summary-report__links button:hover,
+.review-summary-report__links button:focus-visible {
   background: rgba(79, 140, 255, 0.045);
   outline: none;
 }
 
-.review-summary-card__items span {
-  color: var(--faint);
-  font-size: 0.66rem;
-  font-weight: 900;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
-}
-
-.review-summary-card__items strong {
+.review-summary-report__links strong {
   color: var(--ink);
   font-size: 0.9rem;
   line-height: 1.25;
-}
-
-.review-summary-card__items small {
-  background: rgba(255, 255, 255, 0.055);
-  border: 1px solid rgba(79, 140, 255, 0.16);
-  border-radius: 999px;
-  color: var(--primary-strong);
-  font-size: 0.7rem;
-  font-weight: 820;
-  padding: 5px 8px;
-  white-space: nowrap;
 }
 
 .review-dimension-card button,
@@ -3936,6 +4004,23 @@ strong,
   padding: 16px 18px;
 }
 
+.career-profile-card__link {
+  background: rgba(79, 140, 255, 0.12);
+  border: 1px solid rgba(79, 140, 255, 0.22);
+  border-radius: 999px;
+  color: var(--primary-strong);
+  font-size: 0.76rem;
+  font-weight: 850;
+  padding: 8px 11px;
+  white-space: nowrap;
+}
+
+.career-profile-card__link:hover,
+.career-profile-card__link:focus-visible {
+  background: rgba(79, 140, 255, 0.18);
+  outline: none;
+}
+
 .career-profile-card__header h3,
 .career-profile-side-card h3 {
   color: var(--ink);
@@ -3955,6 +4040,10 @@ strong,
   gap: 7px;
   min-width: 0;
   padding: 18px;
+}
+
+.career-profile-fact-grid article[data-missing="true"] {
+  background: rgba(255, 184, 107, 0.045);
 }
 
 .career-profile-fact-grid article:first-child {
@@ -3990,6 +4079,61 @@ strong,
   margin: 0;
 }
 
+.career-profile-fact-action {
+  background: transparent;
+  border: 0;
+  color: var(--primary-strong);
+  font-size: 0.76rem;
+  font-weight: 850;
+  justify-self: flex-start;
+  padding: 0;
+}
+
+.career-profile-fact-action:hover,
+.career-profile-fact-action:focus-visible {
+  color: var(--ink);
+  outline: none;
+  text-decoration: underline;
+}
+
+.career-profile-skills-list {
+  display: grid;
+  gap: 9px;
+}
+
+.career-profile-skills-list summary {
+  color: var(--primary-strong);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 850;
+  list-style: none;
+}
+
+.career-profile-skills-list summary::-webkit-details-marker {
+  display: none;
+}
+
+.career-profile-skills-list div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 138px;
+  overflow: auto;
+  padding-top: 2px;
+}
+
+.career-profile-skills-list div span {
+  background: rgba(255, 255, 255, 0.065);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  font-weight: 760;
+  letter-spacing: 0;
+  padding: 5px 8px;
+  text-transform: none;
+}
+
 .career-role-list {
   display: grid;
 }
@@ -3999,7 +4143,7 @@ strong,
   border-top: 1px solid rgba(255, 255, 255, 0.075);
   display: grid;
   gap: 16px;
-  grid-template-columns: minmax(0, 1.5fr) minmax(210px, 0.9fr) minmax(140px, 0.42fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(210px, 0.8fr) minmax(190px, 0.55fr);
   padding: 16px 18px;
 }
 
@@ -4035,29 +4179,37 @@ strong,
   padding: 6px 9px;
 }
 
-.career-role-row__readiness {
+.career-role-row__coverage {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
   display: grid;
-  gap: 7px;
+  gap: 5px;
+  padding: 10px 11px;
 }
 
-.career-role-row__readiness div {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 999px;
-  height: 7px;
-  overflow: hidden;
+.career-role-row__coverage[data-state="strong"] {
+  border-color: rgba(99, 211, 176, 0.24);
 }
 
-.career-role-row__readiness div span {
-  background: linear-gradient(90deg, #4e8cff, #b7d5ff);
-  border-radius: inherit;
-  display: block;
-  height: 100%;
+.career-role-row__coverage[data-state="needs_proof"] {
+  border-color: rgba(255, 184, 107, 0.22);
 }
 
-.career-role-row__readiness strong {
+.career-role-row__coverage[data-state="thin"] {
+  border-color: rgba(255, 126, 126, 0.18);
+}
+
+.career-role-row__coverage strong {
   color: var(--ink);
-  font-size: 0.82rem;
-  text-align: right;
+  font-size: 0.84rem;
+  line-height: 1.15;
+}
+
+.career-role-row__coverage span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
 }
 
 .career-profile-empty {
@@ -9248,10 +9400,6 @@ select:focus {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .career-role-row__readiness strong {
-    text-align: left;
-  }
-
   .command-center {
     grid-template-columns: 1fr;
   }
@@ -9783,9 +9931,14 @@ select:focus {
     padding-left: 0;
   }
 
-  .review-summary-card__items button,
+  .review-summary-report__grid,
+  .review-summary-report__hero,
   .review-finding-card {
     grid-template-columns: 1fr;
+  }
+
+  .review-summary-report__hero > strong {
+    text-align: left;
   }
 
   .workspace-tabs {

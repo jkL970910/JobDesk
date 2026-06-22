@@ -823,9 +823,12 @@ function ResumeReviewReportCard({
       <ReviewDetailTabs
         activeTab={activeDetailTab}
         atsNotes={atsNotes}
+        dimensions={dimensions}
         findingGroups={findingGroups}
         metadataScan={metadata?.tenSecondScan ?? ""}
         onSelect={setActiveDetailTab}
+        resumeTitle={formatResumeTitle(resume.title)}
+        totalScore={review.overallScore}
       />
       {metadata?.fairnessCheck ? (
         <section className="review-scan-card">
@@ -1185,15 +1188,21 @@ function ReviewFindingBoard({
 function ReviewDetailTabs({
   activeTab,
   atsNotes,
+  dimensions,
   findingGroups,
   metadataScan,
   onSelect,
+  resumeTitle,
+  totalScore,
 }: {
   activeTab: ReviewDetailTab;
   atsNotes: string[];
+  dimensions: ReviewDimension[];
   findingGroups: ReviewFindingGroup[];
   metadataScan: string;
   onSelect: (tab: ReviewDetailTab) => void;
+  resumeTitle: string;
+  totalScore: number;
 }) {
   const tabs: Array<{ id: ReviewDetailTab; label: string; titles?: string[] }> = [
     { id: "summary", label: "Summary" },
@@ -1208,6 +1217,12 @@ function ReviewDetailTabs({
   const summaryItems = findingGroups
     .flatMap((group) => group.items.slice(0, 2).map((item) => ({ ...item, groupTitle: group.title })))
     .slice(0, 6);
+  const topStrength = findingGroups.find((group) => group.title === "Strengths to preserve")?.items[0];
+  const topFix = findingGroups.find((group) => group.title === "Weaknesses to fix")?.items[0];
+  const topGap = findingGroups.find((group) => group.title === "Evidence gaps")?.items[0];
+  const topAts = findingGroups.find((group) => group.title === "ATS notes")?.items[0];
+  const strongestDimension = [...dimensions].sort((a, b) => b.percent - a.percent)[0];
+  const weakestDimension = [...dimensions].sort((a, b) => a.percent - b.percent)[0];
   return (
     <section className="review-detail-panel">
       <div className="review-detail-panel__header">
@@ -1228,33 +1243,21 @@ function ReviewDetailTabs({
         ))}
       </div>
       {active.id === "summary" ? (
-        <section className="review-summary-card">
-          <div className="review-summary-card__top">
-            <div>
-              <p className="panel-kicker">Summary</p>
-              <h3>Review triage</h3>
-            </div>
-            <span>{summaryItems.length} highlights</span>
-          </div>
-          <div className="review-summary-card__items">
-            {summaryItems.map((item) => (
-              <button
-                data-tone={item.tone}
-                key={`${item.groupTitle}-${item.id}`}
-                type="button"
-                onClick={() => {
-                  const matchingTab = tabs.find((tab) => tab.titles?.includes(item.groupTitle));
-                  if (matchingTab) onSelect(matchingTab.id);
-                }}
-              >
-                <span>{item.groupTitle}</span>
-                <strong>{item.title}</strong>
-                <small>{item.nextStep}</small>
-              </button>
-            ))}
-          </div>
-          {metadataScan ? <p>{metadataScan}</p> : null}
-        </section>
+        <ReviewSummaryReport
+          dimensions={dimensions}
+          metadataScan={metadataScan}
+          onSelect={onSelect}
+          resumeTitle={resumeTitle}
+          strongestDimension={strongestDimension}
+          summaryItems={summaryItems}
+          tabs={tabs}
+          topAts={topAts}
+          topFix={topFix}
+          topGap={topGap}
+          topStrength={topStrength}
+          totalScore={totalScore}
+          weakestDimension={weakestDimension}
+        />
       ) : (
         <ReviewFindingBoard
           groups={findingGroups}
@@ -1264,6 +1267,104 @@ function ReviewDetailTabs({
       {active.id === "ats" && atsNotes.length === 0 ? (
         <div className="empty-state empty-state--compact">No ATS-specific notes were returned.</div>
       ) : null}
+    </section>
+  );
+}
+
+function ReviewSummaryReport({
+  dimensions,
+  metadataScan,
+  onSelect,
+  resumeTitle,
+  strongestDimension,
+  summaryItems,
+  tabs,
+  topAts,
+  topFix,
+  topGap,
+  topStrength,
+  totalScore,
+  weakestDimension,
+}: {
+  dimensions: ReviewDimension[];
+  metadataScan: string;
+  onSelect: (tab: ReviewDetailTab) => void;
+  resumeTitle: string;
+  strongestDimension?: ReviewDimension;
+  summaryItems: Array<ReviewFinding & { groupTitle: string }>;
+  tabs: Array<{ id: ReviewDetailTab; label: string; titles?: string[] }>;
+  topAts?: ReviewFinding;
+  topFix?: ReviewFinding;
+  topGap?: ReviewFinding;
+  topStrength?: ReviewFinding;
+  totalScore: number;
+  weakestDimension?: ReviewDimension;
+}) {
+  const scoreTone = totalScore >= 80 ? "strong" : totalScore >= 65 ? "watch" : "weak";
+  return (
+    <section className="review-summary-report">
+      <div className="review-summary-report__hero" data-state={scoreTone}>
+        <div>
+          <p className="panel-kicker">Summary</p>
+          <h3>{resumeTitle}</h3>
+          <p>{metadataScan || "Resume review is ready. Start with the highest-impact fixes and evidence gaps below."}</p>
+        </div>
+        <strong>
+          {totalScore}
+          <span>score</span>
+        </strong>
+      </div>
+      <div className="review-summary-report__grid">
+        <article className="review-summary-report__main">
+          <div className="review-summary-report__section">
+            <span>Recruiter skim</span>
+            <strong>{topStrength?.title ?? strongestDimension?.label ?? "No strong signal captured yet"}</strong>
+            <p>{topStrength?.detail ?? strongestDimension?.note ?? "Add reviewed evidence to make the strongest profile signal clear."}</p>
+          </div>
+          <div className="review-summary-report__section" data-tone="warning">
+            <span>Highest-priority fix</span>
+            <strong>{topFix?.title ?? weakestDimension?.label ?? "No fix listed"}</strong>
+            <p>{topFix?.detail ?? weakestDimension?.note ?? "Keep this section concise and source-backed before rewriting."}</p>
+          </div>
+          <div className="review-summary-report__section" data-tone="risk">
+            <span>Evidence gap</span>
+            <strong>{topGap?.title ?? "No evidence gap listed"}</strong>
+            <p>{topGap?.detail ?? "If the resume already has enough proof, continue to the detail tabs for ATS and rewrite checks."}</p>
+          </div>
+        </article>
+        <aside className="review-summary-report__side">
+          <div className="review-summary-report__mini">
+            <span>Dimensions</span>
+            <strong>{dimensions.length}</strong>
+            <p>
+              Strongest: {strongestDimension?.label ?? "n/a"} · Weakest: {weakestDimension?.label ?? "n/a"}
+            </p>
+          </div>
+          <div className="review-summary-report__mini">
+            <span>ATS / privacy</span>
+            <strong>{topAts ? "Review" : "Clear"}</strong>
+            <p>{topAts?.detail ?? "No ATS-specific issue was returned in this review."}</p>
+          </div>
+          {summaryItems.length ? (
+            <div className="review-summary-report__links">
+              {summaryItems.slice(0, 4).map((item) => (
+                <button
+                  data-tone={item.tone}
+                  key={`${item.groupTitle}-${item.id}`}
+                  type="button"
+                  onClick={() => {
+                    const matchingTab = tabs.find((tab) => tab.titles?.includes(item.groupTitle));
+                    if (matchingTab) onSelect(matchingTab.id);
+                  }}
+                >
+                  <span>{item.groupTitle}</span>
+                  <strong>{item.nextStep}</strong>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </aside>
+      </div>
     </section>
   );
 }

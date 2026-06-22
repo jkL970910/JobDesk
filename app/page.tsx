@@ -1392,7 +1392,9 @@ function ProfileReferenceView({
       detail:
         [profileFacts.email, profileFacts.phone].filter(Boolean).join(" · ") ||
         "Name, email, or phone still missing.",
+      kind: "contact",
       label: "Contact",
+      missing: !profileFacts.email || !profileFacts.phone,
       value: profileFacts.name || profileFacts.email ? "Present" : "Pending",
     },
     {
@@ -1401,24 +1403,36 @@ function ProfileReferenceView({
         (displayedRoleCount
           ? "Work experience records are present."
           : "Extract a resume to populate work history."),
+      kind: "roles",
       label: "Roles",
+      missing: displayedRoleCount === 0,
       value: displayedRoleCount ? `${displayedRoleCount}` : "0",
     },
     {
       detail:
         profileFacts.education.slice(0, 2).join(" · ") ||
         "Education facts are not extracted yet.",
+      kind: "education",
       label: "Education",
+      missing: profileFacts.education.length === 0,
       value: profileFacts.education.length ? `${profileFacts.education.length}` : "0",
     },
     {
       detail:
         profileFacts.skills.slice(0, 8).join(", ") ||
         "Skill signals appear after profile extraction.",
+      kind: "skills",
       label: "Skills",
+      missing: profileFacts.skills.length === 0,
       value: profileFacts.skills.length ? `${profileFacts.skills.length}` : "0",
     },
-  ];
+  ] satisfies Array<{
+    detail: string;
+    kind: "contact" | "roles" | "education" | "skills";
+    label: string;
+    missing: boolean;
+    value: string;
+  }>;
   const roleCoverage = buildCareerRoleCoverage(library);
   const sourceSummary = buildCareerSourceSummary({
     latestResume,
@@ -1745,18 +1759,46 @@ function ProfileReferenceView({
                   <p className="panel-kicker">Snapshot</p>
                   <h3>Core facts</h3>
                 </div>
-                <span>
-                  {missingProfileAreas.length
-                    ? `${missingProfileAreas.length} gaps`
-                    : "Covered"}
-                </span>
+                <button
+                  className="career-profile-card__link"
+                  type="button"
+                  onClick={() =>
+                    resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
+                      ? onNavigateResume("intake_review")
+                      : onNavigate("evidence")
+                  }
+                >
+                  {missingProfileAreas.length ? "Add missing info" : "Review sources"}
+                </button>
               </header>
               <div className="career-profile-fact-grid">
                 {profileFactsMetrics.map((metric) => (
-                  <article key={metric.label}>
+                  <article data-missing={metric.missing} key={metric.label}>
                     <span>{metric.label}</span>
                     <strong>{metric.value}</strong>
                     <p>{metric.detail}</p>
+                    {metric.kind === "skills" && profileFacts.skills.length > 8 ? (
+                      <details className="career-profile-skills-list">
+                        <summary>View all {profileFacts.skills.length} skills</summary>
+                        <div>
+                          {profileFacts.skills.map((skill) => (
+                            <span key={skill}>{skill}</span>
+                          ))}
+                        </div>
+                      </details>
+                    ) : metric.missing ? (
+                      <button
+                        className="career-profile-fact-action"
+                        type="button"
+                        onClick={() =>
+                          metric.kind === "roles"
+                            ? onNavigateResume("intake_review")
+                            : onNavigate("evidence")
+                        }
+                      >
+                        Add source
+                      </button>
+                    ) : null}
                   </article>
                 ))}
               </div>
@@ -1784,11 +1826,9 @@ function ProfileReferenceView({
                         <span>{role.evidenceCount} evidence</span>
                         <span>{role.storyCount} stories</span>
                       </div>
-                      <div className="career-role-row__readiness" aria-label={`${role.readinessScore}% readiness`}>
-                        <div>
-                          <span style={{ width: `${role.readinessScore}%` }} />
-                        </div>
-                        <strong>{role.readinessScore}%</strong>
+                      <div className="career-role-row__coverage" data-state={role.coverageState}>
+                        <strong>{role.coverageLabel}</strong>
+                        <span>{role.coverageDetail}</span>
                       </div>
                     </article>
                   ))
@@ -2343,15 +2383,24 @@ function buildCareerRoleCoverage(library: EvidenceLibrarySummary | null) {
     const approvedStoryCount = linkedInitiatives.filter(
       (initiative) => initiative.status === "approved",
     ).length;
-    const readinessScore = Math.min(
-      100,
-      Math.round(
-        resumeReadyCount * 18 +
-          linkedEvidence.length * 6 +
-          approvedStoryCount * 10 +
-          linkedInitiatives.length * 4,
-      ),
-    );
+    const coverageState =
+      resumeReadyCount >= 3 && linkedInitiatives.length > 0
+        ? "strong"
+        : linkedEvidence.length > 0 || linkedInitiatives.length > 0
+          ? "needs_proof"
+          : "thin";
+    const coverageLabel =
+      coverageState === "strong"
+        ? "Strong coverage"
+        : coverageState === "needs_proof"
+          ? "Needs stronger proof"
+          : "Thin";
+    const coverageDetail =
+      coverageState === "strong"
+        ? "Ready to support resume drafts."
+        : coverageState === "needs_proof"
+          ? "Add more resume-ready claims or story context."
+          : "No linked evidence yet.";
     const employer = cleanDisplayText(experience.employer);
     const roleTitle = cleanDisplayText(experience.role_title);
     const team = cleanDisplayText(experience.team);
@@ -2362,9 +2411,11 @@ function buildCareerRoleCoverage(library: EvidenceLibrarySummary | null) {
     return {
       dateRange: formatRoleDateRange(experience),
       evidenceCount: linkedEvidence.length,
+      coverageDetail,
+      coverageLabel,
+      coverageState,
       id: experience.id,
       meta: metaParts.slice(0, 2).join(" · ") || "No role summary yet",
-      readinessScore,
       resumeReadyCount,
       storyCount: linkedInitiatives.length,
       title,
