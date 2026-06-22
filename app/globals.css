@@ -6048,14 +6048,60 @@ select:focus {
 
 .library-overview {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.032), rgba(255, 255, 255, 0.014)),
-    rgba(8, 12, 20, 0.38);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.026), rgba(255, 255, 255, 0.01)),
+    rgba(8, 12, 20, 0.28);
   border: 1px solid rgba(255, 255, 255, 0.082);
-  border-radius: 14px;
+  border-radius: 12px;
   display: grid;
   gap: 0;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   overflow: hidden;
+}
+
+.material-review-panel > .panel__header {
+  padding-bottom: 12px;
+}
+
+.material-review-panel > .panel__header .panel__title {
+  font-size: clamp(1.35rem, 2vw, 1.75rem);
+}
+
+.material-review-panel > .panel__header .panel__note {
+  margin-top: 4px;
+}
+
+.library-overview__top {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 10px 14px;
+}
+
+.library-overview__top span {
+  color: var(--faint);
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 880;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.library-overview__top strong {
+  color: var(--ink);
+  display: block;
+  font-size: clamp(1rem, 1.35vw, 1.18rem);
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  margin-top: 3px;
+}
+
+.library-overview__top p {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 680;
+  margin: 0;
+  text-align: right;
 }
 
 .library-mode-switcher {
@@ -6388,18 +6434,6 @@ select:focus {
   overflow-wrap: anywhere;
 }
 
-.library-overview__profile {
-  padding: 14px 16px;
-}
-
-.library-overview__profile .requirement__text {
-  margin: 0;
-}
-
-.library-overview__profile .requirement__quote {
-  margin-bottom: 0;
-}
-
 .material-type-picker {
   background: rgba(255, 255, 255, 0.018);
   border: 1px solid rgba(255, 255, 255, 0.065);
@@ -6503,8 +6537,9 @@ select:focus {
 .library-readiness article {
   border-left: 1px solid rgba(255, 255, 255, 0.065);
   display: grid;
-  gap: 6px;
-  padding: 16px 18px;
+  gap: 4px;
+  min-height: 98px;
+  padding: 12px 14px;
 }
 
 .library-readiness article:first-child {
@@ -7441,14 +7476,14 @@ select:focus {
 
 .library-readiness strong {
   color: var(--ink);
-  font-size: clamp(1.9rem, 3vw, 2.75rem);
+  font-size: clamp(1.55rem, 2.4vw, 2.2rem);
   font-weight: 920;
   letter-spacing: -0.065em;
   line-height: 0.98;
 }
 
 .library-readiness article:last-child strong {
-  font-size: clamp(1.08rem, 1.8vw, 1.42rem);
+  font-size: clamp(0.98rem, 1.5vw, 1.24rem);
   letter-spacing: -0.035em;
   line-height: 1.08;
 }

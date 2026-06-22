@@ -3242,9 +3242,25 @@ function LibraryOverviewSummary({
   library: EvidenceLibrary | null;
   summary: ReturnType<typeof summarizeLibraryReadiness>;
 }) {
+  const profileName =
+    extraction?.profile.name.value ?? library?.profile?.displayName ?? "No profile yet";
+  const evidenceCount = library?.evidenceItems.length ?? extraction?.evidence_items.length ?? 0;
+  const roleCount = library?.workExperiences.length ?? extraction?.work_experiences.length ?? 0;
+  const initiativeCount = library?.initiatives.length ?? extraction?.initiatives.length ?? 0;
+  const portfolioCount =
+    library?.portfolioProjects.length ?? extraction?.portfolio_projects.length ?? 0;
   return (
     <section className="library-overview" aria-label="Material Library readiness">
-      {extraction ? <ProfileSummary extraction={extraction} /> : <LibrarySummary library={library} />}
+      <div className="library-overview__top">
+        <div>
+          <span>Material health</span>
+          <strong>{profileName}</strong>
+        </div>
+        <p>
+          {evidenceCount} evidence · {roleCount} roles · {initiativeCount} initiatives ·{" "}
+          {portfolioCount} portfolio projects
+        </p>
+      </div>
       <div className="library-readiness">
         <article>
           <span>Thin stories</span>
@@ -5628,53 +5644,6 @@ function formatStoryOverlapTitle(candidate: StoryDedupeCandidate) {
     return "Exact story title match";
   }
   return `Story similarity ${Math.round(candidate.score * 100)}%`;
-}
-
-function ProfileSummary({
-  extraction,
-}: {
-  extraction: ProfileEvidenceExtraction | null;
-}) {
-  if (!extraction) return null;
-  const profile = extraction.profile;
-  return (
-    <div className="library-overview__profile">
-      <div className="chip-row">
-        <span className="chip">Name: {profile.name.value}</span>
-        {profile.location ? (
-          <span className="chip">Location: {profile.location.value}</span>
-        ) : null}
-        {profile.skills.slice(0, 5).map((skill) => (
-          <span className="chip" key={skill.value}>
-            {skill.value}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function LibrarySummary({ library }: { library: EvidenceLibrary | null }) {
-  if (!library?.profile && library?.evidenceItems.length === 0) {
-    return (
-      <div className="empty-state empty-state--compact">
-        Import a resume or project notes to create reusable evidence.
-      </div>
-    );
-  }
-  return (
-    <div className="library-overview__profile">
-      <p className="requirement__text">
-        Latest profile: {library?.profile?.displayName ?? "Unnamed profile"}
-      </p>
-      <p className="requirement__quote">
-        {library?.evidenceItems.length ?? 0} evidence items ·{" "}
-        {library?.workExperiences.length ?? 0} roles ·{" "}
-        {library?.initiatives.length ?? 0} initiatives ·{" "}
-        {library?.portfolioProjects.length ?? 0} portfolio projects
-      </p>
-    </div>
-  );
 }
 
 function DedupePanel({
