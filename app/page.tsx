@@ -767,7 +767,6 @@ function DashboardView({
   ];
   const applicationStageMax = Math.max(1, ...applicationStages.map((stage) => stage.value));
   const recentJobWorkspaces = jobs.slice(0, 4);
-  const resumeScore = latestResume?.latestReview?.overallScore ?? 0;
   const resumeHealthIssue =
     claimsNeedingReview > 0
       ? `${claimsNeedingReview} claim${claimsNeedingReview === 1 ? "" : "s"} need review`
@@ -834,10 +833,23 @@ function DashboardView({
               </span>
             </div>
             <div className="resume-health-grid">
-              <article className="resume-health-score">
-                <span>Score</span>
-                <strong>{latestResume?.latestReview ? <CountUpMetric value={resumeScore} /> : "—"}</strong>
-                <small>{latestResume ? formatResumeTitle(latestResume.title) : "No resume yet"}</small>
+              <article className="resume-health-current">
+                <span>Current resume</span>
+                <strong>{latestResume ? formatResumeTitle(latestResume.title) : "No resume yet"}</strong>
+                <small>
+                  {latestResume?.latestReview
+                    ? `Reviewed · score ${latestResume.latestReview.overallScore}`
+                    : latestResume
+                      ? "Saved · review needed"
+                      : "Upload a resume to start"}
+                </small>
+                <button
+                  disabled={dashboardLoadState === "loading"}
+                  type="button"
+                  onClick={() => onNavigateResume("intake_review")}
+                >
+                  {latestResume ? "Open resume" : "Upload resume"}
+                </button>
               </article>
               <div className="resume-health-workflow">
                 <WorkflowStepper

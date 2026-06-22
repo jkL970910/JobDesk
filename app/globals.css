@@ -1104,6 +1104,7 @@ strong,
 }
 
 .next-action-row button,
+.resume-health-current button,
 .resume-health-focus button,
 .pipeline-summary-row button {
   background: rgba(79, 140, 255, 0.13);
@@ -1123,16 +1124,17 @@ strong,
   grid-template-columns: minmax(132px, 0.32fr) minmax(0, 1fr);
 }
 
-.resume-health-score {
+.resume-health-current {
+  align-content: start;
   background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.075);
   border-radius: 16px;
   display: grid;
-  gap: 6px;
+  gap: 9px;
   padding: 14px;
 }
 
-.resume-health-score span,
+.resume-health-current span,
 .resume-health-focus span {
   color: var(--muted);
   font-size: 0.72rem;
@@ -1141,19 +1143,25 @@ strong,
   text-transform: uppercase;
 }
 
-.resume-health-score strong {
-  color: var(--accent);
+.resume-health-current strong {
+  color: var(--ink);
   display: block;
-  font-size: clamp(3rem, 5vw, 5.5rem);
-  font-weight: 930;
-  letter-spacing: -0.09em;
-  line-height: 0.82;
+  font-size: clamp(1rem, 1.2vw, 1.18rem);
+  font-weight: 880;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
 }
 
-.resume-health-score small {
+.resume-health-current small {
   color: var(--muted);
   font-size: 0.78rem;
   line-height: 1.25;
+}
+
+.resume-health-current button {
+  justify-self: flex-start;
+  margin-top: 4px;
 }
 
 .resume-health-workflow {
@@ -1363,12 +1371,8 @@ strong,
   padding: 7px 10px;
 }
 
-.overview-lanes--figma .resume-health-score {
+.overview-lanes--figma .resume-health-current {
   border-radius: 8px;
-}
-
-.overview-lanes--figma .resume-health-score strong {
-  font-size: clamp(2.2rem, 4vw, 3.4rem);
 }
 
 .weekly-activity-panel {
