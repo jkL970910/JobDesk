@@ -191,7 +191,13 @@ type ResumePrepWorkflowState =
   | "evidence_enriched"
   | "profile_ready";
 
-type MaterialReviewTab = "enrichment" | "projects" | "unlinked" | "cleanup" | "stories";
+type MaterialReviewTab =
+  | "enrichment"
+  | "projects"
+  | "claims"
+  | "unlinked"
+  | "cleanup"
+  | "stories";
 type ResumeWorkspaceTab = "intake_review" | "profile_facts" | "build_export";
 type DashboardNextAction = {
   detail: string;
@@ -353,11 +359,18 @@ export default function HomePage() {
     setMaterialReviewTab("enrichment");
     setAppView("evidence");
   }
+  function openEvidenceLibrary() {
+    setProfileGapIntent(null);
+    setFocusedEvidenceTaskId(null);
+    setMaterialInitialSection("review");
+    setMaterialReviewTab("projects");
+    setAppView("evidence");
+  }
   function navigateToView(view: View) {
     if (view === "evidence") {
       setProfileGapIntent(null);
       setMaterialInitialSection("review");
-      setMaterialReviewTab("enrichment");
+      setMaterialReviewTab("projects");
     }
     setAppView(view);
   }
@@ -436,6 +449,7 @@ export default function HomePage() {
                 activeTab={resumeWorkspaceTab}
                 onExtractResumeToEvidence={extractResumeToEvidence}
                 onNavigate={setAppView}
+                onOpenEvidenceLibrary={openEvidenceLibrary}
                 onOpenEvidenceReview={openEvidenceReview}
                 onOpenEvidenceTask={openEvidenceTask}
                 onOpenProfileGapMaterial={openProfileGapMaterial}
@@ -1148,6 +1162,7 @@ function ResumeWorkspaceView({
   activeTab,
   onExtractResumeToEvidence,
   onNavigate,
+  onOpenEvidenceLibrary,
   onOpenEvidenceReview,
   onOpenEvidenceTask,
   onOpenProfileGapMaterial,
@@ -1156,6 +1171,7 @@ function ResumeWorkspaceView({
   activeTab: ResumeWorkspaceTab;
   onExtractResumeToEvidence: (resumeSourceVersionId: string) => void;
   onNavigate: (view: View) => void;
+  onOpenEvidenceLibrary: () => void;
   onOpenEvidenceReview: (tab?: MaterialReviewTab) => void;
   onOpenEvidenceTask: (taskId: string) => void;
   onOpenProfileGapMaterial: (gap: ProfileGapIntent) => void;
@@ -1220,6 +1236,8 @@ function ResumeWorkspaceView({
           focus={activeTab === "profile_facts" ? "facts" : "builder"}
           onNavigate={onNavigate}
           onExtractResumeToEvidence={onExtractResumeToEvidence}
+          onOpenEvidenceLibrary={onOpenEvidenceLibrary}
+          onOpenEvidenceReview={onOpenEvidenceReview}
           onOpenProfileGapMaterial={onOpenProfileGapMaterial}
           onNavigateResume={onTabChange}
         />
@@ -1253,12 +1271,16 @@ function ProfileReferenceView({
   focus,
   onNavigate,
   onExtractResumeToEvidence,
+  onOpenEvidenceLibrary,
+  onOpenEvidenceReview,
   onOpenProfileGapMaterial,
   onNavigateResume,
 }: {
   focus: "facts" | "builder";
   onNavigate: (view: View) => void;
   onExtractResumeToEvidence: (resumeSourceVersionId: string) => void;
+  onOpenEvidenceLibrary: () => void;
+  onOpenEvidenceReview: (tab?: MaterialReviewTab) => void;
   onOpenProfileGapMaterial: (gap: ProfileGapIntent) => void;
   onNavigateResume: (tab: ResumeWorkspaceTab) => void;
 }) {
@@ -2044,10 +2066,30 @@ function ProfileReferenceView({
                         <span>{role.evidenceCount} evidence</span>
                         <span>{role.storyCount} stories</span>
                       </div>
-                      <div className="career-role-row__coverage" data-state={role.coverageState}>
+                      <button
+                        className="career-role-row__coverage"
+                        data-state={role.coverageState}
+                        type="button"
+                        onClick={() =>
+                          role.coverageState === "strong"
+                            ? onOpenEvidenceLibrary()
+                            : onOpenEvidenceReview(
+                                role.evidenceCount > 0 || claimsNeedingReview > 0
+                                  ? "claims"
+                                  : "enrichment",
+                              )
+                        }
+                      >
                         <strong>{role.coverageLabel}</strong>
                         <span>{role.coverageDetail}</span>
-                      </div>
+                        <em>
+                          {role.coverageState === "strong"
+                            ? "View evidence"
+                            : role.evidenceCount > 0
+                              ? "Review linked claims"
+                              : "Open evidence tasks"}
+                        </em>
+                      </button>
                     </article>
                   ))
                 ) : (
@@ -2118,15 +2160,28 @@ function ProfileReferenceView({
                     onNavigateResume("intake_review");
                     return;
                   }
-                  onNavigate("evidence");
+                  if (claimsNeedingReview > 0 || thinStories > 0) {
+                    onOpenEvidenceReview(claimsNeedingReview > 0 ? "claims" : "enrichment");
+                    return;
+                  }
+                  onOpenEvidenceLibrary();
                 }}
               >
                 {needsLibraryExtraction
                   ? "Open Add Material"
                   : resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
                   ? "Open Resume Review"
-                  : "Open Evidence Library"}
+                  : claimsNeedingReview > 0 || thinStories > 0
+                    ? "Review evidence tasks"
+                    : "Browse evidence library"}
               </button>
+              {!needsLibraryExtraction &&
+              resumePrepState !== "no_resume" &&
+              resumePrepState !== "resume_uploaded" ? (
+                <button type="button" onClick={onOpenEvidenceLibrary}>
+                  Browse existing evidence
+                </button>
+              ) : null}
               <button type="button" onClick={() => onNavigateResume("build_export")}>
                 Build main resume
               </button>

@@ -4894,9 +4894,23 @@ function isSourceSectionReviewTask(task: EnrichmentTaskItem) {
   return (
     task.task_type === "source_section_review" ||
     task.expected_outcome === "review_imported_material" ||
+    (task.source_type === "extraction_note" && looksLikeImportedReviewNote(task.prompt)) ||
     (task.source_type === "extraction_note" &&
       task.target_scope === "source_material" &&
       looksLikeSourceSectionNote(task.prompt))
+  );
+}
+
+function looksLikeImportedReviewNote(prompt: string) {
+  const normalized = prompt.trim().toLowerCase().replace(/\s+/g, " ");
+  return (
+    looksLikeSourceSectionNote(prompt) ||
+    /\breturned\s+at\s+most\s+\d+\b/.test(normalized) ||
+    /\bomitted\s+additional\b/.test(normalized) ||
+    /\bclassified\s+as\s+[a-z_]+\s+because\b/.test(normalized) ||
+    /\bnot\s+under\s+an\s+employer\b/.test(normalized) ||
+    /\bnot\s+user-facing\b/.test(normalized) ||
+    /\bcapped\s+at\s+\d+\b/.test(normalized)
   );
 }
 

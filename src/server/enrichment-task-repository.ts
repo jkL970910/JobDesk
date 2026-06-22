@@ -256,7 +256,7 @@ export function buildExtractionNoteEnrichmentTasks(args: {
   notes: string[];
 }) {
   return args.notes.map((note) => {
-    if (isSourceSectionExtractionNote(note)) {
+    if (isImportedMaterialReviewNote(note)) {
       return {
         taskType: "source_section_review" as const,
         sourceType: "extraction_note" as const,
@@ -1421,7 +1421,7 @@ function buildEnrichmentDedupeKey(task: EnrichmentTaskDraft) {
 }
 
 function classifyEnrichmentTask(prompt: string): EnrichmentTaskType {
-  if (isSourceSectionExtractionNote(prompt)) {
+  if (isImportedMaterialReviewNote(prompt)) {
     return "source_section_review";
   }
   const text = prompt.toLowerCase();
@@ -1454,6 +1454,19 @@ function isSourceSectionExtractionNote(prompt: string) {
   return (
     /\b(entries|items|details)\s+were\s+extracted\s+from\s+the\s+.+\s+section\b/.test(text) ||
     /\b.+\s+was\s+extracted\s+from\s+the\s+.+\s+section\b/.test(text)
+  );
+}
+
+function isImportedMaterialReviewNote(prompt: string) {
+  const text = normalizeText(prompt);
+  return (
+    isSourceSectionExtractionNote(prompt) ||
+    /\breturned\s+at\s+most\s+\d+\b/.test(text) ||
+    /\bomitted\s+additional\b/.test(text) ||
+    /\bclassified\s+as\s+[a-z_]+\s+because\b/.test(text) ||
+    /\bnot\s+under\s+an\s+employer\b/.test(text) ||
+    /\bnot\s+user-facing\b/.test(text) ||
+    /\bcapped\s+at\s+\d+\b/.test(text)
   );
 }
 

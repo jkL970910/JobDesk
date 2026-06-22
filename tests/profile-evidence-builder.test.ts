@@ -113,12 +113,17 @@ describe("Evidence Library Builder instructions", () => {
   });
 
   it("marks source-section extraction notes as imported material review tasks", () => {
-    const [task] = buildExtractionNoteEnrichmentTasks({
+    const tasks = buildExtractionNoteEnrichmentTasks({
       sourceTitle: "Resume import",
-      notes: ["Work experience entries were extracted from the WORK EXPERIENCES section."],
+      notes: [
+        "Work experience entries were extracted from the WORK EXPERIENCES section.",
+        "Returned at most 4 work_experiences; omitted additional work experience beyond the cap if any.",
+        "Project type for Full-Stack Shopping Market System is classified as personal_project because it appears under PROJECTS and not under an employer.",
+      ],
     });
 
-    expect(task).toMatchObject({
+    for (const task of tasks) {
+      expect(task).toMatchObject({
       taskType: "source_section_review",
       sourceType: "extraction_note",
       sourceLabel: "Resume import",
@@ -126,7 +131,8 @@ describe("Evidence Library Builder instructions", () => {
       targetConfidence: "high",
       expectedOutcome: "review_imported_material",
     });
-    expect(task?.targetReason).toContain("not a missing-information question");
+      expect(task?.targetReason).toContain("not a missing-information question");
+    }
   });
 
   it("keeps concrete extraction notes as ordinary enrichment questions", () => {

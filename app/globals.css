@@ -4436,12 +4436,30 @@ strong,
 }
 
 .career-role-row__coverage {
+  appearance: none;
   background: rgba(255, 255, 255, 0.045);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
+  color: inherit;
+  cursor: pointer;
   display: grid;
   gap: 5px;
+  font: inherit;
+  text-align: left;
   padding: 10px 11px;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease;
+  width: 100%;
+}
+
+.career-role-row__coverage:hover,
+.career-role-row__coverage:focus-visible {
+  background: rgba(120, 168, 255, 0.1);
+  border-color: rgba(142, 181, 255, 0.32);
+  outline: none;
+  transform: translateY(-1px);
 }
 
 .career-role-row__coverage[data-state="strong"] {
@@ -4466,6 +4484,16 @@ strong,
   color: var(--muted);
   font-size: 0.72rem;
   line-height: 1.35;
+}
+
+.career-role-row__coverage em {
+  color: #a9c9ff;
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 820;
+  letter-spacing: 0.02em;
+  margin-top: 2px;
+  text-transform: uppercase;
 }
 
 .career-profile-empty {
