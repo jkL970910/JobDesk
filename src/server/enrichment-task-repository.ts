@@ -12,6 +12,7 @@ import type { JobDeskAiFailureKind, JobDeskAiSkillBinding } from "../ai/types";
 import { getDb, hasDatabaseUrl } from "../db/client";
 import {
   enrichmentAnswers,
+  enrichmentProposalRevisions,
   enrichmentProposals,
   enrichmentTaskTargets,
   enrichmentTasks,
@@ -57,6 +58,18 @@ export type EnrichmentProposalType =
   (typeof enrichmentProposalTypeEnum.enumValues)[number];
 export type EnrichmentProposalStatus =
   (typeof enrichmentProposalStatusEnum.enumValues)[number];
+
+export type EnrichmentProposalRevisionPayload = {
+  id: string;
+  proposal_id: string | null;
+  next_proposal_id: string | null;
+  actor: "user" | "ai";
+  mode: "manual_edit" | "ai_revision";
+  instruction: string | null;
+  previous_text: string;
+  revised_text: string;
+  createdAt: string;
+};
 
 export type EnrichmentProposalPayload = {
   id: string;
@@ -161,11 +174,17 @@ export async function getEnrichmentTaskQueue(filters: EnrichmentTaskQueueFilters
   const taskIds = rows.map((row) => row.id);
   const targetMap = await getTaskTargetMap(db, taskIds);
   const proposalMap = await getTaskProposalMap(db, taskIds);
+  const revisionMap = await getTaskProposalRevisionMap(db, taskIds);
 
   return {
     status: "ready" as const,
     tasks: rows.map((row) =>
-      toEnrichmentTaskPayload(row, targetMap.get(row.id), proposalMap.get(row.id)),
+      toEnrichmentTaskPayload(
+        row,
+        targetMap.get(row.id),
+        proposalMap.get(row.id),
+        revisionMap.get(row.id),
+      ),
     ),
   };
 }
@@ -441,6 +460,7 @@ export async function updateEnrichmentTask(args: {
   }
   const targetMap = updated ? await getTaskTargetMap(db, [updated.id]) : new Map();
   const proposalMap = updated ? await getTaskProposalMap(db, [updated.id]) : new Map();
+  const revisionMap = updated ? await getTaskProposalRevisionMap(db, [updated.id]) : new Map();
   return updated
     ? ({
         status: "saved" as const,
@@ -448,6 +468,7 @@ export async function updateEnrichmentTask(args: {
           updated,
           targetMap.get(updated.id),
           proposalMap.get(updated.id),
+          revisionMap.get(updated.id),
         ),
       })
     : ({ status: "not_found" as const });
@@ -542,12 +563,14 @@ async function convertEnrichmentTaskToEvidenceCandidate(
   if (args.task.status === "converted" && args.task.evidenceItemId) {
     const targetMap = await getTaskTargetMap(db, [args.task.id]);
     const proposalMap = await getTaskProposalMap(db, [args.task.id]);
+    const revisionMap = await getTaskProposalRevisionMap(db, [args.task.id]);
     return {
       status: "saved" as const,
       task: toEnrichmentTaskPayload(
         args.task,
         targetMap.get(args.task.id),
         proposalMap.get(args.task.id),
+        revisionMap.get(args.task.id),
       ),
       evidenceItemId: args.task.evidenceItemId,
     };
@@ -666,6 +689,7 @@ async function convertEnrichmentTaskToEvidenceCandidate(
     });
     const targetMap = await getTaskTargetMap(tx, [updated.id]);
     const proposalMap = await getTaskProposalMap(tx, [updated.id]);
+    const revisionMap = await getTaskProposalRevisionMap(tx, [updated.id]);
 
     return {
       status: "saved" as const,
@@ -673,6 +697,7 @@ async function convertEnrichmentTaskToEvidenceCandidate(
         updated,
         targetMap.get(updated.id),
         proposalMap.get(updated.id),
+        revisionMap.get(updated.id),
       ),
       evidenceItemId: insertedEvidence[0]?.id ?? null,
       evidenceCount: insertedEvidence.length,
@@ -942,12 +967,14 @@ async function acceptEnrichmentProposal(
     });
     const targetMap = await getTaskTargetMap(tx, [updated.id]);
     const proposalMap = await getTaskProposalMap(tx, [updated.id]);
+    const revisionMap = await getTaskProposalRevisionMap(tx, [updated.id]);
     return {
       status: "saved" as const,
       task: toEnrichmentTaskPayload(
         updated,
         targetMap.get(updated.id),
         proposalMap.get(updated.id),
+        revisionMap.get(updated.id),
       ),
       evidenceItemId: evidence.id,
       evidenceCount: 1,
@@ -1003,6 +1030,7 @@ async function rejectEnrichmentProposal(
       .limit(1);
     const targetMap = updated ? await getTaskTargetMap(tx, [updated.id]) : new Map();
     const proposalMap = updated ? await getTaskProposalMap(tx, [updated.id]) : new Map();
+    const revisionMap = updated ? await getTaskProposalRevisionMap(tx, [updated.id]) : new Map();
     return updated
       ? ({
           status: "saved" as const,
@@ -1010,6 +1038,7 @@ async function rejectEnrichmentProposal(
             updated,
             targetMap.get(updated.id),
             proposalMap.get(updated.id),
+            revisionMap.get(updated.id),
           ),
         })
       : ({ status: "not_found" as const });
@@ -1112,6 +1141,19 @@ async function reviseEnrichmentProposal(
       .returning();
     if (!nextProposal) throw new Error("Failed to create revised enrichment proposal.");
 
+    await tx.insert(enrichmentProposalRevisions).values({
+      workspaceId: args.task.workspaceId,
+      taskId: args.task.id,
+      proposalId: proposal.id,
+      nextProposalId: nextProposal.id,
+      actor: revisedText ? "user" : "ai",
+      mode: revisedText ? "manual_edit" : "ai_revision",
+      instruction: revisionInstruction || null,
+      previousText: revisedPatch.previousText,
+      revisedText: revisedPatch.patch.text,
+      createdAt: args.now,
+    });
+
     const [updated] = await tx
       .select()
       .from(enrichmentTasks)
@@ -1124,6 +1166,7 @@ async function reviseEnrichmentProposal(
       .limit(1);
     const targetMap = updated ? await getTaskTargetMap(tx, [updated.id]) : new Map();
     const proposalMap = updated ? await getTaskProposalMap(tx, [updated.id]) : new Map();
+    const revisionMap = updated ? await getTaskProposalRevisionMap(tx, [updated.id]) : new Map();
     return updated
       ? ({
           status: "saved" as const,
@@ -1131,6 +1174,7 @@ async function reviseEnrichmentProposal(
             updated,
             targetMap.get(updated.id),
             proposalMap.get(updated.id),
+            revisionMap.get(updated.id),
           ),
         })
       : ({ status: "not_found" as const });
@@ -1143,7 +1187,7 @@ async function buildRevisedCreateEvidenceProposalPatch(args: {
   revisionInstruction?: string;
   task: typeof enrichmentTasks.$inferSelect;
 }): Promise<
-  | { status: "saved"; patch: CreateEvidenceProposalPatch }
+  | { status: "saved"; patch: CreateEvidenceProposalPatch; previousText: string }
   | {
       status: "invalid";
       reason: "invalid_proposal_payload" | "invalid_revision_payload";
@@ -1178,6 +1222,7 @@ async function buildRevisedCreateEvidenceProposalPatch(args: {
       source_quote: nextSourceQuote,
       text: nextText,
     },
+    previousText: currentPatch.text,
   };
 }
 
@@ -1721,6 +1766,35 @@ function toEnrichmentProposalPayload(
   };
 }
 
+async function getTaskProposalRevisionMap(
+  db: Pick<DbHandle, "select">,
+  taskIds: string[],
+) {
+  if (taskIds.length === 0) return new Map<string, EnrichmentProposalRevisionPayload[]>();
+  const rows = await db
+    .select()
+    .from(enrichmentProposalRevisions)
+    .where(inArray(enrichmentProposalRevisions.taskId, taskIds))
+    .orderBy(enrichmentProposalRevisions.createdAt);
+  const map = new Map<string, EnrichmentProposalRevisionPayload[]>();
+  for (const row of rows) {
+    const revisions = map.get(row.taskId) ?? [];
+    revisions.push({
+      id: row.id,
+      proposal_id: row.proposalId,
+      next_proposal_id: row.nextProposalId,
+      actor: row.actor,
+      mode: row.mode,
+      instruction: row.instruction,
+      previous_text: row.previousText,
+      revised_text: row.revisedText,
+      createdAt: row.createdAt.toISOString(),
+    });
+    map.set(row.taskId, revisions);
+  }
+  return map;
+}
+
 async function replaceTaskTargets(
   db: Pick<DbHandle, "delete" | "insert">,
   args: {
@@ -1830,6 +1904,7 @@ function toEnrichmentTaskPayload(
   task: typeof enrichmentTasks.$inferSelect,
   targets: EnrichmentTaskTargetPayload[] = [],
   proposals: EnrichmentProposalPayload[] = [],
+  proposalRevisions: EnrichmentProposalRevisionPayload[] = [],
 ) {
   const fallbackTargets = targets.length > 0 ? targets : buildFallbackTargetPayloads(task);
   return {
@@ -1846,6 +1921,7 @@ function toEnrichmentTaskPayload(
     expected_outcome: task.expectedOutcome,
     targets: fallbackTargets,
     proposals,
+    proposal_revisions: proposalRevisions,
     evidence_item_id: task.evidenceItemId,
     work_experience_id: task.workExperienceId,
     initiative_id: task.initiativeId,

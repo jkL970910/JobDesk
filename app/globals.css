@@ -7367,8 +7367,50 @@ select:focus {
   margin: 0;
 }
 
+.enrichment-proposal__workspace {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1.18fr) minmax(280px, 0.82fr);
+}
+
+.enrichment-proposal__output,
+.enrichment-proposal__conversation {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.enrichment-proposal__conversation {
+  border-left: 1px solid rgba(255, 255, 255, 0.075);
+  padding-left: 14px;
+}
+
+.enrichment-proposal__prompt,
+.enrichment-proposal__history {
+  display: grid;
+  gap: 7px;
+}
+
+.enrichment-proposal__prompt span,
+.enrichment-proposal__history > span,
+.enrichment-proposal__answer span {
+  color: var(--muted);
+  font-size: var(--type-meta);
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.enrichment-proposal__prompt p {
+  color: var(--ink);
+  font-size: var(--type-body);
+  font-weight: 690;
+  line-height: 1.45;
+  margin: 0;
+}
+
 .enrichment-proposal blockquote,
-.enrichment-proposal__editor textarea {
+.enrichment-proposal__editor textarea,
+.enrichment-proposal__answer textarea {
   background: rgba(3, 7, 18, 0.34);
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 14px;
@@ -7381,7 +7423,8 @@ select:focus {
 }
 
 .enrichment-proposal__editor,
-.enrichment-proposal__revision {
+.enrichment-proposal__revision,
+.enrichment-proposal__answer {
   display: grid;
   gap: 7px;
 }
@@ -7395,7 +7438,12 @@ select:focus {
 }
 
 .enrichment-proposal__editor textarea {
-  min-height: 94px;
+  min-height: 220px;
+  resize: vertical;
+}
+
+.enrichment-proposal__answer textarea {
+  min-height: 132px;
   resize: vertical;
 }
 
@@ -7411,6 +7459,34 @@ select:focus {
   flex-wrap: wrap;
   gap: 9px;
   justify-content: flex-end;
+}
+
+.enrichment-proposal__history article {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 12px;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+}
+
+.enrichment-proposal__history article strong {
+  color: var(--ink);
+  font-size: var(--type-caption);
+  font-weight: 760;
+}
+
+.enrichment-proposal__history article p,
+.enrichment-proposal__history > p {
+  color: var(--muted);
+  font-size: var(--type-caption);
+  line-height: 1.42;
+  margin: 0;
+}
+
+.enrichment-proposal__history article small {
+  color: var(--muted);
+  font-size: var(--type-meta);
 }
 
 .enrichment-task-card {
@@ -7474,11 +7550,12 @@ select:focus {
 }
 
 .enrichment-task-card__context {
-  border-block: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
   display: grid;
   gap: 1px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  padding-block: 2px;
+  margin-top: 10px;
+  padding-top: 8px;
 }
 
 .enrichment-task-card__context div {
@@ -9566,8 +9643,16 @@ select:focus {
   .review-top-fixes__grid,
   .review-finding-grid,
   .enrichment-task-card__context,
+  .enrichment-proposal__workspace,
   .enrichment-task-card__target-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .enrichment-proposal__conversation {
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.075);
+    padding-left: 0;
+    padding-top: 12px;
   }
 
   .review-detail-tabs {
@@ -10256,6 +10341,7 @@ select:focus {
   .review-top-fixes__grid,
   .review-finding-grid,
   .enrichment-task-card__context,
+  .enrichment-proposal__workspace,
   .enrichment-task-card__target-grid,
   .resume-version-strip,
   .resume-review-rubric {

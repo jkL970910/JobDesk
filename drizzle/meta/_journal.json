@@ -141,6 +141,13 @@
       "when": 1782020000000,
       "tag": "0019_enrichment_proposals",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1782117600000,
+      "tag": "0020_enrichment_proposal_revisions",
+      "breakpoints": true
     }
   ]
 }

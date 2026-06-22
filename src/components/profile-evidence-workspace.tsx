@@ -206,6 +206,17 @@ type EnrichmentTaskItem = {
     updatedAt: string;
     reviewedAt: string | null;
   }>;
+  proposal_revisions: Array<{
+    id: string;
+    proposal_id: string | null;
+    next_proposal_id: string | null;
+    actor: "user" | "ai";
+    mode: "manual_edit" | "ai_revision";
+    instruction: string | null;
+    previous_text: string;
+    revised_text: string;
+    createdAt: string;
+  }>;
   evidence_item_id: string | null;
   work_experience_id: string | null;
   initiative_id: string | null;
@@ -4045,24 +4056,6 @@ function EnrichmentTaskFocusPane({
         </div>
         <em data-state={task.status}>{formatEnrichmentStatus(task.status)}</em>
       </div>
-      <div className="enrichment-task-card__context">
-        <div>
-          <span>Linked to</span>
-          <strong>{linkedLabel}</strong>
-        </div>
-        <div>
-          <span>Under</span>
-          <strong>{parentLabel}</strong>
-        </div>
-        <div>
-          <span>Why we ask</span>
-          <strong>{formatEnrichmentTargetReason(task)}</strong>
-        </div>
-        <div>
-          <span>Answer will</span>
-          <strong>{formatEnrichmentExpectedOutcome(task)}</strong>
-        </div>
-      </div>
       {!hasLibraryAnchor && requiresTargetBeforeAnswer ? (
         <div className="enrichment-task-card__stage">
           <div className="enrichment-task-card__stage-header">
@@ -4096,7 +4089,25 @@ function EnrichmentTaskFocusPane({
       ) : (
         <>
           <details className="enrichment-task-card__target-picker">
-            <summary>{hasLibraryAnchor ? "Change target" : "Assign to a specific target"}</summary>
+            <summary>Task context and target</summary>
+            <div className="enrichment-task-card__context">
+              <div>
+                <span>Linked to</span>
+                <strong>{linkedLabel}</strong>
+              </div>
+              <div>
+                <span>Under</span>
+                <strong>{parentLabel}</strong>
+              </div>
+              <div>
+                <span>Why we ask</span>
+                <strong>{formatEnrichmentTargetReason(task)}</strong>
+              </div>
+              <div>
+                <span>Answer will</span>
+                <strong>{formatEnrichmentExpectedOutcome(task)}</strong>
+              </div>
+            </div>
             <EnrichmentTaskTargetPicker
               disabled={isPending}
               evidenceItems={evidenceItems}
@@ -4107,29 +4118,19 @@ function EnrichmentTaskFocusPane({
               workExperiences={workExperiences}
             />
           </details>
-          <label className="source-field source-field--textarea">
-            <span>Your answer</span>
-            <small>
-              Write the fact as plainly as possible. Include metrics, scope, ownership, actions, and
-              result if you know them. JobDesk will preview a draft evidence update before anything
-              is saved to the library.
-            </small>
-            <textarea
-              className="jd-input jd-input--compact enrichment-task-card__answer"
-              disabled={isPending}
-              onChange={(event) => onAnswerChange(event.target.value)}
-              placeholder="Example: I owned the backend order-status flow, built the API and dashboard changes, and reduced merchant support escalations by 18%."
-              value={answer}
-            />
-          </label>
           {pendingProposal ? (
             <EnrichmentProposalPreview
+              answer={answer}
               disabled={isPending}
               proposal={pendingProposal}
+              question={task.prompt}
+              revisions={task.proposal_revisions}
               targetLabel={linkedLabel}
               onAccept={() => onAcceptProposal(pendingProposal.id)}
+              onAnswerChange={onAnswerChange}
               onReject={() => onRejectProposal(pendingProposal.id)}
               onRevise={(revision) => onReviseProposal(pendingProposal.id, revision)}
+              onSaveContext={() => onSaveAnswer(answer)}
             />
           ) : task.status === "answered" ? (
             <div className="enrichment-proposal enrichment-proposal--empty">
@@ -4140,20 +4141,36 @@ function EnrichmentTaskFocusPane({
                 answer out of the Evidence Library until you approve the update.
               </p>
             </div>
-          ) : null}
+          ) : (
+            <label className="source-field source-field--textarea">
+              <span>Your answer</span>
+              <small>
+                Write the fact as plainly as possible. Include metrics, scope, ownership, actions,
+                and result if you know them. JobDesk will preview a draft evidence update before
+                anything is saved to the library.
+              </small>
+              <textarea
+                className="jd-input jd-input--compact enrichment-task-card__answer"
+                disabled={isPending}
+                onChange={(event) => onAnswerChange(event.target.value)}
+                placeholder="Example: I owned the backend order-status flow, built the API and dashboard changes, and reduced merchant support escalations by 18%."
+                value={answer}
+              />
+            </label>
+          )}
         </>
       )}
       <div className="enrichment-focus-pane__footer">
         <div className="actions actions--compact">
-          {canAnswerNow ? (
+          {canAnswerNow && !pendingProposal ? (
             <>
               <button
-                className={pendingProposal ? "secondary-button secondary-button--quiet" : "primary-button"}
+                className="primary-button"
                 disabled={isPending || answer.trim().length < 12}
                 type="button"
                 onClick={() => onSaveAnswer(answer)}
               >
-                {pendingProposal ? "Update answer & preview again" : "Save answer & preview"}
+                Save answer & preview
               </button>
             </>
           ) : null}
@@ -4349,18 +4366,28 @@ function SourceSectionReviewPane({
 }
 
 function EnrichmentProposalPreview({
+  answer,
   disabled,
   onAccept,
+  onAnswerChange,
   onReject,
   onRevise,
+  onSaveContext,
   proposal,
+  question,
+  revisions,
   targetLabel,
 }: {
+  answer: string;
   disabled: boolean;
   onAccept: () => void;
+  onAnswerChange: (answer: string) => void;
   onReject: () => void;
   onRevise: (revision: { revisedText?: string; revisionInstruction?: string }) => void;
+  onSaveContext: () => void;
   proposal: EnrichmentTaskItem["proposals"][number];
+  question: string;
+  revisions: EnrichmentTaskItem["proposal_revisions"];
   targetLabel: string;
 }) {
   const text =
@@ -4373,15 +4400,27 @@ function EnrichmentProposalPreview({
       : text;
   return (
     <SuggestedUpdatePanel
-      acceptLabel="Save draft evidence"
+      acceptLabel="Accept change"
       aiRevisionPlaceholder="Example: make this focus on backend ownership and remove dashboard wording"
       disabled={disabled}
       draftLabel="Draft evidence text"
       initialText={text}
       nextStepDescription="Save draft evidence writes this suggested update to the Evidence Library as a draft. Resume use still requires a separate review and approval."
+      originalPrompt={question}
+      originalAnswer={answer}
       onAccept={onAccept}
+      onAnswerChange={onAnswerChange}
       onDiscard={onReject}
       onRevise={onRevise}
+      onSaveContext={onSaveContext}
+      revisionHistory={revisions.map((revision) => ({
+        actor: revision.actor,
+        createdAt: revision.createdAt,
+        id: revision.id,
+        instruction: revision.instruction,
+        mode: revision.mode,
+        revisedText: revision.revised_text,
+      }))}
       sourceQuote={sourceQuote}
       statusLabel={formatEnrichmentProposalStatus(proposal.status)}
       statusState={proposal.status}

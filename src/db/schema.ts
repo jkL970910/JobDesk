@@ -178,6 +178,14 @@ export const enrichmentProposalStatusEnum = pgEnum("enrichment_proposal_status",
   "accepted",
   "rejected",
 ]);
+export const enrichmentProposalRevisionActorEnum = pgEnum(
+  "enrichment_proposal_revision_actor",
+  ["user", "ai"],
+);
+export const enrichmentProposalRevisionModeEnum = pgEnum(
+  "enrichment_proposal_revision_mode",
+  ["manual_edit", "ai_revision"],
+);
 export const portfolioProjectTypeEnum = pgEnum("portfolio_project_type", [
   "personal_project",
   "academic_project",
@@ -1132,6 +1140,47 @@ export const enrichmentProposals = pgTable(
   }),
 );
 
+export const enrichmentProposalRevisions = pgTable(
+  "enrichment_proposal_revisions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => enrichmentTasks.id, { onDelete: "cascade" }),
+    proposalId: uuid("proposal_id").references(() => enrichmentProposals.id, {
+      onDelete: "set null",
+    }),
+    nextProposalId: uuid("next_proposal_id").references(() => enrichmentProposals.id, {
+      onDelete: "set null",
+    }),
+    actor: enrichmentProposalRevisionActorEnum("actor").notNull(),
+    mode: enrichmentProposalRevisionModeEnum("mode").notNull(),
+    instruction: text("instruction"),
+    previousText: text("previous_text").notNull(),
+    revisedText: text("revised_text").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    taskCreatedIdx: index("enrichment_proposal_revisions_task_created_idx").on(
+      table.taskId,
+      table.createdAt,
+    ),
+    proposalCreatedIdx: index("enrichment_proposal_revisions_proposal_created_idx").on(
+      table.proposalId,
+      table.createdAt,
+    ),
+    workspaceCreatedIdx: index("enrichment_proposal_revisions_workspace_created_idx").on(
+      table.workspaceId,
+      table.createdAt,
+    ),
+  }),
+);
+
 export const embeddings = pgTable(
   "embeddings",
   {
@@ -1444,6 +1493,7 @@ export const enrichmentTaskRelations = relations(enrichmentTasks, ({ one, many }
   }),
   answers: many(enrichmentAnswers),
   proposals: many(enrichmentProposals),
+  proposalRevisions: many(enrichmentProposalRevisions),
 }));
 
 export const enrichmentTaskTargetRelations = relations(enrichmentTaskTargets, ({ one }) => ({
@@ -1469,7 +1519,7 @@ export const enrichmentAnswerRelations = relations(enrichmentAnswers, ({ one, ma
   proposals: many(enrichmentProposals),
 }));
 
-export const enrichmentProposalRelations = relations(enrichmentProposals, ({ one }) => ({
+export const enrichmentProposalRelations = relations(enrichmentProposals, ({ one, many }) => ({
   workspace: one(workspaces, {
     fields: [enrichmentProposals.workspaceId],
     references: [workspaces.id],
@@ -1486,7 +1536,34 @@ export const enrichmentProposalRelations = relations(enrichmentProposals, ({ one
     fields: [enrichmentProposals.committedEvidenceItemId],
     references: [evidenceItems.id],
   }),
+  revisions: many(enrichmentProposalRevisions),
+  nextRevisions: many(enrichmentProposalRevisions, {
+    relationName: "nextProposalRevisions",
+  }),
 }));
+
+export const enrichmentProposalRevisionRelations = relations(
+  enrichmentProposalRevisions,
+  ({ one }) => ({
+    workspace: one(workspaces, {
+      fields: [enrichmentProposalRevisions.workspaceId],
+      references: [workspaces.id],
+    }),
+    task: one(enrichmentTasks, {
+      fields: [enrichmentProposalRevisions.taskId],
+      references: [enrichmentTasks.id],
+    }),
+    proposal: one(enrichmentProposals, {
+      fields: [enrichmentProposalRevisions.proposalId],
+      references: [enrichmentProposals.id],
+    }),
+    nextProposal: one(enrichmentProposals, {
+      fields: [enrichmentProposalRevisions.nextProposalId],
+      references: [enrichmentProposals.id],
+      relationName: "nextProposalRevisions",
+    }),
+  }),
+);
 
 export const embeddingRelations = relations(embeddings, ({ one }) => ({
   workspace: one(workspaces, {
