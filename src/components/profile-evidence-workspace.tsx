@@ -295,6 +295,10 @@ type ProjectCardItem = {
 };
 
 export type MaterialEntryIntent = "resume" | "scratch" | "jd";
+export type ProfileGapIntent = {
+  field: "contact" | "education" | "skills";
+  label: string;
+};
 export type MaterialReviewTab =
   | "enrichment"
   | "projects"
@@ -427,12 +431,14 @@ type StoryAssignmentPatch =
 export function ProfileEvidenceWorkspace({
   entryIntent = "resume",
   initialFocusedTaskId = null,
+  initialProfileGap = null,
   initialSection = "review",
   initialReviewTab = "enrichment",
   initialResumeSourceVersionId = null,
 }: {
   entryIntent?: MaterialEntryIntent;
   initialFocusedTaskId?: string | null;
+  initialProfileGap?: ProfileGapIntent | null;
   initialSection?: "review" | "intake";
   initialReviewTab?: MaterialReviewTab;
   initialResumeSourceVersionId?: string | null;
@@ -545,6 +551,32 @@ export function ProfileEvidenceWorkspace({
     setLibraryMode("work_queue");
     setWorkQueueView("enrichment");
   }, [initialFocusedTaskId]);
+
+  useEffect(() => {
+    if (!initialProfileGap) return;
+    const guidance = profileGapGuidance(initialProfileGap.field);
+    const nextFields: GuidedMaterialFields = {
+      ...emptyGuidedMaterialFields,
+      actions: guidance.actions,
+      companyOrContext: guidance.context,
+      ownership: guidance.ownership,
+      problem: guidance.problem,
+      projectOrInitiativeTitle: initialProfileGap.label,
+    };
+    setActiveSection("intake");
+    setSelectedEntryIntent("scratch");
+    setHasChosenMaterialType(true);
+    setIsEditingMaterialType(false);
+    setProjectSourceMode("guided");
+    setSelectedStoryTarget(null);
+    setProjectNoteTitle(initialProfileGap.label);
+    setGuidedMaterialFields(nextFields);
+    setProjectNoteText(buildGuidedMaterialMarkdown(nextFields, { targetTitle: initialProfileGap.label }));
+    setProjectSourceDocumentId(undefined);
+    setGuidedPreviewState("synced");
+    setStatus(guidance.status);
+    setError(null);
+  }, [initialProfileGap]);
 
   useEffect(() => {
     if (!isExtracting) {
@@ -7581,6 +7613,34 @@ function formatParseWarning(warning: string) {
     text_extraction_failed: "No reliable text layer could be extracted.",
   };
   return copy[warning] ?? warning.replace(/_/g, " ");
+}
+
+function profileGapGuidance(field: ProfileGapIntent["field"]) {
+  if (field === "contact") {
+    return {
+      actions: "Add the exact contact details you want JobDesk to remember: name, email, phone, city/region, LinkedIn, portfolio, GitHub, or personal site.",
+      context: "Career profile contact details",
+      ownership: "I am confirming my own public contact details for resume/profile use.",
+      problem: "The current Career Profile is missing contact facts.",
+      status: "Add contact details in the guided fields, then save them as source material for review.",
+    };
+  }
+  if (field === "education") {
+    return {
+      actions: "Add school, degree, program, graduation date, GPA or honors if relevant, coursework, certifications, or academic projects that should appear in your profile.",
+      context: "Career profile education details",
+      ownership: "I am confirming my education history and credential details.",
+      problem: "The current Career Profile is missing education facts.",
+      status: "Add education details in the guided fields, then save them as source material for review.",
+    };
+  }
+  return {
+    actions: "Add or correct skills that should appear in your profile, grouped by programming languages, tools, frameworks, domain knowledge, or methods.",
+    context: "Career profile skills details",
+    ownership: "I am confirming skills that are safe to reuse for resume and interview material.",
+    problem: "The current Career Profile needs more skill detail or cleanup.",
+    status: "Add skill details in the guided fields, then save them as source material for review.",
+  };
 }
 
 function formatResumeTitle(title: string) {

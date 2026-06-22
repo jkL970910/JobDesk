@@ -8,6 +8,7 @@ import { JdAnalysisWorkspace } from "../src/components/jd-analysis-workspace";
 import {
   ProfileEvidenceWorkspace,
   type MaterialEntryIntent,
+  type ProfileGapIntent,
 } from "../src/components/profile-evidence-workspace";
 import { ResumeReviewWorkspace } from "../src/components/resume-review-workspace";
 import { TailoredResumeWorkspace } from "../src/components/tailored-resume-workspace";
@@ -284,6 +285,7 @@ export default function HomePage() {
   const [materialReviewTab, setMaterialReviewTab] =
     useState<MaterialReviewTab>("enrichment");
   const [focusedEvidenceTaskId, setFocusedEvidenceTaskId] = useState<string | null>(null);
+  const [profileGapIntent, setProfileGapIntent] = useState<ProfileGapIntent | null>(null);
   const [resumeWorkspaceTab, setResumeWorkspaceTab] =
     useState<ResumeWorkspaceTab>(() =>
       typeof window !== "undefined" && window.location.hash.replace(/^#\/?/, "") === "resume-review"
@@ -315,6 +317,7 @@ export default function HomePage() {
   }
 
   function navigateToMaterial(intent: MaterialEntryIntent) {
+    setProfileGapIntent(null);
     if (intent === "resume") {
       navigateToResume("intake_review");
       return;
@@ -329,6 +332,7 @@ export default function HomePage() {
     setAppView("evidence");
   }
   function extractResumeToEvidence(resumeSourceVersionId: string) {
+    setProfileGapIntent(null);
     setSelectedResumeSourceVersionId(resumeSourceVersionId);
     setMaterialEntryIntent("resume");
     setMaterialInitialSection("intake");
@@ -336,12 +340,14 @@ export default function HomePage() {
     setAppView("evidence");
   }
   function openEvidenceReview(tab: MaterialReviewTab = "enrichment") {
+    setProfileGapIntent(null);
     setFocusedEvidenceTaskId(null);
     setMaterialInitialSection("review");
     setMaterialReviewTab(tab);
     setAppView("evidence");
   }
   function openEvidenceTask(taskId: string) {
+    setProfileGapIntent(null);
     setFocusedEvidenceTaskId(taskId);
     setMaterialInitialSection("review");
     setMaterialReviewTab("enrichment");
@@ -349,6 +355,7 @@ export default function HomePage() {
   }
   function navigateToView(view: View) {
     if (view === "evidence") {
+      setProfileGapIntent(null);
       setMaterialInitialSection("review");
       setMaterialReviewTab("enrichment");
     }
@@ -357,6 +364,16 @@ export default function HomePage() {
   function navigateToResume(tab: ResumeWorkspaceTab = "intake_review") {
     setResumeWorkspaceTab(tab);
     setAppView("profile");
+  }
+
+  function openProfileGapMaterial(gap: ProfileGapIntent) {
+    setProfileGapIntent({ ...gap });
+    setFocusedEvidenceTaskId(null);
+    setSelectedResumeSourceVersionId(null);
+    setMaterialEntryIntent("scratch");
+    setMaterialInitialSection("intake");
+    setMaterialReviewTab("enrichment");
+    setAppView("evidence");
   }
 
   return (
@@ -421,6 +438,7 @@ export default function HomePage() {
                 onNavigate={setAppView}
                 onOpenEvidenceReview={openEvidenceReview}
                 onOpenEvidenceTask={openEvidenceTask}
+                onOpenProfileGapMaterial={openProfileGapMaterial}
                 onTabChange={setResumeWorkspaceTab}
               />
             ) : null}
@@ -428,6 +446,7 @@ export default function HomePage() {
               <ProfileEvidenceWorkspace
                 entryIntent={materialEntryIntent}
                 initialFocusedTaskId={focusedEvidenceTaskId}
+                initialProfileGap={profileGapIntent}
                 initialSection={materialInitialSection}
                 initialResumeSourceVersionId={selectedResumeSourceVersionId}
                 initialReviewTab={materialReviewTab}
@@ -1131,6 +1150,7 @@ function ResumeWorkspaceView({
   onNavigate,
   onOpenEvidenceReview,
   onOpenEvidenceTask,
+  onOpenProfileGapMaterial,
   onTabChange,
 }: {
   activeTab: ResumeWorkspaceTab;
@@ -1138,6 +1158,7 @@ function ResumeWorkspaceView({
   onNavigate: (view: View) => void;
   onOpenEvidenceReview: (tab?: MaterialReviewTab) => void;
   onOpenEvidenceTask: (taskId: string) => void;
+  onOpenProfileGapMaterial: (gap: ProfileGapIntent) => void;
   onTabChange: (tab: ResumeWorkspaceTab) => void;
 }) {
   const tabs = [
@@ -1198,6 +1219,7 @@ function ResumeWorkspaceView({
         <ProfileReferenceView
           focus={activeTab === "profile_facts" ? "facts" : "builder"}
           onNavigate={onNavigate}
+          onOpenProfileGapMaterial={onOpenProfileGapMaterial}
           onNavigateResume={onTabChange}
         />
       ) : null}
@@ -1229,10 +1251,12 @@ function formatPositioningSupportLevel(
 function ProfileReferenceView({
   focus,
   onNavigate,
+  onOpenProfileGapMaterial,
   onNavigateResume,
 }: {
   focus: "facts" | "builder";
   onNavigate: (view: View) => void;
+  onOpenProfileGapMaterial: (gap: ProfileGapIntent) => void;
   onNavigateResume: (tab: ResumeWorkspaceTab) => void;
 }) {
   const { fetchJson } = useAccess();
@@ -1433,6 +1457,13 @@ function ProfileReferenceView({
     missing: boolean;
     value: string;
   }>;
+  const profileGapIntents = profileFactsMetrics
+    .filter((metric) => metric.missing && metric.kind !== "roles")
+    .map((metric) => ({
+      field: metric.kind as ProfileGapIntent["field"],
+      label: `${metric.label} details`,
+    }));
+  const firstMissingProfileGap = profileGapIntents[0] ?? null;
   const roleCoverage = buildCareerRoleCoverage(library);
   const sourceSummary = buildCareerSourceSummary({
     latestResume,
@@ -1762,11 +1793,17 @@ function ProfileReferenceView({
                 <button
                   className="career-profile-card__link"
                   type="button"
-                  onClick={() =>
-                    resumePrepState === "no_resume" || resumePrepState === "resume_uploaded"
-                      ? onNavigateResume("intake_review")
-                      : onNavigate("evidence")
-                  }
+                  onClick={() => {
+                    if (firstMissingProfileGap) {
+                      onOpenProfileGapMaterial(firstMissingProfileGap);
+                      return;
+                    }
+                    if (resumePrepState === "no_resume" || resumePrepState === "resume_uploaded") {
+                      onNavigateResume("intake_review");
+                      return;
+                    }
+                    onNavigate("evidence");
+                  }}
                 >
                   {missingProfileAreas.length ? "Add missing info" : "Review sources"}
                 </button>
@@ -1790,11 +1827,16 @@ function ProfileReferenceView({
                       <button
                         className="career-profile-fact-action"
                         type="button"
-                        onClick={() =>
-                          metric.kind === "roles"
-                            ? onNavigateResume("intake_review")
-                            : onNavigate("evidence")
-                        }
+                        onClick={() => {
+                          if (metric.kind === "roles") {
+                            onNavigateResume("intake_review");
+                            return;
+                          }
+                          onOpenProfileGapMaterial({
+                            field: metric.kind,
+                            label: `${metric.label} details`,
+                          });
+                        }}
                       >
                         Add source
                       </button>
