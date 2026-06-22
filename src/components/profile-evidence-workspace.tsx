@@ -227,6 +227,14 @@ type EnrichmentTaskItem = {
   updatedAt: string;
 };
 
+type EnrichmentPendingAction =
+  | "accept"
+  | "discard"
+  | "manual_edit"
+  | "ai_revision"
+  | "save_context"
+  | "other";
+
 type EnrichmentTaskAnchorPatch = {
   evidenceItemId?: string | null;
   initiativeId?: string | null;
@@ -3694,7 +3702,10 @@ function EnrichmentTaskQueue({
   ).length;
   const sourceSectionTaskCount = actionableTasks.length - questionTaskCount;
   const convertedCount = tasks.filter((task) => task.status === "converted").length;
-  const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const [pendingTask, setPendingTask] = useState<{
+    action: EnrichmentPendingAction;
+    taskId: string;
+  } | null>(null);
   const [batchPending, setBatchPending] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<Record<string, { ok: boolean; text: string }>>({});
@@ -3761,7 +3772,10 @@ function EnrichmentTaskQueue({
         }
       | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
   ) {
-    setPendingTaskId(task.id);
+    setPendingTask({
+      action: getPendingEnrichmentAction(payload),
+      taskId: task.id,
+    });
     try {
       const result = await onUpdate(task.id, payload);
       setMessages((current) => ({
@@ -3772,7 +3786,7 @@ function EnrichmentTaskQueue({
         setAnswers((current) => ({ ...current, [task.id]: "" }));
       }
     } finally {
-      setPendingTaskId(null);
+      setPendingTask(null);
     }
   }
 
@@ -3918,7 +3932,7 @@ function EnrichmentTaskQueue({
               canGoPrevious={selectedTaskIndex > 0}
               evidenceItems={evidenceItems}
               initiatives={initiatives}
-              isPending={pendingTaskId === selectedTask.id}
+              isPending={pendingTask?.taskId === selectedTask.id}
               linkTargets={linkTargets}
               message={messages[selectedTask.id]}
               onAnswerChange={(answer) =>
@@ -3954,6 +3968,7 @@ function EnrichmentTaskQueue({
                   ...revision,
                 })
               }
+              pendingAction={pendingTask?.taskId === selectedTask.id ? pendingTask.action : null}
               portfolioProjects={portfolioProjects}
               task={selectedTask}
               taskIndex={selectedTaskIndex + 1}
@@ -3967,6 +3982,31 @@ function EnrichmentTaskQueue({
       )}
     </section>
   );
+}
+
+function getPendingEnrichmentAction(
+  payload:
+    | { action: "answer"; userAnswer: string }
+    | { action: "dismiss" }
+    | { action: "reopen" }
+    | { action: "convert" }
+    | { action: "accept_proposal"; proposalId: string }
+    | { action: "reject_proposal"; proposalId: string }
+    | {
+        action: "revise_proposal";
+        proposalId: string;
+        revisedText?: string;
+        revisionInstruction?: string;
+      }
+    | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
+): EnrichmentPendingAction {
+  if (payload.action === "accept_proposal") return "accept";
+  if (payload.action === "reject_proposal") return "discard";
+  if (payload.action === "answer") return "save_context";
+  if (payload.action === "revise_proposal") {
+    return payload.revisionInstruction ? "ai_revision" : "manual_edit";
+  }
+  return "other";
 }
 
 function EnrichmentTaskFocusPane({
@@ -3990,6 +4030,7 @@ function EnrichmentTaskFocusPane({
   onReviseProposal,
   onSaveAnswer,
   portfolioProjects,
+  pendingAction,
   task,
   taskIndex,
   taskTotal,
@@ -4018,6 +4059,7 @@ function EnrichmentTaskFocusPane({
   ) => void;
   onSaveAnswer: (answer: string) => void;
   portfolioProjects: PortfolioProjectItem[];
+  pendingAction: EnrichmentPendingAction | null;
   task: EnrichmentTaskItem;
   taskIndex: number;
   taskTotal: number;
@@ -4126,31 +4168,31 @@ function EnrichmentTaskFocusPane({
             <EnrichmentProposalPreview
               answer={answer}
               disabled={isPending}
+              evidenceItems={evidenceItems}
+              initiatives={initiatives}
+              pendingAction={pendingAction}
+              portfolioProjects={portfolioProjects}
               proposal={pendingProposal}
               question={task.prompt}
               revisions={task.proposal_revisions}
               targetLabel={linkedLabel}
+              workExperiences={workExperiences}
               onAccept={() => onAcceptProposal(pendingProposal.id)}
               onAnswerChange={onAnswerChange}
               onReject={() => onRejectProposal(pendingProposal.id)}
               onRevise={(revision) => onReviseProposal(pendingProposal.id, revision)}
               onSaveContext={() => onSaveAnswer(answer)}
             />
-          ) : task.status === "answered" ? (
-            <div className="enrichment-proposal enrichment-proposal--empty">
-              <span>Suggested update needed</span>
-              <strong>Save this answer again to preview the library update.</strong>
-              <p>
-                Older answered tasks may not have a suggested update yet. Previewing keeps your
-                answer out of the Evidence Library until you approve the update.
-              </p>
-            </div>
           ) : (
             <EnrichmentAnswerWorkspace
               answer={answer}
               disabled={isPending}
+              evidenceItems={evidenceItems}
+              initiatives={initiatives}
+              portfolioProjects={portfolioProjects}
               task={task}
               targetLabel={linkedLabel}
+              workExperiences={workExperiences}
               onAnswerChange={onAnswerChange}
             />
           )}
@@ -4210,51 +4252,76 @@ function EnrichmentTaskFocusPane({
 function EnrichmentAnswerWorkspace({
   answer,
   disabled,
+  evidenceItems,
+  initiatives,
   onAnswerChange,
+  portfolioProjects,
   targetLabel,
   task,
+  workExperiences,
 }: {
   answer: string;
   disabled: boolean;
+  evidenceItems: EvidenceCardItem[];
+  initiatives: InitiativeItem[];
   onAnswerChange: (answer: string) => void;
+  portfolioProjects: PortfolioProjectItem[];
   targetLabel: string;
   task: EnrichmentTaskItem;
+  workExperiences: WorkExperienceItem[];
 }) {
   const proposalType = proposalTypePreviewForTask(task);
+  const referenceItems = buildEnrichmentTaskReferences(task, {
+    evidenceItems,
+    initiatives,
+    portfolioProjects,
+    workExperiences,
+  });
+  const answerSaved = task.status === "answered" && answer.trim().length > 0;
   return (
     <div className="enrichment-proposal enrichment-proposal--draft">
       <div className="enrichment-proposal__header">
         <div>
-          <span>{formatEnrichmentDraftLabel(proposalType)}</span>
-          <strong>{formatEnrichmentProposalType(proposalType)}</strong>
+          <span>{answerSaved ? "Answer saved" : "Answer needed"}</span>
+          <strong>{formatEnrichmentTaskWorkspaceTitle(proposalType)}</strong>
         </div>
-        <em data-state="drafting">Drafting</em>
+        <em data-state="drafting">{answerSaved ? "Preview needed" : "Not saved"}</em>
       </div>
       <div className="enrichment-proposal__workspace">
         <section className="enrichment-proposal__output">
-          <div className="enrichment-proposal__prompt">
-            <span>Original question</span>
-            <p>{task.prompt}</p>
-          </div>
-          <div className="enrichment-proposal__preview-empty">
-            <span>Preview appears after you save</span>
-            <strong>{formatEnrichmentProposalType(proposalType)}</strong>
-            <p>{formatEnrichmentProposalNextStep(proposalType)}</p>
-          </div>
+          {referenceItems.length > 0 ? (
+            <div className="enrichment-proposal__references">
+              <span>Related material</span>
+              {referenceItems.map((item) => (
+                <article key={`${item.label}-${item.text}`}>
+                  <strong>{item.label}</strong>
+                  <p>{item.text}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="enrichment-proposal__context-note">
+              <span>Related material</span>
+              <p>
+                This question is not attached to a specific evidence card yet. Save your answer to
+                preview the next step before anything changes in the Evidence Library.
+              </p>
+            </div>
+          )}
           <dl className="enrichment-proposal__meta">
             <div>
               <dt>Target</dt>
               <dd>{targetLabel}</dd>
             </div>
             <div>
-              <dt>Status</dt>
-              <dd>Not saved yet</dd>
+              <dt>Next step</dt>
+              <dd>{formatEnrichmentProposalNextStep(proposalType)}</dd>
             </div>
           </dl>
         </section>
         <aside className="enrichment-proposal__conversation">
           <label className="enrichment-proposal__answer">
-            <span>Continue with AI</span>
+            <span>{answerSaved ? "Saved answer" : "Your answer"}</span>
             <textarea
               className="jd-input jd-input--compact"
               disabled={disabled}
@@ -4264,11 +4331,8 @@ function EnrichmentAnswerWorkspace({
             />
           </label>
           <div className="enrichment-proposal__history">
-            <span>How this will be used</span>
-            <p>
-              Save answer & preview will ask JobDesk to prepare the suggested update first. Nothing
-              is written to the Evidence Library until you accept the preview.
-            </p>
+            <span>{answerSaved ? "Ready for preview" : "After you save"}</span>
+            <p>{formatEnrichmentAnswerWorkspaceHelp(proposalType, answerSaved)}</p>
           </div>
         </aside>
       </div>
@@ -4433,30 +4497,47 @@ function SourceSectionReviewPane({
 function EnrichmentProposalPreview({
   answer,
   disabled,
+  evidenceItems,
+  initiatives,
   onAccept,
   onAnswerChange,
   onReject,
   onRevise,
   onSaveContext,
+  pendingAction,
+  portfolioProjects,
   proposal,
   question,
   revisions,
   targetLabel,
+  workExperiences,
 }: {
   answer: string;
   disabled: boolean;
+  evidenceItems: EvidenceCardItem[];
+  initiatives: InitiativeItem[];
   onAccept: () => void;
   onAnswerChange: (answer: string) => void;
   onReject: () => void;
   onRevise: (revision: { revisedText?: string; revisionInstruction?: string }) => void;
   onSaveContext: () => void;
+  pendingAction: EnrichmentPendingAction | null;
+  portfolioProjects: PortfolioProjectItem[];
   proposal: EnrichmentTaskItem["proposals"][number];
   question: string;
   revisions: EnrichmentTaskItem["proposal_revisions"];
   targetLabel: string;
+  workExperiences: WorkExperienceItem[];
 }) {
   const text = formatEnrichmentPatchPreview(proposal.proposed_patch_json);
   const sourceQuote = getEnrichmentPatchSourceQuote(proposal.proposed_patch_json) ?? text;
+  const referenceItems = buildEnrichmentProposalReferences(proposal, {
+    evidenceItems,
+    initiatives,
+    portfolioProjects,
+    workExperiences,
+  });
+  const previewItems = buildEnrichmentPatchPreviewItems(proposal.proposed_patch_json);
   return (
     <SuggestedUpdatePanel
       acceptLabel="Accept change"
@@ -4467,6 +4548,9 @@ function EnrichmentProposalPreview({
       nextStepDescription={formatEnrichmentProposalNextStep(proposal.proposal_type)}
       originalPrompt={question}
       originalAnswer={answer}
+      previewItems={previewItems}
+      referenceItems={referenceItems}
+      pendingAction={pendingAction === "other" ? null : pendingAction}
       onAccept={onAccept}
       onAnswerChange={onAnswerChange}
       onDiscard={onReject}
@@ -4481,6 +4565,7 @@ function EnrichmentProposalPreview({
         revisedText: revision.revised_text,
       }))}
       sourceQuote={sourceQuote}
+      showOriginalPrompt={false}
       statusLabel={formatEnrichmentProposalStatus(proposal.status)}
       statusState={proposal.status}
       targetLabel={targetLabel}
@@ -4512,8 +4597,249 @@ function formatEnrichmentPatchPreview(patch: Record<string, unknown>) {
   return lines.length > 0 ? lines.join("\n") : "No suggested update text available.";
 }
 
+function buildEnrichmentPatchPreviewItems(patch: Record<string, unknown>) {
+  const items: Array<{ label: string; values: string[] }> = [];
+  addPatchPreviewItem(items, "Suggested evidence", getStringPatchValue(patch, "text"));
+  addPatchPreviewItem(items, "Text update", getStringPatchValue(patch, "text_patch"));
+  addPatchPreviewItem(items, "Source quote", getStringPatchValue(patch, "source_quote_patch"));
+  addPatchPreviewItem(items, "Story context", getStringPatchValue(patch, "context_patch"));
+  addPatchPreviewItem(items, "Problem", getStringPatchValue(patch, "problem_patch"));
+  addPatchPreviewItem(items, "Role", getStringPatchValue(patch, "role_patch"));
+  addPatchPreviewItem(items, "Role summary", getStringPatchValue(patch, "summary_patch"));
+  addPatchPreviewItem(items, "Team", getStringPatchValue(patch, "team_patch"));
+  addPatchPreviewItem(items, "Location", getStringPatchValue(patch, "location_patch"));
+  addPatchPreviewItem(
+    items,
+    "Public-safe wording",
+    getStringPatchValue(patch, "public_safe_summary_patch"),
+  );
+  addArrayPatchPreviewItem(items, "Actions to add", patch.actions_add);
+  addArrayPatchPreviewItem(items, "Results to add", patch.results_add);
+  addArrayPatchPreviewItem(items, "Technologies to add", patch.technologies_add);
+  addArrayPatchPreviewItem(items, "Stakeholders to add", patch.stakeholders_add);
+  addArrayPatchPreviewItem(items, "Metrics to add", patch.metrics_add);
+  addPatchPreviewItem(items, "Why this is suggested", getStringPatchValue(patch, "rationale"));
+  return items;
+}
+
+function addPatchPreviewItem(
+  items: Array<{ label: string; values: string[] }>,
+  label: string,
+  value: string | null,
+) {
+  if (value) items.push({ label, values: [value] });
+}
+
+function addArrayPatchPreviewItem(
+  items: Array<{ label: string; values: string[] }>,
+  label: string,
+  value: unknown,
+) {
+  if (!Array.isArray(value) || value.length === 0) return;
+  const values = value
+    .map((item) => formatPatchArrayValue(item))
+    .filter((item): item is string => Boolean(item));
+  if (values.length > 0) items.push({ label, values });
+}
+
+function formatPatchArrayValue(value: unknown) {
+  if (typeof value === "string") return value.trim();
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const label = getFirstString(record, ["label", "name", "metric", "title", "value"]);
+  const amount = getFirstString(record, ["amount", "number", "result"]);
+  const source = getFirstString(record, ["source_quote", "source", "evidence"]);
+  return [label, amount, source ? `source: ${source}` : null]
+    .filter((part): part is string => Boolean(part && part.trim()))
+    .join(" · ");
+}
+
+function getFirstString(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number") return String(value);
+  }
+  return null;
+}
+
 function getEnrichmentPatchSourceQuote(patch: Record<string, unknown>) {
   return getStringPatchValue(patch, "source_quote") ?? getStringPatchValue(patch, "source_quote_patch");
+}
+
+type EnrichmentReferenceSources = {
+  evidenceItems: EvidenceCardItem[];
+  initiatives: InitiativeItem[];
+  portfolioProjects: PortfolioProjectItem[];
+  workExperiences: WorkExperienceItem[];
+};
+
+function buildEnrichmentProposalReferences(
+  proposal: EnrichmentTaskItem["proposals"][number],
+  sources: EnrichmentReferenceSources,
+) {
+  const { evidenceItems } = sources;
+  if (proposal.proposal_type === "update_evidence") {
+    const evidenceId =
+      getStringPatchValue(proposal.proposed_patch_json, "evidence_id") ?? proposal.target_id;
+    const evidence = evidenceItems.find((item) => item.id === evidenceId);
+    return evidence
+      ? [
+          {
+            label: "Current evidence",
+            text: evidence.text,
+          },
+        ]
+      : [];
+  }
+
+  const proposalTypesWithTargetContext = new Set([
+    "create_evidence",
+    "create_initiative",
+    "update_initiative",
+    "update_work_experience",
+  ]);
+  if (
+    !proposalTypesWithTargetContext.has(proposal.proposal_type) ||
+    !proposal.target_id ||
+    !proposal.target_kind
+  ) {
+    return [];
+  }
+  const targetReference = buildTargetObjectReference(
+    proposal.target_kind,
+    proposal.target_id,
+    sources,
+  );
+  const linkedEvidence = getEvidenceItemsForTarget(
+    evidenceItems,
+    proposal.target_kind,
+    proposal.target_id,
+  ).slice(0, 3);
+  const evidenceReferences = linkedEvidence.map((item, index) => ({
+    label: `Existing evidence ${index + 1}`,
+    text: item.text,
+  }));
+  return targetReference ? [targetReference, ...evidenceReferences] : evidenceReferences;
+}
+
+function buildEnrichmentTaskReferences(
+  task: EnrichmentTaskItem,
+  sources: EnrichmentReferenceSources,
+) {
+  const { evidenceItems } = sources;
+  if (task.evidence_item_id) {
+    const evidence = evidenceItems.find((item) => item.id === task.evidence_item_id);
+    return evidence
+      ? [
+          {
+            label: "Current evidence",
+            text: evidence.text,
+          },
+        ]
+      : [];
+  }
+
+  const target = getEnrichmentTaskReferenceTarget(task);
+  if (!target) return [];
+  const targetReference = buildTargetObjectReference(target.kind, target.id, sources);
+  const evidenceReferences = getEvidenceItemsForTarget(evidenceItems, target.kind, target.id)
+    .slice(0, 3)
+    .map((item, index) => ({
+      label: `Existing evidence ${index + 1}`,
+      text: item.text,
+    }));
+  return targetReference ? [targetReference, ...evidenceReferences] : evidenceReferences;
+}
+
+function getEnrichmentTaskReferenceTarget(task: EnrichmentTaskItem) {
+  if (task.initiative_id) {
+    return { kind: "initiative" as const, id: task.initiative_id };
+  }
+  if (task.portfolio_project_id) {
+    return { kind: "portfolio_project" as const, id: task.portfolio_project_id };
+  }
+  if (task.work_experience_id) {
+    return { kind: "work_experience" as const, id: task.work_experience_id };
+  }
+  const primaryTarget = task.targets.find((target) => target.target_role === "primary");
+  if (!primaryTarget) return null;
+  return {
+    kind: primaryTarget.target_kind,
+    id: primaryTarget.target_id,
+  };
+}
+
+function getEvidenceItemsForTarget(
+  evidenceItems: EvidenceCardItem[],
+  targetKind: "evidence" | "initiative" | "portfolio_project" | "work_experience",
+  targetId: string,
+) {
+  if (targetKind === "evidence") {
+    return evidenceItems.filter((item) => item.id === targetId);
+  }
+  return evidenceItems.filter((item) => {
+    if (targetKind === "initiative") return item.related_initiative_id === targetId;
+    if (targetKind === "portfolio_project") return item.related_portfolio_project_id === targetId;
+    return item.related_work_experience_id === targetId;
+  });
+}
+
+function buildTargetObjectReference(
+  targetKind: "evidence" | "initiative" | "portfolio_project" | "work_experience",
+  targetId: string,
+  sources: EnrichmentReferenceSources,
+) {
+  if (targetKind === "initiative") {
+    const initiative = sources.initiatives.find((item) => item.id === targetId);
+    if (!initiative) return null;
+    return {
+      label: `Current story · ${initiative.internal_title}`,
+      text: formatStoryTargetReferenceText(initiative),
+    };
+  }
+  if (targetKind === "portfolio_project") {
+    const project = sources.portfolioProjects.find((item) => item.id === targetId);
+    if (!project) return null;
+    return {
+      label: `Current project · ${project.title}`,
+      text: formatStoryTargetReferenceText(project),
+    };
+  }
+  if (targetKind === "work_experience") {
+    const experience = sources.workExperiences.find((item) => item.id === targetId);
+    if (!experience) return null;
+    return {
+      label: `Current role · ${experience.employer}`,
+      text: formatWorkExperienceReferenceText(experience),
+    };
+  }
+  const evidence = sources.evidenceItems.find((item) => item.id === targetId);
+  return evidence ? { label: "Current evidence", text: evidence.text } : null;
+}
+
+function formatStoryTargetReferenceText(target: InitiativeItem | PortfolioProjectItem) {
+  const title = "internal_title" in target ? target.internal_title : target.title;
+  const parts = [
+    target.external_safe_title || title,
+    target.context,
+    target.problem,
+    target.role,
+    target.actions.length ? `Actions: ${target.actions.join("; ")}` : null,
+    target.results.length ? `Results: ${target.results.join("; ")}` : null,
+    target.technologies.length ? `Technologies: ${target.technologies.join(", ")}` : null,
+  ];
+  return parts.filter((part): part is string => Boolean(part && part.trim())).join(" · ");
+}
+
+function formatWorkExperienceReferenceText(experience: WorkExperienceItem) {
+  const parts = [
+    experience.role_title,
+    experience.team ? `Team: ${experience.team}` : null,
+    experience.location ? `Location: ${experience.location}` : null,
+    experience.summary,
+  ];
+  return parts.filter((part): part is string => Boolean(part && part.trim())).join(" · ");
 }
 
 function getStringPatchValue(patch: Record<string, unknown>, key: string) {
@@ -5025,7 +5351,7 @@ function formatEnrichmentProposalType(
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
 ) {
   const labels: Record<EnrichmentTaskItem["proposals"][number]["proposal_type"], string> = {
-    create_evidence: "Create draft evidence",
+    create_evidence: "Create new draft evidence",
     update_evidence: "Update evidence",
     create_initiative: "Create story",
     update_initiative: "Update story",
@@ -5049,12 +5375,12 @@ function proposalTypePreviewForTask(
   task: EnrichmentTaskItem,
 ): EnrichmentTaskItem["proposals"][number]["proposal_type"] {
   if (
-    task.expected_outcome === "create_evidence" ||
     task.expected_outcome === "update_evidence" ||
     task.evidence_item_id
   ) {
-    return "create_evidence";
+    return "update_evidence";
   }
+  if (task.expected_outcome === "create_evidence") return "create_evidence";
   if (
     task.expected_outcome === "update_story" ||
     task.initiative_id ||
@@ -5068,10 +5394,21 @@ function proposalTypePreviewForTask(
   return "clarify_assignment";
 }
 
+function formatEnrichmentTaskWorkspaceTitle(
+  type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
+) {
+  if (type === "create_evidence") return "Create evidence from this answer";
+  if (type === "update_evidence") return "Strengthen existing evidence";
+  if (type === "update_initiative" || type === "create_initiative") return "Add story context";
+  if (type === "update_work_experience") return "Add role context";
+  return "Clarify where this belongs";
+}
+
 function formatEnrichmentDraftLabel(
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
 ) {
-  if (type === "create_evidence" || type === "update_evidence") return "Draft evidence";
+  if (type === "create_evidence") return "New draft evidence";
+  if (type === "update_evidence") return "Updated evidence draft";
   if (type === "update_initiative" || type === "create_initiative") {
     return "Suggested story update";
   }
@@ -5082,8 +5419,11 @@ function formatEnrichmentDraftLabel(
 function formatEnrichmentProposalNextStep(
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
 ) {
-  if (type === "create_evidence" || type === "update_evidence") {
-    return "Accepting saves this as draft evidence. Resume use still requires a separate review and approval.";
+  if (type === "create_evidence") {
+    return "Accepting creates a new draft evidence card. Resume use still requires a separate review and approval.";
+  }
+  if (type === "update_evidence") {
+    return "Accepting updates the existing evidence draft. Resume use still requires a separate review and approval.";
   }
   if (type === "update_initiative" || type === "create_initiative") {
     return "Accepting applies this as story context. It will not become resume evidence until linked to a concrete claim.";
@@ -5092,6 +5432,28 @@ function formatEnrichmentProposalNextStep(
     return "Accepting applies this as role context. It will not become resume evidence by itself.";
   }
   return "Accepting saves this as task context. Choose a target before creating evidence.";
+}
+
+function formatEnrichmentAnswerWorkspaceHelp(
+  type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
+  answerSaved: boolean,
+) {
+  if (answerSaved) {
+    return "Save again to generate a reviewable suggestion. Nothing changes until you accept it.";
+  }
+  if (type === "create_evidence") {
+    return "Answer with concrete facts, metrics, scope, or source wording. JobDesk will turn it into a draft evidence card for review.";
+  }
+  if (type === "update_evidence") {
+    return "Answer with the missing detail or correction. JobDesk will show the existing evidence beside the proposed change before you accept.";
+  }
+  if (type === "update_initiative" || type === "create_initiative") {
+    return "Add project context such as scope, actions, tools, results, or missing metrics. JobDesk will preview the story update first.";
+  }
+  if (type === "update_work_experience") {
+    return "Add role-level context such as team, scope, timeframe, or ownership. JobDesk will preview the role update first.";
+  }
+  return "Answer with context first. You can assign it to a specific target before creating evidence.";
 }
 
 function formatEnrichmentConversationPlaceholder(

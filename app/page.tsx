@@ -832,6 +832,29 @@ function DashboardView({
       tone: (applicationStages.find((stage) => stage.label === "Follow-up")?.value ?? 0) > 0 ? "warning" : "ready",
     },
   ];
+  const librarySnapshotItems = [
+    {
+      action: () => onNavigate("evidence"),
+      label: "Resume-ready",
+      value: resumeReadyClaims,
+      detail: resumeReadyClaims > 0 ? "approved claims" : "none approved",
+      tone: resumeReadyClaims > 0 ? "ready" : "blocked",
+    },
+    {
+      action: () => onNavigate("evidence"),
+      label: "Need review",
+      value: claimsNeedingReview,
+      detail: claimsNeedingReview > 0 ? "claims waiting" : "claims clear",
+      tone: claimsNeedingReview > 0 ? "warning" : "ready",
+    },
+    {
+      action: () => onNavigate("evidence"),
+      label: "Stories",
+      value: storyTargets,
+      detail: thinStories > 0 ? `${thinStories} thin` : "story context",
+      tone: thinStories > 0 ? "warning" : storyTargets > 0 ? "ready" : "blocked",
+    },
+  ];
 
   return (
     <MotionPanel className="dashboard-grid dashboard-figma-shell">
@@ -909,15 +932,33 @@ function DashboardView({
             </div>
           </section>
 
-          <section className="weekly-activity-panel" aria-label="Weekly applications">
+          <section className="library-snapshot-panel" aria-label="Evidence Library snapshot">
             <div className="dashboard-section-heading">
-              <p className="panel-kicker">Weekly Applications</p>
-              <span>{activeApplications} active</span>
+              <p className="panel-kicker">Library Snapshot</p>
+              <span>{library?.evidenceItems.length ?? 0} facts</span>
             </div>
-            <div className="weekly-activity-bars" aria-hidden="true">
-              {[1, 2, 2, 3, 2, Math.max(1, activeApplications)].map((value, index) => (
-                <span key={`${value}-${index}`} style={{ height: `${28 + value * 16}px` }} />
+            <div className="library-snapshot-grid">
+              {librarySnapshotItems.map((item) => (
+                <button
+                  data-tone={item.tone}
+                  disabled={dashboardLoadState === "loading"}
+                  key={item.label}
+                  type="button"
+                  onClick={item.action}
+                >
+                  <span>{item.label}</span>
+                  <strong>
+                    <CountUpMetric value={item.value} />
+                  </strong>
+                  <small>{item.detail}</small>
+                </button>
               ))}
+            </div>
+            <div className="library-snapshot-footer">
+              <p>{resumeHealthIssue}</p>
+              <button disabled={dashboardLoadState === "loading"} type="button" onClick={primaryReadinessAction.target}>
+                {primaryReadinessAction.action}
+              </button>
             </div>
           </section>
         </div>
@@ -1444,33 +1485,36 @@ function ProfileReferenceView({
     profileFacts.skills.length ? null : "Skills",
   ].filter(Boolean) as string[];
   const contactDetail = [profileFacts.email, profileFacts.phone].filter(Boolean).join(" · ");
+  const primaryRoleFact =
+    profileFacts.experience[0] ?? formatWorkExperienceFact(library?.workExperiences[0]);
+  const primaryEducationFact = profileFacts.education[0] ?? null;
   const profileFactsMetrics = [
     {
-      detail: contactDetail || "Name, email, or phone still missing.",
+      detail: profileFacts.name || "Add name and source details when ready.",
       kind: "contact",
       label: "Contact",
       missing: !profileFacts.email || !profileFacts.phone,
-      value: profileFacts.name || profileFacts.email || "Pending",
+      value: contactDetail || "Email or phone missing",
     },
     {
       detail:
-        profileFacts.experience.slice(0, 2).join(" · ") ||
+        profileFacts.experience.slice(1, 3).join(" · ") ||
         (displayedRoleCount
-          ? "Work experience records are present."
+          ? `${displayedRoleCount} role${displayedRoleCount === 1 ? "" : "s"} in profile.`
           : "Extract a resume to populate work history."),
       kind: "roles",
       label: "Roles",
       missing: displayedRoleCount === 0,
-      value: displayedRoleCount ? `${displayedRoleCount}` : "0",
+      value: primaryRoleFact || "No role extracted",
     },
     {
       detail:
-        profileFacts.education.slice(0, 2).join(" · ") ||
+        profileFacts.education.slice(1, 3).join(" · ") ||
         "Education facts are not extracted yet.",
       kind: "education",
       label: "Education",
       missing: profileFacts.education.length === 0,
-      value: profileFacts.education.length ? `${profileFacts.education.length}` : "0",
+      value: primaryEducationFact || "No education extracted",
     },
     {
       detail:
@@ -2660,6 +2704,17 @@ function extractProfileFacts(profile: unknown) {
     phone: extractFactValue(record.phone ?? contact.phone),
     skills: extractSkillFacts(record.skills),
   };
+}
+
+function formatWorkExperienceFact(
+  experience?: EvidenceLibrarySummary["workExperiences"][number],
+) {
+  if (!experience) return null;
+  const roleTitle = cleanDisplayText(experience.role_title);
+  const employer = cleanDisplayText(experience.employer);
+  const team = cleanDisplayText(experience.team);
+  const title = [roleTitle, employer].filter(Boolean).join(" · ");
+  return title || team || null;
 }
 
 function buildCareerRoleCoverage(library: EvidenceLibrarySummary | null) {
