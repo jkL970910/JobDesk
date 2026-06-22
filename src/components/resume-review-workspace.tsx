@@ -789,6 +789,7 @@ function ResumeReviewReportCard({
   const review = resume.latestReview;
   if (!review) return null;
   const [activeDetailTab, setActiveDetailTab] = useState<ReviewDetailTab>("summary");
+  const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
   const [showAllEvidenceTasks, setShowAllEvidenceTasks] = useState(false);
   const reviewRubric = Array.isArray(review.rubric) ? review.rubric : [];
   const metadata = reviewRubric.find(
@@ -825,10 +826,28 @@ function ResumeReviewReportCard({
     strengths,
     weaknesses,
   });
+  function openReviewFinding(target: {
+    findingId: string;
+    tab: ReviewDetailTab;
+  }) {
+    setSelectedFindingId(target.findingId);
+    setActiveDetailTab(target.tab);
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById(reviewFindingDomId(target.findingId))
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+  const weaknessFindings =
+    findingGroups.find((group) => group.title === "Weaknesses to fix")?.items ?? [];
+  const evidenceFindings =
+    findingGroups.find((group) => group.title === "Evidence gaps")?.items ?? [];
+  const rewriteFindings =
+    findingGroups.find((group) => group.title === "Rewrite logic")?.items ?? [];
   const topFixes = [
-    ...weaknesses.map((item) => ({ item, label: "Fix" })),
-    ...missingEvidenceQuestions.map((item) => ({ item, label: "Evidence" })),
-    ...recommendedActions.map((item) => ({ item, label: "Rewrite" })),
+    ...weaknessFindings.map((finding) => ({ finding, item: finding.detail, label: "Fix" })),
+    ...evidenceFindings.map((finding) => ({ finding, item: finding.detail, label: "Evidence" })),
+    ...rewriteFindings.map((finding) => ({ finding, item: finding.detail, label: "Rewrite" })),
   ].slice(0, 3);
   const atsIssueCount = atsNotes.length;
   const privacyReviewCount = riskFlags.length;
@@ -849,11 +868,11 @@ function ResumeReviewReportCard({
       label: fix.label,
       onClick:
         fix.label === "Evidence"
-          ? onOpenEvidenceTasks
-          : () =>
-              setActiveDetailTab(
-                fix.label === "Fix" ? "fixes" : fix.label === "Rewrite" ? "rewrite" : "summary",
-              ),
+          ? () => openReviewFinding({ findingId: fix.finding.id, tab: "evidence" })
+          : () => openReviewFinding({
+              findingId: fix.finding.id,
+              tab: fix.label === "Fix" ? "fixes" : "rewrite",
+            }),
     })),
     ...questionStatuses.map((item) => ({
       action: item.taskId ? "Open task" : "Create item",
@@ -941,14 +960,20 @@ function ResumeReviewReportCard({
           ) : null}
         </section>
       ) : null}
-      <ReviewDetailTabs
-        activeTab={activeDetailTab}
-        atsNotes={atsNotes}
-        dimensions={dimensions}
-        findingGroups={findingGroups}
-        metadataScan={metadata?.tenSecondScan ?? ""}
-        onSelect={setActiveDetailTab}
-      />
+        <ReviewDetailTabs
+          activeTab={activeDetailTab}
+          atsNotes={atsNotes}
+          dimensions={dimensions}
+          findingGroups={findingGroups}
+          metadataScan={metadata?.tenSecondScan ?? ""}
+          onContinueToEvidence={onContinueToEvidence}
+          onOpenEvidenceTasks={onOpenEvidenceTasks}
+          onSelect={(tab) => {
+            setSelectedFindingId(null);
+            setActiveDetailTab(tab);
+          }}
+          selectedFindingId={selectedFindingId}
+        />
     </section>
   );
 }
@@ -1265,9 +1290,15 @@ function ReviewRadar({
 
 function ReviewFindingBoard({
   groups,
+  onContinueToEvidence,
+  onOpenEvidenceTasks,
+  selectedFindingId,
   visibleTitles,
 }: {
   groups: ReviewFindingGroup[];
+  onContinueToEvidence: () => void;
+  onOpenEvidenceTasks: () => void;
+  selectedFindingId: string | null;
   visibleTitles?: string[];
 }) {
   const visibleGroups = groups.filter(
@@ -1293,7 +1324,9 @@ function ReviewFindingBoard({
             {group.items.map((item) => (
               <article
                 className="review-finding-card"
+                data-selected={item.id === selectedFindingId}
                 data-tone={item.tone}
+                id={reviewFindingDomId(item.id)}
                 key={item.id}
               >
                 <div>
@@ -1305,6 +1338,12 @@ function ReviewFindingBoard({
                   <span>{item.nextStep}</span>
                   <small>{item.why}</small>
                 </div>
+                <ReviewFindingAction
+                  finding={item}
+                  groupTitle={group.title}
+                  onContinueToEvidence={onContinueToEvidence}
+                  onOpenEvidenceTasks={onOpenEvidenceTasks}
+                />
               </article>
             ))}
           </div>
@@ -1320,14 +1359,20 @@ function ReviewDetailTabs({
   dimensions,
   findingGroups,
   metadataScan,
+  onContinueToEvidence,
+  onOpenEvidenceTasks,
   onSelect,
+  selectedFindingId,
 }: {
   activeTab: ReviewDetailTab;
   atsNotes: string[];
   dimensions: ReviewDimension[];
   findingGroups: ReviewFindingGroup[];
   metadataScan: string;
+  onContinueToEvidence: () => void;
+  onOpenEvidenceTasks: () => void;
   onSelect: (tab: ReviewDetailTab) => void;
+  selectedFindingId: string | null;
 }) {
   const tabs: Array<{ id: ReviewDetailTab; label: string; titles?: string[] }> = [
     { id: "summary", label: "Summary" },
@@ -1384,6 +1429,9 @@ function ReviewDetailTabs({
       ) : (
         <ReviewFindingBoard
           groups={findingGroups}
+          onContinueToEvidence={onContinueToEvidence}
+          onOpenEvidenceTasks={onOpenEvidenceTasks}
+          selectedFindingId={selectedFindingId}
           visibleTitles={active.titles}
         />
       )}
@@ -1391,6 +1439,41 @@ function ReviewDetailTabs({
         <div className="empty-state empty-state--compact">No ATS-specific notes were returned.</div>
       ) : null}
     </section>
+  );
+}
+
+function ReviewFindingAction({
+  finding,
+  groupTitle,
+  onContinueToEvidence,
+  onOpenEvidenceTasks,
+}: {
+  finding: ReviewFinding;
+  groupTitle: string;
+  onContinueToEvidence: () => void;
+  onOpenEvidenceTasks: () => void;
+}) {
+  const action = getReviewFindingTarget(finding, groupTitle);
+  const onClick =
+    action.route === "evidence_tasks"
+      ? onOpenEvidenceTasks
+      : action.route === "evidence_library"
+        ? onContinueToEvidence
+        : undefined;
+  return (
+    <div className="review-finding-card__action">
+      <div>
+        <span>Suggested fix</span>
+        <p>{action.guidance}</p>
+      </div>
+      {onClick ? (
+        <button type="button" onClick={onClick}>
+          {action.cta}
+        </button>
+      ) : (
+        <span className="review-finding-card__action-note">{action.cta}</span>
+      )}
+    </div>
   );
 }
 
@@ -1681,6 +1764,63 @@ function findingTitle(
   return trimFindingText(item, 78);
 }
 
+function getReviewFindingTarget(finding: ReviewFinding, groupTitle: string) {
+  const text = normalizeReviewText(`${groupTitle} ${finding.title} ${finding.detail}`);
+  if (groupTitle === "Evidence gaps") {
+    return {
+      cta: "Open matching task",
+      guidance: "Answer the matching evidence question or add source material before rewriting this claim.",
+      route: "evidence_tasks" as const,
+    };
+  }
+  if (text.includes("date") || text.includes("duration") || text.includes("current status")) {
+    return {
+      cta: "Open profile source",
+      guidance: "Update the role timeline or current-status source, then rerun extraction/review.",
+      route: "evidence_library" as const,
+    };
+  }
+  if (
+    text.includes("project") ||
+    text.includes("proof") ||
+    text.includes("metric") ||
+    text.includes("impact") ||
+    text.includes("scope")
+  ) {
+    return {
+      cta: "Add evidence",
+      guidance: "Add source-backed project context, metrics, ownership, or linked evidence before regenerating.",
+      route: "evidence_library" as const,
+    };
+  }
+  if (groupTitle === "Rewrite logic" || text.includes("rewrite") || text.includes("wording")) {
+    return {
+      cta: "Use in next draft",
+      guidance: "Apply this rewrite rule when generating or editing the next resume draft.",
+      route: "none" as const,
+    };
+  }
+  if (groupTitle === "ATS notes") {
+    return {
+      cta: "Review formatting",
+      guidance: "Keep section labels, bullets, dates, and ordering parser-friendly before exporting.",
+      route: "none" as const,
+    };
+  }
+  if (groupTitle === "Privacy and confidentiality") {
+    return {
+      cta: "Review safe wording",
+      guidance: "Use external-safe wording before approving evidence for resume use.",
+      route: "evidence_library" as const,
+    };
+  }
+  return {
+    cta: "Open Evidence",
+    guidance: "Add or review source-backed material related to this finding.",
+    route: "evidence_library" as const,
+  };
+}
+
 function findingSubject(item: string) {
   const normalized = item.replace(/\s+/g, " ").trim();
   const colonIndex = normalized.indexOf(":");
@@ -1700,6 +1840,10 @@ function trimFindingText(value: string, maxLength: number) {
 
 function slugify(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+function reviewFindingDomId(findingId: string) {
+  return `resume-review-finding-${slugify(findingId)}`;
 }
 
 function normalizeReviewText(value: string) {
