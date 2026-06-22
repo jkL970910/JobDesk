@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { resolveJobDeskAiConfig } from "../ai/config";
+import { reviseEnrichmentProposalWithAi } from "../ai/enrichment-proposal-revision";
 import { JobDeskAiError } from "../ai/errors";
 import { extractProfileEvidenceWithAi } from "../ai/profile-evidence-extraction";
 import { skillRegistry } from "../ai/skills-registry";
@@ -287,10 +288,13 @@ export async function updateEnrichmentTask(args: {
     | "convert"
     | "link"
     | "accept_proposal"
-    | "reject_proposal";
+    | "reject_proposal"
+    | "revise_proposal";
   userAnswer?: string;
   anchor?: ReusableLibraryAnchor;
   proposalId?: string;
+  revisedText?: string;
+  revisionInstruction?: string;
   useAiExtraction?: boolean;
   extractAnswerEvidence?: (args: {
     sourceId: string;
@@ -345,6 +349,19 @@ export async function updateEnrichmentTask(args: {
     return rejectEnrichmentProposal(db, {
       task: existing,
       proposalId: args.proposalId,
+      now,
+    });
+  }
+
+  if (args.action === "revise_proposal") {
+    if (!args.proposalId) {
+      return { status: "invalid" as const, reason: "missing_proposal_id" as const };
+    }
+    return reviseEnrichmentProposal(db, {
+      task: existing,
+      proposalId: args.proposalId,
+      revisedText: args.revisedText,
+      revisionInstruction: args.revisionInstruction,
       now,
     });
   }
@@ -997,6 +1014,171 @@ async function rejectEnrichmentProposal(
         })
       : ({ status: "not_found" as const });
   });
+}
+
+async function reviseEnrichmentProposal(
+  db: DbHandle,
+  args: {
+    task: typeof enrichmentTasks.$inferSelect;
+    proposalId: string;
+    revisedText?: string;
+    revisionInstruction?: string;
+    now: Date;
+  },
+) {
+  const revisedText = args.revisedText?.trim();
+  const revisionInstruction = args.revisionInstruction?.trim();
+  if (!revisedText && !revisionInstruction) {
+    return { status: "invalid" as const, reason: "missing_revision" as const };
+  }
+
+  const [existingProposal] = await db
+    .select()
+    .from(enrichmentProposals)
+    .where(
+      and(
+        eq(enrichmentProposals.workspaceId, args.task.workspaceId),
+        eq(enrichmentProposals.taskId, args.task.id),
+        eq(enrichmentProposals.id, args.proposalId),
+        eq(enrichmentProposals.status, "pending_review"),
+      ),
+    )
+    .limit(1);
+  if (!existingProposal) {
+    return { status: "invalid" as const, reason: "proposal_not_found" as const };
+  }
+  if (existingProposal.proposalType !== "create_evidence") {
+    return { status: "invalid" as const, reason: "unsupported_proposal_type" as const };
+  }
+  const revisedPatch = await buildRevisedCreateEvidenceProposalPatch({
+    currentPatchJson: existingProposal.proposedPatchJson,
+    revisionInstruction,
+    revisedText,
+    task: args.task,
+  });
+  if (revisedPatch.status === "invalid") {
+    return { status: "invalid" as const, reason: revisedPatch.reason };
+  }
+
+  return db.transaction(async (tx) => {
+    const [proposal] = await tx
+      .select()
+      .from(enrichmentProposals)
+      .where(
+        and(
+          eq(enrichmentProposals.workspaceId, args.task.workspaceId),
+          eq(enrichmentProposals.taskId, args.task.id),
+          eq(enrichmentProposals.id, args.proposalId),
+          eq(enrichmentProposals.status, "pending_review"),
+        ),
+      )
+      .limit(1);
+    if (!proposal) return { status: "invalid" as const, reason: "proposal_not_found" as const };
+    if (proposal.proposalType !== "create_evidence") {
+      return { status: "invalid" as const, reason: "unsupported_proposal_type" as const };
+    }
+
+    await tx
+      .update(enrichmentProposals)
+      .set({
+        status: "rejected",
+        updatedAt: args.now,
+        reviewedAt: args.now,
+      })
+      .where(eq(enrichmentProposals.id, proposal.id));
+
+    const [nextProposal] = await tx
+      .insert(enrichmentProposals)
+      .values({
+        workspaceId: args.task.workspaceId,
+        taskId: args.task.id,
+        answerId: proposal.answerId,
+        proposalType: "create_evidence",
+        targetKind: proposal.targetKind,
+        targetId: proposal.targetId,
+        proposedPatchJson: revisedPatch.patch,
+        evidenceDeltaJson: {
+          text: revisedPatch.patch.text,
+          target_summary: summarizeProposalTarget(args.task),
+          revision_instruction: revisionInstruction || null,
+          resume_safe_note:
+            "Saving creates a draft evidence item. Resume-safe approval still requires review.",
+        },
+        schemaVersion: proposal.schemaVersion,
+        status: "pending_review",
+        createdAt: args.now,
+        updatedAt: args.now,
+      })
+      .returning();
+    if (!nextProposal) throw new Error("Failed to create revised enrichment proposal.");
+
+    const [updated] = await tx
+      .select()
+      .from(enrichmentTasks)
+      .where(
+        and(
+          eq(enrichmentTasks.workspaceId, args.task.workspaceId),
+          eq(enrichmentTasks.id, args.task.id),
+        ),
+      )
+      .limit(1);
+    const targetMap = updated ? await getTaskTargetMap(tx, [updated.id]) : new Map();
+    const proposalMap = updated ? await getTaskProposalMap(tx, [updated.id]) : new Map();
+    return updated
+      ? ({
+          status: "saved" as const,
+          task: toEnrichmentTaskPayload(
+            updated,
+            targetMap.get(updated.id),
+            proposalMap.get(updated.id),
+          ),
+        })
+      : ({ status: "not_found" as const });
+  });
+}
+
+async function buildRevisedCreateEvidenceProposalPatch(args: {
+  currentPatchJson: Record<string, unknown>;
+  revisedText?: string;
+  revisionInstruction?: string;
+  task: typeof enrichmentTasks.$inferSelect;
+}): Promise<
+  | { status: "saved"; patch: CreateEvidenceProposalPatch }
+  | {
+      status: "invalid";
+      reason: "invalid_proposal_payload" | "invalid_revision_payload";
+    }
+> {
+  const currentPatch = parseCreateEvidenceProposalPatch(args.currentPatchJson);
+  if (!currentPatch) {
+    return { status: "invalid" as const, reason: "invalid_proposal_payload" as const };
+  }
+
+  let nextText = args.revisedText;
+  let nextSourceQuote = args.revisedText || currentPatch.source_quote;
+  if (!nextText && args.revisionInstruction) {
+    const aiRevision = await reviseEnrichmentProposalWithAi({
+      currentDraft: currentPatch.text,
+      originalAnswer: args.task.userAnswer,
+      revisionInstruction: args.revisionInstruction,
+      targetLabel: summarizeProposalTarget(args.task),
+      taskPrompt: args.task.prompt,
+    });
+    nextText = aiRevision.data.text.trim();
+    nextSourceQuote = aiRevision.data.source_quote?.trim() || currentPatch.source_quote;
+  }
+
+  if (!nextText || nextText.length < 12) {
+    return { status: "invalid" as const, reason: "invalid_revision_payload" as const };
+  }
+  return {
+    status: "saved" as const,
+    patch: {
+      ...currentPatch,
+      source_quote: nextSourceQuote,
+      text: nextText,
+    },
+  };
 }
 
 async function rejectPendingProposals(

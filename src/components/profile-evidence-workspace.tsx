@@ -8,6 +8,7 @@ import {
   GradualBlur,
   MotionPanel,
 } from "./ui/motion-primitives";
+import { SuggestedUpdatePanel } from "./ui/suggested-update-panel";
 
 import {
   buildGuidedMaterialMarkdown,
@@ -1649,6 +1650,12 @@ export function ProfileEvidenceWorkspace({
       | { action: "convert" }
       | { action: "accept_proposal"; proposalId: string }
       | { action: "reject_proposal"; proposalId: string }
+      | {
+          action: "revise_proposal";
+          proposalId: string;
+          revisedText?: string;
+          revisionInstruction?: string;
+        }
       | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
   ): Promise<{ ok: boolean; message: string }> {
     const response = await fetchJson(`/api/enrichment-tasks/${taskId}`, {
@@ -1674,6 +1681,8 @@ export function ProfileEvidenceWorkspace({
           ? "Accepted update and saved draft evidence."
         : payload.action === "reject_proposal"
           ? "Rejected suggested update."
+        : payload.action === "revise_proposal"
+          ? "Updated suggested draft evidence."
         : payload.action === "convert"
           ? "Saved draft evidence. Next: review wording, then approve for resume use."
           : payload.action === "dismiss"
@@ -3650,6 +3659,12 @@ function EnrichmentTaskQueue({
       | { action: "convert" }
       | { action: "accept_proposal"; proposalId: string }
       | { action: "reject_proposal"; proposalId: string }
+      | {
+          action: "revise_proposal";
+          proposalId: string;
+          revisedText?: string;
+          revisionInstruction?: string;
+        }
       | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
   ) => Promise<{ ok: boolean; message: string }>;
   portfolioProjects: PortfolioProjectItem[];
@@ -3726,6 +3741,12 @@ function EnrichmentTaskQueue({
       | { action: "convert" }
       | { action: "accept_proposal"; proposalId: string }
       | { action: "reject_proposal"; proposalId: string }
+      | {
+          action: "revise_proposal";
+          proposalId: string;
+          revisedText?: string;
+          revisionInstruction?: string;
+        }
       | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
   ) {
     setPendingTaskId(task.id);
@@ -3911,6 +3932,13 @@ function EnrichmentTaskQueue({
               onRejectProposal={(proposalId) =>
                 void handleUpdate(selectedTask, { action: "reject_proposal", proposalId })
               }
+              onReviseProposal={(proposalId, revision) =>
+                void handleUpdate(selectedTask, {
+                  action: "revise_proposal",
+                  proposalId,
+                  ...revision,
+                })
+              }
               portfolioProjects={portfolioProjects}
               task={selectedTask}
               taskIndex={selectedTaskIndex + 1}
@@ -3944,6 +3972,7 @@ function EnrichmentTaskFocusPane({
   onPrevious,
   onReviewImportedMaterial,
   onRejectProposal,
+  onReviseProposal,
   onSaveAnswer,
   portfolioProjects,
   task,
@@ -3968,6 +3997,10 @@ function EnrichmentTaskFocusPane({
   onPrevious: () => void;
   onReviewImportedMaterial: () => void;
   onRejectProposal: (proposalId: string) => void;
+  onReviseProposal: (
+    proposalId: string,
+    revision: { revisedText?: string; revisionInstruction?: string },
+  ) => void;
   onSaveAnswer: (answer: string) => void;
   portfolioProjects: PortfolioProjectItem[];
   task: EnrichmentTaskItem;
@@ -4076,11 +4109,16 @@ function EnrichmentTaskFocusPane({
           </details>
           <label className="source-field source-field--textarea">
             <span>Your answer</span>
+            <small>
+              Write the fact as plainly as possible. Include metrics, scope, ownership, actions, and
+              result if you know them. JobDesk will preview a draft evidence update before anything
+              is saved to the library.
+            </small>
             <textarea
               className="jd-input jd-input--compact enrichment-task-card__answer"
               disabled={isPending}
               onChange={(event) => onAnswerChange(event.target.value)}
-              placeholder="Add concrete numbers, scope, ownership, actions, results, or public-safe wording..."
+              placeholder="Example: I owned the backend order-status flow, built the API and dashboard changes, and reduced merchant support escalations by 18%."
               value={answer}
             />
           </label>
@@ -4091,6 +4129,7 @@ function EnrichmentTaskFocusPane({
               targetLabel={linkedLabel}
               onAccept={() => onAcceptProposal(pendingProposal.id)}
               onReject={() => onRejectProposal(pendingProposal.id)}
+              onRevise={(revision) => onReviseProposal(pendingProposal.id, revision)}
             />
           ) : task.status === "answered" ? (
             <div className="enrichment-proposal enrichment-proposal--empty">
@@ -4109,12 +4148,12 @@ function EnrichmentTaskFocusPane({
           {canAnswerNow ? (
             <>
               <button
-                className="secondary-button"
+                className={pendingProposal ? "secondary-button secondary-button--quiet" : "primary-button"}
                 disabled={isPending || answer.trim().length < 12}
                 type="button"
                 onClick={() => onSaveAnswer(answer)}
               >
-                Save & preview update
+                {pendingProposal ? "Update answer & preview again" : "Save answer & preview"}
               </button>
             </>
           ) : null}
@@ -4313,12 +4352,14 @@ function EnrichmentProposalPreview({
   disabled,
   onAccept,
   onReject,
+  onRevise,
   proposal,
   targetLabel,
 }: {
   disabled: boolean;
   onAccept: () => void;
   onReject: () => void;
+  onRevise: (revision: { revisedText?: string; revisionInstruction?: string }) => void;
   proposal: EnrichmentTaskItem["proposals"][number];
   targetLabel: string;
 }) {
@@ -4331,37 +4372,23 @@ function EnrichmentProposalPreview({
       ? proposal.proposed_patch_json.source_quote
       : text;
   return (
-    <div className="enrichment-proposal">
-      <div className="enrichment-proposal__header">
-        <div>
-          <span>Suggested update</span>
-          <strong>{formatEnrichmentProposalType(proposal.proposal_type)}</strong>
-        </div>
-        <em data-state={proposal.status}>{formatEnrichmentProposalStatus(proposal.status)}</em>
-      </div>
-      <dl className="enrichment-proposal__meta">
-        <div>
-          <dt>Target</dt>
-          <dd>{targetLabel}</dd>
-        </div>
-        <div>
-          <dt>What happens next</dt>
-          <dd>Accept saves this as draft evidence. You can approve it for resume use after review.</dd>
-        </div>
-      </dl>
-      <blockquote>{text}</blockquote>
-      {sourceQuote !== text ? (
-        <p className="enrichment-proposal__quote">Source quote: {sourceQuote}</p>
-      ) : null}
-      <div className="enrichment-proposal__actions">
-        <button className="primary-action" disabled={disabled} type="button" onClick={onAccept}>
-          Accept update
-        </button>
-        <button className="secondary-button" disabled={disabled} type="button" onClick={onReject}>
-          Reject update
-        </button>
-      </div>
-    </div>
+    <SuggestedUpdatePanel
+      acceptLabel="Save draft evidence"
+      aiRevisionPlaceholder="Example: make this focus on backend ownership and remove dashboard wording"
+      disabled={disabled}
+      draftLabel="Draft evidence text"
+      initialText={text}
+      nextStepDescription="Save draft evidence writes this suggested update to the Evidence Library as a draft. Resume use still requires a separate review and approval."
+      onAccept={onAccept}
+      onDiscard={onReject}
+      onRevise={onRevise}
+      sourceQuote={sourceQuote}
+      statusLabel={formatEnrichmentProposalStatus(proposal.status)}
+      statusState={proposal.status}
+      targetLabel={targetLabel}
+      title={formatEnrichmentProposalType(proposal.proposal_type)}
+      titleEyebrow="Answer saved"
+    />
   );
 }
 

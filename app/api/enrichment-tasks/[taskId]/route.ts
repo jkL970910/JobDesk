@@ -25,6 +25,12 @@ const requestSchema = z.discriminatedUnion("action", [
     proposalId: z.string().uuid(),
   }),
   z.object({
+    action: z.literal("revise_proposal"),
+    proposalId: z.string().uuid(),
+    revisedText: z.string().trim().min(12).max(4000).optional(),
+    revisionInstruction: z.string().trim().min(3).max(1200).optional(),
+  }),
+  z.object({
     action: z.literal("link"),
     anchor: z.object({
       evidenceItemId: z.string().uuid().nullable().optional(),
@@ -44,6 +50,16 @@ export async function PATCH(
   if (!params.success || !body.success) {
     return NextResponse.json(
       { error: "Invalid enrichment task update request.", kind: "invalid_request" },
+      { status: 400 },
+    );
+  }
+  if (
+    body.data.action === "revise_proposal" &&
+    !body.data.revisedText &&
+    !body.data.revisionInstruction
+  ) {
+    return NextResponse.json(
+      { error: "Provide revised text or revision instructions.", kind: "invalid_request" },
       { status: 400 },
     );
   }

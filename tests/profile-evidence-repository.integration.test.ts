@@ -833,6 +833,28 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     );
     expect(pendingProposal).toBeDefined();
     if (!pendingProposal) throw new Error("Expected pending proposal.");
+    const revisedText = `${answer} Revised preview wording keeps backend ownership explicit.`;
+    const revised = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "revise_proposal",
+      proposalId: pendingProposal.id,
+      revisedText,
+    });
+    expect(revised.status).toBe("saved");
+    if (revised.status !== "saved") throw new Error("Expected revised proposal.");
+    const revisedProposal = revised.task.proposals.find(
+      (proposal) => proposal.status === "pending_review",
+    );
+    expect(revisedProposal).toBeDefined();
+    if (!revisedProposal) throw new Error("Expected pending revised proposal.");
+    expect(revisedProposal.id).not.toBe(pendingProposal.id);
+    expect(revisedProposal.proposed_patch_json).toMatchObject({ text: revisedText });
+    const originalAfterRevision = await db
+      .select()
+      .from(enrichmentProposals)
+      .where(eq(enrichmentProposals.id, pendingProposal.id))
+      .limit(1);
+    expect(originalAfterRevision[0]?.status).toBe("rejected");
     const legacyConvertWithPendingProposal = await updateEnrichmentTask({
       taskId: task.id,
       action: "convert",
@@ -844,7 +866,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     const accepted = await updateEnrichmentTask({
       taskId: task.id,
       action: "accept_proposal",
-      proposalId: pendingProposal.id,
+      proposalId: revisedProposal.id,
     });
     expect(accepted.status).toBe("saved");
     expect(accepted).toMatchObject({
@@ -864,8 +886,8 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       .where(eq(evidenceItems.id, accepted.evidenceItemId))
       .limit(1);
     expect(evidence).toMatchObject({
-      text: answer,
-      sourceQuote: answer,
+      text: revisedText,
+      sourceQuote: revisedText,
       evidenceType: "user_confirmed",
       status: "pending",
       needsUserConfirmation: 1,
@@ -875,7 +897,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     const [acceptedProposal] = await db
       .select()
       .from(enrichmentProposals)
-      .where(eq(enrichmentProposals.id, pendingProposal.id))
+      .where(eq(enrichmentProposals.id, revisedProposal.id))
       .limit(1);
     expect(acceptedProposal).toMatchObject({
       status: "accepted",
@@ -884,7 +906,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     const secondAccept = await updateEnrichmentTask({
       taskId: task.id,
       action: "accept_proposal",
-      proposalId: pendingProposal.id,
+      proposalId: revisedProposal.id,
     });
     expect(secondAccept).toMatchObject({
       status: "invalid",
@@ -893,7 +915,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     const duplicateEvidence = await db
       .select()
       .from(evidenceItems)
-      .where(eq(evidenceItems.text, answer));
+      .where(eq(evidenceItems.text, revisedText));
     expect(duplicateEvidence).toHaveLength(1);
   });
 
