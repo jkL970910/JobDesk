@@ -170,6 +170,7 @@ export const enrichmentProposalTypeEnum = pgEnum("enrichment_proposal_type", [
   "create_initiative",
   "update_initiative",
   "update_work_experience",
+  "clarify_assignment",
   "link_evidence_to_story",
   "link_story_to_role",
 ]);

@@ -13,6 +13,7 @@ import { ProfilePositioningReport } from "../src/schemas/profile-positioning";
 import { ResumeReview } from "../src/schemas/resume-review";
 import { GeneratedClaim, TailoredResumeDraft } from "../src/schemas/tailored-resume";
 import { ExternalSafeSummarySuggestion } from "../src/schemas/external-safe-summary";
+import { EvidenceUpdateProposalPatch } from "../src/schemas/enrichment-proposal-patches";
 
 describe("ExtractedField", () => {
   it("applies defaults (verified=false, confidence=0) when omitted", () => {
@@ -494,6 +495,21 @@ describe("GeneratedClaim", () => {
     });
     expect(claim.support_status).toBe("unvalidated");
     expect(claim.claim_status).toBe("unvalidated");
+  });
+});
+
+describe("Enrichment proposal patches", () => {
+  it("does not allow evidence patches to change resume-safe usage", () => {
+    const result = EvidenceUpdateProposalPatch.safeParse({
+      patch_type: "update_evidence",
+      evidence_id: "11111111-1111-4111-8111-111111111111",
+      text_patch: "Updated evidence wording.",
+      allowed_usage_patch: ["resume"],
+      rationale: "User asked to improve wording.",
+      confidence: "medium",
+    });
+
+    expect(result.success).toBe(false);
   });
 });
 

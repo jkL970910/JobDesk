@@ -8,6 +8,19 @@ import { JobDeskAiError } from "../ai/errors";
 import { extractProfileEvidenceWithAi } from "../ai/profile-evidence-extraction";
 import { skillRegistry } from "../ai/skills-registry";
 import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
+import {
+  type ClarifyAssignmentProposalPatch,
+  type CreateEvidenceProposalPatch,
+  type EnrichmentProposalPatch,
+  type EvidenceUpdateProposalPatch,
+  type StructuredRoleProposalPatch,
+  type StructuredStoryProposalPatch,
+  parseClarifyAssignmentProposalPatch,
+  parseCreateEvidenceProposalPatch,
+  parseEvidenceUpdateProposalPatch,
+  parseStructuredRoleProposalPatch,
+  parseStructuredStoryProposalPatch,
+} from "../schemas/enrichment-proposal-patches";
 import type { JobDeskAiFailureKind, JobDeskAiSkillBinding } from "../ai/types";
 import { getDb, hasDatabaseUrl } from "../db/client";
 import {
@@ -17,6 +30,7 @@ import {
   enrichmentTaskTargets,
   enrichmentTasks,
   evidenceItems,
+  generatedClaims,
   initiatives,
   portfolioProjects,
   sourceDocuments,
@@ -37,6 +51,7 @@ import { workflowSkillFields } from "./workflow-run-metadata";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 
 type DbHandle = ReturnType<typeof getDb>;
+type DbExecutor = Pick<DbHandle, "select" | "update" | "insert">;
 
 export type EnrichmentTaskType =
   (typeof enrichmentTaskTypeEnum.enumValues)[number];
@@ -716,7 +731,7 @@ async function createPendingProposalForAnswer(
 ) {
   const answer = args.answer.trim();
   if (!answer) return null;
-  const patch = buildCreateEvidenceProposalPatch(args.task, answer);
+  const proposalDraft = buildEnrichmentProposalDraft(args.task, answer);
   await db
     .update(enrichmentProposals)
     .set({
@@ -749,15 +764,14 @@ async function createPendingProposalForAnswer(
       workspaceId: args.task.workspaceId,
       taskId: args.task.id,
       answerId: answerRow.id,
-      proposalType: "create_evidence",
-      targetKind: "evidence",
-      targetId: null,
-      proposedPatchJson: patch,
+      proposalType: proposalDraft.proposalType,
+      targetKind: proposalDraft.targetKind,
+      targetId: proposalDraft.targetId,
+      proposedPatchJson: proposalDraft.patch,
       evidenceDeltaJson: {
-        text: patch.text,
+        text: getProposalPatchPreviewText(proposalDraft.patch),
         target_summary: summarizeProposalTarget(args.task),
-        resume_safe_note:
-          "Accepting creates a pending evidence candidate. Resume-safe approval still requires review.",
+        resume_safe_note: proposalDraft.nextStepNote,
       },
       schemaVersion: "enrichment-proposal-v1",
       status: "pending_review",
@@ -844,7 +858,14 @@ async function acceptEnrichmentProposal(
       return { status: "invalid" as const, reason: "proposal_not_found" as const };
     }
     if (pendingProposal.proposalType !== "create_evidence") {
-      return { status: "invalid" as const, reason: "unsupported_proposal_type" as const };
+      if (!canAcceptGeneralEnrichmentProposal(pendingProposal.proposalType)) {
+        return { status: "invalid" as const, reason: "unsupported_proposal_type" as const };
+      }
+      return acceptNonEvidenceEnrichmentProposal(tx, {
+        now: args.now,
+        proposal: pendingProposal,
+        task: args.task,
+      });
     }
     const patch = parseCreateEvidenceProposalPatch(pendingProposal.proposedPatchJson);
     if (!patch) {
@@ -1045,6 +1066,606 @@ async function rejectEnrichmentProposal(
   });
 }
 
+async function acceptNonEvidenceEnrichmentProposal(
+  tx: DbExecutor,
+  args: {
+    task: typeof enrichmentTasks.$inferSelect;
+    proposal: typeof enrichmentProposals.$inferSelect;
+    now: Date;
+  },
+) {
+  const applyResult = await applyTypedEnrichmentProposalPatch(tx, {
+    now: args.now,
+    proposal: args.proposal,
+    task: args.task,
+  });
+  if (applyResult.status !== "saved") return applyResult;
+  const [proposal] = await tx
+    .update(enrichmentProposals)
+    .set({
+      status: "accepted",
+      evidenceDeltaJson: {
+        ...applyResult.delta,
+        stale_claims_marked: applyResult.staleClaimsMarked,
+        resume_safe_note: applyResult.resumeSafeNote,
+      },
+      updatedAt: args.now,
+      reviewedAt: args.now,
+    })
+    .where(
+      and(
+        eq(enrichmentProposals.workspaceId, args.task.workspaceId),
+        eq(enrichmentProposals.taskId, args.task.id),
+        eq(enrichmentProposals.id, args.proposal.id),
+        eq(enrichmentProposals.status, "pending_review"),
+      ),
+    )
+    .returning();
+  if (!proposal) {
+    return { status: "invalid" as const, reason: "proposal_not_found" as const };
+  }
+  if (proposal.answerId) {
+    await tx
+      .update(enrichmentAnswers)
+      .set({
+        answerStatus: "applied",
+        updatedAt: args.now,
+      })
+      .where(eq(enrichmentAnswers.id, proposal.answerId));
+  }
+  const [updated] = await tx
+    .update(enrichmentTasks)
+    .set({
+      status: "answered",
+      updatedAt: args.now,
+      answeredAt: args.task.answeredAt ?? args.now,
+    })
+    .where(
+      and(
+        eq(enrichmentTasks.workspaceId, args.task.workspaceId),
+        eq(enrichmentTasks.id, args.task.id),
+      ),
+    )
+    .returning();
+  if (!updated) throw new Error("Failed to update accepted enrichment task.");
+  const targetMap = await getTaskTargetMap(tx, [updated.id]);
+  const proposalMap = await getTaskProposalMap(tx, [updated.id]);
+  const revisionMap = await getTaskProposalRevisionMap(tx, [updated.id]);
+  return {
+    status: "saved" as const,
+    task: toEnrichmentTaskPayload(
+      updated,
+      targetMap.get(updated.id),
+      proposalMap.get(updated.id),
+      revisionMap.get(updated.id),
+    ),
+    conversionMode: "proposal_commit" as const,
+    evidenceCount: 0,
+    evidenceItemId: applyResult.evidenceItemId,
+  };
+}
+
+type TypedProposalApplyResult =
+  | {
+      status: "saved";
+      delta: Record<string, unknown>;
+      evidenceItemId: string | null;
+      resumeSafeNote: string;
+      staleClaimsMarked: number;
+    }
+  | {
+      status: "invalid";
+      reason: "invalid_proposal_payload" | "unsupported_proposal_type" | "target_not_found";
+    };
+
+async function applyTypedEnrichmentProposalPatch(
+  tx: DbExecutor,
+  args: {
+    task: typeof enrichmentTasks.$inferSelect;
+    proposal: typeof enrichmentProposals.$inferSelect;
+    now: Date;
+  },
+): Promise<TypedProposalApplyResult> {
+  if (args.proposal.proposalType === "clarify_assignment") {
+    const patch = parseClarifyAssignmentProposalPatch(args.proposal.proposedPatchJson);
+    if (!patch) return { status: "invalid", reason: "invalid_proposal_payload" };
+    return {
+      status: "saved",
+      delta: {
+        proposal_type: "clarify_assignment",
+        text: patch.text,
+        target_summary: patch.target_summary,
+        applied_to_target: false,
+      },
+      evidenceItemId: null,
+      resumeSafeNote: "Saved as context. Assign a target before turning it into evidence.",
+      staleClaimsMarked: 0,
+    };
+  }
+
+  if (args.proposal.proposalType === "update_initiative") {
+    const patch = parseStructuredStoryProposalPatch(args.proposal.proposedPatchJson);
+    if (!patch) return { status: "invalid", reason: "invalid_proposal_payload" };
+    const applyResult = await applyStructuredStoryPatch(tx, {
+      workspaceId: args.task.workspaceId,
+      patch,
+      now: args.now,
+    });
+    if (applyResult.status !== "saved") return applyResult;
+    const staleClaimsMarked = await markGeneratedClaimsStaleForEvidenceIdsInTx(tx, {
+      workspaceId: args.task.workspaceId,
+      evidenceIds: applyResult.impactedEvidenceIds,
+      staleReason: "Linked story context was updated.",
+    });
+    return {
+      status: "saved",
+      delta: {
+        proposal_type: "update_initiative",
+        target_kind: patch.target_kind,
+        target_id: patch.target_id,
+        changed_fields: applyResult.changedFields,
+        impacted_evidence_ids: applyResult.impactedEvidenceIds,
+      },
+      evidenceItemId: null,
+      resumeSafeNote:
+        "Accepted as a story update. Resume evidence still depends on approved supporting claims.",
+      staleClaimsMarked,
+    };
+  }
+
+  if (args.proposal.proposalType === "update_work_experience") {
+    const patch = parseStructuredRoleProposalPatch(args.proposal.proposedPatchJson);
+    if (!patch) return { status: "invalid", reason: "invalid_proposal_payload" };
+    const applyResult = await applyStructuredRolePatch(tx, {
+      workspaceId: args.task.workspaceId,
+      patch,
+      now: args.now,
+    });
+    if (applyResult.status !== "saved") return applyResult;
+    const staleClaimsMarked = await markGeneratedClaimsStaleForEvidenceIdsInTx(tx, {
+      workspaceId: args.task.workspaceId,
+      evidenceIds: applyResult.impactedEvidenceIds,
+      staleReason: "Linked role context was updated.",
+    });
+    return {
+      status: "saved",
+      delta: {
+        proposal_type: "update_work_experience",
+        target_kind: "work_experience",
+        target_id: patch.target_id,
+        changed_fields: applyResult.changedFields,
+        impacted_evidence_ids: applyResult.impactedEvidenceIds,
+      },
+      evidenceItemId: null,
+      resumeSafeNote:
+        "Accepted as a role update. Resume evidence still depends on approved supporting claims.",
+      staleClaimsMarked,
+    };
+  }
+
+  if (args.proposal.proposalType === "update_evidence") {
+    const patch = parseEvidenceUpdateProposalPatch(args.proposal.proposedPatchJson);
+    if (!patch) return { status: "invalid", reason: "invalid_proposal_payload" };
+    const applyResult = await applyEvidenceUpdatePatch(tx, {
+      workspaceId: args.task.workspaceId,
+      patch,
+      now: args.now,
+    });
+    if (applyResult.status !== "saved") return applyResult;
+    const staleClaimsMarked = await markGeneratedClaimsStaleForEvidenceIdsInTx(tx, {
+      workspaceId: args.task.workspaceId,
+      evidenceIds: [patch.evidence_id],
+      staleReason: "Evidence text or summary was updated.",
+    });
+    return {
+      status: "saved",
+      delta: {
+        proposal_type: "update_evidence",
+        evidence_id: patch.evidence_id,
+        changed_fields: applyResult.changedFields,
+      },
+      evidenceItemId: patch.evidence_id,
+      resumeSafeNote:
+        "Updated the evidence draft. Resume-safe approval remains a separate review step.",
+      staleClaimsMarked,
+    };
+  }
+
+  return { status: "invalid", reason: "unsupported_proposal_type" };
+}
+
+function canAcceptGeneralEnrichmentProposal(type: EnrichmentProposalType) {
+  return (
+    type === "clarify_assignment" ||
+    type === "update_evidence" ||
+    type === "update_initiative" ||
+    type === "update_work_experience"
+  );
+}
+
+async function applyStructuredStoryPatch(
+  tx: DbExecutor,
+  args: {
+    workspaceId: string;
+    patch: StructuredStoryProposalPatch;
+    now: Date;
+  },
+): Promise<
+  | { status: "saved"; changedFields: string[]; impactedEvidenceIds: string[] }
+  | { status: "invalid"; reason: "target_not_found" }
+> {
+  if (args.patch.target_kind === "initiative") {
+    const [current] = await tx
+      .select()
+      .from(initiatives)
+      .where(
+        and(
+          eq(initiatives.workspaceId, args.workspaceId),
+          eq(initiatives.id, args.patch.target_id),
+        ),
+      )
+      .limit(1);
+    if (!current || current.status === "rejected") {
+      return { status: "invalid", reason: "target_not_found" };
+    }
+    const changedFields = structuredStoryChangedFields(args.patch);
+    await tx
+      .update(initiatives)
+      .set({
+        internalTitle: args.patch.title_patch ?? current.internalTitle,
+        context: appendAcceptedContext(current.context, args.patch.context_patch),
+        problem: appendAcceptedContext(current.problem, args.patch.problem_patch),
+        role: appendAcceptedContext(current.role, args.patch.role_patch),
+        actions: mergeStringArray(current.actions, args.patch.actions_add),
+        results: mergeStringArray(current.results, args.patch.results_add),
+        metrics: mergeJsonArray(current.metrics, args.patch.metrics_add),
+        technologies: mergeStringArray(current.technologies, args.patch.technologies_add),
+        stakeholders: mergeStringArray(current.stakeholders, args.patch.stakeholders_add),
+        externalSafeSummary:
+          args.patch.external_safe_summary_patch === undefined
+            ? current.externalSafeSummary
+            : args.patch.external_safe_summary_patch,
+        updatedAt: args.now,
+      })
+      .where(
+        and(
+          eq(initiatives.workspaceId, args.workspaceId),
+          eq(initiatives.id, args.patch.target_id),
+        ),
+      );
+    const impactedEvidenceIds = await getEvidenceIdsForStoryTarget(tx, {
+      workspaceId: args.workspaceId,
+      targetKind: "initiative",
+      targetId: args.patch.target_id,
+    });
+    return { status: "saved", changedFields, impactedEvidenceIds };
+  }
+
+  const [current] = await tx
+    .select()
+    .from(portfolioProjects)
+    .where(
+      and(
+        eq(portfolioProjects.workspaceId, args.workspaceId),
+        eq(portfolioProjects.id, args.patch.target_id),
+      ),
+    )
+    .limit(1);
+  if (!current || current.status === "rejected") {
+    return { status: "invalid", reason: "target_not_found" };
+  }
+  const changedFields = structuredStoryChangedFields(args.patch);
+  await tx
+    .update(portfolioProjects)
+    .set({
+      title: args.patch.title_patch ?? current.title,
+      context: appendAcceptedContext(current.context, args.patch.context_patch),
+      problem: appendAcceptedContext(current.problem, args.patch.problem_patch),
+      role: appendAcceptedContext(current.role, args.patch.role_patch),
+      actions: mergeStringArray(current.actions, args.patch.actions_add),
+      results: mergeStringArray(current.results, args.patch.results_add),
+      metrics: mergeJsonArray(current.metrics, args.patch.metrics_add),
+      technologies: mergeStringArray(current.technologies, args.patch.technologies_add),
+      stakeholders: mergeStringArray(current.stakeholders, args.patch.stakeholders_add),
+      externalSafeSummary:
+        args.patch.external_safe_summary_patch === undefined
+          ? current.externalSafeSummary
+          : args.patch.external_safe_summary_patch,
+      updatedAt: args.now,
+    })
+    .where(
+      and(
+        eq(portfolioProjects.workspaceId, args.workspaceId),
+        eq(portfolioProjects.id, args.patch.target_id),
+      ),
+    );
+  const impactedEvidenceIds = await getEvidenceIdsForStoryTarget(tx, {
+    workspaceId: args.workspaceId,
+    targetKind: "portfolio_project",
+    targetId: args.patch.target_id,
+  });
+  return { status: "saved", changedFields, impactedEvidenceIds };
+}
+
+async function applyStructuredRolePatch(
+  tx: DbExecutor,
+  args: {
+    workspaceId: string;
+    patch: StructuredRoleProposalPatch;
+    now: Date;
+  },
+): Promise<
+  | { status: "saved"; changedFields: string[]; impactedEvidenceIds: string[] }
+  | { status: "invalid"; reason: "target_not_found" }
+> {
+  const [current] = await tx
+    .select()
+    .from(workExperiences)
+    .where(
+      and(
+        eq(workExperiences.workspaceId, args.workspaceId),
+        eq(workExperiences.id, args.patch.target_id),
+      ),
+    )
+    .limit(1);
+  if (!current || current.status === "rejected") {
+    return { status: "invalid", reason: "target_not_found" };
+  }
+  const changedFields = structuredRoleChangedFields(args.patch);
+  await tx
+    .update(workExperiences)
+    .set({
+      summary: appendAcceptedContext(current.summary, args.patch.summary_patch),
+      team: args.patch.team_patch === undefined ? current.team : args.patch.team_patch,
+      location:
+        args.patch.location_patch === undefined ? current.location : args.patch.location_patch,
+      startDate: args.patch.date_patch?.start_date ?? current.startDate,
+      endDate: args.patch.date_patch?.end_date ?? current.endDate,
+      updatedAt: args.now,
+    })
+    .where(
+      and(
+        eq(workExperiences.workspaceId, args.workspaceId),
+        eq(workExperiences.id, args.patch.target_id),
+      ),
+    );
+  const impactedEvidenceIds = await getEvidenceIdsForWorkExperience(tx, {
+    workspaceId: args.workspaceId,
+    workExperienceId: args.patch.target_id,
+  });
+  return { status: "saved", changedFields, impactedEvidenceIds };
+}
+
+async function applyEvidenceUpdatePatch(
+  tx: DbExecutor,
+  args: {
+    workspaceId: string;
+    patch: EvidenceUpdateProposalPatch;
+    now: Date;
+  },
+): Promise<
+  | { status: "saved"; changedFields: string[] }
+  | { status: "invalid"; reason: "target_not_found" }
+> {
+  const [current] = await tx
+    .select()
+    .from(evidenceItems)
+    .where(
+      and(
+        eq(evidenceItems.workspaceId, args.workspaceId),
+        eq(evidenceItems.id, args.patch.evidence_id),
+      ),
+    )
+    .limit(1);
+  if (!current || current.status === "rejected") {
+    return { status: "invalid", reason: "target_not_found" };
+  }
+  const changedFields = evidenceUpdateChangedFields(args.patch);
+  await tx
+    .update(evidenceItems)
+    .set({
+      text: args.patch.text_patch ?? current.text,
+      sourceQuote: args.patch.source_quote_patch ?? current.sourceQuote,
+      publicSafeSummary:
+        args.patch.public_safe_summary_patch === undefined
+          ? current.publicSafeSummary
+          : args.patch.public_safe_summary_patch,
+      metrics: mergeJsonArray(current.metrics, args.patch.metrics_add),
+      sensitivityLevel: args.patch.sensitivity_level_patch ?? current.sensitivityLevel,
+      updatedAt: args.now,
+    })
+    .where(
+      and(
+        eq(evidenceItems.workspaceId, args.workspaceId),
+        eq(evidenceItems.id, args.patch.evidence_id),
+      ),
+    );
+  return { status: "saved", changedFields };
+}
+
+async function getEvidenceIdsForStoryTarget(
+  tx: Pick<DbHandle, "select">,
+  args: {
+    workspaceId: string;
+    targetKind: "initiative" | "portfolio_project";
+    targetId: string;
+  },
+) {
+  const condition =
+    args.targetKind === "initiative"
+      ? eq(evidenceItems.relatedInitiativeId, args.targetId)
+      : eq(evidenceItems.relatedPortfolioProjectId, args.targetId);
+  const rows = await tx
+    .select({ id: evidenceItems.id })
+    .from(evidenceItems)
+    .where(and(eq(evidenceItems.workspaceId, args.workspaceId), condition));
+  return rows.map((row) => row.id);
+}
+
+async function getEvidenceIdsForWorkExperience(
+  tx: Pick<DbHandle, "select">,
+  args: {
+    workspaceId: string;
+    workExperienceId: string;
+  },
+) {
+  const directRows = await tx
+    .select({ id: evidenceItems.id })
+    .from(evidenceItems)
+    .where(
+      and(
+        eq(evidenceItems.workspaceId, args.workspaceId),
+        eq(evidenceItems.relatedWorkExperienceId, args.workExperienceId),
+      ),
+    );
+  const storyRows = await tx
+    .select({ id: initiatives.id })
+    .from(initiatives)
+    .where(
+      and(
+        eq(initiatives.workspaceId, args.workspaceId),
+        eq(initiatives.workExperienceId, args.workExperienceId),
+      ),
+    );
+  if (storyRows.length === 0) return directRows.map((row) => row.id);
+  const storyEvidenceRows = await tx
+    .select({ id: evidenceItems.id })
+    .from(evidenceItems)
+    .where(
+      and(
+        eq(evidenceItems.workspaceId, args.workspaceId),
+        inArray(evidenceItems.relatedInitiativeId, storyRows.map((row) => row.id)),
+      ),
+    );
+  return Array.from(new Set([...directRows, ...storyEvidenceRows].map((row) => row.id)));
+}
+
+async function markGeneratedClaimsStaleForEvidenceIdsInTx(
+  tx: Pick<DbHandle, "select" | "update">,
+  args: {
+    workspaceId: string;
+    evidenceIds: string[];
+    staleReason: string;
+  },
+) {
+  const evidenceIds = Array.from(new Set(args.evidenceIds.filter(Boolean)));
+  if (evidenceIds.length === 0) return 0;
+  const rows = await tx
+    .select({
+      id: generatedClaims.id,
+      evidenceIds: generatedClaims.evidenceIds,
+    })
+    .from(generatedClaims)
+    .where(eq(generatedClaims.workspaceId, args.workspaceId));
+  const impacted = rows.filter((claim) =>
+    claim.evidenceIds.some((id) => evidenceIds.includes(id)),
+  );
+  if (impacted.length === 0) return 0;
+  await tx
+    .update(generatedClaims)
+    .set({
+      claimStatus: "stale",
+      staleReason: args.staleReason,
+      lastValidatedAt: null,
+    })
+    .where(
+      and(
+        eq(generatedClaims.workspaceId, args.workspaceId),
+        inArray(generatedClaims.id, impacted.map((claim) => claim.id)),
+      ),
+    );
+  return impacted.length;
+}
+
+function structuredStoryChangedFields(patch: StructuredStoryProposalPatch) {
+  return [
+    patch.title_patch ? "title" : null,
+    patch.context_patch ? "context" : null,
+    patch.problem_patch ? "problem" : null,
+    patch.role_patch ? "role" : null,
+    patch.actions_add?.length ? "actions" : null,
+    patch.results_add?.length ? "results" : null,
+    patch.metrics_add?.length ? "metrics" : null,
+    patch.technologies_add?.length ? "technologies" : null,
+    patch.stakeholders_add?.length ? "stakeholders" : null,
+    patch.external_safe_summary_patch !== undefined ? "external_safe_summary" : null,
+  ].filter((value): value is string => Boolean(value));
+}
+
+function structuredRoleChangedFields(patch: StructuredRoleProposalPatch) {
+  return [
+    patch.summary_patch ? "summary" : null,
+    patch.team_patch !== undefined ? "team" : null,
+    patch.location_patch !== undefined ? "location" : null,
+    patch.date_patch?.start_date ? "start_date" : null,
+    patch.date_patch?.end_date ? "end_date" : null,
+  ].filter((value): value is string => Boolean(value));
+}
+
+function evidenceUpdateChangedFields(patch: EvidenceUpdateProposalPatch) {
+  return [
+    patch.text_patch ? "text" : null,
+    patch.source_quote_patch ? "source_quote" : null,
+    patch.public_safe_summary_patch !== undefined ? "public_safe_summary" : null,
+    patch.metrics_add?.length ? "metrics" : null,
+    patch.sensitivity_level_patch ? "sensitivity_level" : null,
+  ].filter((value): value is string => Boolean(value));
+}
+
+function appendAcceptedContext(existing: string | null, next?: string | null) {
+  const cleanNext = next?.trim();
+  if (!cleanNext) return existing;
+  const cleanExisting = existing?.trim();
+  if (!cleanExisting) return cleanNext;
+  if (normalizeContextText(cleanExisting).includes(normalizeContextText(cleanNext))) {
+    return cleanExisting;
+  }
+  return `${cleanExisting}\n\n${cleanNext}`;
+}
+
+function normalizeContextText(value: string) {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function mergeStringArray(existing: string[] | null | undefined, additions?: string[]) {
+  const values = [...(existing ?? [])];
+  for (const addition of additions ?? []) {
+    const clean = addition.trim();
+    if (!clean) continue;
+    if (!values.some((value) => normalizeContextText(value) === normalizeContextText(clean))) {
+      values.push(clean);
+    }
+  }
+  return values;
+}
+
+function mergeJsonArray<T extends Record<string, unknown>>(
+  existing: T[] | null | undefined,
+  additions?: T[],
+) {
+  const values = [...(existing ?? [])];
+  const seen = new Set(values.map((value) => stableJsonKey(value)));
+  for (const addition of additions ?? []) {
+    const key = stableJsonKey(addition);
+    if (!seen.has(key)) {
+      values.push(addition);
+      seen.add(key);
+    }
+  }
+  return values;
+}
+
+function stableJsonKey(value: Record<string, unknown>) {
+  return JSON.stringify(
+    Object.keys(value)
+      .sort()
+      .reduce<Record<string, unknown>>((accumulator, key) => {
+        accumulator[key] = value[key];
+        return accumulator;
+      }, {}),
+  );
+}
+
 async function reviseEnrichmentProposal(
   db: DbHandle,
   args: {
@@ -1076,11 +1697,15 @@ async function reviseEnrichmentProposal(
   if (!existingProposal) {
     return { status: "invalid" as const, reason: "proposal_not_found" as const };
   }
-  if (existingProposal.proposalType !== "create_evidence") {
+  if (
+    existingProposal.proposalType !== "create_evidence" &&
+    !canAcceptGeneralEnrichmentProposal(existingProposal.proposalType)
+  ) {
     return { status: "invalid" as const, reason: "unsupported_proposal_type" as const };
   }
-  const revisedPatch = await buildRevisedCreateEvidenceProposalPatch({
+  const revisedPatch = await buildRevisedEnrichmentProposalPatch({
     currentPatchJson: existingProposal.proposedPatchJson,
+    proposalType: existingProposal.proposalType,
     revisionInstruction,
     revisedText,
     task: args.task,
@@ -1103,10 +1728,6 @@ async function reviseEnrichmentProposal(
       )
       .limit(1);
     if (!proposal) return { status: "invalid" as const, reason: "proposal_not_found" as const };
-    if (proposal.proposalType !== "create_evidence") {
-      return { status: "invalid" as const, reason: "unsupported_proposal_type" as const };
-    }
-
     await tx
       .update(enrichmentProposals)
       .set({
@@ -1122,16 +1743,15 @@ async function reviseEnrichmentProposal(
         workspaceId: args.task.workspaceId,
         taskId: args.task.id,
         answerId: proposal.answerId,
-        proposalType: "create_evidence",
+        proposalType: proposal.proposalType,
         targetKind: proposal.targetKind,
         targetId: proposal.targetId,
         proposedPatchJson: revisedPatch.patch,
         evidenceDeltaJson: {
-          text: revisedPatch.patch.text,
+          text: getProposalPatchPreviewText(revisedPatch.patch),
           target_summary: summarizeProposalTarget(args.task),
           revision_instruction: revisionInstruction || null,
-          resume_safe_note:
-            "Saving creates a draft evidence item. Resume-safe approval still requires review.",
+          resume_safe_note: resumeSafeNoteForProposalType(proposal.proposalType),
         },
         schemaVersion: proposal.schemaVersion,
         status: "pending_review",
@@ -1151,7 +1771,7 @@ async function reviseEnrichmentProposal(
         mode: revisedText ? "manual_edit" : "ai_revision",
         instruction: revisionInstruction || null,
         previousText: revisedPatch.previousText,
-        revisedText: revisedPatch.patch.text,
+        revisedText: getProposalPatchPreviewText(revisedPatch.patch),
         createdAt: args.now,
       });
     } catch (error) {
@@ -1188,35 +1808,40 @@ async function reviseEnrichmentProposal(
   });
 }
 
-async function buildRevisedCreateEvidenceProposalPatch(args: {
+async function buildRevisedEnrichmentProposalPatch(args: {
   currentPatchJson: Record<string, unknown>;
+  proposalType: EnrichmentProposalType;
   revisedText?: string;
   revisionInstruction?: string;
   task: typeof enrichmentTasks.$inferSelect;
 }): Promise<
-  | { status: "saved"; patch: CreateEvidenceProposalPatch; previousText: string }
+  | { status: "saved"; patch: EnrichmentProposalPatch; previousText: string }
   | {
       status: "invalid";
       reason: "invalid_proposal_payload" | "invalid_revision_payload";
     }
 > {
-  const currentPatch = parseCreateEvidenceProposalPatch(args.currentPatchJson);
+  const currentPatch = parseProposalPatchForType(args.proposalType, args.currentPatchJson);
   if (!currentPatch) {
     return { status: "invalid" as const, reason: "invalid_proposal_payload" as const };
   }
 
   let nextText = args.revisedText;
-  let nextSourceQuote = args.revisedText || currentPatch.source_quote;
+  const previousText = getProposalPatchPreviewText(currentPatch);
+  let nextSourceQuote = args.revisedText || getProposalPatchSourceQuote(currentPatch) || previousText;
   if (!nextText && args.revisionInstruction) {
     const aiRevision = await reviseEnrichmentProposalWithAi({
-      currentDraft: currentPatch.text,
+      currentDraft: previousText,
       originalAnswer: args.task.userAnswer,
       revisionInstruction: args.revisionInstruction,
       targetLabel: summarizeProposalTarget(args.task),
       taskPrompt: args.task.prompt,
     });
     nextText = aiRevision.data.text.trim();
-    nextSourceQuote = aiRevision.data.source_quote?.trim() || currentPatch.source_quote;
+    nextSourceQuote =
+      aiRevision.data.source_quote?.trim() ||
+      getProposalPatchSourceQuote(currentPatch) ||
+      previousText;
   }
 
   if (!nextText || nextText.length < 12) {
@@ -1224,12 +1849,8 @@ async function buildRevisedCreateEvidenceProposalPatch(args: {
   }
   return {
     status: "saved" as const,
-    patch: {
-      ...currentPatch,
-      source_quote: nextSourceQuote,
-      text: nextText,
-    },
-    previousText: currentPatch.text,
+    patch: applyRevisedTextToProposalPatch(currentPatch, nextText, nextSourceQuote),
+    previousText,
   };
 }
 
@@ -1257,20 +1878,83 @@ async function rejectPendingProposals(
     );
 }
 
-type CreateEvidenceProposalPatch = {
-  text: string;
-  source_quote: string;
-  evidence_type: "user_confirmed";
-  metrics: Array<Record<string, unknown>>;
-  sensitivity_level: "private";
-  allowed_usage: string[];
-  public_safe_summary: string | null;
-  status: "pending";
-  related_work_experience_id: string | null;
-  related_initiative_id: string | null;
-  related_portfolio_project_id: string | null;
-  needs_user_confirmation: true;
-};
+function buildEnrichmentProposalDraft(
+  task: typeof enrichmentTasks.$inferSelect,
+  answer: string,
+): {
+  nextStepNote: string;
+  patch: EnrichmentProposalPatch;
+  proposalType: EnrichmentProposalType;
+  targetId: string | null;
+  targetKind: EnrichmentTaskTargetKind | null;
+} {
+  const proposalType = proposalTypeForTask(task);
+  if (proposalType === "create_evidence") {
+    const patch = buildCreateEvidenceProposalPatch(task, answer);
+    return {
+      nextStepNote:
+        "Accepting creates draft evidence. Resume-safe approval still requires review.",
+      patch,
+      proposalType: "create_evidence",
+      targetId: task.evidenceItemId,
+      targetKind: "evidence",
+    };
+  }
+  if (proposalType === "update_evidence" && task.evidenceItemId) {
+    const patch = buildEvidenceUpdateProposalPatch(task, answer);
+    return {
+      nextStepNote:
+        "Accepting updates this evidence draft. Resume-safe approval still requires review.",
+      patch,
+      proposalType,
+      targetId: task.evidenceItemId,
+      targetKind: "evidence",
+    };
+  }
+  const target = proposalTargetForTask(task);
+  const patch = buildNonEvidenceProposalPatch(task, answer, proposalType, target);
+  return {
+    nextStepNote:
+      proposalType === "update_initiative"
+        ? "Accepting applies this as story context. It does not become resume evidence by itself."
+        : proposalType === "update_work_experience"
+          ? "Accepting applies this as role context. It does not become resume evidence by itself."
+          : "This answer needs a clearer target before JobDesk can save it as evidence.",
+    patch,
+    proposalType,
+    targetId: target.targetId,
+    targetKind: target.targetKind,
+  };
+}
+
+function proposalTypeForTask(task: typeof enrichmentTasks.$inferSelect): EnrichmentProposalType {
+  if (task.expectedOutcome === "create_evidence") return "create_evidence";
+  if (task.expectedOutcome === "update_evidence" || task.evidenceItemId) {
+    return task.evidenceItemId ? "update_evidence" : "create_evidence";
+  }
+  if (task.expectedOutcome === "update_story" || task.initiativeId || task.portfolioProjectId) {
+    return "update_initiative";
+  }
+  if (task.expectedOutcome === "update_role" || task.workExperienceId) {
+    return "update_work_experience";
+  }
+  return "clarify_assignment";
+}
+
+function proposalTargetForTask(task: typeof enrichmentTasks.$inferSelect): {
+  targetId: string | null;
+  targetKind: EnrichmentTaskTargetKind | null;
+} {
+  if (task.initiativeId) return { targetId: task.initiativeId, targetKind: "initiative" };
+  if (task.portfolioProjectId) {
+    return { targetId: task.portfolioProjectId, targetKind: "portfolio_project" };
+  }
+  if (task.workExperienceId) {
+    return { targetId: task.workExperienceId, targetKind: "work_experience" };
+  }
+  if (task.evidenceItemId) return { targetId: task.evidenceItemId, targetKind: "evidence" };
+  return { targetId: null, targetKind: null };
+}
 
 function buildCreateEvidenceProposalPatch(
   task: typeof enrichmentTasks.$inferSelect,
@@ -1293,55 +1977,141 @@ function buildCreateEvidenceProposalPatch(
   };
 }
 
-function parseCreateEvidenceProposalPatch(
-  value: Record<string, unknown>,
-): CreateEvidenceProposalPatch | null {
-  if (
-    typeof value.text !== "string" ||
-    typeof value.source_quote !== "string" ||
-    value.text.trim().length === 0 ||
-    value.source_quote.trim().length === 0 ||
-    value.evidence_type !== "user_confirmed" ||
-    value.sensitivity_level !== "private" ||
-    value.status !== "pending" ||
-    value.needs_user_confirmation !== true
-  ) {
-    return null;
-  }
-  const allowedUsage = Array.isArray(value.allowed_usage)
-    ? value.allowed_usage.filter((item): item is string => typeof item === "string")
-    : [];
-  const metrics = Array.isArray(value.metrics)
-    ? value.metrics.filter((item): item is Record<string, unknown> =>
-        Boolean(item) && typeof item === "object" && !Array.isArray(item),
-      )
-    : [];
+function buildEvidenceUpdateProposalPatch(
+  task: typeof enrichmentTasks.$inferSelect,
+  answer: string,
+): EvidenceUpdateProposalPatch {
+  const cleanAnswer = answer.trim();
   return {
-    text: value.text.trim(),
-    source_quote: value.source_quote.trim(),
-    evidence_type: "user_confirmed",
-    metrics,
-    sensitivity_level: "private",
-    allowed_usage: allowedUsage,
-    public_safe_summary:
-      typeof value.public_safe_summary === "string" && value.public_safe_summary.trim()
-        ? value.public_safe_summary.trim()
-        : null,
-    status: "pending",
-    related_work_experience_id: uuidOrNull(value.related_work_experience_id),
-    related_initiative_id: uuidOrNull(value.related_initiative_id),
-    related_portfolio_project_id: uuidOrNull(value.related_portfolio_project_id),
+    patch_type: "update_evidence",
+    evidence_id: task.evidenceItemId ?? "",
+    text_patch: cleanAnswer,
+    source_quote_patch: cleanAnswer,
+    rationale: "Use the user's answer to strengthen the existing evidence draft.",
+    confidence: "medium",
+  };
+}
+
+function buildNonEvidenceProposalPatch(
+  task: typeof enrichmentTasks.$inferSelect,
+  answer: string,
+  proposalType: EnrichmentProposalType,
+  target: { targetId: string | null; targetKind: EnrichmentTaskTargetKind | null },
+): EnrichmentProposalPatch {
+  const cleanAnswer = answer.trim();
+  if (
+    proposalType === "update_initiative" &&
+    target.targetId &&
+    (target.targetKind === "initiative" || target.targetKind === "portfolio_project")
+  ) {
+    return {
+      patch_type: "update_initiative",
+      target_kind: target.targetKind,
+      target_id: target.targetId,
+      context_patch: cleanAnswer,
+      rationale: "Use the answer as additional story context.",
+      confidence: "medium",
+    };
+  }
+  if (
+    proposalType === "update_work_experience" &&
+    target.targetId &&
+    target.targetKind === "work_experience"
+  ) {
+    return {
+      patch_type: "update_work_experience",
+      target_kind: "work_experience",
+      target_id: target.targetId,
+      summary_patch: cleanAnswer,
+      rationale: "Use the answer as additional role context.",
+      confidence: "medium",
+    };
+  }
+  return {
+    patch_type: "clarify_assignment",
+    text: cleanAnswer,
+    source_quote: cleanAnswer,
+    answer_text: cleanAnswer,
+    task_scope: task.targetScope,
+    expected_outcome: task.expectedOutcome,
+    target_summary: summarizeProposalTarget(task),
+    rationale: "Needs a clearer target before canonical update.",
+    confidence: "low",
+    status: "pending_review",
     needs_user_confirmation: true,
   };
 }
 
-function uuidOrNull(value: unknown) {
-  if (typeof value !== "string") return null;
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value,
-  )
-    ? value
-    : null;
+function parseProposalPatchForType(type: EnrichmentProposalType, value: unknown) {
+  if (type === "create_evidence") return parseCreateEvidenceProposalPatch(value);
+  if (type === "update_evidence") return parseEvidenceUpdateProposalPatch(value);
+  if (type === "update_initiative") return parseStructuredStoryProposalPatch(value);
+  if (type === "update_work_experience") return parseStructuredRoleProposalPatch(value);
+  if (type === "clarify_assignment") return parseClarifyAssignmentProposalPatch(value);
+  return null;
+}
+
+function getProposalPatchPreviewText(patch: EnrichmentProposalPatch) {
+  if ("text" in patch) return patch.text;
+  if ("text_patch" in patch && patch.text_patch) return patch.text_patch;
+  if ("context_patch" in patch && patch.context_patch) return patch.context_patch;
+  if ("summary_patch" in patch && patch.summary_patch) return patch.summary_patch;
+  if ("problem_patch" in patch && patch.problem_patch) return patch.problem_patch;
+  if ("role_patch" in patch && patch.role_patch) return patch.role_patch;
+  if ("public_safe_summary_patch" in patch && patch.public_safe_summary_patch) {
+    return patch.public_safe_summary_patch;
+  }
+  return patch.rationale;
+}
+
+function getProposalPatchSourceQuote(patch: EnrichmentProposalPatch) {
+  if ("source_quote" in patch) return patch.source_quote;
+  if ("source_quote_patch" in patch) return patch.source_quote_patch ?? null;
+  return null;
+}
+
+function applyRevisedTextToProposalPatch(
+  patch: EnrichmentProposalPatch,
+  revisedText: string,
+  sourceQuote: string,
+): EnrichmentProposalPatch {
+  if ("evidence_type" in patch) {
+    return { ...patch, text: revisedText, source_quote: sourceQuote };
+  }
+  if ("patch_type" in patch && patch.patch_type === "update_evidence") {
+    return { ...patch, text_patch: revisedText, source_quote_patch: sourceQuote };
+  }
+  if ("patch_type" in patch && patch.patch_type === "update_initiative") {
+    return { ...patch, context_patch: revisedText };
+  }
+  if ("patch_type" in patch && patch.patch_type === "update_work_experience") {
+    return { ...patch, summary_patch: revisedText };
+  }
+  if ("patch_type" in patch && patch.patch_type === "clarify_assignment") {
+    return {
+      ...patch,
+      text: revisedText,
+      source_quote: sourceQuote,
+      answer_text: revisedText,
+    };
+  }
+  return patch;
+}
+
+function resumeSafeNoteForProposalType(type: EnrichmentProposalType) {
+  if (type === "create_evidence") {
+    return "Saving creates a draft evidence item. Resume-safe approval still requires review.";
+  }
+  if (type === "update_evidence") {
+    return "Saving updates the evidence draft. Resume-safe approval still requires review.";
+  }
+  if (type === "update_initiative") {
+    return "Saving updates story context. Resume evidence still depends on approved supporting claims.";
+  }
+  if (type === "update_work_experience") {
+    return "Saving updates role context. Resume evidence still depends on approved supporting claims.";
+  }
+  return "Saving keeps this as context until a target is assigned.";
 }
 
 function summarizeProposalTarget(task: typeof enrichmentTasks.$inferSelect) {
@@ -1886,6 +2656,7 @@ function deriveTaskTargetMetadata(
   targetReason: string;
   expectedOutcome: EnrichmentTaskExpectedOutcome;
 } {
+  const explicitTask = "taskType" in task ? task : null;
   if ("taskType" in task && task.taskType === "source_section_review") {
     return {
       targetScope: task.targetScope ?? "source_material",
@@ -1900,33 +2671,43 @@ function deriveTaskTargetMetadata(
   const anchor = task;
   if (anchor.evidenceItemId) {
     return {
-      targetScope: "evidence_detail",
-      targetConfidence: "medium",
-      targetReason: reason ?? "This question is attached to a specific evidence claim.",
-      expectedOutcome: "update_evidence",
+      targetScope: explicitTask?.targetScope ?? "evidence_detail",
+      targetConfidence: explicitTask?.targetConfidence ?? "medium",
+      targetReason:
+        explicitTask?.targetReason ??
+        reason ??
+        "This question is attached to a specific evidence claim.",
+      expectedOutcome: explicitTask?.expectedOutcome ?? "update_evidence",
     };
   }
   if (anchor.initiativeId || anchor.portfolioProjectId) {
     return {
-      targetScope: "story_context",
-      targetConfidence: "medium",
-      targetReason: reason ?? "This question is attached to a project or story.",
-      expectedOutcome: "update_story",
+      targetScope: explicitTask?.targetScope ?? "story_context",
+      targetConfidence: explicitTask?.targetConfidence ?? "medium",
+      targetReason:
+        explicitTask?.targetReason ??
+        reason ??
+        "This question is attached to a project or story.",
+      expectedOutcome: explicitTask?.expectedOutcome ?? "update_story",
     };
   }
   if (anchor.workExperienceId) {
     return {
-      targetScope: "role_context",
-      targetConfidence: "medium",
-      targetReason: reason ?? "This question is attached to a role-level experience.",
-      expectedOutcome: "update_role",
+      targetScope: explicitTask?.targetScope ?? "role_context",
+      targetConfidence: explicitTask?.targetConfidence ?? "medium",
+      targetReason:
+        explicitTask?.targetReason ??
+        reason ??
+        "This question is attached to a role-level experience.",
+      expectedOutcome: explicitTask?.expectedOutcome ?? "update_role",
     };
   }
   return {
-    targetScope: "assign_later",
-    targetConfidence: "low",
-    targetReason: reason ?? "No reusable library target is attached yet.",
-    expectedOutcome: "clarify_assignment",
+    targetScope: explicitTask?.targetScope ?? "assign_later",
+    targetConfidence: explicitTask?.targetConfidence ?? "low",
+    targetReason:
+      explicitTask?.targetReason ?? reason ?? "No reusable library target is attached yet.",
+    expectedOutcome: explicitTask?.expectedOutcome ?? "clarify_assignment",
   };
 }
 

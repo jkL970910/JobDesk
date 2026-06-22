@@ -24,7 +24,6 @@ type SuggestedUpdatePanelProps = {
   onSaveContext?: () => void;
   originalAnswer?: string;
   originalPrompt?: string;
-  revisionLabel?: string;
   revisionHistory?: Array<{
     actor: "user" | "ai";
     createdAt: string;
@@ -59,7 +58,6 @@ export function SuggestedUpdatePanel({
   onSaveContext,
   originalAnswer,
   originalPrompt,
-  revisionLabel = "Revise with AI",
   revisionHistory = [],
   saveEditedLabel = "Save edited preview",
   sourceQuote,
@@ -70,16 +68,16 @@ export function SuggestedUpdatePanel({
   titleEyebrow = "Ready to review",
 }: SuggestedUpdatePanelProps) {
   const [draftText, setDraftText] = useState(initialText);
-  const [revisionInstruction, setRevisionInstruction] = useState("");
+  const [messageText, setMessageText] = useState("");
 
   useEffect(() => {
     setDraftText(initialText);
-    setRevisionInstruction("");
+    setMessageText("");
   }, [initialText]);
 
   const cleanDraft = draftText.trim();
   const draftChanged = cleanDraft !== initialText.trim();
-  const canReviseWithAi = revisionInstruction.trim().length >= 3;
+  const canSendMessage = messageText.trim().length >= 3;
 
   return (
     <div className={["enrichment-proposal", className].filter(Boolean).join(" ")}>
@@ -122,26 +120,17 @@ export function SuggestedUpdatePanel({
           </dl>
         </section>
         <aside className="enrichment-proposal__conversation">
-          {onAnswerChange ? (
-            <label className="enrichment-proposal__answer">
-              <span>Your context</span>
-              <textarea
-                className="jd-input jd-input--compact"
-                disabled={disabled}
-                onChange={(event) => onAnswerChange(event.target.value)}
-                placeholder="Add facts, constraints, metrics, or what the AI should preserve."
-                value={originalAnswer ?? ""}
-              />
-            </label>
-          ) : null}
-          <label className="enrichment-proposal__revision">
-            <span>{revisionLabel}</span>
-            <input
+          <label className="enrichment-proposal__answer">
+            <span>Continue with AI</span>
+            <textarea
               className="jd-input jd-input--compact"
               disabled={disabled}
-              onChange={(event) => setRevisionInstruction(event.target.value)}
+              onChange={(event) => {
+                setMessageText(event.target.value);
+                onAnswerChange?.(event.target.value);
+              }}
               placeholder={aiRevisionPlaceholder}
-              value={revisionInstruction}
+              value={messageText}
             />
           </label>
           <div className="enrichment-proposal__history">
@@ -171,20 +160,20 @@ export function SuggestedUpdatePanel({
         </button>
         <button
           className="secondary-button"
-          disabled={disabled || !canReviseWithAi}
+          disabled={disabled || !canSendMessage}
           type="button"
-          onClick={() => onRevise({ revisionInstruction })}
+          onClick={() => onRevise({ revisionInstruction: messageText })}
         >
-          {revisionLabel}
+          Send to AI
         </button>
         {onSaveContext ? (
           <button
             className="secondary-button"
-            disabled={disabled || !originalAnswer?.trim() || originalAnswer.trim().length < 12}
+            disabled={disabled || !messageText.trim() || messageText.trim().length < 12}
             type="button"
             onClick={onSaveContext}
           >
-            Update context & preview
+            Save as context
           </button>
         ) : null}
         <button className="primary-button" disabled={disabled} type="button" onClick={onAccept}>

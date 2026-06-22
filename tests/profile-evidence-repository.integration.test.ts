@@ -132,6 +132,8 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
           sourceType: "extraction_note",
           sourceLabel: "Different source",
           prompt: metricTask.prompt,
+          expectedOutcome: "create_evidence",
+          targetScope: "evidence_detail",
         },
       ],
     });
@@ -162,7 +164,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(converted.status).toBe("saved");
     expect(converted).toMatchObject({
       conversionMode: "proposal_commit",
-      evidenceCount: 1,
+      evidenceCount: 0,
     });
     const aiAnswerPrompt = `AI extraction answer ${result.workflowRunId}`;
     await upsertEnrichmentTasks(getDb(), {
@@ -255,7 +257,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     }
     const terminalTask = afterTerminalUpsert.tasks.find((task) => task.id === metricTask.id);
     expect(terminalTask).toMatchObject({
-      status: "converted",
+      status: "answered",
     });
 
     const library = await getRecentEvidenceLibrary(10);
@@ -760,6 +762,8 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
           sourceType: "user_input",
           sourceLabel: "Proposal flow smoke",
           prompt,
+          expectedOutcome: "create_evidence",
+          targetScope: "evidence_detail",
         },
       ],
     });
@@ -1000,8 +1004,16 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       (proposal) => proposal.status === "pending_review",
     );
     if (!linkedProposal) throw new Error("Expected relinked proposal.");
+    expect(linkedProposal).toMatchObject({
+      proposal_type: "update_work_experience",
+      target_kind: "work_experience",
+      target_id: role.id,
+    });
     expect(linkedProposal.proposed_patch_json).toMatchObject({
-      related_work_experience_id: role.id,
+      patch_type: "update_work_experience",
+      summary_patch: answer,
+      target_id: role.id,
+      target_kind: "work_experience",
     });
 
     const invalidPayload = await updateEnrichmentTask({
@@ -1036,6 +1048,322 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(invalidProposalAfterAccept[0]).toMatchObject({
       status: "pending_review",
       committedEvidenceItemId: null,
+    });
+
+    await db
+      .update(enrichmentProposals)
+      .set({
+        proposalType: "link_evidence_to_story",
+        proposedPatchJson: {
+          answer_text: answer,
+          expected_outcome: "clarify_assignment",
+          needs_user_confirmation: true,
+          source_quote: answer,
+          status: "pending_review",
+          target_summary: "Assign later",
+          task_scope: "assign_later",
+          text: answer,
+        },
+        status: "pending_review",
+      })
+      .where(eq(enrichmentProposals.id, invalidProposal.id));
+    const unsupportedAccept = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "accept_proposal",
+      proposalId: invalidProposal.id,
+    });
+    expect(unsupportedAccept).toMatchObject({
+      status: "invalid",
+      reason: "unsupported_proposal_type",
+    });
+    const unsupportedRevise = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "revise_proposal",
+      proposalId: invalidProposal.id,
+      revisedText: `${answer} unsupported link proposal should not revise.`,
+    });
+    expect(unsupportedRevise).toMatchObject({
+      status: "invalid",
+      reason: "unsupported_proposal_type",
+    });
+    const unsupportedProposalAfterAccept = await db
+      .select()
+      .from(enrichmentProposals)
+      .where(eq(enrichmentProposals.id, invalidProposal.id))
+      .limit(1);
+    expect(unsupportedProposalAfterAccept[0]).toMatchObject({
+      status: "pending_review",
+      committedEvidenceItemId: null,
+    });
+  });
+
+  it("applies story-context enrichment without creating draft evidence", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const [role] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: `Story Context Co ${crypto.randomUUID()}`,
+        roleTitle: "Product Engineer",
+      })
+      .returning({ id: workExperiences.id });
+    if (!role) throw new Error("Expected role.");
+    const [initiative] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        workExperienceId: role.id,
+        internalTitle: `Checkout instrumentation ${crypto.randomUUID()}`,
+        context: "Owned checkout analytics instrumentation.",
+      })
+      .returning({ id: initiatives.id });
+    if (!initiative) throw new Error("Expected initiative.");
+
+    const prompt = `Which techniques are you strongest in today? ${crypto.randomUUID()}`;
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          taskType: "scope",
+          sourceType: "resume_review",
+          sourceLabel: "Story context smoke",
+          prompt,
+          targetScope: "story_context",
+          expectedOutcome: "update_story",
+          initiativeId: initiative.id,
+          workExperienceId: role.id,
+        },
+      ],
+    });
+    const queue = await getEnrichmentTaskQueue({
+      limit: 20,
+      sourceType: "resume_review",
+      statuses: ["open"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const task = queue.tasks.find((item) => item.prompt === prompt);
+    if (!task) throw new Error("Expected story-context task.");
+
+    const answer = `Strongest techniques are event taxonomy cleanup, metric definition, and rollout instrumentation ${crypto.randomUUID()}.`;
+    const answered = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "answer",
+      userAnswer: answer,
+    });
+    expect(answered.status).toBe("saved");
+    if (answered.status !== "saved") throw new Error("Expected saved answer.");
+    const proposal = answered.task.proposals.find(
+      (item) => item.status === "pending_review",
+    );
+    if (!proposal) throw new Error("Expected pending story-context proposal.");
+    expect(proposal).toMatchObject({
+      proposal_type: "update_initiative",
+      target_kind: "initiative",
+      target_id: initiative.id,
+    });
+    expect(proposal.proposed_patch_json).toMatchObject({
+      patch_type: "update_initiative",
+      context_patch: answer,
+      target_id: initiative.id,
+      target_kind: "initiative",
+    });
+
+    const accepted = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "accept_proposal",
+      proposalId: proposal.id,
+    });
+    expect(accepted).toMatchObject({
+      status: "saved",
+      conversionMode: "proposal_commit",
+      evidenceCount: 0,
+      evidenceItemId: null,
+    });
+    const evidenceRows = await db.select().from(evidenceItems).where(eq(evidenceItems.text, answer));
+    expect(evidenceRows).toHaveLength(0);
+    const [updatedInitiative] = await db
+      .select()
+      .from(initiatives)
+      .where(eq(initiatives.id, initiative.id))
+      .limit(1);
+    expect(updatedInitiative?.context).toContain("Owned checkout analytics instrumentation.");
+    expect(updatedInitiative?.context).toContain(answer);
+  });
+
+  it("routes unassigned enrichment answers to clarify assignment context", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const prompt = `What techniques are strongest today? ${crypto.randomUUID()}`;
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          taskType: "scope",
+          sourceType: "user_input",
+          sourceLabel: "Clarify assignment smoke",
+          prompt,
+          targetScope: "assign_later",
+          expectedOutcome: "clarify_assignment",
+        },
+      ],
+    });
+    const queue = await getEnrichmentTaskQueue({
+      limit: 20,
+      sourceType: "user_input",
+      statuses: ["open"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const task = queue.tasks.find((item) => item.prompt === prompt);
+    if (!task) throw new Error("Expected clarify-assignment task.");
+
+    const answer = `I am strongest in metric definition and event taxonomy cleanup ${crypto.randomUUID()}.`;
+    const answered = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "answer",
+      userAnswer: answer,
+    });
+    expect(answered.status).toBe("saved");
+    if (answered.status !== "saved") throw new Error("Expected saved answer.");
+    const proposal = answered.task.proposals.find(
+      (item) => item.status === "pending_review",
+    );
+    if (!proposal) throw new Error("Expected clarify-assignment proposal.");
+    expect(proposal).toMatchObject({
+      proposal_type: "clarify_assignment",
+      target_kind: null,
+      target_id: null,
+    });
+    expect(proposal.proposed_patch_json).toMatchObject({
+      patch_type: "clarify_assignment",
+      text: answer,
+      expected_outcome: "clarify_assignment",
+      task_scope: "assign_later",
+    });
+
+    const accepted = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "accept_proposal",
+      proposalId: proposal.id,
+    });
+    expect(accepted).toMatchObject({
+      status: "saved",
+      conversionMode: "proposal_commit",
+      evidenceCount: 0,
+      evidenceItemId: null,
+    });
+    const evidenceRows = await db.select().from(evidenceItems).where(eq(evidenceItems.text, answer));
+    expect(evidenceRows).toHaveLength(0);
+  });
+
+  it("applies evidence update proposals in place and marks linked claims stale", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const now = new Date();
+    const [evidence] = await db
+      .insert(evidenceItems)
+      .values({
+        workspaceId: workspace.id,
+        text: `Original evidence text ${crypto.randomUUID()}`,
+        sourceQuote: "Original source quote.",
+        evidenceType: "extracted",
+        sensitivityLevel: "private",
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    if (!evidence) throw new Error("Expected evidence row.");
+    await db.insert(generatedClaims).values({
+      workspaceId: workspace.id,
+      claimText: "Original generated claim.",
+      section: "experience",
+      evidenceIds: [evidence.id],
+      sourceQuotes: [evidence.sourceQuote],
+      supportStatus: "supported",
+      claimStatus: "supported",
+      riskLevel: "low",
+      lastValidatedAt: now,
+      createdAt: now,
+    });
+
+    const prompt = `Can you add more specific detail to this evidence? ${crypto.randomUUID()}`;
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          taskType: "scope",
+          sourceType: "resume_review",
+          sourceLabel: "Evidence patch smoke",
+          prompt,
+          targetScope: "evidence_detail",
+          expectedOutcome: "update_evidence",
+          evidenceItemId: evidence.id,
+        },
+      ],
+    });
+    const queue = await getEnrichmentTaskQueue({
+      limit: 20,
+      sourceType: "resume_review",
+      statuses: ["open"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const task = queue.tasks.find((item) => item.prompt === prompt);
+    if (!task) throw new Error("Expected evidence-update task.");
+
+    const answer = `Updated evidence text with specific rollout details ${crypto.randomUUID()}.`;
+    const answered = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "answer",
+      userAnswer: answer,
+    });
+    expect(answered.status).toBe("saved");
+    if (answered.status !== "saved") throw new Error("Expected saved answer.");
+    const proposal = answered.task.proposals.find(
+      (item) => item.status === "pending_review",
+    );
+    if (!proposal) throw new Error("Expected evidence-update proposal.");
+    expect(proposal).toMatchObject({
+      proposal_type: "update_evidence",
+      target_kind: "evidence",
+      target_id: evidence.id,
+    });
+    expect(proposal.proposed_patch_json).toMatchObject({
+      patch_type: "update_evidence",
+      evidence_id: evidence.id,
+      text_patch: answer,
+    });
+
+    const accepted = await updateEnrichmentTask({
+      taskId: task.id,
+      action: "accept_proposal",
+      proposalId: proposal.id,
+    });
+    expect(accepted).toMatchObject({
+      status: "saved",
+      conversionMode: "proposal_commit",
+      evidenceCount: 0,
+      evidenceItemId: evidence.id,
+    });
+    const evidenceRows = await db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.id, evidence.id));
+    expect(evidenceRows[0]?.text).toBe(answer);
+    const duplicateRows = await db.select().from(evidenceItems).where(eq(evidenceItems.text, answer));
+    expect(duplicateRows).toHaveLength(1);
+    const claimRows = await db
+      .select()
+      .from(generatedClaims)
+      .where(eq(generatedClaims.workspaceId, workspace.id));
+    const staleClaim = claimRows.find((claim) => claim.evidenceIds.includes(evidence.id));
+    expect(staleClaim).toMatchObject({
+      claimStatus: "stale",
+      staleReason: "Evidence text or summary was updated.",
+      lastValidatedAt: null,
     });
   });
 

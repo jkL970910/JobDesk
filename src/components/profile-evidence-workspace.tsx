@@ -193,6 +193,7 @@ type EnrichmentTaskItem = {
       | "create_initiative"
       | "update_initiative"
       | "update_work_experience"
+      | "clarify_assignment"
       | "link_evidence_to_story"
       | "link_story_to_role";
     status: "pending_review" | "accepted" | "rejected";
@@ -3895,10 +3896,13 @@ function EnrichmentTaskQueue({
                       onClick={() => setSelectedTaskId(task.id)}
                       type="button"
                     >
-                      <span>{formatEnrichmentTaskScope(task.target_scope)}</span>
+                      <span className="enrichment-task-row__header">
+                        <span>{formatEnrichmentTaskScope(task.target_scope)}</span>
+                        <small>{formatEnrichmentStatus(task.status)}</small>
+                      </span>
                       <strong>{task.prompt}</strong>
-                      <small>
-                        {formatEnrichmentStatus(task.status)} · {formatEnrichmentSourceType(task.source_type)}
+                      <small className="enrichment-task-row__meta">
+                        {formatEnrichmentSourceType(task.source_type)}
                       </small>
                     </button>
                   )}
@@ -4142,21 +4146,13 @@ function EnrichmentTaskFocusPane({
               </p>
             </div>
           ) : (
-            <label className="source-field source-field--textarea">
-              <span>Your answer</span>
-              <small>
-                Write the fact as plainly as possible. Include metrics, scope, ownership, actions,
-                and result if you know them. JobDesk will preview a draft evidence update before
-                anything is saved to the library.
-              </small>
-              <textarea
-                className="jd-input jd-input--compact enrichment-task-card__answer"
-                disabled={isPending}
-                onChange={(event) => onAnswerChange(event.target.value)}
-                placeholder="Example: I owned the backend order-status flow, built the API and dashboard changes, and reduced merchant support escalations by 18%."
-                value={answer}
-              />
-            </label>
+            <EnrichmentAnswerWorkspace
+              answer={answer}
+              disabled={isPending}
+              task={task}
+              targetLabel={linkedLabel}
+              onAnswerChange={onAnswerChange}
+            />
           )}
         </>
       )}
@@ -4208,6 +4204,75 @@ function EnrichmentTaskFocusPane({
         </div>
       </div>
     </article>
+  );
+}
+
+function EnrichmentAnswerWorkspace({
+  answer,
+  disabled,
+  onAnswerChange,
+  targetLabel,
+  task,
+}: {
+  answer: string;
+  disabled: boolean;
+  onAnswerChange: (answer: string) => void;
+  targetLabel: string;
+  task: EnrichmentTaskItem;
+}) {
+  const proposalType = proposalTypePreviewForTask(task);
+  return (
+    <div className="enrichment-proposal enrichment-proposal--draft">
+      <div className="enrichment-proposal__header">
+        <div>
+          <span>{formatEnrichmentDraftLabel(proposalType)}</span>
+          <strong>{formatEnrichmentProposalType(proposalType)}</strong>
+        </div>
+        <em data-state="drafting">Drafting</em>
+      </div>
+      <div className="enrichment-proposal__workspace">
+        <section className="enrichment-proposal__output">
+          <div className="enrichment-proposal__prompt">
+            <span>Original question</span>
+            <p>{task.prompt}</p>
+          </div>
+          <div className="enrichment-proposal__preview-empty">
+            <span>Preview appears after you save</span>
+            <strong>{formatEnrichmentProposalType(proposalType)}</strong>
+            <p>{formatEnrichmentProposalNextStep(proposalType)}</p>
+          </div>
+          <dl className="enrichment-proposal__meta">
+            <div>
+              <dt>Target</dt>
+              <dd>{targetLabel}</dd>
+            </div>
+            <div>
+              <dt>Status</dt>
+              <dd>Not saved yet</dd>
+            </div>
+          </dl>
+        </section>
+        <aside className="enrichment-proposal__conversation">
+          <label className="enrichment-proposal__answer">
+            <span>Continue with AI</span>
+            <textarea
+              className="jd-input jd-input--compact"
+              disabled={disabled}
+              onChange={(event) => onAnswerChange(event.target.value)}
+              placeholder={formatEnrichmentConversationPlaceholder(proposalType)}
+              value={answer}
+            />
+          </label>
+          <div className="enrichment-proposal__history">
+            <span>How this will be used</span>
+            <p>
+              Save answer & preview will ask JobDesk to prepare the suggested update first. Nothing
+              is written to the Evidence Library until you accept the preview.
+            </p>
+          </div>
+        </aside>
+      </div>
+    </div>
   );
 }
 
@@ -4390,22 +4455,16 @@ function EnrichmentProposalPreview({
   revisions: EnrichmentTaskItem["proposal_revisions"];
   targetLabel: string;
 }) {
-  const text =
-    typeof proposal.proposed_patch_json.text === "string"
-      ? proposal.proposed_patch_json.text
-      : "No suggested update text available.";
-  const sourceQuote =
-    typeof proposal.proposed_patch_json.source_quote === "string"
-      ? proposal.proposed_patch_json.source_quote
-      : text;
+  const text = formatEnrichmentPatchPreview(proposal.proposed_patch_json);
+  const sourceQuote = getEnrichmentPatchSourceQuote(proposal.proposed_patch_json) ?? text;
   return (
     <SuggestedUpdatePanel
       acceptLabel="Accept change"
-      aiRevisionPlaceholder="Example: make this focus on backend ownership and remove dashboard wording"
+      aiRevisionPlaceholder={formatEnrichmentConversationPlaceholder(proposal.proposal_type)}
       disabled={disabled}
-      draftLabel="Draft evidence text"
+      draftLabel={formatEnrichmentDraftLabel(proposal.proposal_type)}
       initialText={text}
-      nextStepDescription="Save draft evidence writes this suggested update to the Evidence Library as a draft. Resume use still requires a separate review and approval."
+      nextStepDescription={formatEnrichmentProposalNextStep(proposal.proposal_type)}
       originalPrompt={question}
       originalAnswer={answer}
       onAccept={onAccept}
@@ -4429,6 +4488,53 @@ function EnrichmentProposalPreview({
       titleEyebrow="Answer saved"
     />
   );
+}
+
+function formatEnrichmentPatchPreview(patch: Record<string, unknown>) {
+  const lines: string[] = [];
+  const text = getStringPatchValue(patch, "text");
+  if (text) return text;
+  addPatchLine(lines, "Text", getStringPatchValue(patch, "text_patch"));
+  addPatchLine(lines, "Source quote", getStringPatchValue(patch, "source_quote_patch"));
+  addPatchLine(lines, "Context", getStringPatchValue(patch, "context_patch"));
+  addPatchLine(lines, "Problem", getStringPatchValue(patch, "problem_patch"));
+  addPatchLine(lines, "Role", getStringPatchValue(patch, "role_patch"));
+  addPatchLine(lines, "Summary", getStringPatchValue(patch, "summary_patch"));
+  addPatchLine(lines, "Team", getStringPatchValue(patch, "team_patch"));
+  addPatchLine(lines, "Location", getStringPatchValue(patch, "location_patch"));
+  addPatchLine(lines, "Public-safe summary", getStringPatchValue(patch, "public_safe_summary_patch"));
+  addArrayPatchLine(lines, "Actions", patch.actions_add);
+  addArrayPatchLine(lines, "Results", patch.results_add);
+  addArrayPatchLine(lines, "Technologies", patch.technologies_add);
+  addArrayPatchLine(lines, "Stakeholders", patch.stakeholders_add);
+  addArrayPatchLine(lines, "Metrics", patch.metrics_add);
+  addPatchLine(lines, "Rationale", getStringPatchValue(patch, "rationale"));
+  return lines.length > 0 ? lines.join("\n") : "No suggested update text available.";
+}
+
+function getEnrichmentPatchSourceQuote(patch: Record<string, unknown>) {
+  return getStringPatchValue(patch, "source_quote") ?? getStringPatchValue(patch, "source_quote_patch");
+}
+
+function getStringPatchValue(patch: Record<string, unknown>, key: string) {
+  const value = patch[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function addPatchLine(lines: string[], label: string, value: string | null) {
+  if (value) lines.push(`${label}: ${value}`);
+}
+
+function addArrayPatchLine(lines: string[], label: string, value: unknown) {
+  if (!Array.isArray(value) || value.length === 0) return;
+  const rendered = value
+    .map((item) => {
+      if (typeof item === "string") return item.trim();
+      if (item && typeof item === "object") return JSON.stringify(item);
+      return null;
+    })
+    .filter((item): item is string => Boolean(item));
+  if (rendered.length > 0) lines.push(`${label}: ${rendered.join("; ")}`);
 }
 
 function EnrichmentTaskControls({
@@ -4855,11 +4961,11 @@ function formatEnrichmentTaskType(type: string) {
 
 function formatEnrichmentTaskScope(scope: EnrichmentTaskItem["target_scope"]) {
   const labels: Record<EnrichmentTaskItem["target_scope"], string> = {
-    assign_later: "Target needs review",
-    evidence_detail: "Evidence detail",
-    role_context: "Role context",
+    assign_later: "Needs target",
+    evidence_detail: "Evidence question",
+    role_context: "Role question",
     source_material: "Imported material",
-    story_context: "Story context",
+    story_context: "Story question",
   };
   return labels[scope];
 }
@@ -4924,8 +5030,9 @@ function formatEnrichmentProposalType(
     create_initiative: "Create story",
     update_initiative: "Update story",
     update_work_experience: "Update role",
-    link_evidence_to_story: "Link evidence to story",
-    link_story_to_role: "Link story to role",
+    clarify_assignment: "Needs target",
+    link_evidence_to_story: "Clarify target",
+    link_story_to_role: "Clarify role link",
   };
   return labels[type];
 }
@@ -4936,6 +5043,70 @@ function formatEnrichmentProposalStatus(
   if (status === "pending_review") return "ready to review";
   if (status === "accepted") return "accepted";
   return "discarded";
+}
+
+function proposalTypePreviewForTask(
+  task: EnrichmentTaskItem,
+): EnrichmentTaskItem["proposals"][number]["proposal_type"] {
+  if (
+    task.expected_outcome === "create_evidence" ||
+    task.expected_outcome === "update_evidence" ||
+    task.evidence_item_id
+  ) {
+    return "create_evidence";
+  }
+  if (
+    task.expected_outcome === "update_story" ||
+    task.initiative_id ||
+    task.portfolio_project_id
+  ) {
+    return "update_initiative";
+  }
+  if (task.expected_outcome === "update_role" || task.work_experience_id) {
+    return "update_work_experience";
+  }
+  return "clarify_assignment";
+}
+
+function formatEnrichmentDraftLabel(
+  type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
+) {
+  if (type === "create_evidence" || type === "update_evidence") return "Draft evidence";
+  if (type === "update_initiative" || type === "create_initiative") {
+    return "Suggested story update";
+  }
+  if (type === "update_work_experience") return "Suggested role update";
+  return "Suggested next step";
+}
+
+function formatEnrichmentProposalNextStep(
+  type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
+) {
+  if (type === "create_evidence" || type === "update_evidence") {
+    return "Accepting saves this as draft evidence. Resume use still requires a separate review and approval.";
+  }
+  if (type === "update_initiative" || type === "create_initiative") {
+    return "Accepting applies this as story context. It will not become resume evidence until linked to a concrete claim.";
+  }
+  if (type === "update_work_experience") {
+    return "Accepting applies this as role context. It will not become resume evidence by itself.";
+  }
+  return "Accepting saves this as task context. Choose a target before creating evidence.";
+}
+
+function formatEnrichmentConversationPlaceholder(
+  type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
+) {
+  if (type === "create_evidence" || type === "update_evidence") {
+    return "Add facts or instructions, e.g. make this focus on backend ownership and remove dashboard wording.";
+  }
+  if (type === "update_initiative" || type === "create_initiative") {
+    return "Add story context or instructions, e.g. connect this to the onboarding analytics project and focus on metric definition.";
+  }
+  if (type === "update_work_experience") {
+    return "Add role-level context or instructions, e.g. clarify team scope, timeframe, or ownership.";
+  }
+  return "Tell JobDesk where this answer belongs, or ask it to make the next step more specific.";
 }
 
 function taskHasReusableLibraryAnchor(task: EnrichmentTaskItem) {
