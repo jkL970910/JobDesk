@@ -1031,7 +1031,7 @@ function DashboardView({
               ) : (
                 <article className="job-workspace-empty">
                   <strong>No target jobs yet</strong>
-                  <p>Analyze a role when you are ready to tailor.</p>
+                  <p>Add a role when you are ready to tailor.</p>
                 </article>
               )}
             </div>

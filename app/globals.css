@@ -1320,7 +1320,7 @@ strong,
 
 .overview-lanes--figma .pipeline-panel {
   border-left: 1px solid var(--line);
-  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto auto;
 }
 
 .overview-lanes--figma .dashboard-section-heading .panel-kicker {
@@ -1810,9 +1810,16 @@ strong,
   display: grid;
   gap: 4px;
   min-width: 0;
-  min-height: 88px;
+  min-height: 58px;
   padding: 10px 11px;
   text-align: left;
+}
+
+.job-workspace-empty {
+  align-items: center;
+  background: transparent;
+  border-style: dashed;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .job-workspace-list button span,

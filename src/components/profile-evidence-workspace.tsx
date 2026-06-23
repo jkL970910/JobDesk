@@ -5845,10 +5845,13 @@ function isStoryEnrichmentTarget(
 
 function getEvidenceReadiness(item: EvidenceCardItem) {
   if (isResumeReadyEvidence(item)) {
+    const usesSafeSummary = item.sensitivity_level !== "public_safe" && Boolean(item.public_safe_summary?.trim());
     return {
-      label: "Resume-ready",
+      label: usesSafeSummary ? "Resume-ready via safe wording" : "Resume-ready",
       state: "resume_ready" as const,
-      next: "Can support main resume or tailored resume generation.",
+      next: usesSafeSummary
+        ? "Resume generation will use the public-safe wording, not the private source text."
+        : "Can support main resume or tailored resume generation.",
     };
   }
   if (item.status === "approved") {
@@ -7059,6 +7062,13 @@ function EvidenceCard({
   const linkedTarget = formatEvidenceLinkedTarget(item, linkTargets, projects);
   const missingInfo = formatEvidenceMissingInfo(item);
   const safetyNote = getEvidenceSafetyNote(item);
+  const publicSafeSummary = getPublicSafeSummaryCandidate(item);
+  const displayText =
+    readiness.state === "resume_ready" && publicSafeSummary ? publicSafeSummary : item.text;
+  const hasPrivateSourceText =
+    readiness.state === "resume_ready" &&
+    item.sensitivity_level !== "public_safe" &&
+    Boolean(publicSafeSummary);
   const [isEditing, setIsEditing] = useState(false);
   const [draftText, setDraftText] = useState(item.text);
   const [draftSummary, setDraftSummary] = useState(item.public_safe_summary ?? "");
@@ -7155,7 +7165,7 @@ function EvidenceCard({
     return (
       <article className="requirement evidence-subcard">
         <div className="requirement__top">
-          <p className="requirement__text">{item.text}</p>
+          <p className="requirement__text">{displayText}</p>
           <span className="requirement__type">{readiness.label}</span>
         </div>
         <p className="requirement__quote">{readiness.next}</p>
@@ -7177,11 +7187,16 @@ function EvidenceCard({
       <div className="evidence-row__main">
         <div className="evidence-row__content">
           <span>{item.evidence_type}</span>
-          <strong>{item.text}</strong>
+          <strong>{displayText}</strong>
           <div className="evidence-row__meta">
             <span>{readiness.label}</span>
             <small>For {linkedTarget}</small>
           </div>
+          {hasPrivateSourceText ? (
+            <p className="evidence-row__safety-note">
+              Private source retained. Resume uses the public-safe wording above.
+            </p>
+          ) : null}
         </div>
         <div className="evidence-row__action">
           <button
@@ -7230,9 +7245,10 @@ function EvidenceCard({
           <p>Use: {formatReusableUsage(item)}</p>
           <p>Status: {formatEvidenceAssetStatus(item)}</p>
           <p>Updated: {formatRelativeDate(item.updatedAt)}</p>
+          {hasPrivateSourceText ? <p>Private source text: {item.text}</p> : null}
           <p>Quote: {formatSourceQuotePreview(item.source_quote)}</p>
-          {getPublicSafeSummaryCandidate(item) ? (
-            <p>Public-safe wording: {getPublicSafeSummaryCandidate(item)}</p>
+          {publicSafeSummary ? (
+            <p>Public-safe wording: {publicSafeSummary}</p>
           ) : null}
         </div>
         {safetyNote ? <p className="evidence-row__safety-note">{safetyNote}</p> : null}
