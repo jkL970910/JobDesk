@@ -1177,6 +1177,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     });
     expect(accepted).toMatchObject({
       status: "saved",
+      task: { status: "converted" },
       conversionMode: "proposal_commit",
       evidenceCount: 0,
       evidenceItemId: null,
@@ -1250,6 +1251,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     });
     expect(accepted).toMatchObject({
       status: "saved",
+      task: { status: "converted" },
       conversionMode: "proposal_commit",
       evidenceCount: 0,
       evidenceItemId: null,
@@ -1345,6 +1347,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     });
     expect(accepted).toMatchObject({
       status: "saved",
+      task: { status: "converted" },
       conversionMode: "proposal_commit",
       evidenceCount: 0,
       evidenceItemId: evidence.id,

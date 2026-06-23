@@ -5000,8 +5000,7 @@ function EnrichmentTaskTargetPicker({
           className="jd-input jd-input--compact"
           disabled={disabled}
           onChange={(event) => {
-            if (!event.target.value) return;
-            onLink(parseEnrichmentTaskAnchorValue(event.target.value));
+            onLink(buildMergedEnrichmentTaskAnchor(task, "evidence", event.target.value));
           }}
           value={selectedEvidenceId ? `evidence:${selectedEvidenceId}` : ""}
         >
@@ -5021,8 +5020,7 @@ function EnrichmentTaskTargetPicker({
           className="jd-input jd-input--compact"
           disabled={disabled}
           onChange={(event) => {
-            if (!event.target.value) return;
-            onLink(parseEnrichmentTaskAnchorValue(event.target.value));
+            onLink(buildMergedEnrichmentTaskAnchor(task, "story", event.target.value));
           }}
           value={
             selectedInitiativeId
@@ -5055,8 +5053,7 @@ function EnrichmentTaskTargetPicker({
           className="jd-input jd-input--compact"
           disabled={disabled}
           onChange={(event) => {
-            if (!event.target.value) return;
-            onLink(parseEnrichmentTaskAnchorValue(event.target.value));
+            onLink(buildMergedEnrichmentTaskAnchor(task, "work_experience", event.target.value));
           }}
           value={selectedWorkExperienceId ? `work_experience:${selectedWorkExperienceId}` : ""}
         >
@@ -5619,6 +5616,36 @@ function parseEnrichmentTaskAnchorValue(value: string): EnrichmentTaskAnchorPatc
     portfolioProjectId: kind === "portfolio_project" ? id : null,
     workExperienceId: kind === "work_experience" ? id : null,
   };
+}
+
+function buildMergedEnrichmentTaskAnchor(
+  task: EnrichmentTaskItem,
+  field: "evidence" | "story" | "work_experience",
+  value: string,
+): EnrichmentTaskAnchorPatch {
+  const current: EnrichmentTaskAnchorPatch = {
+    evidenceItemId: getEnrichmentTargetId(task, "evidence") || null,
+    initiativeId: getEnrichmentTargetId(task, "initiative") || null,
+    portfolioProjectId: getEnrichmentTargetId(task, "portfolio_project") || null,
+    workExperienceId: getEnrichmentTargetId(task, "work_experience") || null,
+  };
+  if (!value) {
+    if (field === "evidence") current.evidenceItemId = null;
+    if (field === "story") {
+      current.initiativeId = null;
+      current.portfolioProjectId = null;
+    }
+    if (field === "work_experience") current.workExperienceId = null;
+    return current;
+  }
+  const next = parseEnrichmentTaskAnchorValue(value);
+  if (field === "evidence") current.evidenceItemId = next.evidenceItemId ?? null;
+  if (field === "story") {
+    current.initiativeId = next.initiativeId ?? null;
+    current.portfolioProjectId = next.portfolioProjectId ?? null;
+  }
+  if (field === "work_experience") current.workExperienceId = next.workExperienceId ?? null;
+  return current;
 }
 
 function formatEnrichmentTaskAnchor(

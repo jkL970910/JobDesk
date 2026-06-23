@@ -7,6 +7,7 @@ import {
   buildEvidenceUpdateProposalPatch,
   buildResumeReviewEnrichmentTasks,
   isBroadProfilePositioningQuestion,
+  normalizeReusableLibraryAnchorForTest,
 } from "../src/server/enrichment-task-repository";
 import { consolidateInitiativeDrafts } from "../src/server/profile-evidence-repository";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
@@ -216,6 +217,22 @@ describe("Evidence Library Builder instructions", () => {
     expect(rewrite).toBe(
       "Reduced raw-data crawl/fetch time from 2 weeks to 1 week by simplifying backend request flow from 20+ APIs to 10 and improving schema validation.",
     );
+  });
+
+  it("preserves evidence story and role target chain links together", () => {
+    expect(
+      normalizeReusableLibraryAnchorForTest({
+        evidenceItemId: "evidence-1",
+        initiativeId: "initiative-1",
+        portfolioProjectId: "portfolio-should-drop",
+        workExperienceId: "role-1",
+      }),
+    ).toEqual({
+      evidenceItemId: "evidence-1",
+      initiativeId: "initiative-1",
+      portfolioProjectId: null,
+      workExperienceId: "role-1",
+    });
   });
 });
 

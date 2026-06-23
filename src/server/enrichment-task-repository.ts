@@ -1124,9 +1124,9 @@ async function acceptNonEvidenceEnrichmentProposal(
   const [updated] = await tx
     .update(enrichmentTasks)
     .set({
-      status: "answered",
+      status: "converted",
       updatedAt: args.now,
-      answeredAt: args.task.answeredAt ?? args.now,
+      convertedAt: args.now,
     })
     .where(
       and(
@@ -2373,13 +2373,14 @@ async function validateReusableLibraryAnchor(
 function normalizeReusableLibraryAnchor(anchor: ReusableLibraryAnchor): ReusableLibraryAnchor {
   return {
     evidenceItemId: anchor.evidenceItemId ?? null,
-    initiativeId: anchor.evidenceItemId ? null : anchor.initiativeId ?? null,
-    portfolioProjectId: anchor.evidenceItemId || anchor.initiativeId ? null : anchor.portfolioProjectId ?? null,
-    workExperienceId:
-      anchor.evidenceItemId || anchor.initiativeId || anchor.portfolioProjectId
-        ? null
-        : anchor.workExperienceId ?? null,
+    initiativeId: anchor.initiativeId ?? null,
+    portfolioProjectId: anchor.initiativeId ? null : anchor.portfolioProjectId ?? null,
+    workExperienceId: anchor.workExperienceId ?? null,
   };
+}
+
+export function normalizeReusableLibraryAnchorForTest(anchor: ReusableLibraryAnchor) {
+  return normalizeReusableLibraryAnchor(anchor);
 }
 
 function hasReusableLibraryAnchor(anchor: ReusableLibraryAnchor) {
