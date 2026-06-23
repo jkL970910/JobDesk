@@ -4986,6 +4986,10 @@ function EnrichmentTaskTargetPicker({
   task: EnrichmentTaskItem;
   workExperiences: WorkExperienceItem[];
 }) {
+  const selectedEvidenceId = getEnrichmentTargetId(task, "evidence");
+  const selectedInitiativeId = getEnrichmentTargetId(task, "initiative");
+  const selectedPortfolioProjectId = getEnrichmentTargetId(task, "portfolio_project");
+  const selectedWorkExperienceId = getEnrichmentTargetId(task, "work_experience");
   return (
     <div className="enrichment-task-card__target-grid">
       <label className="source-field enrichment-task-card__destination">
@@ -4997,7 +5001,7 @@ function EnrichmentTaskTargetPicker({
             if (!event.target.value) return;
             onLink(parseEnrichmentTaskAnchorValue(event.target.value));
           }}
-          value={task.evidence_item_id ? toEnrichmentTaskAnchorValue(task) : ""}
+          value={selectedEvidenceId ? `evidence:${selectedEvidenceId}` : ""}
         >
           <option value="">Choose a claim</option>
           {evidenceItems.slice(0, 80).map((item) => (
@@ -5019,9 +5023,11 @@ function EnrichmentTaskTargetPicker({
             onLink(parseEnrichmentTaskAnchorValue(event.target.value));
           }}
           value={
-            task.initiative_id || task.portfolio_project_id
-              ? toEnrichmentTaskAnchorValue(task)
-              : ""
+            selectedInitiativeId
+              ? `initiative:${selectedInitiativeId}`
+              : selectedPortfolioProjectId
+                ? `portfolio_project:${selectedPortfolioProjectId}`
+                : ""
           }
         >
           <option value="">Choose a project or story</option>
@@ -5050,7 +5056,7 @@ function EnrichmentTaskTargetPicker({
             if (!event.target.value) return;
             onLink(parseEnrichmentTaskAnchorValue(event.target.value));
           }}
-          value={task.work_experience_id ? toEnrichmentTaskAnchorValue(task) : ""}
+          value={selectedWorkExperienceId ? `work_experience:${selectedWorkExperienceId}` : ""}
         >
           <option value="">Choose a role</option>
           {workExperiences.map((item) => (
@@ -5063,6 +5069,23 @@ function EnrichmentTaskTargetPicker({
         </select>
       </label>
     </div>
+  );
+}
+
+function getEnrichmentTargetId(
+  task: EnrichmentTaskItem,
+  kind: EnrichmentTaskItem["targets"][number]["target_kind"],
+) {
+  if (kind === "evidence" && task.evidence_item_id) return task.evidence_item_id;
+  if (kind === "initiative" && task.initiative_id) return task.initiative_id;
+  if (kind === "portfolio_project" && task.portfolio_project_id) return task.portfolio_project_id;
+  if (kind === "work_experience" && task.work_experience_id) return task.work_experience_id;
+  return (
+    task.targets.find(
+      (target) =>
+        target.target_kind === kind &&
+        (target.target_role === "primary" || target.target_role === "parent"),
+    )?.target_id ?? ""
   );
 }
 
