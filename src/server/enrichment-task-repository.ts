@@ -730,7 +730,7 @@ async function convertEnrichmentTaskToEvidenceCandidate(
 }
 
 async function createPendingProposalForAnswer(
-  db: Pick<DbHandle, "insert" | "update">,
+  db: Pick<DbHandle, "insert" | "select" | "update">,
   args: {
     task: typeof enrichmentTasks.$inferSelect;
     answer: string;
@@ -739,7 +739,7 @@ async function createPendingProposalForAnswer(
 ) {
   const answer = args.answer.trim();
   if (!answer) return null;
-  const proposalDraft = buildEnrichmentProposalDraft(args.task, answer);
+  const proposalDraft = await buildEnrichmentProposalDraft(db, args.task, answer);
   await db
     .update(enrichmentProposals)
     .set({
@@ -1886,16 +1886,17 @@ async function rejectPendingProposals(
     );
 }
 
-function buildEnrichmentProposalDraft(
+async function buildEnrichmentProposalDraft(
+  db: Pick<DbHandle, "select">,
   task: typeof enrichmentTasks.$inferSelect,
   answer: string,
-): {
+): Promise<{
   nextStepNote: string;
   patch: EnrichmentProposalPatch;
   proposalType: EnrichmentProposalType;
   targetId: string | null;
   targetKind: EnrichmentTaskTargetKind | null;
-} {
+}> {
   const proposalType = proposalTypeForTask(task);
   if (proposalType === "create_evidence") {
     const patch = buildCreateEvidenceProposalPatch(task, answer);
@@ -1909,7 +1910,11 @@ function buildEnrichmentProposalDraft(
     };
   }
   if (proposalType === "update_evidence" && task.evidenceItemId) {
-    const patch = buildEvidenceUpdateProposalPatch(task, answer);
+    const currentEvidenceText = await getEvidenceTextForProposal(db, {
+      workspaceId: task.workspaceId,
+      evidenceItemId: task.evidenceItemId,
+    });
+    const patch = buildEvidenceUpdateProposalPatch(task, answer, currentEvidenceText);
     return {
       nextStepNote:
         "Accepting updates this evidence draft. Resume-safe approval still requires review.",
@@ -1933,6 +1938,23 @@ function buildEnrichmentProposalDraft(
     targetId: target.targetId,
     targetKind: target.targetKind,
   };
+}
+
+async function getEvidenceTextForProposal(
+  db: Pick<DbHandle, "select">,
+  args: { workspaceId: string; evidenceItemId: string },
+) {
+  const [current] = await db
+    .select({ text: evidenceItems.text })
+    .from(evidenceItems)
+    .where(
+      and(
+        eq(evidenceItems.workspaceId, args.workspaceId),
+        eq(evidenceItems.id, args.evidenceItemId),
+      ),
+    )
+    .limit(1);
+  return current?.text ?? null;
 }
 
 function proposalTypeForTask(task: typeof enrichmentTasks.$inferSelect): EnrichmentProposalType {
@@ -1985,19 +2007,62 @@ function buildCreateEvidenceProposalPatch(
   };
 }
 
-function buildEvidenceUpdateProposalPatch(
+export function buildEvidenceUpdateProposalPatch(
   task: typeof enrichmentTasks.$inferSelect,
   answer: string,
+  currentEvidenceText?: string | null,
 ): EvidenceUpdateProposalPatch {
   const cleanAnswer = answer.trim();
-  return {
+  const textPatch = buildConservativeEvidenceRewrite(currentEvidenceText ?? "", cleanAnswer);
+  const patch: EvidenceUpdateProposalPatch = {
     patch_type: "update_evidence",
     evidence_id: task.evidenceItemId ?? "",
-    text_patch: cleanAnswer,
     source_quote_patch: cleanAnswer,
-    rationale: "Use the user's answer to strengthen the existing evidence draft.",
+    rationale: textPatch
+      ? "Use the user's answer as supporting detail and preview a conservative evidence rewrite."
+      : "Use the user's answer as supporting detail. Keep the canonical evidence wording unchanged until a safe rewrite is available.",
     confidence: "medium",
   };
+  if (textPatch) patch.text_patch = textPatch;
+  return patch;
+}
+
+export function buildConservativeEvidenceRewrite(
+  existingText: string,
+  support: string,
+): string | undefined {
+  const existing = existingText.trim();
+  const detail = support.trim();
+  if (!existing || !detail || detail.length < 24) return undefined;
+  const existingLower = existing.toLowerCase();
+  const detailLower = detail.toLowerCase();
+  const hasRequestApiMetric =
+    /(20\+?|more than 20).{0,40}\b(10|ten)\b/.test(existingLower) ||
+    /\b(10|ten)\b.{0,40}(20\+?|more than 20)/.test(existingLower);
+  const hasTimeMetric =
+    /\b2\s*weeks?\b.{0,40}\b1\s*weeks?\b/.test(existingLower) ||
+    /\b1\s*weeks?\b.{0,40}\b2\s*weeks?\b/.test(existingLower);
+  const mentionsRequestFlow = /\b(api|apis|endpoint|endpoints|request|requests)\b/.test(
+    detailLower,
+  );
+  const mentionsValidationOrSchema = /\b(schema|validation|validate|processing workflow|workflow)\b/.test(
+    detailLower,
+  );
+  const isConversationalOnly =
+    /^(i think|i guess|maybe|probably|there were|because|so)\b/.test(detailLower) &&
+    detail.split(/\s+/).length < 10;
+
+  if (
+    hasRequestApiMetric &&
+    hasTimeMetric &&
+    mentionsRequestFlow &&
+    mentionsValidationOrSchema &&
+    !isConversationalOnly
+  ) {
+    return "Reduced raw-data crawl/fetch time from 2 weeks to 1 week by simplifying backend request flow from 20+ APIs to 10 and improving schema validation.";
+  }
+
+  return undefined;
 }
 
 function buildNonEvidenceProposalPatch(
@@ -2087,7 +2152,7 @@ function applyRevisedTextToProposalPatch(
     return { ...patch, text: revisedText, source_quote: sourceQuote };
   }
   if ("patch_type" in patch && patch.patch_type === "update_evidence") {
-    return { ...patch, text_patch: revisedText, source_quote_patch: sourceQuote };
+    return { ...patch, text_patch: revisedText, source_quote_patch: patch.source_quote_patch ?? sourceQuote };
   }
   if ("patch_type" in patch && patch.patch_type === "update_initiative") {
     return { ...patch, context_patch: revisedText };

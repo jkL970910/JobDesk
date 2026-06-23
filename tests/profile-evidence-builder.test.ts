@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { buildProfileEvidenceInstructions } from "../src/ai/profile-evidence-extraction";
 import {
+  buildConservativeEvidenceRewrite,
   buildExtractionNoteEnrichmentTasks,
+  buildEvidenceUpdateProposalPatch,
   buildResumeReviewEnrichmentTasks,
   isBroadProfilePositioningQuestion,
 } from "../src/server/enrichment-task-repository";
@@ -187,6 +189,33 @@ describe("Evidence Library Builder instructions", () => {
         "Which listed skills are strongest and most recent for future software engineering roles?",
       ),
     ).toBe(true);
+  });
+
+  it("keeps user answers as supporting detail unless a conservative evidence rewrite is safe", () => {
+    const task = {
+      evidenceItemId: "11111111-1111-4111-8111-111111111111",
+    } as Parameters<typeof buildEvidenceUpdateProposalPatch>[0];
+    const vaguePatch = buildEvidenceUpdateProposalPatch(
+      task,
+      "There were fewer endpoints and better schema, so the workflow had fewer steps.",
+      "Reduced backend request APIs from more than 20 to 10.",
+    );
+
+    expect(vaguePatch).toMatchObject({
+      patch_type: "update_evidence",
+      evidence_id: "11111111-1111-4111-8111-111111111111",
+      source_quote_patch:
+        "There were fewer endpoints and better schema, so the workflow had fewer steps.",
+    });
+    expect(vaguePatch).not.toHaveProperty("text_patch");
+
+    const rewrite = buildConservativeEvidenceRewrite(
+      "Reduced backend request APIs from more than 20 to 10 and shortened raw-data crawl/fetch time from 2 weeks to 1 week.",
+      "There were fewer endpoints and better schema, so the raw data processing workflow required fewer steps and faster validation.",
+    );
+    expect(rewrite).toBe(
+      "Reduced raw-data crawl/fetch time from 2 weeks to 1 week by simplifying backend request flow from 20+ APIs to 10 and improving schema validation.",
+    );
   });
 });
 

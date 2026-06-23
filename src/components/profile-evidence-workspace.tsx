@@ -4577,8 +4577,12 @@ function formatEnrichmentPatchPreview(patch: Record<string, unknown>) {
   const lines: string[] = [];
   const text = getStringPatchValue(patch, "text");
   if (text) return text;
-  addPatchLine(lines, "Text", getStringPatchValue(patch, "text_patch"));
-  addPatchLine(lines, "Source quote", getStringPatchValue(patch, "source_quote_patch"));
+  const textPatch = getStringPatchValue(patch, "text_patch");
+  const sourceQuotePatch = getStringPatchValue(patch, "source_quote_patch");
+  addPatchLine(lines, "Suggested evidence update", textPatch);
+  if (sourceQuotePatch && sourceQuotePatch !== textPatch) {
+    addPatchLine(lines, "Supporting detail", sourceQuotePatch);
+  }
   addPatchLine(lines, "Context", getStringPatchValue(patch, "context_patch"));
   addPatchLine(lines, "Problem", getStringPatchValue(patch, "problem_patch"));
   addPatchLine(lines, "Role", getStringPatchValue(patch, "role_patch"));
@@ -4597,9 +4601,13 @@ function formatEnrichmentPatchPreview(patch: Record<string, unknown>) {
 
 function buildEnrichmentPatchPreviewItems(patch: Record<string, unknown>) {
   const items: Array<{ label: string; values: string[] }> = [];
+  const textPatch = getStringPatchValue(patch, "text_patch");
+  const sourceQuotePatch = getStringPatchValue(patch, "source_quote_patch");
   addPatchPreviewItem(items, "Suggested evidence", getStringPatchValue(patch, "text"));
-  addPatchPreviewItem(items, "Text update", getStringPatchValue(patch, "text_patch"));
-  addPatchPreviewItem(items, "Source quote", getStringPatchValue(patch, "source_quote_patch"));
+  addPatchPreviewItem(items, "Suggested evidence update", textPatch);
+  if (sourceQuotePatch && sourceQuotePatch !== textPatch) {
+    addPatchPreviewItem(items, "Supporting detail", sourceQuotePatch);
+  }
   addPatchPreviewItem(items, "Story context", getStringPatchValue(patch, "context_patch"));
   addPatchPreviewItem(items, "Problem", getStringPatchValue(patch, "problem_patch"));
   addPatchPreviewItem(items, "Role", getStringPatchValue(patch, "role_patch"));

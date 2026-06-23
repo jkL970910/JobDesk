@@ -1334,8 +1334,9 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(proposal.proposed_patch_json).toMatchObject({
       patch_type: "update_evidence",
       evidence_id: evidence.id,
-      text_patch: answer,
+      source_quote_patch: answer,
     });
+    expect(proposal.proposed_patch_json).not.toHaveProperty("text_patch");
 
     const accepted = await updateEnrichmentTask({
       taskId: task.id,
@@ -1352,9 +1353,10 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       .select()
       .from(evidenceItems)
       .where(eq(evidenceItems.id, evidence.id));
-    expect(evidenceRows[0]?.text).toBe(answer);
+    expect(evidenceRows[0]?.text).toBe(evidence.text);
+    expect(evidenceRows[0]?.sourceQuote).toBe(answer);
     const duplicateRows = await db.select().from(evidenceItems).where(eq(evidenceItems.text, answer));
-    expect(duplicateRows).toHaveLength(1);
+    expect(duplicateRows).toHaveLength(0);
     const claimRows = await db
       .select()
       .from(generatedClaims)

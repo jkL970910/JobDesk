@@ -137,8 +137,11 @@ export function SuggestedUpdatePanel({
               />
             </label>
           </details>
-          {sourceQuote && sourceQuote.trim() && sourceQuote.trim() !== initialText.trim() ? (
-            <p className="enrichment-proposal__quote">Source quote: {sourceQuote}</p>
+          {sourceQuote &&
+          sourceQuote.trim() &&
+          sourceQuote.trim() !== initialText.trim() &&
+          !initialText.includes(sourceQuote.trim()) ? (
+            <p className="enrichment-proposal__quote">Supporting detail: {sourceQuote}</p>
           ) : null}
           {referenceItems.length > 0 ? (
             <div className="enrichment-proposal__references">
