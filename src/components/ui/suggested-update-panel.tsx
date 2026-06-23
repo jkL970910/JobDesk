@@ -27,7 +27,14 @@ type SuggestedUpdatePanelProps = {
     label: string;
     text: string;
   }>;
-  pendingAction?: "accept" | "discard" | "manual_edit" | "ai_revision" | "save_context" | null;
+  pendingAction?:
+    | "accept"
+    | "discard"
+    | "generate"
+    | "manual_edit"
+    | "ai_revision"
+    | "save_context"
+    | null;
   previewItems?: Array<{
     label: string;
     values: string[];

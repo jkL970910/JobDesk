@@ -37,10 +37,10 @@ export async function reviseEnrichmentProposalWithAi(params: {
 
 export function buildEnrichmentProposalRevisionInstructions() {
   return composeSkillPrompt(skillRegistry.profileEvidenceExtractionProjectNote, [
-    "You revise one JobDesk draft evidence item based only on the provided task, original answer, current draft, and revision instruction.",
+    "You revise one JobDesk enrichment proposal based only on the provided task, original answer, current draft, and revision instruction.",
     "Return only a valid JSON object. Do not return markdown fences.",
     "Use exactly these keys: text, source_quote.",
-    "text should be a concise, evidence-library-ready factual statement.",
+    "text should be a concise, user-reviewable suggested update for the target evidence, story, or role.",
     "source_quote should be copied from the original answer or current draft; do not invent provenance.",
     "Do not add metrics, technologies, employers, scope, ownership, outcomes, dates, or public-safe wording unless they are explicitly present in the original answer or current draft.",
     "Follow the revision_instruction for tone, focus, or wording, but never make the claim broader than the available facts.",

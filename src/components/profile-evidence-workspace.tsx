@@ -178,6 +178,26 @@ type EnrichmentTaskItem = {
     | "update_role"
     | "clarify_assignment"
     | "review_imported_material";
+  note_kind:
+    | "observation"
+    | "missing_profile_fact"
+    | "missing_role_field"
+    | "extraction_limit"
+    | "import_review"
+    | "evidence_gap"
+    | "story_gap"
+    | null;
+  expected_action:
+    | "acknowledge"
+    | "dismiss"
+    | "add_profile_fact"
+    | "edit_profile_fact"
+    | "edit_role_field"
+    | "review_import"
+    | "rerun_extraction"
+    | "answer_enrichment_question"
+    | null;
+  target_field: string | null;
   targets: Array<{
     target_kind: "evidence" | "initiative" | "portfolio_project" | "work_experience";
     target_id: string;
@@ -230,6 +250,7 @@ type EnrichmentTaskItem = {
 type EnrichmentPendingAction =
   | "accept"
   | "discard"
+  | "generate"
   | "manual_edit"
   | "ai_revision"
   | "save_context"
@@ -317,7 +338,7 @@ type ProjectCardItem = {
 
 export type MaterialEntryIntent = "resume" | "scratch" | "jd";
 export type ProfileGapIntent = {
-  field: "contact" | "education" | "skills";
+  field: "certifications" | "contact" | "education" | "location" | "skills";
   label: string;
 };
 export type MaterialReviewTab =
@@ -1512,6 +1533,35 @@ export function ProfileEvidenceWorkspace({
     setActiveSection("intake");
   }
 
+  function openProfileFactFromImportedNote(task: EnrichmentTaskItem) {
+    const field = profileGapFieldFromImportedNote(task);
+    if (!field) {
+      openCreateLibraryItemsForTask(task);
+      return;
+    }
+    const guidance = profileGapGuidance(field);
+    const copy = profileFactSourceCopy(field);
+    clearSharedFileState();
+    resetResumeSourceDraft();
+    resetJdSourceDraft();
+    setSelectedEntryIntent("scratch");
+    setHasChosenMaterialType(true);
+    setIsEditingMaterialType(false);
+    setProjectSourceMode("guided");
+    setActiveProfileGap({ field, label: copy.title });
+    setSelectedStoryTarget(null);
+    setEvidenceFocus(null);
+    setStarStoryFocus(null);
+    setProjectNoteTitle(copy.title);
+    setGuidedMaterialFields(emptyGuidedMaterialFields);
+    setProjectNoteText(guidance.template);
+    setProjectSourceDocumentId(undefined);
+    setGuidedPreviewState("edited");
+    setStatus(guidance.status);
+    setError(null);
+    setActiveSection("intake");
+  }
+
   function startProjectEnrichment(project: StoryEnrichmentTarget | {
     title: string;
     context?: string | null;
@@ -2472,6 +2522,7 @@ export function ProfileEvidenceWorkspace({
               initiatives={initiatives}
               linkTargets={linkTargets}
               onCreateLibraryItems={openCreateLibraryItemsForTask}
+              onOpenProfileFact={openProfileFactFromImportedNote}
               onReviewImportedMaterial={() => openLibraryAssetView("stories")}
               onReturnToIntake={() => setActiveSection("intake")}
               onUpdate={updateEnrichmentTask}
@@ -2489,6 +2540,7 @@ export function ProfileEvidenceWorkspace({
               initiatives={initiatives}
               linkTargets={linkTargets}
               onCreateLibraryItems={openCreateLibraryItemsForTask}
+              onOpenProfileFact={openProfileFactFromImportedNote}
               onReviewImportedMaterial={() => openLibraryAssetView("stories")}
               onReturnToIntake={() => setActiveSection("intake")}
               onUpdate={updateEnrichmentTask}
@@ -3654,6 +3706,7 @@ function EnrichmentTaskQueue({
   initiatives,
   linkTargets,
   onCreateLibraryItems,
+  onOpenProfileFact,
   onReviewImportedMaterial,
   onReturnToIntake,
   onUpdate,
@@ -3668,6 +3721,7 @@ function EnrichmentTaskQueue({
   initiatives: InitiativeItem[];
   linkTargets: EvidenceLinkTargets;
   onCreateLibraryItems: (task: EnrichmentTaskItem) => void;
+  onOpenProfileFact: (task: EnrichmentTaskItem) => void;
   onReviewImportedMaterial: () => void;
   onReturnToIntake: () => void;
   onUpdate: (
@@ -3702,10 +3756,7 @@ function EnrichmentTaskQueue({
   ).length;
   const sourceSectionTaskCount = actionableTasks.length - questionTaskCount;
   const convertedCount = tasks.filter((task) => task.status === "converted").length;
-  const [pendingTask, setPendingTask] = useState<{
-    action: EnrichmentPendingAction;
-    taskId: string;
-  } | null>(null);
+  const [pendingTasks, setPendingTasks] = useState<Record<string, EnrichmentPendingAction>>({});
   const [batchPending, setBatchPending] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<Record<string, { ok: boolean; text: string }>>({});
@@ -3772,10 +3823,10 @@ function EnrichmentTaskQueue({
         }
       | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
   ) {
-    setPendingTask({
-      action: getPendingEnrichmentAction(payload),
-      taskId: task.id,
-    });
+    setPendingTasks((current) => ({
+      ...current,
+      [task.id]: getPendingEnrichmentAction(payload, task),
+    }));
     try {
       const result = await onUpdate(task.id, payload);
       setMessages((current) => ({
@@ -3786,7 +3837,11 @@ function EnrichmentTaskQueue({
         setAnswers((current) => ({ ...current, [task.id]: "" }));
       }
     } finally {
-      setPendingTask(null);
+      setPendingTasks((current) => {
+        const next = { ...current };
+        delete next[task.id];
+        return next;
+      });
     }
   }
 
@@ -3932,13 +3987,14 @@ function EnrichmentTaskQueue({
               canGoPrevious={selectedTaskIndex > 0}
               evidenceItems={evidenceItems}
               initiatives={initiatives}
-              isPending={pendingTask?.taskId === selectedTask.id}
+              isPending={Boolean(pendingTasks[selectedTask.id])}
               linkTargets={linkTargets}
               message={messages[selectedTask.id]}
               onAnswerChange={(answer) =>
                 setAnswers((current) => ({ ...current, [selectedTask.id]: answer }))
               }
               onCreateLibraryItems={() => onCreateLibraryItems(selectedTask)}
+              onOpenProfileFact={() => onOpenProfileFact(selectedTask)}
               onReviewImportedMaterial={onReviewImportedMaterial}
               onDismiss={() => void handleUpdate(selectedTask, { action: "dismiss" })}
               onLink={(anchor) =>
@@ -3968,7 +4024,7 @@ function EnrichmentTaskQueue({
                   ...revision,
                 })
               }
-              pendingAction={pendingTask?.taskId === selectedTask.id ? pendingTask.action : null}
+              pendingAction={pendingTasks[selectedTask.id] ?? null}
               portfolioProjects={portfolioProjects}
               task={selectedTask}
               taskIndex={selectedTaskIndex + 1}
@@ -3999,10 +4055,13 @@ function getPendingEnrichmentAction(
         revisionInstruction?: string;
       }
     | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
+  task: EnrichmentTaskItem,
 ): EnrichmentPendingAction {
   if (payload.action === "accept_proposal") return "accept";
   if (payload.action === "reject_proposal") return "discard";
-  if (payload.action === "answer") return "save_context";
+  if (payload.action === "answer") {
+    return proposalTypePreviewForTask(task) === "clarify_assignment" ? "save_context" : "generate";
+  }
   if (payload.action === "revise_proposal") {
     return payload.revisionInstruction ? "ai_revision" : "manual_edit";
   }
@@ -4024,6 +4083,7 @@ function EnrichmentTaskFocusPane({
   onDismiss,
   onLink,
   onNext,
+  onOpenProfileFact,
   onPrevious,
   onReviewImportedMaterial,
   onRejectProposal,
@@ -4050,6 +4110,7 @@ function EnrichmentTaskFocusPane({
   onDismiss: () => void;
   onLink: (anchor: EnrichmentTaskAnchorPatch) => void;
   onNext: () => void;
+  onOpenProfileFact: () => void;
   onPrevious: () => void;
   onReviewImportedMaterial: () => void;
   onRejectProposal: (proposalId: string) => void;
@@ -4083,6 +4144,7 @@ function EnrichmentTaskFocusPane({
         onCreateLibraryItems={onCreateLibraryItems}
         onDismiss={onDismiss}
         onNext={onNext}
+        onOpenProfileFact={onOpenProfileFact}
         onPrevious={onPrevious}
         onReviewImportedMaterial={onReviewImportedMaterial}
         task={task}
@@ -4189,6 +4251,7 @@ function EnrichmentTaskFocusPane({
               disabled={isPending}
               evidenceItems={evidenceItems}
               initiatives={initiatives}
+              pendingAction={pendingAction}
               portfolioProjects={portfolioProjects}
               task={task}
               targetLabel={linkedLabel}
@@ -4204,11 +4267,11 @@ function EnrichmentTaskFocusPane({
             <>
               <button
                 className="primary-button"
-                disabled={isPending || answer.trim().length < 12}
+                disabled={isPending || answer.trim().length < 3}
                 type="button"
                 onClick={() => onSaveAnswer(answer)}
               >
-                {formatPrimaryAnswerCta(proposalType, task.status)}
+                {formatPrimaryAnswerCta(proposalType, task.status, pendingAction)}
               </button>
             </>
           ) : null}
@@ -4255,6 +4318,7 @@ function EnrichmentAnswerWorkspace({
   evidenceItems,
   initiatives,
   onAnswerChange,
+  pendingAction,
   portfolioProjects,
   targetLabel,
   task,
@@ -4265,6 +4329,7 @@ function EnrichmentAnswerWorkspace({
   evidenceItems: EvidenceCardItem[];
   initiatives: InitiativeItem[];
   onAnswerChange: (answer: string) => void;
+  pendingAction: EnrichmentPendingAction | null;
   portfolioProjects: PortfolioProjectItem[];
   targetLabel: string;
   task: EnrichmentTaskItem;
@@ -4278,6 +4343,8 @@ function EnrichmentAnswerWorkspace({
     workExperiences,
   });
   const answerSaved = task.status === "answered" && answer.trim().length > 0;
+  const isGenerating = disabled && pendingAction === "generate";
+  const isSavingContext = disabled && pendingAction === "save_context";
   return (
     <div className="enrichment-proposal enrichment-proposal--draft enrichment-proposal--answer-collection">
       <div className="enrichment-proposal__header">
@@ -4334,6 +4401,16 @@ function EnrichmentAnswerWorkspace({
             <span>{answerSaved ? "Ready to generate" : "After you generate"}</span>
             <p>{formatEnrichmentAnswerWorkspaceHelp(proposalType, answerSaved)}</p>
           </div>
+          {isGenerating || isSavingContext ? (
+            <div className="enrichment-proposal__progress" role="status" aria-live="polite">
+              <span />
+              <p>
+                {isGenerating
+                  ? "JobDesk is generating a suggested update from this answer. You can select another task while it runs."
+                  : "JobDesk is saving this context."}
+              </p>
+            </div>
+          ) : null}
         </aside>
       </div>
     </div>
@@ -4348,6 +4425,7 @@ function SourceSectionReviewPane({
   onCreateLibraryItems,
   onDismiss,
   onNext,
+  onOpenProfileFact,
   onPrevious,
   onReviewImportedMaterial,
   task,
@@ -4361,6 +4439,7 @@ function SourceSectionReviewPane({
   onCreateLibraryItems: () => void;
   onDismiss: () => void;
   onNext: () => void;
+  onOpenProfileFact: () => void;
   onPrevious: () => void;
   onReviewImportedMaterial: () => void;
   task: EnrichmentTaskItem;
@@ -4369,6 +4448,13 @@ function SourceSectionReviewPane({
 }) {
   const [customizing, setCustomizing] = useState(false);
   const sectionName = extractSourceSectionName(task.prompt);
+  const actionModel = getImportedNoteActionModel(task, sectionName);
+  const handlePrimaryAction =
+    actionModel.primaryAction === "dismiss"
+      ? onDismiss
+      : actionModel.primaryAction === "add_material"
+        ? onOpenProfileFact
+        : onReviewImportedMaterial;
   return (
     <article className="enrichment-focus-pane enrichment-focus-pane--source-section">
       <div className="enrichment-focus-pane__top">
@@ -4376,23 +4462,21 @@ function SourceSectionReviewPane({
           <span>
             Review item {taskIndex} of {taskTotal} · Imported material
           </span>
-          <h3>{sectionName ? `${sectionName} section imported` : "Imported source section"}</h3>
+          <h3>{actionModel.title}</h3>
           <p>From {task.source_label}</p>
         </div>
         <em data-state={task.status}>{formatEnrichmentStatus(task.status)}</em>
       </div>
       <div className="source-section-review">
         <div className="source-section-review__summary">
-          <span>Imported section</span>
-          <strong>Review what was imported.</strong>
-          <p>
-            Review the roles and stories created from this section, or choose a different path.
-          </p>
+          <span>{actionModel.eyebrow}</span>
+          <strong>{actionModel.heading}</strong>
+          <p>{actionModel.description}</p>
         </div>
         <dl className="source-section-review__meta">
           <div>
-            <dt>Imported section</dt>
-            <dd>{sectionName ?? "Imported section"}</dd>
+            <dt>Note</dt>
+            <dd>{task.prompt}</dd>
           </div>
           <div>
             <dt>Why this appears</dt>
@@ -4400,17 +4484,23 @@ function SourceSectionReviewPane({
           </div>
           <div>
             <dt>Recommended action</dt>
-            <dd>Review extracted roles and stories before creating more evidence.</dd>
+            <dd>{actionModel.recommendedAction}</dd>
           </div>
+          {task.target_field ? (
+            <div>
+              <dt>Field</dt>
+              <dd>{formatImportedNoteTargetField(task.target_field)}</dd>
+            </div>
+          ) : null}
         </dl>
         <div className="source-section-review__actions">
           <button
             className="primary-action"
             disabled={isPending}
             type="button"
-            onClick={onReviewImportedMaterial}
+            onClick={handlePrimaryAction}
           >
-            Review extracted roles/stories
+            {actionModel.primaryLabel}
           </button>
           <button
             className="secondary-button"
@@ -4418,7 +4508,7 @@ function SourceSectionReviewPane({
             type="button"
             onClick={() => setCustomizing((value) => !value)}
           >
-            Customize handling
+            More options
           </button>
           <button
             className="ghost-button enrichment-task-card__dismiss"
@@ -4426,7 +4516,7 @@ function SourceSectionReviewPane({
             type="button"
             onClick={onDismiss}
           >
-            Dismiss
+            Dismiss note
           </button>
         </div>
         {customizing ? (
@@ -4436,21 +4526,21 @@ function SourceSectionReviewPane({
               type="button"
               onClick={onReviewImportedMaterial}
             >
-              Review roles and stories from this section
+              Review imported library items
+            </button>
+            <button
+              className="secondary-button secondary-button--quiet"
+              type="button"
+              onClick={onOpenProfileFact}
+            >
+              Add profile fact
             </button>
             <button
               className="secondary-button secondary-button--quiet"
               type="button"
               onClick={onCreateLibraryItems}
             >
-              Add specific claim material
-            </button>
-            <button
-              className="secondary-button secondary-button--quiet"
-              type="button"
-              onClick={onCreateLibraryItems}
-            >
-              Add a more specific guided answer
+              Add a specific evidence answer
             </button>
             <button
               className="secondary-button secondary-button--quiet"
@@ -4492,6 +4582,136 @@ function SourceSectionReviewPane({
       </div>
     </article>
   );
+}
+
+function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: string | null) {
+  const expectedAction = task.expected_action ?? "review_import";
+  if (expectedAction === "acknowledge") {
+    return {
+      description: "This is an import observation. Confirm it if the imported result is correct.",
+      eyebrow: "Imported note",
+      heading: "Confirm this import note.",
+      primaryAction: "dismiss" as const,
+      primaryLabel: "Confirm note",
+      recommendedAction: "Confirm if this observation matches the source, or dismiss it if it is not useful.",
+      title: sectionName ? `${sectionName} import note` : "Import note",
+    };
+  }
+  if (expectedAction === "add_profile_fact" || expectedAction === "edit_profile_fact") {
+    const field = task.target_field ? formatImportedNoteTargetField(task.target_field) : "profile fact";
+    return {
+      description: `This note points to missing ${field}. Add or edit the profile fact from source material instead of answering this as evidence.`,
+      eyebrow: "Profile fact",
+      heading: `Review missing ${field}.`,
+      primaryAction: "add_material" as const,
+      primaryLabel: expectedAction === "add_profile_fact" ? "Add profile fact" : "Edit profile fact",
+      recommendedAction: `Add or edit ${field}; do not save this as a generic answer.`,
+      title: `Missing ${field}`,
+    };
+  }
+  if (expectedAction === "edit_role_field") {
+    const field = task.target_field ? formatImportedNoteTargetField(task.target_field) : "role field";
+    return {
+      description: `This note points to a missing ${field} on a work experience. Edit the role field directly.`,
+      eyebrow: "Role field",
+      heading: `Review missing ${field}.`,
+      primaryAction: "review_import" as const,
+      primaryLabel: "Review roles",
+      recommendedAction: `Open the extracted roles and edit ${field} on the matching role.`,
+      title: `Missing role ${field}`,
+    };
+  }
+  if (expectedAction === "rerun_extraction" || expectedAction === "review_import") {
+    return {
+      description: "This note reports an import limit or source classification. Review the imported material before creating more evidence.",
+      eyebrow: "Import review",
+      heading: "Review imported material.",
+      primaryAction: "review_import" as const,
+      primaryLabel: "Review imported material",
+      recommendedAction: "Review the extracted roles, stories, and source material before deciding whether to add more.",
+      title: "Imported material needs review",
+    };
+  }
+  return {
+    description: "This imported note needs review before it becomes a specific evidence or profile update.",
+    eyebrow: "Imported note",
+    heading: "Review this note.",
+    primaryAction: "review_import" as const,
+    primaryLabel: "Review imported material",
+    recommendedAction: "Review or dismiss this note. Do not answer it as a normal enrichment question.",
+    title: "Imported note",
+  };
+}
+
+function formatImportedNoteTargetField(field: string) {
+  const labels: Record<string, string> = {
+    certifications: "certifications",
+    certification: "certifications",
+    contact: "contact info",
+    education: "education",
+    end_date: "end date",
+    location: "location",
+    personal_location: "location",
+    skills: "skills",
+    skill: "skills",
+  };
+  return labels[field] ?? field.replace(/_/g, " ");
+}
+
+function profileGapFieldFromImportedNote(
+  task: EnrichmentTaskItem,
+): ProfileGapIntent["field"] | null {
+  const directField = profileGapFieldFromRawValue(task.target_field);
+  if (directField) return directField;
+  if (
+    task.expected_action !== "add_profile_fact" &&
+    task.expected_action !== "edit_profile_fact"
+  ) {
+    return null;
+  }
+  const prompt = task.prompt.toLowerCase();
+  if (/\b(certification|certifications|credential|credentials)\b/.test(prompt)) {
+    return "certifications";
+  }
+  if (/\b(email|phone|contact|linkedin|portfolio|github|personal site)\b/.test(prompt)) {
+    return "contact";
+  }
+  if (/\b(education|school|university|college|degree|gpa|coursework)\b/.test(prompt)) {
+    return "education";
+  }
+  if (/\b(location|city|region|country|remote|relocation)\b/.test(prompt)) {
+    return "location";
+  }
+  if (/\b(skill|skills|languages|frameworks|tools|technologies)\b/.test(prompt)) {
+    return "skills";
+  }
+  return null;
+}
+
+function profileGapFieldFromRawValue(value: string | null | undefined): ProfileGapIntent["field"] | null {
+  const normalized = value?.toLowerCase().trim().replace(/[\s-]+/g, "_");
+  if (!normalized) return null;
+  if (normalized === "certification" || normalized === "certifications" || normalized === "credentials") {
+    return "certifications";
+  }
+  if (
+    normalized === "contact" ||
+    normalized === "contact_info" ||
+    normalized === "email" ||
+    normalized === "phone"
+  ) {
+    return "contact";
+  }
+  if (normalized === "education" || normalized === "school" || normalized === "degree") {
+    return "education";
+  }
+  if (normalized === "location" || normalized === "personal_location" || normalized === "city") {
+    return "location";
+  }
+  if (normalized === "skill" || normalized === "skills" || normalized === "technologies") {
+    return "skills";
+  }
+  return null;
 }
 
 function EnrichmentProposalPreview({
@@ -5480,7 +5700,10 @@ function formatEnrichmentPreProposalNextStep(
 function formatPrimaryAnswerCta(
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
   status: EnrichmentTaskItem["status"],
+  pendingAction?: EnrichmentPendingAction | null,
 ) {
+  if (pendingAction === "generate") return "Generating update...";
+  if (pendingAction === "save_context") return "Saving context...";
   if (type === "clarify_assignment") return "Save profile context";
   if (status === "answered") return "Regenerate suggested update";
   return "Generate suggested update";
@@ -5558,6 +5781,7 @@ function shouldRequireTargetBeforeAnswer(task: EnrichmentTaskItem) {
 
 function isSourceSectionReviewTask(task: EnrichmentTaskItem) {
   return (
+    Boolean(task.note_kind && task.expected_action !== "answer_enrichment_question") ||
     task.task_type === "source_section_review" ||
     task.expected_outcome === "review_imported_material" ||
     (task.source_type === "extraction_note" && looksLikeImportedReviewNote(task.prompt)) ||
@@ -8488,11 +8712,25 @@ function profileGapGuidance(field: ProfileGapIntent["field"]) {
       status: "Add contact details below, then save them as profile source material.",
     };
   }
+  if (field === "location") {
+    return {
+      template:
+        "Location details to add:\n- City / region:\n- Country:\n- Remote / relocation preferences, if relevant:\n\nUse only location details I want JobDesk to remember for resume and profile workflows.",
+      status: "Add location details below, then save them as profile source material.",
+    };
+  }
   if (field === "education") {
     return {
       template:
         "Education details to add:\n- School:\n- Degree / program:\n- Graduation date:\n- GPA / honors, if relevant:\n- Relevant coursework:\n- Certifications or academic projects:\n\nUse only education facts that are accurate and reusable for resume/profile workflows.",
       status: "Add education details below, then save them as profile source material.",
+    };
+  }
+  if (field === "certifications") {
+    return {
+      template:
+        "Certifications to add:\n- Certification name:\n- Issuer:\n- Date earned / expiration, if relevant:\n- Credential URL or ID, if relevant:\n\nOnly include certifications I want JobDesk to reuse.",
+      status: "Add certification details below, then save them as profile source material.",
     };
   }
   return {
@@ -8513,6 +8751,16 @@ function profileFactSourceCopy(field: ProfileGapIntent["field"]) {
       title: "Add contact information",
     };
   }
+  if (field === "location") {
+    return {
+      description: "Add location details you want reused across resume and profile workflows.",
+      examples: ["City", "Region", "Country", "Remote preference", "Relocation"],
+      helper: "This is profile data, not a work story. It will be saved as source material for profile review.",
+      inputLabel: "Location details",
+      placeholder: "City / region:\nCountry:\nRemote / relocation preference:",
+      title: "Add location details",
+    };
+  }
   if (field === "education") {
     return {
       description: "Add education facts that should appear in your career profile.",
@@ -8521,6 +8769,16 @@ function profileFactSourceCopy(field: ProfileGapIntent["field"]) {
       inputLabel: "Education details",
       placeholder: "School:\nDegree / program:\nGraduation date:\nRelevant coursework:\nCertifications:\nAcademic projects:",
       title: "Add education details",
+    };
+  }
+  if (field === "certifications") {
+    return {
+      description: "Add certifications that should appear in your career profile.",
+      examples: ["Certification", "Issuer", "Earned date", "Expiration", "Credential URL"],
+      helper: "This updates profile facts only. It is not treated as a project or role.",
+      inputLabel: "Certification details",
+      placeholder: "Certification name:\nIssuer:\nDate earned:\nExpiration:\nCredential URL / ID:",
+      title: "Add certifications",
     };
   }
   return {

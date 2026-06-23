@@ -1480,8 +1480,10 @@ function ProfileReferenceView({
     : null;
   const missingProfileAreas = [
     profileFacts.email && profileFacts.phone ? null : "Contact",
+    profileFacts.location ? null : "Location",
     displayedRoleCount ? null : "Roles",
     profileFacts.education.length ? null : "Education",
+    profileFacts.certifications.length ? null : "Certifications",
     profileFacts.skills.length ? null : "Skills",
   ].filter(Boolean) as string[];
   const contactDetail = [profileFacts.email, profileFacts.phone].filter(Boolean).join(" · ");
@@ -1495,6 +1497,13 @@ function ProfileReferenceView({
       label: "Contact",
       missing: !profileFacts.email || !profileFacts.phone,
       value: contactDetail || "Email or phone missing",
+    },
+    {
+      detail: profileFacts.location || "Location is not extracted yet.",
+      kind: "location",
+      label: "Location",
+      missing: !profileFacts.location,
+      value: profileFacts.location || "No location extracted",
     },
     {
       detail:
@@ -1518,16 +1527,25 @@ function ProfileReferenceView({
     },
     {
       detail:
+        profileFacts.certifications.slice(1, 3).join(" · ") ||
+        "Certification facts are not extracted yet.",
+      kind: "certifications",
+      label: "Certifications",
+      missing: profileFacts.certifications.length === 0,
+      value: profileFacts.certifications[0] || "No certifications extracted",
+    },
+    {
+      detail:
         profileFacts.skills.slice(0, 8).join(", ") ||
         "Skill signals appear after profile extraction.",
       kind: "skills",
       label: "Skills",
       missing: profileFacts.skills.length === 0,
-      value: profileFacts.skills.length ? `${profileFacts.skills.length}` : "0",
+      value: profileFacts.skills.slice(0, 3).join(" · ") || "No skills extracted",
     },
   ] satisfies Array<{
     detail: string;
-    kind: "contact" | "roles" | "education" | "skills";
+    kind: "certifications" | "contact" | "roles" | "education" | "location" | "skills";
     label: string;
     missing: boolean;
     value: string;
@@ -1612,24 +1630,22 @@ function ProfileReferenceView({
     if (!activeProfileFactEditor) return;
     const copy = profileFactInlineCopy(activeProfileFactEditor.field);
     const trimmed = profileFactDraft.trim();
-    if (trimmed.length < 40) {
-      setProfileActionStatus("Add a few concrete details before saving this profile source.");
+    if (trimmed.length < 2) {
+      setProfileActionStatus("Add at least one profile fact before saving.");
       return;
     }
-    const sourceText =
-      trimmed.length >= 80
-        ? trimmed
-        : `${trimmed}\n\nUse these facts only to update ${copy.title.toLowerCase()} in my JobDesk profile.`;
+    const patch = buildProfileFactPatch(activeProfileFactEditor.field, trimmed);
+    if (!patch) {
+      setProfileActionStatus("Add at least one usable profile fact before saving.");
+      return;
+    }
     setIsSavingProfileFact(true);
     setProfileActionStatus(`Saving ${copy.title.toLowerCase()}...`);
     try {
-      const response = await fetchJson("/api/profile-evidence/extract", {
-        body: JSON.stringify({
-          sourceText,
-          sourceTitle: `Profile fact update · ${copy.title}`,
-        }),
+      const response = await fetchJson("/api/profile/facts", {
+        body: JSON.stringify(patch),
         headers: { "content-type": "application/json" },
-        method: "POST",
+        method: "PATCH",
       });
       const payload = (await response.json().catch(() => null)) as
         | { error?: string; kind?: string }
@@ -1638,7 +1654,7 @@ function ProfileReferenceView({
         setProfileActionStatus(
           payload?.error
             ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
-            : "Could not save profile source.",
+            : "Could not save profile facts.",
         );
         return;
       }
@@ -1649,7 +1665,7 @@ function ProfileReferenceView({
       window.dispatchEvent(new Event("jobdesk:evidence-library-updated"));
     } catch (error) {
       setProfileActionStatus(
-        error instanceof Error ? error.message : "Could not save profile source.",
+        error instanceof Error ? error.message : "Could not save profile facts.",
       );
     } finally {
       setIsSavingProfileFact(false);
@@ -2080,7 +2096,7 @@ function ProfileReferenceView({
                       type="button"
                       onClick={() => void saveProfileFactSource()}
                     >
-                      {isSavingProfileFact ? "Saving..." : "Save profile source"}
+                      {isSavingProfileFact ? "Saving..." : "Save profile facts"}
                     </button>
                     <span>{profileActionStatus ?? "This updates profile facts, not work stories."}</span>
                   </div>
@@ -2700,6 +2716,8 @@ function extractProfileFacts(profile: unknown) {
     education: extractFactList(record.education),
     email: extractFactValue(record.email ?? contact.email),
     experience: extractFactList(record.experience),
+    certifications: extractFactList(record.certifications),
+    location: extractFactValue(record.location ?? contact.location),
     name: extractFactValue(record.name ?? contact.name),
     phone: extractFactValue(record.phone ?? contact.phone),
     skills: extractSkillFacts(record.skills),
@@ -3021,6 +3039,16 @@ function profileFactInlineCopy(field: ProfileGapIntent["field"]) {
       title: "Add contact details",
     };
   }
+  if (field === "location") {
+    return {
+      description:
+        "Add location details you want JobDesk to reuse across resumes and profile summaries.",
+      inputLabel: "Location details",
+      template:
+        "City / region:\nCountry:\nRemote / relocation preference, if relevant:",
+      title: "Add location details",
+    };
+  }
   if (field === "education") {
     return {
       description:
@@ -3031,6 +3059,16 @@ function profileFactInlineCopy(field: ProfileGapIntent["field"]) {
       title: "Add education details",
     };
   }
+  if (field === "certifications") {
+    return {
+      description:
+        "Add certifications that should appear in your career profile and resume drafts.",
+      inputLabel: "Certification details",
+      template:
+        "Certification name:\nIssuer:\nDate earned:\nExpiration, if relevant:\nCredential URL / ID, if relevant:",
+      title: "Add certifications",
+    };
+  }
   return {
     description:
       "Add or correct skills that should be reusable in resumes, interviews, and profile summaries.",
@@ -3039,6 +3077,107 @@ function profileFactInlineCopy(field: ProfileGapIntent["field"]) {
       "Programming languages:\nFrameworks / libraries:\nTools / platforms:\nMethods / domain knowledge:\nSkills to remove or avoid:",
     title: "Add skills details",
   };
+}
+
+function buildProfileFactPatch(field: ProfileGapIntent["field"], draft: string) {
+  const lines = draft
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const values = parseLabelledDraft(lines);
+  if (field === "contact") {
+    const links = [
+      values.linkedin,
+      values.portfolio,
+      values.github,
+      values["portfolio / github"],
+      values["portfolio / github / personal site"],
+    ].filter((value): value is string => Boolean(value));
+    const contact = compactObject({
+      email: values.email,
+      links,
+      location: values["city / region"] ?? values.location,
+      name: values.name,
+      phone: values.phone,
+    });
+    return Object.keys(contact).length > 0 ? { field: "contact" as const, contact } : null;
+  }
+  if (field === "location") {
+    const location = [
+      values["city / region"] ?? values.city ?? values.location,
+      values.country,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    const detail = values["remote / relocation preference"] ?? values["remote / relocation preference, if relevant"];
+    const combined = [location, detail].filter(Boolean).join(" · ");
+    return combined ? { field: "location" as const, location: combined } : null;
+  }
+  if (field === "education") {
+    const institution = values.school ?? values.institution ?? values.university ?? values.college;
+    const degree = values["degree / program"] ?? values.degree ?? values.program;
+    if (!institution && !degree) return null;
+    return {
+      field: "education" as const,
+      education: [
+        {
+          degree: degree ?? "Education details",
+          endDate: values["graduation date"],
+          fieldOfStudy: values["field of study"] ?? values.major,
+          institution: institution ?? "School not specified",
+          startDate: values["start date"],
+        },
+      ],
+    };
+  }
+  if (field === "certifications") {
+    const certification =
+      values["certification name"] ??
+      values.certification ??
+      values.name ??
+      lines.find((line) => !line.includes(":"));
+    if (!certification) return null;
+    const detail = [
+      certification,
+      values.issuer ? `Issuer: ${values.issuer}` : null,
+      values["date earned"] ? `Earned: ${values["date earned"]}` : null,
+      values.expiration ? `Expires: ${values.expiration}` : null,
+      values["credential url / id"] ? `Credential: ${values["credential url / id"]}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return { field: "certifications" as const, certifications: [detail] };
+  }
+  const skills = lines.flatMap((line) => {
+    const value = line.includes(":") ? line.slice(line.indexOf(":") + 1) : line;
+    return value
+      .split(/[;,]/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  });
+  return skills.length > 0 ? { field: "skills" as const, skills } : null;
+}
+
+function parseLabelledDraft(lines: string[]) {
+  const values: Record<string, string> = {};
+  for (const line of lines) {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex < 0) continue;
+    const key = line.slice(0, separatorIndex).trim().toLowerCase();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (!key || !value) continue;
+    values[key] = value;
+  }
+  return values;
+}
+
+function compactObject<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => {
+      if (Array.isArray(entry)) return entry.length > 0;
+      return entry !== undefined && entry !== null && entry !== "";
+    }),
+  ) as Partial<T>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

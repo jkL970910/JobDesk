@@ -14,6 +14,7 @@ import { ResumeReview } from "../src/schemas/resume-review";
 import { GeneratedClaim, TailoredResumeDraft } from "../src/schemas/tailored-resume";
 import { ExternalSafeSummarySuggestion } from "../src/schemas/external-safe-summary";
 import { EvidenceUpdateProposalPatch } from "../src/schemas/enrichment-proposal-patches";
+import { ProfileFactPatchRequest } from "../src/schemas/profile-facts";
 
 describe("ExtractedField", () => {
   it("applies defaults (verified=false, confidence=0) when omitted", () => {
@@ -510,6 +511,42 @@ describe("Enrichment proposal patches", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("Profile fact patch request", () => {
+  it("accepts typed profile fact updates", () => {
+    expect(
+      ProfileFactPatchRequest.parse({
+        field: "contact",
+        contact: {
+          email: "candidate@example.com",
+          links: ["https://github.com/candidate"],
+          location: "Toronto, Canada",
+        },
+      }).field,
+    ).toBe("contact");
+    expect(
+      ProfileFactPatchRequest.parse({
+        field: "certifications",
+        certifications: ["AWS Certified Cloud Practitioner · Issuer: AWS"],
+      }).field,
+    ).toBe("certifications");
+    expect(
+      ProfileFactPatchRequest.parse({
+        field: "location",
+        location: "Toronto, Canada",
+      }).field,
+    ).toBe("location");
+  });
+
+  it("rejects mismatched profile fact payloads", () => {
+    expect(
+      ProfileFactPatchRequest.safeParse({
+        field: "skills",
+        certifications: ["AWS"],
+      }).success,
+    ).toBe(false);
   });
 });
 

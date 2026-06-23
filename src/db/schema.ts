@@ -147,6 +147,25 @@ export const enrichmentTaskExpectedOutcomeEnum = pgEnum(
     "review_imported_material",
   ],
 );
+export const enrichmentTaskNoteKindEnum = pgEnum("enrichment_task_note_kind", [
+  "observation",
+  "missing_profile_fact",
+  "missing_role_field",
+  "extraction_limit",
+  "import_review",
+  "evidence_gap",
+  "story_gap",
+]);
+export const enrichmentTaskExpectedActionEnum = pgEnum("enrichment_task_expected_action", [
+  "acknowledge",
+  "dismiss",
+  "add_profile_fact",
+  "edit_profile_fact",
+  "edit_role_field",
+  "review_import",
+  "rerun_extraction",
+  "answer_enrichment_question",
+]);
 export const enrichmentTaskTargetKindEnum = pgEnum("enrichment_task_target_kind", [
   "evidence",
   "initiative",
@@ -972,6 +991,9 @@ export const enrichmentTasks = pgTable(
     expectedOutcome: enrichmentTaskExpectedOutcomeEnum("expected_outcome")
       .notNull()
       .default("clarify_assignment"),
+    noteKind: enrichmentTaskNoteKindEnum("note_kind"),
+    expectedAction: enrichmentTaskExpectedActionEnum("expected_action"),
+    targetField: varchar("target_field", { length: 120 }),
     evidenceItemId: uuid("evidence_item_id").references(() => evidenceItems.id, {
       onDelete: "set null",
     }),

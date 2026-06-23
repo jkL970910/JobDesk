@@ -5,6 +5,7 @@ import {
   buildConservativeEvidenceRewrite,
   buildExtractionNoteEnrichmentTasks,
   buildEvidenceUpdateProposalPatch,
+  buildInitialProposalGenerationInstruction,
   buildResumeReviewEnrichmentTasks,
   isBroadProfilePositioningQuestion,
   normalizeReusableLibraryAnchorForTest,
@@ -126,20 +127,36 @@ describe("Evidence Library Builder instructions", () => {
         "Work experience entries were extracted from the WORK EXPERIENCES section.",
         "Returned at most 4 work_experiences; omitted additional work experience beyond the cap if any.",
         "Project type for Full-Stack Shopping Market System is classified as personal_project because it appears under PROJECTS and not under an employer.",
+        "No certifications were found in the source.",
+        "NVIDIA work experience line does not state a location.",
       ],
     });
 
     for (const task of tasks) {
       expect(task).toMatchObject({
-      taskType: "source_section_review",
-      sourceType: "extraction_note",
-      sourceLabel: "Resume import",
-      targetScope: "source_material",
-      targetConfidence: "high",
-      expectedOutcome: "review_imported_material",
-    });
-      expect(task?.targetReason).toContain("not a missing-information question");
+        taskType: "source_section_review",
+        sourceType: "extraction_note",
+        sourceLabel: "Resume import",
+        targetScope: "source_material",
+        expectedOutcome: "review_imported_material",
+      });
+      expect(task?.expectedAction).not.toBe("answer_enrichment_question");
+      expect(task?.targetReason).toMatch(/not a missing-information answer|instead of answering|Edit|Add|Review/i);
     }
+    expect(tasks[1]).toMatchObject({
+      noteKind: "extraction_limit",
+      expectedAction: "review_import",
+    });
+    expect(tasks[3]).toMatchObject({
+      noteKind: "missing_profile_fact",
+      expectedAction: "add_profile_fact",
+      targetField: "certifications",
+    });
+    expect(tasks[4]).toMatchObject({
+      noteKind: "missing_role_field",
+      expectedAction: "edit_role_field",
+      targetField: "location",
+    });
   });
 
   it("keeps concrete extraction notes as ordinary enrichment questions", () => {
@@ -216,6 +233,21 @@ describe("Evidence Library Builder instructions", () => {
     );
     expect(rewrite).toBe(
       "Reduced raw-data crawl/fetch time from 2 weeks to 1 week by simplifying backend request flow from 20+ APIs to 10 and improving schema validation.",
+    );
+  });
+
+  it("generates initial proposal instructions by proposal type without treating every task as evidence", () => {
+    expect(buildInitialProposalGenerationInstruction("update_initiative")).toContain(
+      "story-context update",
+    );
+    expect(buildInitialProposalGenerationInstruction("update_work_experience")).toContain(
+      "role-context update",
+    );
+    expect(buildInitialProposalGenerationInstruction("update_evidence")).toContain(
+      "conservative suggested evidence update",
+    );
+    expect(buildInitialProposalGenerationInstruction("update_initiative")).toContain(
+      "do not turn it into resume-ready evidence",
     );
   });
 

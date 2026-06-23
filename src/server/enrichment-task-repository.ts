@@ -39,6 +39,8 @@ import {
   type enrichmentTaskSourceTypeEnum,
   type enrichmentTaskStatusEnum,
   type enrichmentTaskExpectedOutcomeEnum,
+  type enrichmentTaskExpectedActionEnum,
+  type enrichmentTaskNoteKindEnum,
   type enrichmentTaskTargetConfidenceEnum,
   type enrichmentTaskTargetKindEnum,
   type enrichmentTaskTargetRoleEnum,
@@ -65,6 +67,10 @@ export type EnrichmentTaskTargetConfidence =
   (typeof enrichmentTaskTargetConfidenceEnum.enumValues)[number];
 export type EnrichmentTaskExpectedOutcome =
   (typeof enrichmentTaskExpectedOutcomeEnum.enumValues)[number];
+export type EnrichmentTaskNoteKind =
+  (typeof enrichmentTaskNoteKindEnum.enumValues)[number];
+export type EnrichmentTaskExpectedAction =
+  (typeof enrichmentTaskExpectedActionEnum.enumValues)[number];
 export type EnrichmentTaskTargetKind =
   (typeof enrichmentTaskTargetKindEnum.enumValues)[number];
 export type EnrichmentTaskTargetRole =
@@ -126,6 +132,9 @@ export type EnrichmentTaskDraft = {
   targetConfidence?: EnrichmentTaskTargetConfidence;
   targetReason?: string | null;
   expectedOutcome?: EnrichmentTaskExpectedOutcome;
+  noteKind?: EnrichmentTaskNoteKind | null;
+  expectedAction?: EnrichmentTaskExpectedAction | null;
+  targetField?: string | null;
   evidenceItemId?: string | null;
   workExperienceId?: string | null;
   initiativeId?: string | null;
@@ -148,6 +157,14 @@ type ReusableLibraryAnchor = {
   workExperienceId?: string | null;
   initiativeId?: string | null;
   portfolioProjectId?: string | null;
+};
+
+type EnrichmentProposalDraft = {
+  nextStepNote: string;
+  patch: EnrichmentProposalPatch;
+  proposalType: EnrichmentProposalType;
+  targetId: string | null;
+  targetKind: EnrichmentTaskTargetKind | null;
 };
 
 export async function getEnrichmentTaskQueue(filters: EnrichmentTaskQueueFilters | number = {}) {
@@ -236,6 +253,9 @@ export async function upsertEnrichmentTasks(
         prompt: task.prompt,
         dedupeKey: buildEnrichmentDedupeKey(task),
         ...deriveTaskTargetMetadata(task),
+        noteKind: task.noteKind ?? null,
+        expectedAction: task.expectedAction ?? null,
+        targetField: task.targetField ?? null,
         evidenceItemId: task.evidenceItemId ?? null,
         workExperienceId: task.workExperienceId ?? null,
         initiativeId: task.initiativeId ?? null,
@@ -297,17 +317,20 @@ export function buildExtractionNoteEnrichmentTasks(args: {
   notes: string[];
 }) {
   return args.notes.map((note) => {
-    if (isImportedMaterialReviewNote(note)) {
+    const classification = classifyExtractionNoteAction(note);
+    if (classification.expectedAction !== "answer_enrichment_question") {
       return {
         taskType: "source_section_review" as const,
         sourceType: "extraction_note" as const,
         sourceLabel: args.sourceTitle,
         prompt: note,
         targetScope: "source_material" as const,
-        targetConfidence: "high" as const,
-        targetReason:
-          "This is an extraction note for an imported source section, not a missing-information question.",
+        targetConfidence: classification.confidence,
+        targetReason: classification.reason,
         expectedOutcome: "review_imported_material" as const,
+        noteKind: classification.noteKind,
+        expectedAction: classification.expectedAction,
+        targetField: classification.targetField,
       };
     }
     return {
@@ -317,6 +340,131 @@ export function buildExtractionNoteEnrichmentTasks(args: {
       prompt: note,
     };
   });
+}
+
+function classifyExtractionNoteAction(note: string): {
+  confidence: EnrichmentTaskTargetConfidence;
+  expectedAction: EnrichmentTaskExpectedAction;
+  noteKind: EnrichmentTaskNoteKind;
+  reason: string;
+  targetField: string | null;
+} {
+  const normalized = note.trim().toLowerCase().replace(/\s+/g, " ");
+  const baseReason =
+    "This imported-source note is for review, not a missing-information answer.";
+
+  if (looksLikeConcreteExtractionGap(normalized)) {
+    return {
+      confidence: "medium",
+      expectedAction: "answer_enrichment_question",
+      noteKind: looksLikeStoryGap(normalized) ? "story_gap" : "evidence_gap",
+      reason: "This extraction note asks for a concrete story or evidence detail.",
+      targetField: null,
+    };
+  }
+
+  if (/\b(returned at most|omitted additional|beyond the first|not included due to|capped at)\b/.test(normalized)) {
+    return {
+      confidence: "high",
+      expectedAction: "review_import",
+      noteKind: "extraction_limit",
+      reason: "This note reports an extraction limit. Review the imported source instead of answering it as evidence.",
+      targetField: null,
+    };
+  }
+
+  if (
+    /\b(location was not|does not state a location|no location|location missing)\b/.test(normalized) &&
+    /\b(work experience|role|employer|nvidia|shopify|amazon)\b/.test(normalized)
+  ) {
+    return {
+      confidence: "high",
+      expectedAction: "edit_role_field",
+      noteKind: "missing_role_field",
+      reason: "This note points to a missing role field. Edit the role directly instead of saving a generic answer.",
+      targetField: "location",
+    };
+  }
+
+  if (
+    /\b(no certifications|certifications were not|certifications were not found|certifications were missing|certifications missing|certification missing)\b/.test(
+      normalized,
+    )
+  ) {
+    return {
+      confidence: "high",
+      expectedAction: "add_profile_fact",
+      noteKind: "missing_profile_fact",
+      reason: "This note reports missing certification data. Add a profile fact only if the source is incomplete.",
+      targetField: "certifications",
+    };
+  }
+
+  if (/\b(no personal location|profile\.location|personal location)\b/.test(normalized)) {
+    return {
+      confidence: "high",
+      expectedAction: "edit_profile_fact",
+      noteKind: "missing_profile_fact",
+      reason: "This note reports a missing profile location. Edit profile facts instead of saving a generic answer.",
+      targetField: "location",
+    };
+  }
+
+  if (/\b(education|contact|skills?)\b/.test(normalized) && /\b(not found|not included|missing|not explicitly stated|not stated)\b/.test(normalized)) {
+    return {
+      confidence: "medium",
+      expectedAction: "edit_profile_fact",
+      noteKind: "missing_profile_fact",
+      reason: "This note reports a missing profile fact. Edit the profile field directly if needed.",
+      targetField: inferProfileTargetField(normalized),
+    };
+  }
+
+  if (
+    isImportedMaterialReviewNote(note) ||
+    /\b(entries were extracted|was extracted|were extracted|classified as|present.*preserved|preserved exactly)\b/.test(
+      normalized,
+    )
+  ) {
+    return {
+      confidence: "high",
+      expectedAction: "acknowledge",
+      noteKind: "observation",
+      reason: baseReason,
+      targetField: inferProfileTargetField(normalized),
+    };
+  }
+
+  return {
+    confidence: "medium",
+    expectedAction: "review_import",
+    noteKind: "import_review",
+    reason: baseReason,
+    targetField: inferProfileTargetField(normalized),
+  };
+}
+
+function looksLikeConcreteExtractionGap(normalized: string) {
+  return (
+    /\b(add|provide|what|which|how|why|quantify|clarify|describe)\b/.test(normalized) &&
+    /\b(metric|impact|ownership|technical|mechanism|scope|stakeholder|result|activation|latency|revenue|cost|scale)\b/.test(
+      normalized,
+    )
+  );
+}
+
+function looksLikeStoryGap(normalized: string) {
+  return /\b(story|project|initiative|role|ownership|technical mechanism|scope)\b/.test(normalized);
+}
+
+function inferProfileTargetField(normalized: string) {
+  if (/\bcertification/.test(normalized)) return "certifications";
+  if (/\beducation/.test(normalized)) return "education";
+  if (/\bcontact|email|phone|linkedin/.test(normalized)) return "contact";
+  if (/\bskills?/.test(normalized)) return "skills";
+  if (/\blocation/.test(normalized)) return "location";
+  if (/\bpresent|end date/.test(normalized)) return "end_date";
+  return null;
 }
 
 export async function updateEnrichmentTask(args: {
@@ -732,6 +880,7 @@ async function convertEnrichmentTaskToEvidenceCandidate(
 async function createPendingProposalForAnswer(
   db: Pick<DbHandle, "insert" | "select" | "update">,
   args: {
+    proposalDraft: EnrichmentProposalDraft;
     task: typeof enrichmentTasks.$inferSelect;
     answer: string;
     now: Date;
@@ -739,7 +888,6 @@ async function createPendingProposalForAnswer(
 ) {
   const answer = args.answer.trim();
   if (!answer) return null;
-  const proposalDraft = await buildEnrichmentProposalDraft(db, args.task, answer);
   await db
     .update(enrichmentProposals)
     .set({
@@ -772,14 +920,14 @@ async function createPendingProposalForAnswer(
       workspaceId: args.task.workspaceId,
       taskId: args.task.id,
       answerId: answerRow.id,
-      proposalType: proposalDraft.proposalType,
-      targetKind: proposalDraft.targetKind,
-      targetId: proposalDraft.targetId,
-      proposedPatchJson: proposalDraft.patch,
+      proposalType: args.proposalDraft.proposalType,
+      targetKind: args.proposalDraft.targetKind,
+      targetId: args.proposalDraft.targetId,
+      proposedPatchJson: args.proposalDraft.patch,
       evidenceDeltaJson: {
-        text: getProposalPatchPreviewText(proposalDraft.patch),
+        text: getProposalPatchPreviewText(args.proposalDraft.patch),
         target_summary: summarizeProposalTarget(args.task),
-        resume_safe_note: proposalDraft.nextStepNote,
+        resume_safe_note: args.proposalDraft.nextStepNote,
       },
       schemaVersion: "enrichment-proposal-v1",
       status: "pending_review",
@@ -799,6 +947,28 @@ async function saveAnswerAndCreateProposal(
     now: Date;
   },
 ) {
+  const [existingTask] = await db
+    .select()
+    .from(enrichmentTasks)
+    .where(
+      and(
+        eq(enrichmentTasks.workspaceId, args.workspaceId),
+        eq(enrichmentTasks.id, args.taskId),
+      ),
+    )
+    .limit(1);
+  if (!existingTask) return undefined;
+  const answer = typeof args.patch.userAnswer === "string" ? args.patch.userAnswer.trim() : "";
+  const proposalDraft = answer
+    ? await buildAndEnhanceEnrichmentProposalDraft(db, {
+        answer,
+        task: {
+          ...existingTask,
+          ...args.patch,
+          userAnswer: answer,
+        },
+      })
+    : null;
   return db.transaction(async (tx) => {
     const [updated] = await tx
       .update(enrichmentTasks)
@@ -811,11 +981,14 @@ async function saveAnswerAndCreateProposal(
       )
       .returning();
     if (!updated) return undefined;
-    await createPendingProposalForAnswer(tx, {
-      task: updated,
-      answer: updated.userAnswer ?? "",
-      now: args.now,
-    });
+    if (proposalDraft) {
+      await createPendingProposalForAnswer(tx, {
+        proposalDraft,
+        task: updated,
+        answer: updated.userAnswer ?? "",
+        now: args.now,
+      });
+    }
     return updated;
   });
 }
@@ -1890,13 +2063,7 @@ async function buildEnrichmentProposalDraft(
   db: Pick<DbHandle, "select">,
   task: typeof enrichmentTasks.$inferSelect,
   answer: string,
-): Promise<{
-  nextStepNote: string;
-  patch: EnrichmentProposalPatch;
-  proposalType: EnrichmentProposalType;
-  targetId: string | null;
-  targetKind: EnrichmentTaskTargetKind | null;
-}> {
+): Promise<EnrichmentProposalDraft> {
   const proposalType = proposalTypeForTask(task);
   if (proposalType === "create_evidence") {
     const patch = buildCreateEvidenceProposalPatch(task, answer);
@@ -1938,6 +2105,92 @@ async function buildEnrichmentProposalDraft(
     targetId: target.targetId,
     targetKind: target.targetKind,
   };
+}
+
+async function buildAndEnhanceEnrichmentProposalDraft(
+  db: Pick<DbHandle, "select">,
+  args: {
+    answer: string;
+    task: typeof enrichmentTasks.$inferSelect;
+  },
+): Promise<EnrichmentProposalDraft> {
+  const draft = await buildEnrichmentProposalDraft(db, args.task, args.answer);
+  return enhanceInitialEnrichmentProposalDraft({
+    answer: args.answer,
+    draft,
+    task: args.task,
+  });
+}
+
+async function enhanceInitialEnrichmentProposalDraft(args: {
+  answer: string;
+  draft: EnrichmentProposalDraft;
+  task: typeof enrichmentTasks.$inferSelect;
+}): Promise<EnrichmentProposalDraft> {
+  if (!shouldGenerateInitialProposalWithAi(args.draft.proposalType)) return args.draft;
+  const config = resolveJobDeskAiConfig();
+  if (!config.providerEnabled || !config.apiKey) return args.draft;
+
+  const previousText = getProposalPatchPreviewText(args.draft.patch);
+  try {
+    const aiRevision = await reviseEnrichmentProposalWithAi({
+      currentDraft: previousText,
+      originalAnswer: args.answer,
+      revisionInstruction: buildInitialProposalGenerationInstruction(args.draft.proposalType),
+      targetLabel: summarizeProposalTarget(args.task),
+      taskPrompt: args.task.prompt,
+    });
+    const revisedText = aiRevision.data.text.trim();
+    if (revisedText.length < 12) return args.draft;
+    const revisedPatch = applyRevisedTextToProposalPatch(
+      args.draft.patch,
+      revisedText,
+      aiRevision.data.source_quote?.trim() ||
+        getProposalPatchSourceQuote(args.draft.patch) ||
+        args.answer,
+    );
+    const parsedPatch = parseProposalPatchForType(args.draft.proposalType, revisedPatch);
+    if (!parsedPatch) return args.draft;
+    return {
+      ...args.draft,
+      patch: parsedPatch,
+    };
+  } catch (error) {
+    if (error instanceof JobDeskAiError) {
+      console.warn("[enrichment] initial proposal AI generation fell back", {
+        errorKind: error.kind,
+        retryCount: error.retryCount,
+        taskId: args.task.id,
+      });
+      return args.draft;
+    }
+    throw error;
+  }
+}
+
+function shouldGenerateInitialProposalWithAi(type: EnrichmentProposalType) {
+  return (
+    type === "create_evidence" ||
+    type === "update_evidence" ||
+    type === "update_initiative" ||
+    type === "update_work_experience"
+  );
+}
+
+export function buildInitialProposalGenerationInstruction(type: EnrichmentProposalType) {
+  if (type === "create_evidence") {
+    return "Generate a concise draft evidence statement from the user's answer. Use only confirmed facts. Keep the user's answer as source_quote.";
+  }
+  if (type === "update_evidence") {
+    return "Generate a conservative suggested evidence update from the user's answer and current draft. Keep the wording factual, avoid first person, and do not broaden beyond confirmed facts.";
+  }
+  if (type === "update_initiative") {
+    return "Generate a concise story-context update from the user's answer. Make it useful for the existing project/story, but do not turn it into resume-ready evidence.";
+  }
+  if (type === "update_work_experience") {
+    return "Generate a concise role-context update from the user's answer. Make it useful for the existing role, but do not turn it into resume-ready evidence.";
+  }
+  return "Generate a concise suggested update from the user's answer using only confirmed facts.";
 }
 
 async function getEvidenceTextForProposal(
@@ -2835,6 +3088,9 @@ function toEnrichmentTaskPayload(
     target_confidence: task.targetConfidence,
     target_reason: task.targetReason,
     expected_outcome: task.expectedOutcome,
+    note_kind: task.noteKind,
+    expected_action: task.expectedAction,
+    target_field: task.targetField,
     targets: fallbackTargets,
     proposals,
     proposal_revisions: proposalRevisions,

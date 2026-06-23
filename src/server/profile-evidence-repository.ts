@@ -20,6 +20,7 @@ import type {
   JobDeskAiUsage,
 } from "../ai/types";
 import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
+import type { ProfileFactPatchRequest } from "../schemas/profile-facts";
 import { AllowedUsage } from "../schemas/shared";
 import type { FieldTier, SensitivityLevel } from "../schemas/shared";
 import {
@@ -63,6 +64,8 @@ export type ProfileEvidencePersistenceResult =
 type SourceDocumentStore = Pick<ReturnType<typeof getDb>, "select" | "insert" | "update">;
 type StoryTargetStore = Pick<ReturnType<typeof getDb>, "select">;
 type StoryTargetMergeStore = Pick<ReturnType<typeof getDb>, "select" | "update">;
+
+type CanonicalProfileJson = Record<string, unknown>;
 
 type EnrichmentStoryTarget = {
   targetType: "initiative" | "portfolio_project" | "legacy_project";
@@ -1309,6 +1312,55 @@ export async function getRecentEvidenceLibrary(limit = 8) {
       status: project.status,
       updatedAt: project.updatedAt.toISOString(),
     })),
+  };
+}
+
+export async function updateProfileFacts(args: ProfileFactPatchRequest) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [profile] = await db
+    .select()
+    .from(profiles)
+    .where(eq(profiles.workspaceId, workspace.id))
+    .orderBy(desc(profiles.updatedAt))
+    .limit(1);
+  if (!profile) {
+    return { status: "not_found" as const };
+  }
+
+  const now = new Date();
+  const profileJson = applyProfileFactPatch(profile.profileJson, args);
+  const displayName = extractManualProfileDisplayName(profileJson) ?? profile.displayName;
+  const [updated] = await db
+    .update(profiles)
+    .set({
+      displayName,
+      profileJson,
+      updatedAt: now,
+    })
+    .where(and(eq(profiles.id, profile.id), eq(profiles.workspaceId, workspace.id)))
+    .returning({
+      id: profiles.id,
+      displayName: profiles.displayName,
+      profileJson: profiles.profileJson,
+      updatedAt: profiles.updatedAt,
+    });
+
+  if (!updated) {
+    return { status: "not_found" as const };
+  }
+  return {
+    status: "updated" as const,
+    profile: {
+      id: updated.id,
+      displayName: updated.displayName,
+      profile: updated.profileJson,
+      updatedAt: updated.updatedAt.toISOString(),
+    },
   };
 }
 
@@ -3508,6 +3560,111 @@ function toCanonicalProfile(
     low_confidence_fields: profile.low_confidence_fields,
     invented_field_flags: profile.invented_field_flags,
   };
+}
+
+function applyProfileFactPatch(
+  currentProfile: CanonicalProfileJson,
+  patch: ProfileFactPatchRequest,
+): CanonicalProfileJson {
+  const profile = { ...currentProfile };
+  const contact = isPlainRecord(profile.contact) ? { ...profile.contact } : {};
+  if (patch.field === "contact") {
+    const nextContact = { ...contact };
+    if (patch.contact.name !== undefined) {
+      nextContact.name = patch.contact.name ? makeManualProfileField(patch.contact.name, "critical") : null;
+    }
+    if (patch.contact.email !== undefined) {
+      nextContact.email = patch.contact.email ? makeManualProfileField(patch.contact.email, "critical") : null;
+    }
+    if (patch.contact.phone !== undefined) {
+      nextContact.phone = patch.contact.phone ? makeManualProfileField(patch.contact.phone, "important") : null;
+    }
+    if (patch.contact.location !== undefined) {
+      nextContact.location = patch.contact.location
+        ? makeManualProfileField(patch.contact.location, "nice_to_have")
+        : null;
+    }
+    if (patch.contact.links !== undefined) {
+      nextContact.links = uniqueNonEmptyStrings(patch.contact.links).map((link) =>
+        makeManualProfileField(link, "nice_to_have"),
+      );
+    }
+    profile.contact = nextContact;
+    return profile;
+  }
+  if (patch.field === "location") {
+    profile.contact = {
+      ...contact,
+      location: makeManualProfileField(patch.location, "nice_to_have"),
+    };
+    return profile;
+  }
+  if (patch.field === "education") {
+    profile.education = patch.education.map((item) => ({
+      institution: makeManualProfileField(item.institution, "important"),
+      degree: makeManualProfileField(item.degree, "critical"),
+      field_of_study: item.fieldOfStudy
+        ? makeManualProfileField(item.fieldOfStudy, "important")
+        : null,
+      start_date: item.startDate ? makeManualProfileField(item.startDate, "important") : null,
+      end_date: item.endDate ? makeManualProfileField(item.endDate, "important") : null,
+    }));
+    return profile;
+  }
+  if (patch.field === "skills") {
+    profile.skills = uniqueNonEmptyStrings(patch.skills).map((skill) =>
+      makeManualProfileField(skill, "important"),
+    );
+    return profile;
+  }
+  profile.certifications = uniqueNonEmptyStrings(patch.certifications).map((certification) =>
+    makeManualProfileField(certification, "important"),
+  );
+  return profile;
+}
+
+function makeManualProfileField(value: string, tier: FieldTier) {
+  const normalized = value.trim();
+  return {
+    confidence: 1,
+    source_offset: null,
+    source_quote: normalized,
+    tier,
+    value: normalized,
+    verified: true,
+  };
+}
+
+function uniqueNonEmptyStrings(values: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function extractManualProfileDisplayName(profile: CanonicalProfileJson) {
+  const contact = isPlainRecord(profile.contact) ? profile.contact : null;
+  const name = contact ? extractProfileFieldValue(contact.name) : null;
+  return name || null;
+}
+
+function extractProfileFieldValue(value: unknown) {
+  if (typeof value === "string") return value.trim() || null;
+  if (isPlainRecord(value) && typeof value.value === "string") {
+    return value.value.trim() || null;
+  }
+  return null;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function toField(
