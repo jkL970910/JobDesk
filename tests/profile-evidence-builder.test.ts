@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { buildProfileEvidenceInstructions } from "../src/ai/profile-evidence-extraction";
-import { buildExtractionNoteEnrichmentTasks } from "../src/server/enrichment-task-repository";
+import {
+  buildExtractionNoteEnrichmentTasks,
+  buildResumeReviewEnrichmentTasks,
+  isBroadProfilePositioningQuestion,
+} from "../src/server/enrichment-task-repository";
 import { consolidateInitiativeDrafts } from "../src/server/profile-evidence-repository";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
 
@@ -148,6 +152,41 @@ describe("Evidence Library Builder instructions", () => {
       prompt: "Add a concrete activation metric for the onboarding dashboard.",
     });
     expect(task).not.toHaveProperty("expectedOutcome", "review_imported_material");
+  });
+
+  it("classifies broad profile positioning questions without evidence anchors", () => {
+    const [task] = buildResumeReviewEnrichmentTasks({
+      resumeTitle: "Main resume",
+      resumeSourceVersionId: "resume-source-1",
+      resumeReviewReportId: "review-1",
+      missingEvidenceQuestions: [
+        "Technical Skills: Which listed skills are strongest and most recent? Which would you want emphasized for future software engineering roles?",
+      ],
+    });
+
+    expect(task).toMatchObject({
+      sourceType: "resume_review",
+      targetScope: "assign_later",
+      targetConfidence: "low",
+      expectedOutcome: "clarify_assignment",
+    });
+    expect(task?.targetReason).toContain("profile-level positioning preference");
+    expect(task).not.toHaveProperty("evidenceItemId");
+    expect(task).not.toHaveProperty("initiativeId");
+    expect(task).not.toHaveProperty("workExperienceId");
+  });
+
+  it("does not treat concrete project follow-up questions as broad profile positioning", () => {
+    expect(
+      isBroadProfilePositioningQuestion(
+        "Cloud cache project: Which latency metric changed after the AWS CDK rollout?",
+      ),
+    ).toBe(false);
+    expect(
+      isBroadProfilePositioningQuestion(
+        "Which listed skills are strongest and most recent for future software engineering roles?",
+      ),
+    ).toBe(true);
   });
 });
 

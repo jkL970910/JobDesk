@@ -5310,7 +5310,7 @@ function formatEnrichmentTaskType(type: string) {
 
 function formatEnrichmentTaskScope(scope: EnrichmentTaskItem["target_scope"]) {
   const labels: Record<EnrichmentTaskItem["target_scope"], string> = {
-    assign_later: "Needs target",
+    assign_later: "Profile/context question",
     evidence_detail: "Evidence question",
     role_context: "Role question",
     source_material: "Imported material",
@@ -5379,8 +5379,8 @@ function formatEnrichmentProposalType(
     create_initiative: "Create story",
     update_initiative: "Update story",
     update_work_experience: "Update role",
-    clarify_assignment: "Needs target",
-    link_evidence_to_story: "Clarify target",
+    clarify_assignment: "Save context",
+    link_evidence_to_story: "Link evidence to story",
     link_story_to_role: "Clarify role link",
   };
   return labels[type];
@@ -5424,7 +5424,7 @@ function formatEnrichmentTaskWorkspaceTitle(
   if (type === "update_evidence") return "Strengthen existing evidence";
   if (type === "update_initiative" || type === "create_initiative") return "Add story context";
   if (type === "update_work_experience") return "Add role context";
-  return "Clarify where this belongs";
+  return "Save profile context";
 }
 
 function formatEnrichmentDraftLabel(
@@ -5436,7 +5436,7 @@ function formatEnrichmentDraftLabel(
     return "Suggested story update";
   }
   if (type === "update_work_experience") return "Suggested role update";
-  return "Suggested next step";
+  return "Profile context";
 }
 
 function formatEnrichmentProposalNextStep(
@@ -5454,7 +5454,7 @@ function formatEnrichmentProposalNextStep(
   if (type === "update_work_experience") {
     return "Accepting applies this as role context. It will not become resume evidence by itself.";
   }
-  return "Accepting saves this as task context. Choose a target before creating evidence.";
+  return "Accepting saves this as profile context. Choose a target later before creating evidence.";
 }
 
 function formatEnrichmentAnswerWorkspaceHelp(
@@ -5476,7 +5476,7 @@ function formatEnrichmentAnswerWorkspaceHelp(
   if (type === "update_work_experience") {
     return "Add role-level context such as team, scope, timeframe, or ownership. JobDesk will preview the role update first.";
   }
-  return "Answer with context first. You can assign it to a specific target before creating evidence.";
+  return "Answer with your preference or context. This will be saved first, not turned into resume evidence.";
 }
 
 function formatEnrichmentConversationPlaceholder(

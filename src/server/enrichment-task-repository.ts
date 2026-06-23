@@ -275,15 +275,21 @@ export function buildResumeReviewEnrichmentTasks(args: {
   resumeSourceVersionId: string;
   resumeReviewReportId: string;
   missingEvidenceQuestions: string[];
-}) {
-  return args.missingEvidenceQuestions.map((question) => ({
-    taskType: classifyEnrichmentTask(question),
-    sourceType: "resume_review" as const,
-    sourceLabel: `${args.resumeTitle} review`,
-    prompt: question,
-    resumeSourceVersionId: args.resumeSourceVersionId,
-    resumeReviewReportId: args.resumeReviewReportId,
-  }));
+}): EnrichmentTaskDraft[] {
+  return args.missingEvidenceQuestions.map((question) => {
+    const profileContextDefaults = isBroadProfilePositioningQuestion(question)
+      ? getProfileContextTaskDefaults()
+      : {};
+    return {
+      taskType: classifyEnrichmentTask(question),
+      sourceType: "resume_review" as const,
+      sourceLabel: `${args.resumeTitle} review`,
+      prompt: question,
+      resumeSourceVersionId: args.resumeSourceVersionId,
+      resumeReviewReportId: args.resumeReviewReportId,
+      ...profileContextDefaults,
+    };
+  });
 }
 
 export function buildExtractionNoteEnrichmentTasks(args: {
@@ -524,7 +530,9 @@ export async function reconcileResumeReviewEnrichmentTasksForSource(
 
   let updatedCount = 0;
   for (const task of tasks) {
+    if (isBroadProfilePositioningQuestion(task.prompt)) continue;
     const anchor = pickBestAnchorForTask(task.prompt, cleanAnchors);
+    if (!anchor) continue;
     const [updated] = await db
       .update(enrichmentTasks)
       .set({
@@ -2322,6 +2330,7 @@ function pickBestAnchorForTask<T extends ReusableLibraryAnchor & { text: string;
   prompt: string,
   anchors: T[],
 ) {
+  if (isBroadProfilePositioningQuestion(prompt)) return null;
   let best = anchors[0]!;
   let bestScore = -1;
   for (const anchor of anchors) {
@@ -2332,6 +2341,36 @@ function pickBestAnchorForTask<T extends ReusableLibraryAnchor & { text: string;
     }
   }
   return best;
+}
+
+export function isBroadProfilePositioningQuestion(prompt: string) {
+  const text = normalizeText(prompt);
+  const hasPositioningIntent =
+    /\b(future|target|preferred|preference|emphasize|emphasized|highlight|positioning|direction|strongest|most recent|recent|prioritize|focus)\b/.test(
+      text,
+    );
+  const hasProfileSubject =
+    /\b(skills?|technical skills?|skills section|listed skills?|profile|career|software engineering roles?|engineering roles?|role direction|target roles?)\b/.test(
+      text,
+    );
+  const asksForChoice =
+    /\b(which|what|where|how|would you|do you want|should)\b/.test(text);
+  const explicitlyBroad =
+    /\b(future roles?|future software engineering roles?|career direction|general profile|profile positioning|technical skills section)\b/.test(
+      text,
+    );
+
+  return explicitlyBroad || (hasPositioningIntent && hasProfileSubject && asksForChoice);
+}
+
+function getProfileContextTaskDefaults() {
+  return {
+    targetScope: "assign_later" as const,
+    targetConfidence: "low" as const,
+    targetReason:
+      "This is a profile-level positioning preference, not a claim-specific evidence gap.",
+    expectedOutcome: "clarify_assignment" as const,
+  };
 }
 
 function scoreAnchorForTask(
