@@ -4072,6 +4072,7 @@ function EnrichmentTaskFocusPane({
   const parentLabel = formatEnrichmentTaskParent(task, linkTargets);
   const pendingProposal =
     task.proposals.find((proposal) => proposal.status === "pending_review") ?? null;
+  const proposalType = pendingProposal?.proposal_type ?? proposalTypePreviewForTask(task);
   if (isSourceSectionReviewTask(task)) {
     return (
       <SourceSectionReviewPane
@@ -4181,7 +4182,6 @@ function EnrichmentTaskFocusPane({
               onAnswerChange={onAnswerChange}
               onReject={() => onRejectProposal(pendingProposal.id)}
               onRevise={(revision) => onReviseProposal(pendingProposal.id, revision)}
-              onSaveContext={() => onSaveAnswer(answer)}
             />
           ) : (
             <EnrichmentAnswerWorkspace
@@ -4208,7 +4208,7 @@ function EnrichmentTaskFocusPane({
                 type="button"
                 onClick={() => onSaveAnswer(answer)}
               >
-                Save answer & preview
+                {formatPrimaryAnswerCta(proposalType, task.status)}
               </button>
             </>
           ) : null}
@@ -4279,10 +4279,10 @@ function EnrichmentAnswerWorkspace({
   });
   const answerSaved = task.status === "answered" && answer.trim().length > 0;
   return (
-    <div className="enrichment-proposal enrichment-proposal--draft">
+    <div className="enrichment-proposal enrichment-proposal--draft enrichment-proposal--answer-collection">
       <div className="enrichment-proposal__header">
         <div>
-          <span>{answerSaved ? "Answer saved" : "Answer needed"}</span>
+          <span>{answerSaved ? "Answer saved" : "Answer this question"}</span>
           <strong>{formatEnrichmentTaskWorkspaceTitle(proposalType)}</strong>
         </div>
         <em data-state="drafting">{answerSaved ? "Preview needed" : "Not saved"}</em>
@@ -4315,7 +4315,7 @@ function EnrichmentAnswerWorkspace({
             </div>
             <div>
               <dt>Next step</dt>
-              <dd>{formatEnrichmentProposalNextStep(proposalType)}</dd>
+              <dd>{formatEnrichmentPreProposalNextStep(proposalType)}</dd>
             </div>
           </dl>
         </section>
@@ -4331,7 +4331,7 @@ function EnrichmentAnswerWorkspace({
             />
           </label>
           <div className="enrichment-proposal__history">
-            <span>{answerSaved ? "Ready for preview" : "After you save"}</span>
+            <span>{answerSaved ? "Ready to generate" : "After you generate"}</span>
             <p>{formatEnrichmentAnswerWorkspaceHelp(proposalType, answerSaved)}</p>
           </div>
         </aside>
@@ -4503,7 +4503,6 @@ function EnrichmentProposalPreview({
   onAnswerChange,
   onReject,
   onRevise,
-  onSaveContext,
   pendingAction,
   portfolioProjects,
   proposal,
@@ -4520,7 +4519,6 @@ function EnrichmentProposalPreview({
   onAnswerChange: (answer: string) => void;
   onReject: () => void;
   onRevise: (revision: { revisedText?: string; revisionInstruction?: string }) => void;
-  onSaveContext: () => void;
   pendingAction: EnrichmentPendingAction | null;
   portfolioProjects: PortfolioProjectItem[];
   proposal: EnrichmentTaskItem["proposals"][number];
@@ -4541,7 +4539,8 @@ function EnrichmentProposalPreview({
   return (
     <SuggestedUpdatePanel
       acceptLabel="Accept change"
-      aiRevisionPlaceholder={formatEnrichmentConversationPlaceholder(proposal.proposal_type)}
+      aiRevisionLabel="Ask AI to revise"
+      aiRevisionPlaceholder={formatEnrichmentRevisionPlaceholder(proposal.proposal_type)}
       disabled={disabled}
       draftLabel={formatEnrichmentDraftLabel(proposal.proposal_type)}
       initialText={text}
@@ -4555,7 +4554,6 @@ function EnrichmentProposalPreview({
       onAnswerChange={onAnswerChange}
       onDiscard={onReject}
       onRevise={onRevise}
-      onSaveContext={onSaveContext}
       revisionHistory={revisions.map((revision) => ({
         actor: revision.actor,
         createdAt: revision.createdAt,
@@ -5420,10 +5418,10 @@ function proposalTypePreviewForTask(
 function formatEnrichmentTaskWorkspaceTitle(
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
 ) {
-  if (type === "create_evidence") return "Create evidence from this answer";
-  if (type === "update_evidence") return "Strengthen existing evidence";
-  if (type === "update_initiative" || type === "create_initiative") return "Add story context";
-  if (type === "update_work_experience") return "Add role context";
+  if (type === "create_evidence") return "Prepare a draft evidence update";
+  if (type === "update_evidence") return "Prepare an evidence update";
+  if (type === "update_initiative" || type === "create_initiative") return "Prepare a story update";
+  if (type === "update_work_experience") return "Prepare a role update";
   return "Save profile context";
 }
 
@@ -5457,24 +5455,54 @@ function formatEnrichmentProposalNextStep(
   return "Accepting saves this as profile context. Choose a target later before creating evidence.";
 }
 
+function formatEnrichmentPreProposalNextStep(
+  type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
+) {
+  if (type === "clarify_assignment") {
+    return "Save this as profile context. It will not become resume evidence until you choose a specific target later.";
+  }
+  if (type === "create_evidence") {
+    return "Generate a suggested draft evidence update from your answer. Nothing changes until you review and accept it.";
+  }
+  if (type === "update_evidence") {
+    return "Generate a suggested evidence change from your answer. Nothing changes until you review and accept it.";
+  }
+  if (type === "update_initiative" || type === "create_initiative") {
+    return "Generate a suggested story change from your answer. Nothing changes until you review and accept it.";
+  }
+  if (type === "update_work_experience") {
+    return "Generate a suggested role change from your answer. Nothing changes until you review and accept it.";
+  }
+  return "Generate a suggested update from your answer. Nothing changes until you review and accept it.";
+}
+
+function formatPrimaryAnswerCta(
+  type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
+  status: EnrichmentTaskItem["status"],
+) {
+  if (type === "clarify_assignment") return "Save profile context";
+  if (status === "answered") return "Regenerate suggested update";
+  return "Generate suggested update";
+}
+
 function formatEnrichmentAnswerWorkspaceHelp(
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
   answerSaved: boolean,
 ) {
   if (answerSaved) {
-    return "Save again to generate a reviewable suggestion. Nothing changes until you accept it.";
+    return "Generate a suggested update from this answer. Nothing changes until you review and accept it.";
   }
   if (type === "create_evidence") {
-    return "Answer with concrete facts, metrics, scope, or source wording. JobDesk will turn it into a draft evidence card for review.";
+    return "Answer with concrete facts, metrics, scope, or source wording. JobDesk will generate a suggested update for review.";
   }
   if (type === "update_evidence") {
-    return "Answer with the missing detail or correction. JobDesk will show the existing evidence beside the proposed change before you accept.";
+    return "Answer with the missing detail or correction. JobDesk will generate a suggested evidence change before anything is saved.";
   }
   if (type === "update_initiative" || type === "create_initiative") {
-    return "Add project context such as scope, actions, tools, results, or missing metrics. JobDesk will preview the story update first.";
+    return "Add project context such as scope, actions, tools, results, or missing metrics. JobDesk will preview the story change first.";
   }
   if (type === "update_work_experience") {
-    return "Add role-level context such as team, scope, timeframe, or ownership. JobDesk will preview the role update first.";
+    return "Add role-level context such as team, scope, timeframe, or ownership. JobDesk will preview the role change first.";
   }
   return "Answer with your preference or context. This will be saved first, not turned into resume evidence.";
 }
@@ -5492,6 +5520,21 @@ function formatEnrichmentConversationPlaceholder(
     return "Add role-level context or instructions, e.g. clarify team scope, timeframe, or ownership.";
   }
   return "Tell JobDesk where this answer belongs, or ask it to make the next step more specific.";
+}
+
+function formatEnrichmentRevisionPlaceholder(
+  type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
+) {
+  if (type === "create_evidence" || type === "update_evidence") {
+    return "Tell JobDesk what to change in this evidence suggestion.";
+  }
+  if (type === "update_initiative" || type === "create_initiative") {
+    return "Tell JobDesk what to change in this story suggestion.";
+  }
+  if (type === "update_work_experience") {
+    return "Tell JobDesk what to change in this role suggestion.";
+  }
+  return "Tell JobDesk how to refine this context.";
 }
 
 function taskHasReusableLibraryAnchor(task: EnrichmentTaskItem) {

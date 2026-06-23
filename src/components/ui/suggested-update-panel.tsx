@@ -9,6 +9,7 @@ type SuggestedUpdateRevision = {
 
 type SuggestedUpdatePanelProps = {
   acceptLabel?: string;
+  aiRevisionLabel?: string;
   aiRevisionPlaceholder?: string;
   className?: string;
   disabled: boolean;
@@ -21,7 +22,6 @@ type SuggestedUpdatePanelProps = {
   onAccept: () => void;
   onDiscard: () => void;
   onRevise: (revision: SuggestedUpdateRevision) => void;
-  onSaveContext?: () => void;
   originalAnswer?: string;
   originalPrompt?: string;
   showOriginalPrompt?: boolean;
@@ -53,6 +53,7 @@ type SuggestedUpdatePanelProps = {
 
 export function SuggestedUpdatePanel({
   acceptLabel = "Save draft",
+  aiRevisionLabel = "Ask AI to revise",
   aiRevisionPlaceholder = "Example: make this more specific and keep only confirmed facts",
   className,
   disabled,
@@ -65,7 +66,6 @@ export function SuggestedUpdatePanel({
   onAccept,
   onDiscard,
   onRevise,
-  onSaveContext,
   originalAnswer,
   originalPrompt,
   showOriginalPrompt = true,
@@ -94,7 +94,6 @@ export function SuggestedUpdatePanel({
   const canSendMessage = messageText.trim().length >= 3;
   const isAiRevisionPending = disabled && pendingAction === "ai_revision";
   const isManualEditPending = disabled && pendingAction === "manual_edit";
-  const isContextSavePending = disabled && pendingAction === "save_context";
 
   return (
     <div className={["enrichment-proposal", className].filter(Boolean).join(" ")}>
@@ -165,7 +164,7 @@ export function SuggestedUpdatePanel({
         </section>
         <aside className="enrichment-proposal__conversation">
           <label className="enrichment-proposal__answer">
-            <span>Continue with AI</span>
+            <span>{aiRevisionLabel}</span>
             <textarea
               className="jd-input jd-input--compact"
               disabled={disabled}
@@ -216,16 +215,6 @@ export function SuggestedUpdatePanel({
         >
           {isAiRevisionPending ? "Revising..." : "Send to AI"}
         </button>
-        {onSaveContext ? (
-          <button
-            className="secondary-button"
-            disabled={disabled || !messageText.trim() || messageText.trim().length < 12}
-            type="button"
-            onClick={onSaveContext}
-          >
-            {isContextSavePending ? "Saving..." : "Save as context"}
-          </button>
-        ) : null}
         <button className="primary-button" disabled={disabled} type="button" onClick={onAccept}>
           {acceptLabel}
         </button>
