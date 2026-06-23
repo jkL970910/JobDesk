@@ -16,8 +16,6 @@ type SuggestedUpdatePanelProps = {
   discardLabel?: string;
   draftLabel?: string;
   initialText: string;
-  nextStepDescription: string;
-  nextStepLabel?: string;
   onAnswerChange?: (answer: string) => void;
   onAccept: () => void;
   onDiscard: () => void;
@@ -46,7 +44,6 @@ type SuggestedUpdatePanelProps = {
   sourceQuote?: string;
   statusLabel: string;
   statusState: string;
-  targetLabel: string;
   title: string;
   titleEyebrow?: string;
 };
@@ -60,8 +57,6 @@ export function SuggestedUpdatePanel({
   discardLabel = "Discard suggestion",
   draftLabel = "Draft text",
   initialText,
-  nextStepDescription,
-  nextStepLabel = "What happens next",
   onAnswerChange,
   onAccept,
   onDiscard,
@@ -77,7 +72,6 @@ export function SuggestedUpdatePanel({
   sourceQuote,
   statusLabel,
   statusState,
-  targetLabel,
   title,
   titleEyebrow = "Ready to review",
 }: SuggestedUpdatePanelProps) {
@@ -154,16 +148,6 @@ export function SuggestedUpdatePanel({
               ))}
             </div>
           ) : null}
-          <dl className="enrichment-proposal__meta">
-            <div>
-              <dt>Target</dt>
-              <dd>{targetLabel}</dd>
-            </div>
-            <div>
-              <dt>{nextStepLabel}</dt>
-              <dd>{nextStepDescription}</dd>
-            </div>
-          </dl>
         </section>
         <aside className="enrichment-proposal__conversation">
           <label className="enrichment-proposal__answer">

@@ -4544,7 +4544,6 @@ function EnrichmentProposalPreview({
       disabled={disabled}
       draftLabel={formatEnrichmentDraftLabel(proposal.proposal_type)}
       initialText={text}
-      nextStepDescription={formatEnrichmentProposalNextStep(proposal.proposal_type)}
       originalPrompt={question}
       originalAnswer={answer}
       previewItems={previewItems}
@@ -4566,7 +4565,6 @@ function EnrichmentProposalPreview({
       showOriginalPrompt={false}
       statusLabel={formatEnrichmentProposalStatus(proposal.status)}
       statusState={proposal.status}
-      targetLabel={targetLabel}
       title={formatEnrichmentProposalType(proposal.proposal_type)}
       titleEyebrow="Answer saved"
     />
@@ -4595,7 +4593,6 @@ function formatEnrichmentPatchPreview(patch: Record<string, unknown>) {
   addArrayPatchLine(lines, "Technologies", patch.technologies_add);
   addArrayPatchLine(lines, "Stakeholders", patch.stakeholders_add);
   addArrayPatchLine(lines, "Metrics", patch.metrics_add);
-  addPatchLine(lines, "Rationale", getStringPatchValue(patch, "rationale"));
   return lines.length > 0 ? lines.join("\n") : "No suggested update text available.";
 }
 
@@ -4624,7 +4621,6 @@ function buildEnrichmentPatchPreviewItems(patch: Record<string, unknown>) {
   addArrayPatchPreviewItem(items, "Technologies to add", patch.technologies_add);
   addArrayPatchPreviewItem(items, "Stakeholders to add", patch.stakeholders_add);
   addArrayPatchPreviewItem(items, "Metrics to add", patch.metrics_add);
-  addPatchPreviewItem(items, "Why this is suggested", getStringPatchValue(patch, "rationale"));
   return items;
 }
 
