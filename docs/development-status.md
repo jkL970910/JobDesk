@@ -1,8 +1,8 @@
 # JobDesk Development Status
 
-Last updated: 2026-06-17
+Last updated: 2026-06-24
 Baseline commit: ce44458 `Build local MVP workflow baseline`
-Latest implementation commit: pending `feat: add source document parse lifecycle`
+Latest implementation commit: 79dff3e `feat: expose target eligibility metadata`
 Production URL: https://jobdesk-tau.vercel.app
 Final UI reference: Figma Make `Si82hetJamO8bUqHOacgv9` — signed off as **JobDesk Final Project Reference UI v1**
 
@@ -10,7 +10,7 @@ This is the living implementation status file. Every future code change should u
 
 ## Workflow Count
 
-Current implementation covers **11 product workflows** and **9 support workflows** across three user goals: **Build My Evidence Library**, **Create or Update My Resume**, and **Apply to a Target Job**. Resume Review stores and scores general resume source versions before extraction. The Material Library lane does not depend on a JD; the Job Workspace lane depends on a target JD plus approved material-library evidence. Profile now owns Create/Update Resume modes: main resume, positioning-based variant, resume refresh, version review, and export. Resume Refresh is intentionally not a fourth top-level entry; it is a Main Resume generation mode that uses an old resume as structure baseline while canonical Evidence Library material remains the fact source.
+Current implementation covers **11 product workflows** and **14 support workflows** across three user goals: **Build My Evidence Library**, **Create or Update My Resume**, and **Apply to a Target Job**. Resume Review stores and scores general resume source versions before extraction. The Material Library lane does not depend on a JD; the Job Workspace lane depends on a target JD plus approved material-library evidence. Profile now owns Create/Update Resume modes: main resume, positioning-based variant, resume refresh, version review, and export. Resume Refresh is intentionally not a fourth top-level entry; it is a Main Resume generation mode that uses an old resume as structure baseline while canonical Evidence Library material remains the fact source.
 
 ## UI Reference Contract
 
@@ -79,6 +79,11 @@ Support workflows:
 | S7 | Workflow/system diagnostics | Done | Settings exposes read-only diagnostics for DB connectivity, AI provider status, current model, registry entry count, latest workflow runs, failed workflow count, and last workflow time without exposing API keys. |
 | S8 | Account login/register | Done, MVP | Adds `users`, `user_sessions`, httpOnly signed session cookies, login/register/logout/me APIs, account gate UI, and legacy bearer-token compatibility. New default workspaces are scoped to the signed-in user; the first registered account claims the legacy unowned `Personal JobDesk` workspace so existing local data remains visible. Raw-id repository reads and writes are now guarded by the current workspace for jobs, resume reviews, generated resumes, evidence/library records, enrichment tasks, and interview prep packs. Production account sessions require `JOBDESK_SESSION_SECRET`; legacy token-only mode remains usable without forcing the account gate. |
 | S9 | Source document parse lifecycle | Done, MVP | Shared parser service handles PDF, DOCX, TXT, and Markdown as source inputs before Resume Review or Evidence Library extraction. `source_documents` stores parser name/version, original filename, MIME type, file size, parse status, warnings, char/word/page counts, content hash, and lifecycle status without raw binary storage. `/api/profile-evidence/parse-source` accepts source intent and returns parse quality plus duplicate metadata for project/work/JD-gap sources; `/api/resume-review` uses the same parser internally for resume sources. Parsed project/work/JD-gap documents are reused during extraction through `sourceDocumentId`, so evidence provenance points to the original parsed source row instead of a second extraction-only source. Source Intake and Resume Review now show parse lifecycle cards so users can distinguish successful parsing, warnings, duplicates, and scanned/low-text files from actual evidence extraction or resume generation. |
+| S10 | Source chunk retrieval support layer | Done, MVP | `source_chunks` persists parsed/imported source chunks with source document/version linkage, parse quality, lifecycle status, content hash, local vector JSON, and metadata. Source chunks are rebuilt after parse/import lifecycle changes and searched only for gap discovery, evidence enrichment suggestions, and imported material review. Resume generation retrieval remains canonical-evidence only; raw source chunks carry convert/enrich-first semantics and are not treated as resume facts. |
+| S11 | Explainable retrieval UI | Done, MVP | Retrieval now returns explainable evidence and source-material matches: matched requirement/question, keyword matches, semantic score, metric/recency bonuses, eligibility reason, blocked reason, and primary linkage for canonical evidence; source chunks return source title, excerpt, matched phrase, why they may help, and required next step. Evidence Library, JD analysis, Tailored Resume, and Main Resume surfaces separate usable evidence from possible source material. |
+| S12 | Enrichment routing, imported notes, and profile fact resolution | Done, MVP | Enrichment tasks now distinguish profile context, profile facts, assign-later routing, targeted evidence/story/role updates, and imported notes. Broad profile questions save durable `profile_context_answers` without creating evidence/proposals. Profile fact edits use typed profile patches with `profile_fact_history`. Imported notes support acknowledge, dismiss, import reviewed, rerun requested, converted-to-question, profile fact updated, and role field updated resolution states. Role field updates cover location, team, start date, end date, and summary with backend target/field validation. |
+| S13 | Suggested target rows and route-aware target gating | Done, MVP | `enrichment_task_targets` supports suggested targets with confidence, reason, created-by, accepted-at, and rejected-at metadata. Suggested targets are inert until explicitly accepted; proposal generation requires a confirmed primary target for update-evidence/story/role flows and returns `target_required` or `target_confirmation_required` otherwise. The Work Queue no longer shows claim/story/role dropdowns by default for profile context, profile facts, imported notes, or create-evidence routes. |
+| S14 | Target eligibility and provenance metadata | Done, MVP | Recent Evidence Library payloads now expose `provenance` and `target_eligibility` for evidence, work experiences, initiatives, and portfolio projects. Work Queue target pickers filter out ineligible targets while preserving an already-linked unavailable target as a disabled current option, so legacy or rejected links remain visible without being reselectable. |
 
 ## Latest Verified Local Workflow
 
@@ -102,13 +107,15 @@ Workflow boundary check:
 
 ## Verification Commands
 
-Last verified on 2026-06-17:
+Last verified on 2026-06-24:
 
 | Command | Status |
 |---------|--------|
 | `npm run typecheck` | Passed |
-| `npm test` | Passed, 90 passed / 14 skipped |
-| `npm run test:integration` | Passed, 6 files / 14 tests passed |
+| `npm test` | Passed, 140 passed / 40 skipped |
+| Targeted DB integration: source chunk boundaries | Passed; parsed/imported sources create chunks, gap search returns convert/enrich-first source material, and resume retrieval does not expose raw source chunks |
+| Targeted DB integration: enrichment routing/profile context/imported notes/role fields/target gating | Passed for the added focused cases; full `profile-evidence-repository.integration.test.ts` still contains older slow/flaky proposal-flow tests when run as one file |
+| Targeted DB integration: target eligibility/provenance | Passed; source-backed evidence, role, initiative, and portfolio project expose source provenance and remain target-eligible; rejected evidence is ineligible |
 | `npm run verify:local` | Passed; runs typecheck, unit tests, and DB integration tests |
 | `npm run build` | Passed |
 | Resume Review → Needs Enrichment UI closure | Passed; Resume Review shows evidence-gap task handoff, counts only real matching tasks, and routes directly to Evidence Library Needs Enrichment |
@@ -145,6 +152,9 @@ Last verified on 2026-06-17:
 | Production STAR story API smoke at `https://jobdesk-tau.vercel.app/api/profile-evidence/star-stories` | Passed |
 | Latest Evidence Builder, dedupe, de-identification, and STAR story production deploy | Passed |
 | Latest production full smoke at `https://jobdesk-tau.vercel.app` | Passed |
+| Source Chunk Index / Explainable Retrieval implementation | Passed; `npm run typecheck`, `npm test`, targeted source chunk/retrieval tests, and focused DB integration checks passed |
+| Imported Notes / Profile Facts / Role Field / Profile Context implementation | Passed; `npm run typecheck`, `npm test`, `npm run build`, and targeted DB integration checks passed |
+| Suggested Target Rows / Target Gating / Eligibility Metadata implementation | Passed; `npm run typecheck`, `npm test`, `npm run build`, `git diff --check`, and targeted DB integration checks passed |
 
 Integration tests use the configured JobDesk database and write temporary workflow rows.
 
@@ -154,12 +164,15 @@ Integration tests use the configured JobDesk database and write temporary workfl
 - OpenRouter-backed workflows can take more than one minute for longer resumes. Current workflow timeouts were raised to support realistic resume extraction and tailoring.
 - Running `next build` while `next dev` is still running can invalidate dev-server chunks in `.next`; restart the dev server after a production build.
 - Account login/register is implemented for personal accounts and per-account default workspace isolation. Raw-id repository paths are scoped to the current workspace for the implemented workflows, production account sessions require `JOBDESK_SESSION_SECRET`, and the first registered account claims the legacy unowned workspace. Middleware remains edge-safe and validates signed session cookies before requests reach route handlers; full DB-backed session revocation is enforced by auth APIs and repository workspace ownership, but there is not yet a route-level test suite for every API endpoint. It is not yet a full team/workspace-sharing system, RBAC layer, password reset flow, or OAuth/social-login system. `JOBDESK_ACCESS_TOKEN` remains as a legacy bearer-token bypass for personal deployments.
-- Evidence Library Builder MVP is implemented for project-note enrichment, enrichment-answer AI extraction with deterministic fallback, project-card review, inline evidence edit/linking with related-project validation, project-level overlap merge or keep-separate review, evidence-level overlap merge or keep-separate review, deterministic external-safe de-identification guards with blocked-term reports, computed STAR story promotion, and local embedding index reindexing. Resume-use eligibility now requires approved evidence plus public-safe disclosure, so private evidence without a clean public-safe summary cannot enter Main Resume or Tailored Resume retrieval. The embedding layer is a deterministic local JSONB MVP, not pgvector/ANN or provider embeddings yet.
+- Evidence Library Builder MVP is implemented for project-note enrichment, enrichment-answer AI extraction with deterministic fallback, project-card review, inline evidence edit/linking with related-project validation, project-level overlap merge or keep-separate review, evidence-level overlap merge or keep-separate review, deterministic external-safe de-identification guards with blocked-term reports, computed STAR story promotion, local evidence embeddings, source chunk indexing, explainable retrieval, typed imported-note resolution, profile context persistence, profile fact history, suggested target rows, and route-aware target gating. Resume-use eligibility now requires approved evidence plus public-safe disclosure, so private evidence without a clean public-safe summary cannot enter Main Resume or Tailored Resume retrieval. Raw source chunks remain retrieval support for discovery/enrichment only and cannot enter Main Resume or Tailored Resume generation directly. The embedding layer is still a deterministic local JSONB MVP, not pgvector/ANN or provider embeddings yet.
 - Profile Positioning Engine MVP is evidence-backed and no-JD. It recommends role directions as fit hypotheses, not career prescriptions, and consumes the current workspace's canonical profile plus approved or user-confirmed Evidence Library material for analysis. Positioning reports cannot persist directions with zero support, unknown evidence ids, or low/medium confidence without missing-evidence questions. Main Resume generation still uses resume-safe evidence as the external-facing output gate. It does not perform job search, market research, open-role recommendation, or company-specific targeting without a JD.
 - Resume Refresh is implemented as a Create/Update Resume mode, not a separate product lane. It uses an old resume source version as structure/style baseline, but it does not re-extract evidence by default and does not treat stale resume text as canonical truth. Current limitation: refresh preview/editing still shares the Main Resume preview surface; richer side-by-side diff and DOCX/PDF export are future work.
 - Resume extraction can generate thin project/evidence cards because resumes rarely contain full project context. This is expected. The current UI surfaces readiness, shows Resume Review missing-evidence question status from real matching tasks, routes users into Needs Enrichment, and creates persistent enrichment tasks from Resume Review missing-evidence questions and extraction notes. Project-level Source Intake handoff remains available from story cards and STAR stories.
 - Project card edits still use browser prompts for some fields. Evidence edits now use inline card editing; project editing should move to the same inline/drawer pattern before production-level UX signoff.
 - Resume retrieval does not auto-reindex on every tailored-resume request. Run `/api/retrieval/reindex` or generate an interview prep pack to refresh local embeddings.
+- Source chunks are intentionally not facts. They can help users find possible supporting material, but users must convert or enrich canonical evidence before that material can influence resume generation.
+- Profile context answers are soft preferences for positioning and future workflow guidance. They are not evidence, do not appear in Evidence Library counts, and must not be used as factual resume claims.
+- Target suggestions are not confirmed links. Suggested target rows can explain a likely role/story/evidence match, but proposal generation only uses a user-confirmed primary target.
 - The current UI now uses the signed-off product shell, but shared single-page state is still lightweight; future iterations can move major views to dedicated routes after the IA stabilizes in real use.
 - Skills Registry audit metadata MVP is implemented. Runtime workflow calls now carry skill id, skill version, prompt version, schema name/version, model tier, and source skill ids into `workflow_runs`. Runtime prompt composition now loads source `SKILL.md` hard rules with frontmatter version checks. Remaining gap: the composer is still workflow-owned and not a dynamic agent planner or skill marketplace.
 - JSON resume export is an audit/export-for-debugging surface and may include claim source quotes. Markdown export is the safer user-facing export path until a separate public JSON contract exists.
@@ -182,6 +195,9 @@ Integration tests use the configured JobDesk database and write temporary workfl
 | P1 | Add Profile Main Resume Builder | Done, MVP with main resume versions, claim ledger, and Fact Guard |
 | P1 | Add Profile Positioning Engine for direction-specific Main Resume variants | Done, MVP |
 | P1 | Add Resume Refresh inside Create/Update Resume | Done, MVP |
+| P1 | Add source chunk indexing and explainable retrieval | Done, MVP |
+| P1 | Split enrichment routing into profile context, profile facts, imported notes, assign-later routing, and targeted proposals | Done, MVP |
+| P1 | Add suggested targets, route-aware target gating, and target eligibility metadata | Done, MVP |
 | P1 | Redeploy latest baseline to Vercel and re-run production smoke | Pending for latest UI reference refactor |
 | P2 | Start interview preparation workflow | Done, MVP |
 | P2 | Start manual application tracking workflow | Done, MVP |

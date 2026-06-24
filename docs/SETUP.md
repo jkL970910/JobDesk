@@ -2,7 +2,10 @@
 
 This sets up the canonical Zod schemas and local MVP workbench for the Material Library
 and Job Workspace flows, with type-checking, contract tests, JSON Schema generation,
-OpenRouter-backed structured AI calls, persistence, resume source parsing, local embedding retrieval, interview prep packs, manual application tracking, account login/register, optional personal access protection, and Fact Guard verification.
+OpenRouter-backed structured AI calls, persistence, resume source parsing, source chunk
+retrieval support, explainable retrieval, local embedding retrieval, interview prep packs,
+manual application tracking, account login/register, optional personal access protection,
+and Fact Guard verification.
 
 Decisions baked in (per design review):
 1. **Zod (`.ts`) is the source of truth.** JSON Schema is *generated*, never
@@ -106,6 +109,12 @@ Run these from the JobDesk folder (where `package.json` is).
    This loads `.env`, writes temporary rows to the configured JobDesk database,
    and soft-archives the test jobs before finishing. The script runs integration test files serially because they share the configured single-user workspace.
 
+   Focused DB checks that are useful after the latest Evidence Library / RAG routing work:
+   ```
+   JOBDESK_RUN_DB_INTEGRATION=true npx vitest run tests/source-document-repository.integration.test.ts
+   JOBDESK_RUN_DB_INTEGRATION=true npx vitest run tests/profile-evidence-repository.integration.test.ts --testNamePattern "source chunk|profile context|imported note|role field|suggested target|target eligibility"
+   ```
+
 ## What you should see
 
 - `src/schemas/` — the authored Zod schemas (edit these; this is the truth).
@@ -155,7 +164,9 @@ JobDesk/
   `package.json` are exact (no `^`) for reproducibility.
 - This is intentionally still a **thin MVP shell**, not the full JobDesk product.
   The current baseline includes JD analysis, resume source parsing for PDF/DOCX/TXT/Markdown,
-  Profile/Evidence extraction, basic evidence approval/editing, tailored resume generation,
+  Profile/Evidence extraction, basic evidence approval/editing, source chunk indexing,
+  explainable retrieval, typed imported-note resolution, profile context persistence,
+  profile fact provenance, route-aware enrichment target gating, tailored resume generation,
   generated claim ledgers, deterministic Fact Guard revalidation, local embedding indexing,
   interview prep packs, manual application status tracking, account login/register with session cookies,
   legacy bearer-token API compatibility, Drizzle/Postgres persistence, recent job reload,
