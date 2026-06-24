@@ -423,6 +423,7 @@ export type ProfileGapIntent = {
   taskId?: string | null;
 };
 export type MaterialReviewTab =
+  | "library"
   | "enrichment"
   | "projects"
   | "claims"
@@ -552,7 +553,7 @@ export function ProfileEvidenceWorkspace({
   initialFocusedTaskId = null,
   initialProfileGap = null,
   initialSection = "review",
-  initialReviewTab = "enrichment",
+  initialReviewTab = "library",
   initialResumeSourceVersionId = null,
 }: {
   entryIntent?: MaterialEntryIntent;
@@ -571,9 +572,9 @@ export function ProfileEvidenceWorkspace({
   );
   const [isEditingMaterialType, setIsEditingMaterialType] = useState(false);
   const [libraryMode, setLibraryMode] = useState<EvidenceLibraryMode>("library");
-  const [libraryView, setLibraryView] = useState<EvidenceAssetView>("evidence_claims");
+  const [libraryView, setLibraryView] = useState<EvidenceAssetView>("work_experiences");
   const [workQueueView, setWorkQueueView] =
-    useState<EvidenceWorkQueueView>("enrichment");
+    useState<EvidenceWorkQueueView>("imported");
   const [libraryFilters, setLibraryFilters] = useState<EvidenceLibraryFilters>({
     query: "",
     role: "all",
@@ -1565,6 +1566,11 @@ export function ProfileEvidenceWorkspace({
   }
 
   function openReviewDestination(destination: MaterialReviewTab) {
+    if (destination === "library") {
+      setLibraryMode("library");
+      setLibraryView("work_experiences");
+      return;
+    }
     if (destination === "projects") {
       setLibraryMode("library");
       setLibraryView("work_initiatives");
@@ -2581,14 +2587,20 @@ export function ProfileEvidenceWorkspace({
             <button
               data-active={libraryMode === "library"}
               type="button"
-              onClick={() => setLibraryMode("library")}
+              onClick={() => {
+                setLibraryMode("library");
+                setLibraryView("work_experiences");
+              }}
             >
               Library
             </button>
             <button
               data-active={libraryMode === "work_queue"}
               type="button"
-              onClick={() => setLibraryMode("work_queue")}
+              onClick={() => {
+                setLibraryMode("work_queue");
+                setWorkQueueView("imported");
+              }}
             >
               Work Queue
             </button>

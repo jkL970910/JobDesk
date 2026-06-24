@@ -205,6 +205,7 @@ type ResumePrepWorkflowState =
   | "profile_ready";
 
 type MaterialReviewTab =
+  | "library"
   | "enrichment"
   | "projects"
   | "claims"
@@ -302,7 +303,7 @@ export default function HomePage() {
   const [materialInitialSection, setMaterialInitialSection] =
     useState<"review" | "intake">("review");
   const [materialReviewTab, setMaterialReviewTab] =
-    useState<MaterialReviewTab>("enrichment");
+    useState<MaterialReviewTab>("library");
   const [focusedEvidenceTaskId, setFocusedEvidenceTaskId] = useState<string | null>(null);
   const [profileGapIntent, setProfileGapIntent] = useState<ProfileGapIntent | null>(null);
   const [resumeWorkspaceTab, setResumeWorkspaceTab] =
@@ -376,14 +377,14 @@ export default function HomePage() {
     setProfileGapIntent(null);
     setFocusedEvidenceTaskId(null);
     setMaterialInitialSection("review");
-    setMaterialReviewTab("projects");
+    setMaterialReviewTab("library");
     setAppView("evidence");
   }
   function navigateToView(view: View) {
     if (view === "evidence") {
       setProfileGapIntent(null);
       setMaterialInitialSection("review");
-      setMaterialReviewTab("projects");
+      setMaterialReviewTab("library");
     }
     setAppView(view);
   }
