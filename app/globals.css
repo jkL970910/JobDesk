@@ -9177,13 +9177,59 @@ span > .help-hint {
 }
 
 .story-group-row__summary > span,
-.story-target-row__main span:first-child {
+.story-target-row__main span:first-child,
+.story-target-row__eyebrow {
+  align-items: center;
   color: var(--faint);
+  display: flex;
+  flex-wrap: wrap;
   font-family: var(--font-mono);
   font-size: 0.64rem;
   font-weight: 850;
+  gap: 6px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.story-target-row__role-chip {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  display: inline-flex;
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  font-weight: 780;
+  letter-spacing: 0;
+  max-width: min(420px, 100%);
+  overflow: hidden;
+  padding: 3px 7px;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.icon-button {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 850;
+  height: 24px;
+  justify-content: center;
+  line-height: 1;
+  min-width: 24px;
+  padding: 0 7px;
+}
+
+.icon-button:hover:not(:disabled) {
+  background: var(--primary-soft);
+  border-color: rgba(79, 140, 255, 0.28);
+  color: var(--primary-strong);
 }
 
 .story-group-row__summary strong,
@@ -9528,6 +9574,36 @@ span > .help-hint {
   margin: 8px 0 0;
 }
 
+.story-detail-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.story-detail-grid article,
+.story-detail-merge {
+  background: rgba(255, 255, 255, 0.026);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.story-detail-grid article span {
+  color: var(--faint);
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.63rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.story-detail-grid article p {
+  color: var(--ink-soft);
+  margin-top: 6px;
+}
+
 .story-target-row__detail-grid {
   display: grid;
   gap: 12px;
@@ -9539,6 +9615,22 @@ span > .help-hint {
   border-top: 0;
   margin-top: 0;
   padding-top: 0;
+}
+
+.story-detail-merge {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.story-detail-merge strong {
+  color: var(--ink);
+  display: block;
+  font-size: 0.82rem;
+}
+
+.story-detail-merge p {
+  margin-top: 4px;
 }
 
 .evidence-row-table {

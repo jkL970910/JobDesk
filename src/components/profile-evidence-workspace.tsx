@@ -6805,6 +6805,12 @@ function getStoryMissingFields(
   return missing;
 }
 
+function formatStoryMissingAction(field: string) {
+  if (field === "ownership / role") return "Add ownership";
+  if (field === "public-safe wording") return "Add public-safe wording";
+  return `Add ${field}`;
+}
+
 function isStoryEnrichmentTarget(
   project: StoryEnrichmentTarget | {
     title: string;
@@ -9218,7 +9224,32 @@ function StoryTargetRow({
     <article className="story-target-row">
       <div className="story-target-row__main">
         <div>
-          <span>{kind}</span>
+          <span className="story-target-row__eyebrow">
+            {kind}
+            {canAssignRole ? (
+              <>
+                <span className="story-target-row__role-chip">
+                  Role:{" "}
+                  {assignedWorkExperience
+                    ? `${assignedWorkExperience.employer} · ${assignedWorkExperience.role_title}`
+                    : "Unassigned"}
+                </span>
+                <button
+                  className="icon-button"
+                  disabled={!target}
+                  title="Change role assignment"
+                  type="button"
+                  onClick={() => {
+                    setIsEditingAssignment((value) => !value);
+                    setAssignmentMode("existing");
+                    setAssignmentMessage(null);
+                  }}
+                >
+                  Edit
+                </button>
+              </>
+            ) : null}
+          </span>
           <strong>{title}</strong>
           {"internal_title" in story && story.internal_title !== title ? (
             <p>Internal: {story.internal_title}</p>
@@ -9247,9 +9278,9 @@ function StoryTargetRow({
       <div className="story-target-row__meta">
         {missingFields.length > 0 ? (
           <span className="story-target-row__missing">
-            <strong>Missing</strong>
+            <strong>Next fixes</strong>
             {visibleMissingFields.map((field) => (
-              <small key={field}>{field}</small>
+              <small key={field}>{formatStoryMissingAction(field)}</small>
             ))}
             {hiddenMissingCount > 0 ? <small>+{hiddenMissingCount}</small> : null}
           </span>
@@ -9265,14 +9296,14 @@ function StoryTargetRow({
         <small>From: {linkedSource}</small>
         {story.needs_redaction_review ? <small>Redaction review</small> : null}
       </div>
-      {canAssignRole ? (
+      {canAssignRole && isEditingAssignment ? (
         <div
           className="story-target-row__assignment"
-          data-state={assignedWorkExperience && !isEditingAssignment ? "assigned" : "editing"}
+          data-state="editing"
         >
           <div className="story-target-row__assignment-summary">
             <strong>
-              Role
+              Change role
               <span
                 className="help-hint"
                 title="Role assignment only decides which work experience owns this initiative. It does not approve claims for resume use."
@@ -9286,130 +9317,105 @@ function StoryTargetRow({
                 : "Unassigned / standalone"}
             </p>
           </div>
-          {assignedWorkExperience && !isEditingAssignment ? (
-            <div className="story-assignment-confirmed">
-              <small>
-                {[assignedWorkExperience.start_date, assignedWorkExperience.end_date]
-                  .filter(Boolean)
-                  .join(" - ") || "Timeline not set"}
-              </small>
-              <button
-                className="secondary-button secondary-button--quiet"
-                type="button"
-                onClick={() => {
-                  setIsEditingAssignment(true);
-                  setAssignmentMode("existing");
-                  setAssignmentMessage(null);
-                }}
+          <div className="story-assignment-control">
+            <label>
+              <span>Existing role</span>
+              <select
+                disabled={isAssigning || assignmentMode === "new"}
+                value={currentWorkExperienceId}
+                onChange={(event) => void handleAssignExisting(event.target.value)}
               >
-                Change role
+                <option value="">Keep standalone / assign later</option>
+                {workExperiences.map((experience) => (
+                  <option key={experience.id} value={experience.id}>
+                    {experience.employer} · {experience.role_title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="secondary-button secondary-button--quiet"
+              type="button"
+              onClick={() =>
+                setAssignmentMode((mode) => (mode === "new" ? "existing" : "new"))
+              }
+            >
+              {assignmentMode === "new" ? "Use existing role" : "Create new role"}
+            </button>
+            <button
+              className="secondary-button secondary-button--quiet"
+              type="button"
+              onClick={() => {
+                setIsEditingAssignment(false);
+                setAssignmentMode("existing");
+                setAssignmentMessage(null);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+          {assignmentMode === "new" ? (
+            <div className="story-new-role-form">
+              <label>
+                <span>Employer</span>
+                <input
+                  value={newRoleDraft.employer}
+                  onChange={(event) =>
+                    setNewRoleDraft((draft) => ({ ...draft, employer: event.target.value }))
+                  }
+                  placeholder="Company or organization"
+                />
+              </label>
+              <label>
+                <span>Role title</span>
+                <input
+                  value={newRoleDraft.roleTitle}
+                  onChange={(event) =>
+                    setNewRoleDraft((draft) => ({ ...draft, roleTitle: event.target.value }))
+                  }
+                  placeholder="Product Manager, Data Analyst..."
+                />
+              </label>
+              <label>
+                <span>Start date</span>
+                <input
+                  value={newRoleDraft.startDate}
+                  onChange={(event) =>
+                    setNewRoleDraft((draft) => ({ ...draft, startDate: event.target.value }))
+                  }
+                  placeholder="Optional"
+                />
+              </label>
+              <label>
+                <span>End date</span>
+                <input
+                  value={newRoleDraft.endDate}
+                  onChange={(event) =>
+                    setNewRoleDraft((draft) => ({ ...draft, endDate: event.target.value }))
+                  }
+                  placeholder="Optional, e.g. Present"
+                />
+              </label>
+              <label>
+                <span>Role note</span>
+                <input
+                  value={newRoleDraft.summary}
+                  onChange={(event) =>
+                    setNewRoleDraft((draft) => ({ ...draft, summary: event.target.value }))
+                  }
+                  placeholder="Optional user-confirmed context"
+                />
+              </label>
+              <button
+                className="secondary-button"
+                disabled={isAssigning}
+                type="button"
+                onClick={() => void handleCreateRole()}
+              >
+                Create role and assign
               </button>
             </div>
-          ) : (
-            <>
-              <div className="story-assignment-control">
-                <label>
-                  <span>Existing role</span>
-                  <select
-                    disabled={isAssigning || assignmentMode === "new"}
-                    value={currentWorkExperienceId}
-                    onChange={(event) => void handleAssignExisting(event.target.value)}
-                  >
-                    <option value="">Keep standalone / assign later</option>
-                    {workExperiences.map((experience) => (
-                      <option key={experience.id} value={experience.id}>
-                        {experience.employer} · {experience.role_title}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  className="secondary-button secondary-button--quiet"
-                  type="button"
-                  onClick={() =>
-                    setAssignmentMode((mode) => (mode === "new" ? "existing" : "new"))
-                  }
-                >
-                  {assignmentMode === "new" ? "Use existing role" : "Create new role"}
-                </button>
-                {assignedWorkExperience ? (
-                  <button
-                    className="secondary-button secondary-button--quiet"
-                    type="button"
-                    onClick={() => {
-                      setIsEditingAssignment(false);
-                      setAssignmentMode("existing");
-                      setAssignmentMessage(null);
-                    }}
-                  >
-                    Cancel
-                  </button>
-                ) : null}
-              </div>
-              {assignmentMode === "new" ? (
-                <div className="story-new-role-form">
-                  <label>
-                    <span>Employer</span>
-                    <input
-                      value={newRoleDraft.employer}
-                      onChange={(event) =>
-                        setNewRoleDraft((draft) => ({ ...draft, employer: event.target.value }))
-                      }
-                      placeholder="Company or organization"
-                    />
-                  </label>
-                  <label>
-                    <span>Role title</span>
-                    <input
-                      value={newRoleDraft.roleTitle}
-                      onChange={(event) =>
-                        setNewRoleDraft((draft) => ({ ...draft, roleTitle: event.target.value }))
-                      }
-                      placeholder="Product Manager, Data Analyst..."
-                    />
-                  </label>
-                  <label>
-                    <span>Start date</span>
-                    <input
-                      value={newRoleDraft.startDate}
-                      onChange={(event) =>
-                        setNewRoleDraft((draft) => ({ ...draft, startDate: event.target.value }))
-                      }
-                      placeholder="Optional"
-                    />
-                  </label>
-                  <label>
-                    <span>End date</span>
-                    <input
-                      value={newRoleDraft.endDate}
-                      onChange={(event) =>
-                        setNewRoleDraft((draft) => ({ ...draft, endDate: event.target.value }))
-                      }
-                      placeholder="Optional, e.g. Present"
-                    />
-                  </label>
-                  <label>
-                    <span>Role note</span>
-                    <input
-                      value={newRoleDraft.summary}
-                      onChange={(event) =>
-                        setNewRoleDraft((draft) => ({ ...draft, summary: event.target.value }))
-                      }
-                      placeholder="Optional user-confirmed context"
-                    />
-                  </label>
-                  <button
-                    className="secondary-button"
-                    disabled={isAssigning}
-                    type="button"
-                    onClick={() => void handleCreateRole()}
-                  >
-                    Create role and assign
-                  </button>
-                </div>
-              ) : null}
-            </>
-          )}
+          ) : null}
           {assignmentMessage ? (
             <p className={assignmentMessage.ok ? "status" : "error"}>
               {assignmentMessage.text}
@@ -9417,61 +9423,74 @@ function StoryTargetRow({
           ) : null}
         </div>
       ) : null}
-      {canMergeStory ? (
-        <details className="story-target-row__details">
-          <summary>Merge with another story</summary>
-          <p>
-            Use this when two initiatives are fragments of the same project. This story stays,
-            including its role assignment; linked evidence from the selected story moves here.
-          </p>
-          <div className="story-assignment-control">
-            <label>
-              <span>Story to merge into this one</span>
-              <select
-                disabled={isMergingStory}
-                value={mergeTargetId}
-                onChange={(event) => {
-                  setMergeTargetId(event.target.value);
-                  setMergeMessage(null);
-                }}
-              >
-                <option value="">Choose a duplicate story</option>
-                {mergeOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {formatMergeStoryOptionLabel({
-                      claimCount: option.id ? mergeOptionEvidenceCounts?.get(option.id) ?? 0 : 0,
-                      option,
-                      workExperiences,
-                    })}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              className="secondary-button"
-              disabled={isMergingStory || !mergeTargetId}
-              type="button"
-              onClick={() => void handleMergeStory()}
-            >
-              {isMergingStory ? "Merging..." : "Merge selected story"}
-            </button>
-          </div>
-          {mergeMessage ? (
-            <p className={mergeMessage.ok ? "status" : "error"}>{mergeMessage.text}</p>
-          ) : null}
-        </details>
-      ) : null}
       <details className="story-target-row__details">
         <summary>View story detail</summary>
-        {story.context ? <p>Context: {story.context}</p> : null}
-        {story.problem ? <p>Problem: {story.problem}</p> : null}
-        {story.role ? <p>Role: {story.role}</p> : null}
-        {story.external_safe_summary ? <p>External-safe: {story.external_safe_summary}</p> : null}
+        <div className="story-detail-grid">
+          <article>
+            <span>Context</span>
+            <p>{story.context || "No context captured yet."}</p>
+          </article>
+          <article>
+            <span>Problem</span>
+            <p>{story.problem || "No problem statement yet."}</p>
+          </article>
+          <article>
+            <span>Ownership</span>
+            <p>{story.role || "No ownership or role detail yet."}</p>
+          </article>
+          <article>
+            <span>Public-safe summary</span>
+            <p>{story.external_safe_summary || "No public-safe summary yet."}</p>
+          </article>
+        </div>
         <div className="story-target-row__detail-grid">
           <SectionList title="Actions" items={story.actions} />
           <SectionList title="Results" items={story.results} />
           <SectionList title="Metrics" items={metrics} />
         </div>
+        {canMergeStory ? (
+          <section className="story-detail-merge">
+            <div>
+              <strong>Merge duplicate story</strong>
+              <p>Use this only when two initiative cards describe the same project.</p>
+            </div>
+            <div className="story-assignment-control">
+              <label>
+                <span>Story to merge into this one</span>
+                <select
+                  disabled={isMergingStory}
+                  value={mergeTargetId}
+                  onChange={(event) => {
+                    setMergeTargetId(event.target.value);
+                    setMergeMessage(null);
+                  }}
+                >
+                  <option value="">Choose a duplicate story</option>
+                  {mergeOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {formatMergeStoryOptionLabel({
+                        claimCount: option.id ? mergeOptionEvidenceCounts?.get(option.id) ?? 0 : 0,
+                        option,
+                        workExperiences,
+                      })}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="secondary-button"
+                disabled={isMergingStory || !mergeTargetId}
+                type="button"
+                onClick={() => void handleMergeStory()}
+              >
+                {isMergingStory ? "Merging..." : "Merge selected story"}
+              </button>
+            </div>
+            {mergeMessage ? (
+              <p className={mergeMessage.ok ? "status" : "error"}>{mergeMessage.text}</p>
+            ) : null}
+          </section>
+        ) : null}
       </details>
     </article>
   );
