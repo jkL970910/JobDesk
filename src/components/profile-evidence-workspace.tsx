@@ -8568,11 +8568,8 @@ function WorkExperienceList({
   workExperiences: WorkExperienceItem[];
 }) {
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
   const normalizedQuery = query.trim().toLowerCase();
-  const statusOptions = Array.from(new Set(workExperiences.map((experience) => experience.status).filter(Boolean)));
   const visibleWorkExperiences = workExperiences.filter((experience) => {
-    if (statusFilter !== "all" && experience.status !== statusFilter) return false;
     if (!normalizedQuery) return true;
     return [
       experience.employer,
@@ -8623,26 +8620,12 @@ function WorkExperienceList({
             placeholder="Search employer, title, team, location, or dates..."
           />
         </label>
-        <div className="evidence-library-toolbar__filters">
-          <ThemeSelect
-            label="Status"
-            value={statusFilter}
-            options={[
-              { label: "All statuses", value: "all" },
-              ...statusOptions.map((status) => ({
-                label: formatWorkExperienceStatus(status),
-                value: status,
-              })),
-            ]}
-            onChange={setStatusFilter}
-          />
-        </div>
       </section>
       {visibleWorkExperiences.length === 0 ? (
         <div className="empty-state-row">
           <div>
             <strong>No work experiences match these filters.</strong>
-            <p>Clear search or choose another status.</p>
+            <p>Clear search or add source material for this work experience.</p>
           </div>
         </div>
       ) : null}
