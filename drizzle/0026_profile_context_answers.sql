@@ -31,15 +31,27 @@ CREATE TABLE IF NOT EXISTS "profile_context_answers" (
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );--> statement-breakpoint
-ALTER TABLE "profile_context_answers"
-  ADD CONSTRAINT "profile_context_answers_workspace_id_workspaces_id_fk"
-  FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "profile_context_answers"
-  ADD CONSTRAINT "profile_context_answers_source_task_id_enrichment_tasks_id_fk"
-  FOREIGN KEY ("source_task_id") REFERENCES "public"."enrichment_tasks"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "profile_context_answers"
-  ADD CONSTRAINT "profile_context_answers_source_answer_id_enrichment_answers_id_fk"
-  FOREIGN KEY ("source_answer_id") REFERENCES "public"."enrichment_answers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "profile_context_answers"
+    ADD CONSTRAINT "profile_context_answers_workspace_id_workspaces_id_fk"
+    FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "profile_context_answers"
+    ADD CONSTRAINT "profile_context_answers_source_task_id_enrichment_tasks_id_fk"
+    FOREIGN KEY ("source_task_id") REFERENCES "public"."enrichment_tasks"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "profile_context_answers"
+    ADD CONSTRAINT "profile_context_answers_source_answer_id_enrichment_answers_id_fk"
+    FOREIGN KEY ("source_answer_id") REFERENCES "public"."enrichment_answers"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "profile_context_answers_task_idx"
   ON "profile_context_answers" USING btree ("source_task_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "profile_context_answers_workspace_type_idx"

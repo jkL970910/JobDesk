@@ -2305,6 +2305,11 @@ async function applyEvidenceUpdatePatch(
           : args.patch.public_safe_summary_patch,
       metrics: mergeJsonArray(current.metrics, args.patch.metrics_add),
       sensitivityLevel: args.patch.sensitivity_level_patch ?? current.sensitivityLevel,
+      status: "pending",
+      allowedUsage: current.allowedUsage.filter(
+        (usage) => usage !== "resume",
+      ),
+      needsUserConfirmation: 1,
       updatedAt: args.now,
     })
     .where(

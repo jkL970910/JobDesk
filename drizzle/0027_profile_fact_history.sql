@@ -21,18 +21,34 @@ CREATE TABLE IF NOT EXISTS "profile_fact_history" (
   "updated_by" varchar(80) DEFAULT 'user' NOT NULL,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL
 );--> statement-breakpoint
-ALTER TABLE "profile_fact_history"
-  ADD CONSTRAINT "profile_fact_history_workspace_id_workspaces_id_fk"
-  FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "profile_fact_history"
-  ADD CONSTRAINT "profile_fact_history_profile_id_profiles_id_fk"
-  FOREIGN KEY ("profile_id") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "profile_fact_history"
-  ADD CONSTRAINT "profile_fact_history_source_task_id_enrichment_tasks_id_fk"
-  FOREIGN KEY ("source_task_id") REFERENCES "public"."enrichment_tasks"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "profile_fact_history"
-  ADD CONSTRAINT "profile_fact_history_source_document_id_source_documents_id_fk"
-  FOREIGN KEY ("source_document_id") REFERENCES "public"."source_documents"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "profile_fact_history"
+    ADD CONSTRAINT "profile_fact_history_workspace_id_workspaces_id_fk"
+    FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "profile_fact_history"
+    ADD CONSTRAINT "profile_fact_history_profile_id_profiles_id_fk"
+    FOREIGN KEY ("profile_id") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "profile_fact_history"
+    ADD CONSTRAINT "profile_fact_history_source_task_id_enrichment_tasks_id_fk"
+    FOREIGN KEY ("source_task_id") REFERENCES "public"."enrichment_tasks"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "profile_fact_history"
+    ADD CONSTRAINT "profile_fact_history_source_document_id_source_documents_id_fk"
+    FOREIGN KEY ("source_document_id") REFERENCES "public"."source_documents"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "profile_fact_history_profile_field_idx"
   ON "profile_fact_history" USING btree ("profile_id","field","created_at");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "profile_fact_history_workspace_field_idx"

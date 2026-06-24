@@ -3976,27 +3976,80 @@ function applyProfileFactPatch(
     return profile;
   }
   if (patch.field === "education") {
-    profile.education = patch.education.map((item) => ({
-      institution: makeManualProfileField(item.institution, "important"),
-      degree: makeManualProfileField(item.degree, "critical"),
-      field_of_study: item.fieldOfStudy
-        ? makeManualProfileField(item.fieldOfStudy, "important")
-        : null,
-      start_date: item.startDate ? makeManualProfileField(item.startDate, "important") : null,
-      end_date: item.endDate ? makeManualProfileField(item.endDate, "important") : null,
-    }));
+    const nextEducation = patch.education.map(toManualEducationProfileItem);
+    profile.education =
+      patch.mode === "replace"
+        ? dedupeEducationProfileItems(nextEducation)
+        : dedupeEducationProfileItems([
+            ...(Array.isArray(profile.education) ? profile.education : []),
+            ...nextEducation,
+          ]);
     return profile;
   }
   if (patch.field === "skills") {
-    profile.skills = uniqueNonEmptyStrings(patch.skills).map((skill) =>
+    const existingSkills =
+      patch.mode === "replace" ? [] : extractProfileFieldValues(profile.skills);
+    profile.skills = uniqueNonEmptyStrings([...existingSkills, ...patch.skills]).map((skill) =>
       makeManualProfileField(skill, "important"),
     );
     return profile;
   }
-  profile.certifications = uniqueNonEmptyStrings(patch.certifications).map((certification) =>
+  const existingCertifications =
+    patch.mode === "replace" ? [] : extractProfileFieldValues(profile.certifications);
+  profile.certifications = uniqueNonEmptyStrings(
+    [...existingCertifications, ...patch.certifications],
+  ).map((certification) =>
     makeManualProfileField(certification, "important"),
   );
   return profile;
+}
+
+function toManualEducationProfileItem(item: {
+  degree: string;
+  endDate?: string;
+  fieldOfStudy?: string;
+  institution: string;
+  startDate?: string;
+}) {
+  return {
+    institution: makeManualProfileField(item.institution, "important"),
+    degree: makeManualProfileField(item.degree, "critical"),
+    field_of_study: item.fieldOfStudy
+      ? makeManualProfileField(item.fieldOfStudy, "important")
+      : null,
+    start_date: item.startDate ? makeManualProfileField(item.startDate, "important") : null,
+    end_date: item.endDate ? makeManualProfileField(item.endDate, "important") : null,
+  };
+}
+
+function dedupeEducationProfileItems(items: unknown[]) {
+  const seen = new Set<string>();
+  const result: unknown[] = [];
+  for (const item of items) {
+    const key = JSON.stringify([
+      extractEducationFieldValue(item, "institution"),
+      extractEducationFieldValue(item, "degree"),
+      extractEducationFieldValue(item, "field_of_study"),
+      extractEducationFieldValue(item, "end_date"),
+    ]).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
+function extractEducationFieldValue(item: unknown, field: string) {
+  if (!isPlainRecord(item)) return "";
+  return extractProfileFieldValue(item[field]) ?? "";
+}
+
+function extractProfileFieldValues(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .map((item) => extractProfileFieldValue(item))
+        .filter((item): item is string => Boolean(item))
+    : [];
 }
 
 function makeManualProfileField(value: string, tier: FieldTier) {

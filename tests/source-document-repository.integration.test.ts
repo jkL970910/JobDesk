@@ -24,7 +24,7 @@ import {
 import { getCurrentWorkspace } from "../src/server/workspace-repository";
 import type { ResumeSourceParseResult } from "../src/server/resume-source-parser";
 import { registerUser, runWithAuthContext } from "../src/server/auth-service";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
 import { syncPersonalEmbeddings } from "../src/server/embedding-service";
 import {
@@ -285,6 +285,93 @@ describe.skipIf(!runIntegration)("source document lifecycle integration", () => 
             item.reason_for_selection.join(" ").includes("convert to evidence"),
         ),
       ).toBe(true);
+    });
+  });
+
+  it("cleans stale source chunk embeddings when source chunks are rebuilt", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const owner = await registerUser({
+      email: `source-chunk-rebuild-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected test user.");
+
+    await runWithAuthContext(owner.user.id, async () => {
+      const parsed = buildParsedSource(
+        `Source chunk stale cleanup ${suffix}`,
+        [
+          "Built lifecycle analytics instrumentation for onboarding activation dashboards.",
+          "Captured metric definitions, SQL validation rules, stakeholder review notes, rollout risks, and follow-up decisions for resume evidence extraction.",
+          "Documented additional source-only context about product adoption, weekly reporting, partner dependencies, launch timeline, and ownership boundaries.",
+          "Recorded detailed implementation notes about schema quality, event taxonomy naming, dashboard QA, and retention cohort validation.",
+          "Stored retrospective source material for future enrichment, but none of this raw chunk text should bypass evidence conversion.",
+          ...Array.from({ length: 18 }, (_, index) =>
+            `Extended source paragraph ${index} covers activation cohort instrumentation, launch readiness, stakeholder alignment, validation workflow, metric governance, ownership boundaries, reporting cadence, and enrichment-only supporting material.`,
+          ),
+        ].join(" "),
+      );
+      const saved = await persistParsedSourceDocument({
+        sourceType: "work_summary",
+        parsed,
+      });
+      if (saved.status !== "saved") throw new Error("Expected saved source.");
+
+      const db = getDb();
+      const sync = await syncPersonalEmbeddings();
+      if (sync.status !== "saved") throw new Error("Expected saved embeddings.");
+
+      const initialChunks = await db
+        .select()
+        .from(sourceChunks)
+        .where(eq(sourceChunks.sourceDocumentId, saved.sourceDocumentId));
+      expect(initialChunks.length).toBeGreaterThan(1);
+      const initialChunkIds = initialChunks.map((chunk) => chunk.id);
+
+      const initialEmbeddings = await db
+        .select()
+        .from(embeddings)
+        .where(
+          and(
+            eq(embeddings.workspaceId, initialChunks[0]!.workspaceId),
+            eq(embeddings.indexType, "source_chunk_index"),
+            inArray(embeddings.sourceEntityId, initialChunkIds),
+          ),
+        );
+      expect(initialEmbeddings.length).toBe(initialChunks.length);
+
+      const shorterText = [
+        `Source chunk stale cleanup ${suffix}`,
+        "Built lifecycle analytics instrumentation and captured concise activation evidence context for later conversion.",
+      ].join("\n");
+      await db
+        .update(sourceDocuments)
+        .set({
+          contentText: shorterText,
+          contentHash: buildSourceContentHash(shorterText),
+          lifecycleStatus: "parsed",
+          updatedAt: new Date(),
+        })
+        .where(eq(sourceDocuments.id, saved.sourceDocumentId));
+
+      await syncPersonalEmbeddings();
+
+      const rebuiltChunks = await db
+        .select()
+        .from(sourceChunks)
+        .where(eq(sourceChunks.sourceDocumentId, saved.sourceDocumentId));
+      expect(rebuiltChunks.length).toBe(1);
+
+      const staleEmbeddings = await db
+        .select()
+        .from(embeddings)
+        .where(
+          and(
+            eq(embeddings.workspaceId, rebuiltChunks[0]!.workspaceId),
+            eq(embeddings.indexType, "source_chunk_index"),
+            inArray(embeddings.sourceEntityId, initialChunkIds.slice(1)),
+          ),
+        );
+      expect(staleEmbeddings).toHaveLength(0);
     });
   });
 

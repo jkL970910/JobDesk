@@ -555,10 +555,11 @@ describe("Profile fact patch request", () => {
       buildProfileFactPatchFromText(
         "certifications",
         "Certification name: AWS Certified Cloud Practitioner\nIssuer: AWS",
-        { taskId: "11111111-1111-4111-8111-111111111111" },
+        { mode: "replace", taskId: "11111111-1111-4111-8111-111111111111" },
       ),
     ).toEqual({
       field: "certifications",
+      mode: "replace",
       certifications: ["AWS Certified Cloud Practitioner · Issuer: AWS"],
       taskId: "11111111-1111-4111-8111-111111111111",
     });

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const trimmedText = z.string().trim().max(500);
 const optionalTrimmedText = trimmedText.optional();
+const listPatchMode = z.enum(["append", "replace"]).default("append");
 
 export const ProfileFactField = z.enum([
   "certifications",
@@ -44,16 +45,19 @@ export const ProfileFactPatchRequest = z.discriminatedUnion("field", [
   z.object({
     field: z.literal("education"),
     education: z.array(EducationFactPatchItem).max(20),
+    mode: listPatchMode.optional(),
     taskId: z.string().uuid().optional(),
   }),
   z.object({
     field: z.literal("skills"),
     skills: z.array(trimmedText.min(1)).max(200),
+    mode: listPatchMode.optional(),
     taskId: z.string().uuid().optional(),
   }),
   z.object({
     field: z.literal("certifications"),
     certifications: z.array(trimmedText.min(1)).max(100),
+    mode: listPatchMode.optional(),
     taskId: z.string().uuid().optional(),
   }),
 ]);
@@ -62,7 +66,7 @@ export type ProfileFactPatchRequest = z.infer<typeof ProfileFactPatchRequest>;
 export function buildProfileFactPatchFromText(
   field: ProfileFactField,
   draft: string,
-  options: { taskId?: string | null } = {},
+  options: { mode?: "append" | "replace"; taskId?: string | null } = {},
 ): ProfileFactPatchRequest | null {
   const lines = draft
     .split(/\r?\n/)
@@ -70,6 +74,7 @@ export function buildProfileFactPatchFromText(
     .filter(Boolean);
   const values = parseLabelledDraft(lines);
   const base = options.taskId ? { taskId: options.taskId } : {};
+  const listMode = options.mode ? { mode: options.mode } : {};
   if (field === "contact") {
     const links = [
       values.linkedin,
@@ -105,6 +110,7 @@ export function buildProfileFactPatchFromText(
     return {
       ...base,
       field: "education",
+      ...listMode,
       education: [
         {
           degree: degree ?? "Education details",
@@ -132,7 +138,7 @@ export function buildProfileFactPatchFromText(
     ]
       .filter(Boolean)
       .join(" · ");
-    return { ...base, field: "certifications", certifications: [detail] };
+    return { ...base, field: "certifications", ...listMode, certifications: [detail] };
   }
   const skills = lines.flatMap((line) => {
     const value = line.includes(":") ? line.slice(line.indexOf(":") + 1) : line;
@@ -141,7 +147,7 @@ export function buildProfileFactPatchFromText(
       .map((part) => part.trim())
       .filter(Boolean);
   });
-  return skills.length > 0 ? { ...base, field: "skills", skills } : null;
+  return skills.length > 0 ? { ...base, field: "skills", ...listMode, skills } : null;
 }
 
 function parseLabelledDraft(lines: string[]) {

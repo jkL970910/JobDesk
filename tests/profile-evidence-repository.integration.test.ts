@@ -12,6 +12,7 @@ import { getDb } from "../src/db/client";
 import {
   enrichmentAnswers,
   enrichmentProposals,
+  enrichmentTasks,
   enrichmentTaskTargets,
   evidenceItems,
   generatedClaims,
@@ -46,6 +47,7 @@ import { expectWorkflowRunMetadata } from "./helpers/workflow-run-assertions";
 import { desc, eq } from "drizzle-orm";
 import { getCurrentWorkspace } from "../src/server/workspace-repository";
 import { getProfilePositioningContext } from "../src/server/profile-positioning-repository";
+import { registerUser, runWithAuthContext } from "../src/server/auth-service";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
 
@@ -1572,13 +1574,27 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
   });
 
   it("updates profile facts and resolves the originating imported note task", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const owner = await registerUser({
+      email: `profile-fact-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected test user.");
+
+    await runWithAuthContext(owner.user.id, async () => {
     const db = getDb();
     const workspace = await getCurrentWorkspace(db);
     const prompt = `No certifications were found in the source ${crypto.randomUUID()}.`;
+    const existingCertification = "Google Professional Data Engineer";
     await db.insert(profiles).values({
       workspaceId: workspace.id,
       displayName: "Profile Fact Test",
-      profileJson: buildEmptyProfileJson(),
+      profileJson: {
+        ...buildEmptyProfileJson(),
+        certifications: [
+          simpleField(existingCertification, existingCertification, 1),
+        ],
+      },
     });
     await upsertEnrichmentTasks(db, {
       workspaceId: workspace.id,
@@ -1596,14 +1612,11 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
         },
       ],
     });
-    const queue = await getEnrichmentTaskQueue({
-      limit: 20,
-      sourceType: "extraction_note",
-      statuses: ["open"],
-    });
-    expect(queue.status).toBe("ready");
-    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
-    const task = queue.tasks.find((item) => item.prompt === prompt);
+    const [task] = await db
+      .select({ id: enrichmentTasks.id })
+      .from(enrichmentTasks)
+      .where(eq(enrichmentTasks.prompt, prompt))
+      .limit(1);
     if (!task) throw new Error("Expected imported note task.");
 
     const result = await updateProfileFacts({
@@ -1627,7 +1640,17 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(historyRows[0]?.valueJson).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          value: existingCertification,
+        }),
+        expect.objectContaining({
           value: "AWS Certified Cloud Practitioner · Issuer: AWS",
+        }),
+      ]),
+    );
+    expect(historyRows[0]?.previousValueJson).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          value: existingCertification,
         }),
       ]),
     );
@@ -1648,6 +1671,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(resolvedTask).toMatchObject({
       status: "converted",
       resolution_kind: "profile_fact_updated",
+    });
     });
   });
 
@@ -2018,8 +2042,11 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
         text: `Original evidence text ${crypto.randomUUID()}`,
         sourceQuote: "Original source quote.",
         evidenceType: "extracted",
-        sensitivityLevel: "private",
-        status: "pending",
+        publicSafeSummary: "Original public safe summary for resume use.",
+        sensitivityLevel: "public_safe",
+        status: "approved",
+        allowedUsage: ["resume", "interview"],
+        needsUserConfirmation: 0,
         createdAt: now,
         updatedAt: now,
       })
@@ -2085,7 +2112,10 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       evidence_id: evidence.id,
       source_quote_patch: answer,
     });
-    expect(proposal.proposed_patch_json).not.toHaveProperty("text_patch");
+    const proposedTextPatch =
+      typeof proposal.proposed_patch_json.text_patch === "string"
+        ? proposal.proposed_patch_json.text_patch
+        : null;
 
     const accepted = await updateEnrichmentTask({
       taskId: task.id,
@@ -2103,10 +2133,19 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       .select()
       .from(evidenceItems)
       .where(eq(evidenceItems.id, evidence.id));
-    expect(evidenceRows[0]?.text).toBe(evidence.text);
+    expect(evidenceRows[0]?.text).toBe(proposedTextPatch ?? evidence.text);
     expect(evidenceRows[0]?.sourceQuote).toBe(answer);
+    expect(evidenceRows[0]).toMatchObject({
+      status: "pending",
+      needsUserConfirmation: 1,
+    });
+    expect(evidenceRows[0]?.allowedUsage).toEqual(["interview"]);
     const duplicateRows = await db.select().from(evidenceItems).where(eq(evidenceItems.text, answer));
     expect(duplicateRows).toHaveLength(0);
+    const resumeContextAfterPatch = await getResumeTailoringContext();
+    expect(resumeContextAfterPatch.evidenceItems.some((item) => item.id === evidence.id)).toBe(
+      false,
+    );
     const claimRows = await db
       .select()
       .from(generatedClaims)

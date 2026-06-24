@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { getDb, hasDatabaseUrl } from "../db/client";
-import { sourceChunks, sourceDocuments } from "../db/schema";
+import { embeddings, sourceChunks, sourceDocuments } from "../db/schema";
 import { embedTextLocal, localEmbeddingModel } from "./embedding-service";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 
@@ -302,6 +302,16 @@ async function deleteSourceChunksForSourceDocument(
       ),
     );
   if (existing.length === 0) return 0;
+  await db.delete(embeddings).where(
+    and(
+      eq(embeddings.workspaceId, workspaceId),
+      eq(embeddings.indexType, sourceChunkIndexType),
+      inArray(
+        embeddings.sourceEntityId,
+        existing.map((chunk) => chunk.id),
+      ),
+    ),
+  );
   await db
     .delete(sourceChunks)
     .where(

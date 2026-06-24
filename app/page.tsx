@@ -1623,8 +1623,9 @@ function ProfileReferenceView({
 
   function openProfileFactEditor(gap: ProfileGapIntent) {
     const copy = profileFactInlineCopy(gap.field);
+    const existingDraft = buildProfileFactDraftFromExisting(gap.field, profileFacts);
     setActiveProfileFactEditor(gap);
-    setProfileFactDraft(copy.template);
+    setProfileFactDraft(existingDraft || copy.template);
     setProfileActionStatus(null);
   }
 
@@ -1655,7 +1656,11 @@ function ProfileReferenceView({
       setProfileActionStatus("Add at least one profile fact before saving.");
       return;
     }
-    const patch = buildProfileFactPatchFromText(activeProfileFactEditor.field, trimmed);
+    const patch = buildProfileFactPatchFromText(activeProfileFactEditor.field, trimmed, {
+      mode: hasExistingProfileFact(activeProfileFactEditor.field, profileFacts)
+        ? "replace"
+        : "append",
+    });
     if (!patch) {
       setProfileActionStatus("Add at least one usable profile fact before saving.");
       return;
@@ -3069,6 +3074,48 @@ function profileSnapshotCopy(state: ResumePrepWorkflowState) {
     return "Profile facts are partially available. Review claims and enrich thin story targets before treating this as ready.";
   }
   return "Upload and review a resume before profile facts can be shown.";
+}
+
+function hasExistingProfileFact(
+  field: ProfileGapIntent["field"],
+  facts: ReturnType<typeof extractProfileFacts>,
+) {
+  if (field === "contact") return Boolean(facts.name || facts.email || facts.phone);
+  if (field === "location") return Boolean(facts.location);
+  if (field === "education") return facts.education.length > 0;
+  if (field === "certifications") return facts.certifications.length > 0;
+  if (field === "skills") return facts.skills.length > 0;
+  return false;
+}
+
+function buildProfileFactDraftFromExisting(
+  field: ProfileGapIntent["field"],
+  facts: ReturnType<typeof extractProfileFacts>,
+) {
+  if (field === "contact") {
+    const lines = [
+      facts.name ? `Name: ${facts.name}` : null,
+      facts.email ? `Email: ${facts.email}` : null,
+      facts.phone ? `Phone: ${facts.phone}` : null,
+      facts.location ? `City / region: ${facts.location}` : null,
+    ].filter(Boolean);
+    return lines.join("\n");
+  }
+  if (field === "location") {
+    return facts.location ? `City / region: ${facts.location}` : "";
+  }
+  if (field === "education") {
+    return facts.education
+      .map((item) => `School: ${item}\nDegree / program: ${item}`)
+      .join("\n\n");
+  }
+  if (field === "certifications") {
+    return facts.certifications.map((item) => `Certification name: ${item}`).join("\n\n");
+  }
+  if (field === "skills") {
+    return facts.skills.join(", ");
+  }
+  return "";
 }
 
 function profileFactInlineCopy(field: ProfileGapIntent["field"]) {
