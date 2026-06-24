@@ -9130,10 +9130,13 @@ function StoryTargetRow({
   });
   const readiness = getStoryReadiness(story);
   const metrics = story.metrics?.map((metric) => metric.value) ?? [];
+  const linkedClaimsNeedReview = evidenceItems.some(
+    (item) => getEvidenceReadiness(item).state !== "resume_ready",
+  );
   const primaryAction: "Review STAR story" | "Review claims" | "Enrich story" =
     readiness.state === "story_ready"
       ? "Review STAR story"
-      : evidenceItems.length > 0
+      : linkedClaimsNeedReview
         ? "Review claims"
         : "Enrich story";
   const missingFields = getStoryMissingFields(story);
