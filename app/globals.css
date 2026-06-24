@@ -9141,6 +9141,31 @@ span > .help-hint {
   overflow: hidden;
 }
 
+.library-inline-filter {
+  align-items: center;
+  display: flex;
+  justify-content: flex-end;
+  margin: -2px 0 12px;
+}
+
+.library-inline-filter label {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 0.72rem;
+  font-weight: 780;
+  gap: 8px;
+}
+
+.library-inline-filter select {
+  background: rgba(8, 12, 20, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  min-height: 34px;
+  padding: 7px 32px 7px 11px;
+}
+
 .story-table .story-target-row,
 .story-table .story-group-row {
   border-bottom: 1px solid var(--line);
@@ -9386,6 +9411,60 @@ span > .help-hint {
   gap: 8px;
   grid-column: 1 / -1;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.work-experience-row__links {
+  align-items: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 130px minmax(0, 1fr) auto;
+  padding: 10px 14px;
+}
+
+.work-experience-row__links > span {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.work-experience-row__links > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.work-experience-row__links small {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 780;
+  padding: 4px 7px;
+}
+
+.work-experience-row__editor {
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
+  padding: 12px 14px;
+}
+
+.work-experience-row__editor textarea {
+  background: rgba(8, 12, 20, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.work-experience-row__summary-field {
+  grid-column: span 2;
 }
 
 .story-new-role-form button {
@@ -10105,6 +10184,15 @@ span > .help-hint {
 
   .story-target-row__detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .work-experience-row__links {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .work-experience-row__summary-field {
+    grid-column: 1 / -1;
   }
 
   .library-readiness article,

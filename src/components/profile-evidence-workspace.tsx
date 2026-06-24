@@ -430,7 +430,7 @@ export type MaterialReviewTab =
   | "cleanup"
   | "stories";
 type EvidenceLibraryMode = "library" | "work_queue";
-type EvidenceAssetView = "all" | "stories" | "interview_stories";
+type EvidenceAssetView = "work_experiences" | "work_initiatives" | "evidence_claims" | "star_stories";
 type EvidenceWorkQueueView = "enrichment" | "imported" | "claims" | "unlinked" | "cleanup";
 type EvidenceLibraryFilters = {
   query: string;
@@ -571,7 +571,7 @@ export function ProfileEvidenceWorkspace({
   );
   const [isEditingMaterialType, setIsEditingMaterialType] = useState(false);
   const [libraryMode, setLibraryMode] = useState<EvidenceLibraryMode>("library");
-  const [libraryView, setLibraryView] = useState<EvidenceAssetView>("all");
+  const [libraryView, setLibraryView] = useState<EvidenceAssetView>("evidence_claims");
   const [workQueueView, setWorkQueueView] =
     useState<EvidenceWorkQueueView>("enrichment");
   const [libraryFilters, setLibraryFilters] = useState<EvidenceLibraryFilters>({
@@ -1567,12 +1567,12 @@ export function ProfileEvidenceWorkspace({
   function openReviewDestination(destination: MaterialReviewTab) {
     if (destination === "projects") {
       setLibraryMode("library");
-      setLibraryView("stories");
+      setLibraryView("work_initiatives");
       return;
     }
     if (destination === "stories") {
       setLibraryMode("library");
-      setLibraryView("interview_stories");
+      setLibraryView("star_stories");
       return;
     }
     setLibraryMode("work_queue");
@@ -1585,6 +1585,27 @@ export function ProfileEvidenceWorkspace({
   function openLibraryAssetView(view: EvidenceAssetView) {
     setLibraryMode("library");
     setLibraryView(view);
+  }
+
+  function openImportedMaterialReview(task: EnrichmentTaskItem) {
+    setActiveSection("review");
+    setLibraryMode("library");
+    if (task.expected_action === "edit_role_field" || task.note_kind === "missing_role_field") {
+      setLibraryView("work_experiences");
+      setStatus("Review extracted work experiences and edit role-level fields.");
+      return;
+    }
+    if (task.expected_action === "add_profile_fact" || task.expected_action === "edit_profile_fact") {
+      openProfileFactFromImportedNote(task);
+      return;
+    }
+    if (task.note_kind === "evidence_gap") {
+      setLibraryView("evidence_claims");
+      setStatus("Review imported evidence claims and convert useful details into approved evidence.");
+      return;
+    }
+    setLibraryView("work_initiatives");
+    setStatus("Review imported work initiatives and source-material extraction.");
   }
 
   function openWorkQueueView(view: EvidenceWorkQueueView) {
@@ -1794,7 +1815,7 @@ export function ProfileEvidenceWorkspace({
       targetType: target.targetType,
       title: target.targetTitle,
     });
-    openLibraryAssetView("interview_stories");
+    openLibraryAssetView("star_stories");
   }
 
   async function updateEvidence(
@@ -2582,41 +2603,44 @@ export function ProfileEvidenceWorkspace({
               />
               <div className="review-switcher review-switcher--library" role="tablist" aria-label="Library asset views">
                 <button
-                  data-active={libraryView === "all"}
+                  data-active={libraryView === "work_experiences"}
                   type="button"
-                  onClick={() => openLibraryAssetView("all")}
+                  onClick={() => openLibraryAssetView("work_experiences")}
+                >
+                  Work Experience ({workExperiences.length})
+                </button>
+                <button
+                  data-active={libraryView === "work_initiatives"}
+                  type="button"
+                  onClick={() => openLibraryAssetView("work_initiatives")}
+                >
+                  Work Initiatives ({initiatives.length + portfolioProjects.length})
+                </button>
+                <button
+                  data-active={libraryView === "evidence_claims"}
+                  type="button"
+                  onClick={() => openLibraryAssetView("evidence_claims")}
                 >
                   Evidence Claims ({allEvidenceItems.length})
                 </button>
                 <button
-                  data-active={libraryView === "stories"}
+                  data-active={libraryView === "star_stories"}
                   type="button"
-                  onClick={() => openLibraryAssetView("stories")}
-                >
-                  Story Context ({workExperiences.length} roles · {initiatives.length + portfolioProjects.length} stories)
-                </button>
-                <button
-                  data-active={libraryView === "interview_stories"}
-                  type="button"
-                  onClick={() => openLibraryAssetView("interview_stories")}
+                  onClick={() => openLibraryAssetView("star_stories")}
                 >
                   STAR Stories ({starStories.length})
                 </button>
               </div>
-              {libraryView === "all" ? (
-                <EvidenceList
-                  description="Browse approved reusable evidence. Items that still need review live in Work Queue."
-                  emptyMessage="No evidence matches the current library filters."
-                  items={allEvidenceItems}
-                  mode="library"
-                  onUpdate={updateEvidence}
-                  projects={projectCards}
-                  linkTargets={linkTargets}
-                  title="All Evidence"
+              {libraryView === "work_experiences" ? (
+                <WorkExperienceList
+                  evidenceItems={evidenceItems}
+                  initiatives={initiatives}
+                  onRefresh={() => refreshLibraryAfterMutation()}
+                  workExperiences={workExperiences}
                 />
               ) : null}
-              {libraryView === "stories" ? (
-                <StoryMaterialList
+              {libraryView === "work_initiatives" ? (
+                <WorkInitiativeList
                   evidenceItems={evidenceItems}
                   initiatives={initiatives}
                   onMergeStory={mergeStoryTargetsManually}
@@ -2628,7 +2652,19 @@ export function ProfileEvidenceWorkspace({
                   workExperiences={workExperiences}
                 />
               ) : null}
-              {libraryView === "interview_stories" ? (
+              {libraryView === "evidence_claims" ? (
+                <EvidenceList
+                  description="Browse approved reusable evidence. Items that still need review live in Work Queue."
+                  emptyMessage="No evidence matches the current library filters."
+                  items={allEvidenceItems}
+                  mode="library"
+                  onUpdate={updateEvidence}
+                  projects={projectCards}
+                  linkTargets={linkTargets}
+                  title="All Evidence"
+                />
+              ) : null}
+              {libraryView === "star_stories" ? (
                 <StarStoryPanel
                   focus={starStoryFocus}
                   onImproveStory={startProjectEnrichment}
@@ -2693,7 +2729,7 @@ export function ProfileEvidenceWorkspace({
               onCreateLibraryItems={openCreateLibraryItemsForTask}
               onOpenProfileFact={openProfileFactFromImportedNote}
               onRefresh={() => refreshLibraryAfterMutation()}
-              onReviewImportedMaterial={() => openLibraryAssetView("stories")}
+              onReviewImportedMaterial={openImportedMaterialReview}
               onReturnToIntake={() => setActiveSection("intake")}
               onUpdate={updateEnrichmentTask}
               portfolioProjects={portfolioProjects}
@@ -2712,7 +2748,7 @@ export function ProfileEvidenceWorkspace({
               onCreateLibraryItems={openCreateLibraryItemsForTask}
               onOpenProfileFact={openProfileFactFromImportedNote}
               onRefresh={() => refreshLibraryAfterMutation()}
-              onReviewImportedMaterial={() => openLibraryAssetView("stories")}
+              onReviewImportedMaterial={openImportedMaterialReview}
               onReturnToIntake={() => setActiveSection("intake")}
               onUpdate={updateEnrichmentTask}
               portfolioProjects={portfolioProjects}
@@ -3747,7 +3783,7 @@ function EnrichmentTaskQueue({
   onCreateLibraryItems: (task: EnrichmentTaskItem) => void;
   onOpenProfileFact: (task: EnrichmentTaskItem) => void;
   onRefresh: () => Promise<void>;
-  onReviewImportedMaterial: () => void;
+  onReviewImportedMaterial: (task: EnrichmentTaskItem) => void;
   onReturnToIntake: () => void;
   onUpdate: (
     taskId: string,
@@ -3956,7 +3992,7 @@ function EnrichmentTaskQueue({
               }
               onCreateLibraryItems={() => onCreateLibraryItems(selectedTask)}
               onOpenProfileFact={() => onOpenProfileFact(selectedTask)}
-              onReviewImportedMaterial={onReviewImportedMaterial}
+              onReviewImportedMaterial={() => onReviewImportedMaterial(selectedTask)}
               onAcknowledge={() => void handleUpdate(selectedTask, { action: "acknowledge" })}
               onConvertToQuestion={() =>
                 void handleUpdate(selectedTask, { action: "convert_to_enrichment_question" })
@@ -4544,8 +4580,6 @@ function SourceSectionReviewPane({
         ? () => setCustomizing(true)
       : actionModel.primaryAction === "add_material"
         ? onOpenProfileFact
-      : actionModel.primaryAction === "mark_reviewed"
-        ? onMarkImportReviewed
       : actionModel.primaryAction === "request_rerun"
         ? onRequestRerun
         : onReviewImportedMaterial;
@@ -4681,7 +4715,7 @@ function SourceSectionReviewPane({
         ) : null}
         <div className="source-section-review__actions">
           <button
-            className="primary-action"
+            className="primary-button"
             disabled={isPending}
             type="button"
             onClick={handlePrimaryAction}
@@ -4736,7 +4770,7 @@ function SourceSectionReviewPane({
               type="button"
               onClick={onReviewImportedMaterial}
             >
-              Review imported library items
+              Review imported items
             </button>
             <button
               className="secondary-button secondary-button--quiet"
@@ -4836,14 +4870,14 @@ function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: strin
     return {
       description: isRerun
         ? "This note reports an import limit. Mark it for rerun if the source should be processed again."
-        : "This note reports an import limit or source classification. Mark it reviewed once you have checked the imported material.",
+        : "This note reports an import limit or source classification. Review extracted roles and initiatives before closing it.",
       eyebrow: "Import review",
       heading: isRerun ? "Rerun extraction if needed." : "Review imported material.",
-      primaryAction: isRerun ? ("request_rerun" as const) : ("mark_reviewed" as const),
-      primaryLabel: isRerun ? "Mark for rerun" : "Mark import reviewed",
+      primaryAction: isRerun ? ("request_rerun" as const) : ("review_import" as const),
+      primaryLabel: isRerun ? "Mark for rerun" : "Review imported items",
       recommendedAction: isRerun
         ? "Use rerun when this import was capped or incomplete. Otherwise review or dismiss it."
-        : "Mark reviewed after checking the extracted roles, stories, and source material.",
+        : "Check the extracted roles, initiatives, and source material before marking this reviewed.",
       title: "Imported material needs review",
     };
   }
@@ -8372,7 +8406,233 @@ function EvidenceCard({
   );
 }
 
-function StoryMaterialList({
+function WorkExperienceList({
+  evidenceItems,
+  initiatives,
+  onRefresh,
+  workExperiences,
+}: {
+  evidenceItems: EvidenceCardItem[];
+  initiatives: InitiativeItem[];
+  onRefresh: () => Promise<void>;
+  workExperiences: WorkExperienceItem[];
+}) {
+  if (workExperiences.length === 0) {
+    return (
+      <section className="section-block">
+        <div className="section-block__top">
+          <div>
+            <h3>Work Experience</h3>
+            <p>Import a resume or source document to create role-level work experience records.</p>
+          </div>
+          <span>0 roles</span>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="section-block">
+      <div className="section-block__top">
+        <div>
+          <h3>Work Experience</h3>
+          <p>
+            Role-level containers for employer, title, team, dates, location, and high-level scope.
+            Detailed projects live in Work Initiatives.
+          </p>
+        </div>
+        <span>{workExperiences.length} roles</span>
+      </div>
+      <div className="story-table story-table--work result-stack--inner">
+        {workExperiences.map((experience) => (
+          <WorkExperienceRow
+            directEvidence={evidenceItems.filter(
+              (item) => item.related_work_experience_id === experience.id,
+            )}
+            experience={experience}
+            initiatives={initiatives.filter(
+              (initiative) => initiative.work_experience_id === experience.id,
+            )}
+            key={experience.id ?? `${experience.employer}-${experience.role_title}`}
+            onRefresh={onRefresh}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function WorkExperienceRow({
+  directEvidence,
+  experience,
+  initiatives,
+  onRefresh,
+}: {
+  directEvidence: EvidenceCardItem[];
+  experience: WorkExperienceItem;
+  initiatives: InitiativeItem[];
+  onRefresh: () => Promise<void>;
+}) {
+  const { fetchJson } = useAccess();
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [draft, setDraft] = useState({
+    endDate: experience.end_date ?? "",
+    location: experience.location ?? "",
+    startDate: experience.start_date ?? "",
+    summary: experience.summary ?? "",
+    team: experience.team ?? "",
+  });
+  useEffect(() => {
+    setDraft({
+      endDate: experience.end_date ?? "",
+      location: experience.location ?? "",
+      startDate: experience.start_date ?? "",
+      summary: experience.summary ?? "",
+      team: experience.team ?? "",
+    });
+    setMessage(null);
+    setIsEditing(false);
+  }, [experience.id, experience.end_date, experience.location, experience.start_date, experience.summary, experience.team]);
+
+  async function saveRoleDetails() {
+    if (!experience.id) {
+      setMessage({ ok: false, text: "This role has not been saved yet." });
+      return;
+    }
+    setIsSaving(true);
+    setMessage({ ok: true, text: "Saving role details..." });
+    try {
+      const response = await fetchJson(`/api/work-experiences/${experience.id}`, {
+        body: JSON.stringify({
+          action: "update_fields",
+          endDate: draft.endDate.trim() || null,
+          location: draft.location.trim() || null,
+          startDate: draft.startDate.trim() || null,
+          summary: draft.summary.trim() || null,
+          team: draft.team.trim() || null,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) {
+        setMessage({ ok: false, text: payload?.error ?? "Could not save role details." });
+        return;
+      }
+      await onRefresh();
+      setMessage({ ok: true, text: "Role details saved." });
+      setIsEditing(false);
+    } catch (error) {
+      setMessage({ ok: false, text: error instanceof Error ? error.message : "Could not save role details." });
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <article className="story-group-row work-experience-row">
+      <div className="story-group-row__summary">
+        <span>Work experience</span>
+        <div>
+          <strong>{experience.employer} · {experience.role_title}</strong>
+          <p>
+            {[experience.team, experience.location, experience.start_date, experience.end_date]
+              .filter(Boolean)
+              .join(" · ") || "Role details need review"}
+          </p>
+        </div>
+        <em>{experience.status}</em>
+        <small>{initiatives.length} initiatives · {directEvidence.length} direct claims</small>
+      </div>
+      {experience.summary ? (
+        <p className="story-group-row__note">{experience.summary}</p>
+      ) : null}
+      <div className="work-experience-row__links">
+        <span>Linked initiatives</span>
+        <div>
+          {initiatives.length > 0 ? (
+            initiatives.map((initiative) => (
+              <small key={initiative.id ?? initiative.internal_title}>
+                {initiative.external_safe_title ?? initiative.internal_title}
+              </small>
+            ))
+          ) : (
+            <small>No initiatives linked yet</small>
+          )}
+        </div>
+        <button
+          className="secondary-button secondary-button--quiet"
+          type="button"
+          onClick={() => {
+            setIsEditing((value) => !value);
+            setMessage(null);
+          }}
+        >
+          {isEditing ? "Cancel edit" : "Edit role details"}
+        </button>
+      </div>
+      {isEditing ? (
+        <div className="story-new-role-form work-experience-row__editor">
+          <label>
+            <span>Team</span>
+            <input
+              value={draft.team}
+              onChange={(event) => setDraft((current) => ({ ...current, team: event.target.value }))}
+              placeholder="Team or org"
+            />
+          </label>
+          <label>
+            <span>Location</span>
+            <input
+              value={draft.location}
+              onChange={(event) => setDraft((current) => ({ ...current, location: event.target.value }))}
+              placeholder="City, country, or remote"
+            />
+          </label>
+          <label>
+            <span>Start date</span>
+            <input
+              value={draft.startDate}
+              onChange={(event) => setDraft((current) => ({ ...current, startDate: event.target.value }))}
+              placeholder="YYYY or Month YYYY"
+            />
+          </label>
+          <label>
+            <span>End date</span>
+            <input
+              value={draft.endDate}
+              onChange={(event) => setDraft((current) => ({ ...current, endDate: event.target.value }))}
+              placeholder="Present or end date"
+            />
+          </label>
+          <label className="work-experience-row__summary-field">
+            <span>High-level role summary</span>
+            <textarea
+              value={draft.summary}
+              onChange={(event) => setDraft((current) => ({ ...current, summary: event.target.value }))}
+              placeholder="One or two sentences about scope, team, and ownership."
+            />
+          </label>
+          <button
+            className="secondary-button"
+            disabled={isSaving}
+            type="button"
+            onClick={() => void saveRoleDetails()}
+          >
+            {isSaving ? "Saving..." : "Save role details"}
+          </button>
+          {message ? (
+            <p className={message.ok ? "status" : "error"}>{message.text}</p>
+          ) : null}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function WorkInitiativeList({
   evidenceItems,
   initiatives,
   onAssignStory,
@@ -8401,6 +8661,15 @@ function StoryMaterialList({
 }) {
   const hasAny =
     workExperiences.length > 0 || initiatives.length > 0 || portfolioProjects.length > 0;
+  const [roleFilter, setRoleFilter] = useState("all");
+  const visibleInitiatives = roleFilter === "all"
+    ? initiatives
+    : roleFilter === "standalone"
+      ? initiatives.filter((initiative) => !initiative.work_experience_id)
+      : initiatives.filter((initiative) => initiative.work_experience_id === roleFilter);
+  const visiblePortfolioProjects = roleFilter === "all" || roleFilter === "standalone"
+    ? portfolioProjects
+    : [];
   const evidenceCountByInitiative = new Map<string, number>();
   for (const item of evidenceItems) {
     if (!item.related_initiative_id) continue;
@@ -8414,10 +8683,9 @@ function StoryMaterialList({
       <section className="section-block">
         <div className="section-block__top">
           <div>
-            <h3>Experience & Story Library</h3>
+            <h3>Work Initiatives</h3>
             <p>
-              Import a resume or source document to create work experiences,
-              internal initiatives, and portfolio projects.
+              Import a resume or source document to create initiative and portfolio project cards.
             </p>
           </div>
           <span>0 story targets</span>
@@ -8430,46 +8698,60 @@ function StoryMaterialList({
     <section className="section-block">
       <div className="section-block__top">
         <div>
-          <h3>Experience & Story Library</h3>
+          <h3>Work Initiatives</h3>
           <p>
-            Work experience is the employer/role container. Initiatives are
-            internal work stories. Portfolio projects are personal, academic,
-            open-source, freelance, or hackathon projects.
+            Initiative cards hold detailed actions, results, metrics, technologies, and linked evidence claims.
+            Work Experience stays as the higher-level role container.
           </p>
         </div>
         <span>
-          {workExperiences.length} roles · {initiatives.length} initiatives ·{" "}
-          {portfolioProjects.length} portfolio projects
+          {visibleInitiatives.length} initiatives · {visiblePortfolioProjects.length} portfolio projects
         </span>
       </div>
 
-      {workExperiences.length > 0 ? (
+      <div className="library-inline-filter">
+        <label>
+          <span>Role filter</span>
+          <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
+            <option value="all">All roles and standalone projects</option>
+            {workExperiences.map((experience) => (
+              <option key={experience.id} value={experience.id}>
+                {experience.employer} · {experience.role_title}
+              </option>
+            ))}
+            <option value="standalone">Standalone / portfolio projects</option>
+          </select>
+        </label>
+      </div>
+
+      {visibleInitiatives.length === 0 && visiblePortfolioProjects.length === 0 ? (
+        <div className="empty-state-row">
+          <div>
+            <strong>No initiatives match this role filter.</strong>
+            <p>Choose another role or add source material for this work experience.</p>
+          </div>
+        </div>
+      ) : null}
+
+      {workExperiences.length > 0 && roleFilter !== "standalone" ? (
         <div className="story-table story-table--work result-stack--inner">
           {workExperiences.map((experience) => {
-            const childInitiatives = initiatives.filter(
+            if (roleFilter !== "all" && roleFilter !== experience.id) return null;
+            const childInitiatives = visibleInitiatives.filter(
               (initiative) => initiative.work_experience_id === experience.id,
             );
-            const directEvidence = evidenceItems.filter(
-              (item) => item.related_work_experience_id === experience.id,
-            );
+            if (childInitiatives.length === 0) return null;
             return (
-              <article className="story-group-row" key={experience.id}>
+              <section className="story-group-row story-group-row--initiative-group" key={experience.id}>
                 <div className="story-group-row__summary">
-                  <span>Work experience</span>
+                  <span>Role group</span>
                   <div>
                     <strong>{experience.employer} · {experience.role_title}</strong>
-                    <p>
-                      {[experience.team, experience.location, experience.start_date, experience.end_date]
-                        .filter(Boolean)
-                        .join(" · ") || "Work experience"}
-                    </p>
+                    <p>{childInitiatives.length} linked work initiatives</p>
                   </div>
                   <em>{experience.status}</em>
-                  <small>{childInitiatives.length} initiatives · {directEvidence.length} direct claims</small>
+                  <small>{childInitiatives.length} initiatives</small>
                 </div>
-                {experience.summary ? (
-                  <p className="story-group-row__note">{experience.summary}</p>
-                ) : null}
                 {childInitiatives.map((initiative) => (
                   <StoryTargetRow
                     evidenceItems={evidenceItems.filter(
@@ -8494,15 +8776,15 @@ function StoryMaterialList({
                     mergeOptionEvidenceCounts={evidenceCountByInitiative}
                   />
                 ))}
-              </article>
+              </section>
             );
           })}
         </div>
       ) : null}
 
-      {initiatives.some((initiative) => !initiative.work_experience_id) ? (
+      {visibleInitiatives.some((initiative) => !initiative.work_experience_id) ? (
         <div className="story-table result-stack--inner">
-          {initiatives
+          {visibleInitiatives
             .filter((initiative) => !initiative.work_experience_id)
             .map((initiative) => (
               <StoryTargetRow
@@ -8531,9 +8813,9 @@ function StoryMaterialList({
         </div>
       ) : null}
 
-      {portfolioProjects.length > 0 ? (
+      {visiblePortfolioProjects.length > 0 ? (
         <div className="story-table result-stack--inner">
-          {portfolioProjects.map((project) => (
+          {visiblePortfolioProjects.map((project) => (
             <StoryTargetRow
               evidenceItems={evidenceItems.filter(
                 (item) => item.related_portfolio_project_id === project.id,
