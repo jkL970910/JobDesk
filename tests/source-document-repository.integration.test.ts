@@ -18,6 +18,8 @@ import {
 import {
   createWorkExperienceAndAssignInitiative,
   persistProfileEvidenceExtraction,
+  getResumeTailoringContext,
+  updateEvidenceItem,
 } from "../src/server/profile-evidence-repository";
 import { getCurrentWorkspace } from "../src/server/workspace-repository";
 import type { ResumeSourceParseResult } from "../src/server/resume-source-parser";
@@ -25,7 +27,10 @@ import { registerUser, runWithAuthContext } from "../src/server/auth-service";
 import { and, eq } from "drizzle-orm";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
 import { syncPersonalEmbeddings } from "../src/server/embedding-service";
-import { retrieveSourceMaterialForEvidenceGaps } from "../src/server/retrieval-service";
+import {
+  buildResumeRetrievalContextFromQuery,
+  retrieveSourceMaterialForEvidenceGaps,
+} from "../src/server/retrieval-service";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
 
@@ -273,6 +278,152 @@ describe.skipIf(!runIntegration)("source document lifecycle integration", () => 
       ).toBe(true);
       expect(sourceMaterial.every((item) => item.retrieval_policy === "evidence_enrichment")).toBe(true);
       expect(sourceMaterial.every((item) => item.convert_to_evidence_first)).toBe(true);
+      expect(
+        sourceMaterial.every(
+          (item) =>
+            item.required_next_step === "convert_or_enrich_evidence_before_resume_use" &&
+            item.reason_for_selection.join(" ").includes("convert to evidence"),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it("rebuilds parsed source chunks on extraction and keeps resume retrieval limited to canonical evidence", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const owner = await registerUser({
+      email: `resume-boundary-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected test user.");
+
+    await runWithAuthContext(owner.user.id, async () => {
+      const uniqueToken = `activation-proof-${suffix}`;
+      const parsed = buildParsedSource(
+        `Resume boundary ${suffix}`,
+        [
+          `Captured raw launch notes for ${uniqueToken}.`,
+          "Built onboarding activation dashboards with SQL and event taxonomy data.",
+          "Documented unresolved follow-up metrics and role scope in source material only.",
+        ].join(" "),
+      );
+      const saved = await persistParsedSourceDocument({
+        sourceType: "work_summary",
+        parsed,
+      });
+      if (saved.status !== "saved") throw new Error("Expected saved source.");
+
+      const db = getDb();
+      const parsedChunks = await db
+        .select()
+        .from(sourceChunks)
+        .where(eq(sourceChunks.sourceDocumentId, saved.sourceDocumentId));
+      expect(parsedChunks.length).toBeGreaterThan(0);
+      expect(parsedChunks.every((chunk) => chunk.lifecycleStatus === "parsed")).toBe(true);
+
+      const gapResults = await retrieveSourceMaterialForEvidenceGaps(uniqueToken, { limit: 1 });
+      expect(gapResults).toHaveLength(1);
+      expect(gapResults[0]).toMatchObject({
+        source_document_id: saved.sourceDocumentId,
+        retrieval_policy: "evidence_enrichment",
+        required_next_step: "convert_or_enrich_evidence_before_resume_use",
+        convert_to_evidence_first: true,
+        lifecycle_status: "parsed",
+      });
+
+      const resumeBeforeExtraction = await getResumeTailoringContext(
+        buildResumeRetrievalContextFromQuery(uniqueToken),
+      );
+      expect(
+        resumeBeforeExtraction.evidenceItems.every(
+          (item) =>
+            !("chunk_text" in item) &&
+            !("convert_to_evidence_first" in item) &&
+            item.public_safe_summary !==
+              `Built resume-safe activation dashboard evidence for ${uniqueToken}.`,
+        ),
+      ).toBe(true);
+
+      const persistence = await persistProfileEvidenceExtraction({
+        sourceText: parsed.sourceText,
+        sourceTitle: parsed.sourceTitle,
+        sourceDocumentId: saved.sourceDocumentId,
+        sourceType: "project-note",
+        extraction: buildResumeSafeExtraction(uniqueToken),
+        provider: "test-provider",
+        model: "test-model",
+        usage: { totalTokens: 0 },
+        retryCount: 0,
+        skill: {
+          modelTier: "cheap",
+          promptVersion: "test-prompt",
+          schemaName: "ProfileEvidenceExtraction",
+          schemaVersion: "test-schema",
+          skillId: "profile-evidence-extraction-project-note",
+          skillVersion: "test-skill",
+          sourceSkillIds: ["profile-extraction", "evidence-extraction"],
+          workflowType: "profile-evidence-extraction",
+        },
+      });
+      expect(persistence).toMatchObject({
+        status: "saved",
+        sourceDocumentId: saved.sourceDocumentId,
+      });
+
+      const rebuiltChunks = await db
+        .select()
+        .from(sourceChunks)
+        .where(eq(sourceChunks.sourceDocumentId, saved.sourceDocumentId));
+      expect(rebuiltChunks.length).toBeGreaterThan(0);
+      expect(rebuiltChunks.every((chunk) => chunk.lifecycleStatus === "extracted")).toBe(true);
+      expect(rebuiltChunks.every((chunk) => chunk.sourceType === "project-note")).toBe(true);
+
+      const [evidence] = await db
+        .select()
+        .from(evidenceItems)
+        .where(eq(evidenceItems.sourceDocumentId, saved.sourceDocumentId))
+        .limit(1);
+      if (!evidence) throw new Error("Expected extracted evidence.");
+      const approved = await updateEvidenceItem({
+        evidenceId: evidence.id,
+        action: "approve_for_resume",
+        allowedUsage: ["resume"],
+      });
+      expect(approved).toMatchObject({
+        status: "saved",
+        evidenceItem: {
+          id: evidence.id,
+          status: "approved",
+          allowedUsage: ["resume"],
+          needsUserConfirmation: false,
+        },
+      });
+
+      const resumeAfterExtraction = await getResumeTailoringContext(
+        buildResumeRetrievalContextFromQuery(uniqueToken),
+      );
+      const canonicalMatch = resumeAfterExtraction.evidenceItems.find(
+        (item) => item.id === evidence.id,
+      );
+      expect(canonicalMatch).toMatchObject({
+        id: evidence.id,
+        retrieval_policy: "resume_generation",
+        allowed_usage: ["resume"],
+        public_safe_summary: `Built resume-safe activation dashboard evidence for ${uniqueToken}.`,
+      });
+      expect(
+        resumeAfterExtraction.evidenceItems.every(
+          (item) => !("chunk_text" in item) && !("convert_to_evidence_first" in item),
+        ),
+      ).toBe(true);
+
+      const gapResultsAfterExtraction = await retrieveSourceMaterialForEvidenceGaps(uniqueToken, {
+        limit: 1,
+      });
+      expect(gapResultsAfterExtraction[0]).toMatchObject({
+        source_document_id: saved.sourceDocumentId,
+        lifecycle_status: "extracted",
+        convert_to_evidence_first: true,
+      });
     });
   });
 
@@ -627,6 +778,27 @@ function buildExtraction(title: string): ProfileEvidenceExtraction {
         allowed_usage: ["resume"],
         needs_user_confirmation: true,
         public_safe_summary: "Built onboarding analytics dashboards with SQL and product event data.",
+        related_project_id: null,
+      },
+    ],
+    extraction_notes: [],
+  };
+}
+
+function buildResumeSafeExtraction(uniqueToken: string): ProfileEvidenceExtraction {
+  return {
+    ...buildExtraction(uniqueToken),
+    evidence_items: [
+      {
+        text: `Built activation dashboard evidence for ${uniqueToken}.`,
+        evidence_type: "extracted",
+        status: "approved",
+        source_quote: `Captured raw launch notes for ${uniqueToken}.`,
+        metrics: [{ value: "activation dashboard", source_quote: "activation dashboards" }],
+        sensitivity_level: "public_safe",
+        allowed_usage: ["resume"],
+        needs_user_confirmation: false,
+        public_safe_summary: `Built resume-safe activation dashboard evidence for ${uniqueToken}.`,
         related_project_id: null,
       },
     ],
