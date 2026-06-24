@@ -454,6 +454,8 @@ export default function HomePage() {
               <DashboardView
                 onNavigate={setAppView}
                 onNavigateResume={navigateToResume}
+                onOpenEvidenceLibrary={openEvidenceLibrary}
+                onOpenEvidenceReview={openEvidenceReview}
                 onStartMaterialPath={navigateToMaterial}
               />
             ) : null}
@@ -515,10 +517,14 @@ export default function HomePage() {
 function DashboardView({
   onNavigate,
   onNavigateResume,
+  onOpenEvidenceLibrary,
+  onOpenEvidenceReview,
   onStartMaterialPath,
 }: {
   onNavigate: (view: View) => void;
   onNavigateResume: (tab: ResumeWorkspaceTab) => void;
+  onOpenEvidenceLibrary: () => void;
+  onOpenEvidenceReview: (tab: MaterialReviewTab) => void;
   onStartMaterialPath: (intent: MaterialEntryIntent) => void;
 }) {
   const { fetchJson } = useAccess();
@@ -685,7 +691,7 @@ function DashboardView({
             action: "Review claims",
             detail: `${claimsNeedingReview} extracted claim${claimsNeedingReview === 1 ? "" : "s"} need approval and external-safe wording.`,
             label: "Review evidence claims",
-            target: () => onNavigate("evidence"),
+            target: () => onOpenEvidenceReview("claims"),
           },
         ]
       : []),
@@ -695,7 +701,7 @@ function DashboardView({
             action: "Enrich stories",
             detail: `${thinStories} stor${thinStories === 1 ? "y needs" : "ies need"} metrics, scope, role context, or public-safe wording.`,
             label: "Strengthen thin stories",
-            target: () => onNavigate("evidence"),
+            target: onOpenEvidenceLibrary,
           },
         ]
       : []),
@@ -725,7 +731,7 @@ function DashboardView({
             action: "Approve evidence",
             detail: "Evidence exists, but nothing is approved for resume use yet.",
             label: "Unlock resume generation",
-            target: () => onNavigate("evidence"),
+            target: () => onOpenEvidenceReview("claims"),
           },
         ]
       : []),
@@ -847,21 +853,21 @@ function DashboardView({
   ];
   const librarySnapshotItems = [
     {
-      action: () => onNavigate("evidence"),
+      action: onOpenEvidenceLibrary,
       label: "Resume-ready",
       value: resumeReadyClaims,
       detail: resumeReadyClaims > 0 ? "approved claims" : "none approved",
       tone: resumeReadyClaims > 0 ? "ready" : "blocked",
     },
     {
-      action: () => onNavigate("evidence"),
+      action: () => onOpenEvidenceReview("claims"),
       label: "Need review",
       value: claimsNeedingReview,
       detail: claimsNeedingReview > 0 ? "claims waiting" : "claims clear",
       tone: claimsNeedingReview > 0 ? "warning" : "ready",
     },
     {
-      action: () => onNavigate("evidence"),
+      action: onOpenEvidenceLibrary,
       label: "Stories",
       value: storyTargets,
       detail: thinStories > 0 ? `${thinStories} thin` : "story context",
@@ -2264,7 +2270,11 @@ function ProfileReferenceView({
                     return;
                   }
                   if (claimsNeedingReview > 0 || thinStories > 0) {
-                    onOpenEvidenceReview(claimsNeedingReview > 0 ? "claims" : "enrichment");
+                    if (claimsNeedingReview > 0) {
+                      onOpenEvidenceReview("claims");
+                    } else {
+                      onOpenEvidenceLibrary();
+                    }
                     return;
                   }
                   onOpenEvidenceLibrary();
