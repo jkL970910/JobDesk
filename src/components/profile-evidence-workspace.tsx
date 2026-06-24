@@ -4754,9 +4754,18 @@ function EnrichmentProposalPreview({
     workExperiences,
   });
   const previewItems = buildEnrichmentPatchPreviewItems(proposal.proposed_patch_json);
+  const hasProposedLibraryWording = previewItems.some((item) => item.kind === "proposed");
+  const hasSupportOnly =
+    previewItems.some((item) => item.kind === "support") && !hasProposedLibraryWording;
   return (
     <SuggestedUpdatePanel
-      acceptLabel="Accept change"
+      acceptLabel={
+        hasSupportOnly
+          ? "Save supporting detail"
+          : hasProposedLibraryWording
+            ? "Accept evidence update"
+            : "Accept context update"
+      }
       aiRevisionLabel="Ask AI to revise"
       aiRevisionPlaceholder={formatEnrichmentRevisionPlaceholder(proposal.proposal_type)}
       disabled={disabled}
@@ -4815,51 +4824,106 @@ function formatEnrichmentPatchPreview(patch: Record<string, unknown>) {
 }
 
 function buildEnrichmentPatchPreviewItems(patch: Record<string, unknown>) {
-  const items: Array<{ label: string; values: string[] }> = [];
+  const items: Array<{
+    description?: string;
+    kind?: "context" | "needs_more" | "proposed" | "support";
+    label: string;
+    values: string[];
+  }> = [];
   const textPatch = getStringPatchValue(patch, "text_patch");
   const sourceQuotePatch = getStringPatchValue(patch, "source_quote_patch");
-  addPatchPreviewItem(items, "Suggested evidence", getStringPatchValue(patch, "text"));
-  addPatchPreviewItem(items, "Suggested evidence update", textPatch);
+  addPatchPreviewItem(items, "Proposed library wording", getStringPatchValue(patch, "text"), {
+    description: "Draft evidence wording for the library. Resume approval remains separate.",
+    kind: "proposed",
+  });
+  addPatchPreviewItem(items, "Proposed library wording", textPatch, {
+    description: "This will update the evidence wording in your library, not a resume bullet.",
+    kind: "proposed",
+  });
   if (sourceQuotePatch && sourceQuotePatch !== textPatch) {
-    addPatchPreviewItem(items, "Supporting detail", sourceQuotePatch);
+    addPatchPreviewItem(items, "Supporting detail", sourceQuotePatch, {
+      description: "Your answer is kept as source support for this update.",
+      kind: "support",
+    });
   }
-  addPatchPreviewItem(items, "Story context", getStringPatchValue(patch, "context_patch"));
-  addPatchPreviewItem(items, "Problem", getStringPatchValue(patch, "problem_patch"));
-  addPatchPreviewItem(items, "Role", getStringPatchValue(patch, "role_patch"));
-  addPatchPreviewItem(items, "Role summary", getStringPatchValue(patch, "summary_patch"));
-  addPatchPreviewItem(items, "Team", getStringPatchValue(patch, "team_patch"));
-  addPatchPreviewItem(items, "Location", getStringPatchValue(patch, "location_patch"));
+  if (sourceQuotePatch && !textPatch && !getStringPatchValue(patch, "text")) {
+    items.push({
+      description: "The answer is useful context, but not specific enough to rewrite the evidence yet.",
+      kind: "needs_more",
+      label: "What to add next",
+      values: [
+        "Specific action or ownership",
+        "Technical mechanism or tool used",
+        "Outcome, metric, scale, or before/after detail",
+      ],
+    });
+  }
+  addPatchPreviewItem(items, "Story context", getStringPatchValue(patch, "context_patch"), {
+    kind: "context",
+  });
+  addPatchPreviewItem(items, "Problem", getStringPatchValue(patch, "problem_patch"), {
+    kind: "context",
+  });
+  addPatchPreviewItem(items, "Role", getStringPatchValue(patch, "role_patch"), {
+    kind: "context",
+  });
+  addPatchPreviewItem(items, "Role summary", getStringPatchValue(patch, "summary_patch"), {
+    kind: "context",
+  });
+  addPatchPreviewItem(items, "Team", getStringPatchValue(patch, "team_patch"), {
+    kind: "context",
+  });
+  addPatchPreviewItem(items, "Location", getStringPatchValue(patch, "location_patch"), {
+    kind: "context",
+  });
   addPatchPreviewItem(
     items,
     "Public-safe wording",
     getStringPatchValue(patch, "public_safe_summary_patch"),
+    { kind: "context" },
   );
-  addArrayPatchPreviewItem(items, "Actions to add", patch.actions_add);
-  addArrayPatchPreviewItem(items, "Results to add", patch.results_add);
-  addArrayPatchPreviewItem(items, "Technologies to add", patch.technologies_add);
-  addArrayPatchPreviewItem(items, "Stakeholders to add", patch.stakeholders_add);
-  addArrayPatchPreviewItem(items, "Metrics to add", patch.metrics_add);
+  addArrayPatchPreviewItem(items, "Actions to add", patch.actions_add, { kind: "context" });
+  addArrayPatchPreviewItem(items, "Results to add", patch.results_add, { kind: "context" });
+  addArrayPatchPreviewItem(items, "Technologies to add", patch.technologies_add, {
+    kind: "context",
+  });
+  addArrayPatchPreviewItem(items, "Stakeholders to add", patch.stakeholders_add, {
+    kind: "context",
+  });
+  addArrayPatchPreviewItem(items, "Metrics to add", patch.metrics_add, { kind: "context" });
   return items;
 }
 
 function addPatchPreviewItem(
-  items: Array<{ label: string; values: string[] }>,
+  items: Array<{
+    description?: string;
+    kind?: "context" | "needs_more" | "proposed" | "support";
+    label: string;
+    values: string[];
+  }>,
   label: string,
   value: string | null,
+  options: { description?: string; kind?: "context" | "needs_more" | "proposed" | "support" } = {},
 ) {
-  if (value) items.push({ label, values: [value] });
+  if (value) items.push({ ...options, label, values: [value] });
 }
 
 function addArrayPatchPreviewItem(
-  items: Array<{ label: string; values: string[] }>,
+  items: Array<{
+    description?: string;
+    kind?: "context" | "needs_more" | "proposed" | "support";
+    label: string;
+    values: string[];
+  }>,
   label: string,
   value: unknown,
+  options: { description?: string; kind?: "context" | "needs_more" | "proposed" | "support" } = {},
 ) {
   if (!Array.isArray(value) || value.length === 0) return;
   const values = value
     .map((item) => formatPatchArrayValue(item))
     .filter((item): item is string => Boolean(item));
-  if (values.length > 0) items.push({ label, values });
+  if (values.length > 0) items.push({ ...options, label, values });
 }
 
 function formatPatchArrayValue(value: unknown) {

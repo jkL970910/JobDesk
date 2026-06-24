@@ -36,6 +36,8 @@ type SuggestedUpdatePanelProps = {
     | "save_context"
     | null;
   previewItems?: Array<{
+    description?: string;
+    kind?: "context" | "needs_more" | "proposed" | "support";
     label: string;
     values: string[];
   }>;
@@ -95,6 +97,28 @@ export function SuggestedUpdatePanel({
   const canSendMessage = messageText.trim().length >= 3;
   const isAiRevisionPending = disabled && pendingAction === "ai_revision";
   const isManualEditPending = disabled && pendingAction === "manual_edit";
+  const hasProposedWording = previewItems.some((item) => item.kind === "proposed");
+  const hasSupportOnly = previewItems.some((item) => item.kind === "support") && !hasProposedWording;
+  const reviewState = hasProposedWording
+    ? {
+        copy:
+          "Review this library wording before saving it. It is not resume-approved until later review.",
+        label: "Library wording ready",
+        state: "ready",
+      }
+    : hasSupportOnly
+      ? {
+          copy:
+            "This answer is saved as supporting detail. Add more specifics before changing the evidence wording.",
+          label: "More detail needed",
+          state: "needs_more",
+        }
+      : {
+          copy:
+            "Review the proposed context change before saving. Resume wording is generated separately.",
+          label: "Context update",
+          state: "context",
+        };
 
   return (
     <div className={["enrichment-proposal", className].filter(Boolean).join(" ")}>
@@ -107,6 +131,10 @@ export function SuggestedUpdatePanel({
       </div>
       <div className="enrichment-proposal__workspace">
         <section className="enrichment-proposal__output">
+          <div className="enrichment-proposal__review-state" data-state={reviewState.state}>
+            <strong>{reviewState.label}</strong>
+            <p>{reviewState.copy}</p>
+          </div>
           {showOriginalPrompt && originalPrompt ? (
             <div className="enrichment-proposal__prompt">
               <span>Original question</span>
@@ -117,8 +145,11 @@ export function SuggestedUpdatePanel({
             <div className="enrichment-proposal__field-preview">
               <span>{draftLabel}</span>
               {previewItems.map((item) => (
-                <article key={`${item.label}-${item.values.join("|")}`}>
-                  <strong>{item.label}</strong>
+                <article data-kind={item.kind ?? "context"} key={`${item.label}-${item.values.join("|")}`}>
+                  <div>
+                    <strong>{item.label}</strong>
+                    {item.description ? <small>{item.description}</small> : null}
+                  </div>
                   {item.values.map((value) => (
                     <p key={value}>{value}</p>
                   ))}
