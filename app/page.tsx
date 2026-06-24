@@ -18,6 +18,7 @@ import {
   MotionPanel,
   WorkflowStepper,
 } from "../src/components/ui/motion-primitives";
+import { buildProfileFactPatchFromText } from "../src/schemas/profile-facts";
 
 type View =
   | "dashboard"
@@ -1634,7 +1635,7 @@ function ProfileReferenceView({
       setProfileActionStatus("Add at least one profile fact before saving.");
       return;
     }
-    const patch = buildProfileFactPatch(activeProfileFactEditor.field, trimmed);
+    const patch = buildProfileFactPatchFromText(activeProfileFactEditor.field, trimmed);
     if (!patch) {
       setProfileActionStatus("Add at least one usable profile fact before saving.");
       return;
@@ -3077,107 +3078,6 @@ function profileFactInlineCopy(field: ProfileGapIntent["field"]) {
       "Programming languages:\nFrameworks / libraries:\nTools / platforms:\nMethods / domain knowledge:\nSkills to remove or avoid:",
     title: "Add skills details",
   };
-}
-
-function buildProfileFactPatch(field: ProfileGapIntent["field"], draft: string) {
-  const lines = draft
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const values = parseLabelledDraft(lines);
-  if (field === "contact") {
-    const links = [
-      values.linkedin,
-      values.portfolio,
-      values.github,
-      values["portfolio / github"],
-      values["portfolio / github / personal site"],
-    ].filter((value): value is string => Boolean(value));
-    const contact = compactObject({
-      email: values.email,
-      links,
-      location: values["city / region"] ?? values.location,
-      name: values.name,
-      phone: values.phone,
-    });
-    return Object.keys(contact).length > 0 ? { field: "contact" as const, contact } : null;
-  }
-  if (field === "location") {
-    const location = [
-      values["city / region"] ?? values.city ?? values.location,
-      values.country,
-    ]
-      .filter(Boolean)
-      .join(", ");
-    const detail = values["remote / relocation preference"] ?? values["remote / relocation preference, if relevant"];
-    const combined = [location, detail].filter(Boolean).join(" · ");
-    return combined ? { field: "location" as const, location: combined } : null;
-  }
-  if (field === "education") {
-    const institution = values.school ?? values.institution ?? values.university ?? values.college;
-    const degree = values["degree / program"] ?? values.degree ?? values.program;
-    if (!institution && !degree) return null;
-    return {
-      field: "education" as const,
-      education: [
-        {
-          degree: degree ?? "Education details",
-          endDate: values["graduation date"],
-          fieldOfStudy: values["field of study"] ?? values.major,
-          institution: institution ?? "School not specified",
-          startDate: values["start date"],
-        },
-      ],
-    };
-  }
-  if (field === "certifications") {
-    const certification =
-      values["certification name"] ??
-      values.certification ??
-      values.name ??
-      lines.find((line) => !line.includes(":"));
-    if (!certification) return null;
-    const detail = [
-      certification,
-      values.issuer ? `Issuer: ${values.issuer}` : null,
-      values["date earned"] ? `Earned: ${values["date earned"]}` : null,
-      values.expiration ? `Expires: ${values.expiration}` : null,
-      values["credential url / id"] ? `Credential: ${values["credential url / id"]}` : null,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    return { field: "certifications" as const, certifications: [detail] };
-  }
-  const skills = lines.flatMap((line) => {
-    const value = line.includes(":") ? line.slice(line.indexOf(":") + 1) : line;
-    return value
-      .split(/[;,]/)
-      .map((part) => part.trim())
-      .filter(Boolean);
-  });
-  return skills.length > 0 ? { field: "skills" as const, skills } : null;
-}
-
-function parseLabelledDraft(lines: string[]) {
-  const values: Record<string, string> = {};
-  for (const line of lines) {
-    const separatorIndex = line.indexOf(":");
-    if (separatorIndex < 0) continue;
-    const key = line.slice(0, separatorIndex).trim().toLowerCase();
-    const value = line.slice(separatorIndex + 1).trim();
-    if (!key || !value) continue;
-    values[key] = value;
-  }
-  return values;
-}
-
-function compactObject<T extends Record<string, unknown>>(value: T) {
-  return Object.fromEntries(
-    Object.entries(value).filter(([, entry]) => {
-      if (Array.isArray(entry)) return entry.length > 0;
-      return entry !== undefined && entry !== null && entry !== "";
-    }),
-  ) as Partial<T>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

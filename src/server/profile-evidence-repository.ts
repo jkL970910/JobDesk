@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { getDb, hasDatabaseUrl } from "../db/client";
 import {
   evidenceItems,
+  enrichmentTasks,
   generatedClaims,
   initiatives,
   overlapReviewDecisions,
@@ -1335,33 +1336,100 @@ export async function updateProfileFacts(args: ProfileFactPatchRequest) {
   const now = new Date();
   const profileJson = applyProfileFactPatch(profile.profileJson, args);
   const displayName = extractManualProfileDisplayName(profileJson) ?? profile.displayName;
-  const [updated] = await db
-    .update(profiles)
-    .set({
-      displayName,
-      profileJson,
-      updatedAt: now,
-    })
-    .where(and(eq(profiles.id, profile.id), eq(profiles.workspaceId, workspace.id)))
-    .returning({
-      id: profiles.id,
-      displayName: profiles.displayName,
-      profileJson: profiles.profileJson,
-      updatedAt: profiles.updatedAt,
-    });
+  const updated = await db.transaction(async (tx) => {
+    if (args.taskId) {
+      const [task] = await tx
+        .select({
+          id: enrichmentTasks.id,
+          workspaceId: enrichmentTasks.workspaceId,
+          noteKind: enrichmentTasks.noteKind,
+          expectedAction: enrichmentTasks.expectedAction,
+          targetField: enrichmentTasks.targetField,
+        })
+        .from(enrichmentTasks)
+        .where(and(eq(enrichmentTasks.workspaceId, workspace.id), eq(enrichmentTasks.id, args.taskId)))
+        .limit(1);
+      if (!task) return { status: "invalid" as const, reason: "task_not_found" as const };
+      const expectedField = normalizeProfileFactField(task.targetField);
+      if (
+        task.noteKind !== "missing_profile_fact" ||
+        !["add_profile_fact", "edit_profile_fact"].includes(task.expectedAction ?? "") ||
+        (expectedField && expectedField !== args.field)
+      ) {
+        return { status: "invalid" as const, reason: "task_not_profile_fact_update" as const };
+      }
+    }
+    const [profileRow] = await tx
+      .update(profiles)
+      .set({
+        displayName,
+        profileJson,
+        updatedAt: now,
+      })
+      .where(and(eq(profiles.id, profile.id), eq(profiles.workspaceId, workspace.id)))
+      .returning({
+        id: profiles.id,
+        displayName: profiles.displayName,
+        profileJson: profiles.profileJson,
+        updatedAt: profiles.updatedAt,
+      });
+    if (!profileRow) return { status: "not_found" as const };
+    if (args.taskId) {
+      await tx
+        .update(enrichmentTasks)
+        .set({
+          status: "converted",
+          convertedAt: now,
+          resolvedAt: now,
+          resolutionKind: "profile_fact_updated",
+          updatedAt: now,
+        })
+        .where(and(eq(enrichmentTasks.workspaceId, workspace.id), eq(enrichmentTasks.id, args.taskId)));
+    }
+    return { status: "updated" as const, profile: profileRow };
+  });
 
-  if (!updated) {
+  if (updated.status === "invalid") {
+    return updated;
+  }
+  if (updated.status === "not_found") {
     return { status: "not_found" as const };
   }
   return {
     status: "updated" as const,
     profile: {
-      id: updated.id,
-      displayName: updated.displayName,
-      profile: updated.profileJson,
-      updatedAt: updated.updatedAt.toISOString(),
+      id: updated.profile.id,
+      displayName: updated.profile.displayName,
+      profile: updated.profile.profileJson,
+      updatedAt: updated.profile.updatedAt.toISOString(),
     },
   };
+}
+
+function normalizeProfileFactField(value: string | null | undefined) {
+  const normalized = value?.toLowerCase().trim().replace(/[\s-]+/g, "_");
+  if (!normalized) return null;
+  if (normalized === "certification" || normalized === "certifications" || normalized === "credentials") {
+    return "certifications";
+  }
+  if (
+    normalized === "contact" ||
+    normalized === "contact_info" ||
+    normalized === "email" ||
+    normalized === "phone"
+  ) {
+    return "contact";
+  }
+  if (normalized === "education" || normalized === "school" || normalized === "degree") {
+    return "education";
+  }
+  if (normalized === "location" || normalized === "personal_location") {
+    return "location";
+  }
+  if (normalized === "skill" || normalized === "skills") {
+    return "skills";
+  }
+  return null;
 }
 
 export type EvidenceDedupeCandidate = {
@@ -2526,6 +2594,111 @@ export async function createWorkExperienceAndAssignInitiative(args: {
     return updated
       ? ({ status: "saved" as const, initiative: updated, workExperience: experience })
       : ({ status: "not_found" as const });
+  });
+}
+
+export async function updateWorkExperienceFields(args: {
+  workExperienceId: string;
+  location?: string | null;
+  team?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  summary?: string | null;
+  taskId?: string | null;
+}) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const workspace = await getCurrentWorkspace(tx);
+    const [current] = await tx
+      .select({
+        id: workExperiences.id,
+        status: workExperiences.status,
+        workspaceId: workExperiences.workspaceId,
+      })
+      .from(workExperiences)
+      .where(
+        and(
+          eq(workExperiences.workspaceId, workspace.id),
+          eq(workExperiences.id, args.workExperienceId),
+        ),
+      )
+      .limit(1);
+    if (!current) return { status: "not_found" as const };
+    if (current.status === "rejected") {
+      return { status: "invalid" as const, reason: "work_experience_rejected" as const };
+    }
+
+    if (args.taskId) {
+      const [task] = await tx
+        .select({
+          id: enrichmentTasks.id,
+          noteKind: enrichmentTasks.noteKind,
+          expectedAction: enrichmentTasks.expectedAction,
+          targetField: enrichmentTasks.targetField,
+        })
+        .from(enrichmentTasks)
+        .where(and(eq(enrichmentTasks.workspaceId, workspace.id), eq(enrichmentTasks.id, args.taskId)))
+        .limit(1);
+      if (!task) return { status: "not_found" as const };
+      if (
+        task.noteKind !== "missing_role_field" ||
+        task.expectedAction !== "edit_role_field"
+      ) {
+        return { status: "invalid" as const, reason: "task_not_role_field_update" as const };
+      }
+    }
+
+    const now = new Date();
+    const patch: Partial<typeof workExperiences.$inferInsert> = { updatedAt: now };
+    if (args.location !== undefined) patch.location = args.location?.trim() || null;
+    if (args.team !== undefined) patch.team = args.team?.trim() || null;
+    if (args.startDate !== undefined) patch.startDate = args.startDate?.trim() || null;
+    if (args.endDate !== undefined) patch.endDate = args.endDate?.trim() || null;
+    if (args.summary !== undefined) patch.summary = args.summary?.trim() || null;
+
+    const [updated] = await tx
+      .update(workExperiences)
+      .set(patch)
+      .where(
+        and(
+          eq(workExperiences.workspaceId, workspace.id),
+          eq(workExperiences.id, args.workExperienceId),
+        ),
+      )
+      .returning({
+        id: workExperiences.id,
+        employer: workExperiences.employer,
+        roleTitle: workExperiences.roleTitle,
+        location: workExperiences.location,
+        team: workExperiences.team,
+        startDate: workExperiences.startDate,
+        endDate: workExperiences.endDate,
+        summary: workExperiences.summary,
+        updatedAt: workExperiences.updatedAt,
+      });
+    if (!updated) return { status: "not_found" as const };
+
+    if (args.taskId) {
+      await tx
+        .update(enrichmentTasks)
+        .set({
+          status: "converted",
+          convertedAt: now,
+          resolvedAt: now,
+          resolutionKind: "role_field_updated",
+          workExperienceId: args.workExperienceId,
+          targetScope: "role_context",
+          expectedOutcome: "update_role",
+          updatedAt: now,
+        })
+        .where(and(eq(enrichmentTasks.workspaceId, workspace.id), eq(enrichmentTasks.id, args.taskId)));
+    }
+
+    return { status: "saved" as const, workExperience: updated };
   });
 }
 

@@ -17,6 +17,7 @@ import {
   hasGuidedMaterialContent,
   type GuidedMaterialFields,
 } from "../lib/guided-material";
+import { buildProfileFactPatchFromText } from "../schemas/profile-facts";
 import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
 
 type ExtractionResponse =
@@ -376,6 +377,7 @@ export type MaterialEntryIntent = "resume" | "scratch" | "jd";
 export type ProfileGapIntent = {
   field: "certifications" | "contact" | "education" | "location" | "skills";
   label: string;
+  taskId?: string | null;
 };
 export type MaterialReviewTab =
   | "enrichment"
@@ -1228,11 +1230,11 @@ export function ProfileEvidenceWorkspace({
 
   function runProjectEnrichment() {
     setError(null);
-    setStatus(
-      activeProfileGap
-        ? "Saving profile source material for review."
-        : "Enriching project notes into reusable evidence.",
-    );
+    if (activeProfileGap) {
+      void saveProfileFactFromIntake();
+      return;
+    }
+    setStatus("Enriching project notes into reusable evidence.");
     setIsProjectEnriching(true);
     void (async () => {
       try {
@@ -1280,9 +1282,7 @@ export function ProfileEvidenceWorkspace({
                 payload.data.portfolio_projects.length),
             workExperienceCount:
               payload.meta.persistence.workExperienceCount ?? payload.data.work_experiences.length,
-            sourceTitle:
-              projectNoteTitle.trim() ||
-              (activeProfileGap ? profileFactSourceCopy(activeProfileGap.field).title : "Project source"),
+            sourceTitle: projectNoteTitle.trim() || "Project source",
             type: "project",
           });
           setActiveSection("review");
@@ -1295,9 +1295,7 @@ export function ProfileEvidenceWorkspace({
             projectCount: payload.data.project_cards.length,
             storyCount: payload.data.initiatives.length + payload.data.portfolio_projects.length,
             workExperienceCount: payload.data.work_experiences.length,
-            sourceTitle:
-              projectNoteTitle.trim() ||
-              (activeProfileGap ? profileFactSourceCopy(activeProfileGap.field).title : "Project source"),
+            sourceTitle: projectNoteTitle.trim() || "Project source",
             type: "project",
           });
           setActiveSection("review");
@@ -1316,11 +1314,55 @@ export function ProfileEvidenceWorkspace({
     })();
   }
 
+  async function saveProfileFactFromIntake() {
+    if (!activeProfileGap) return;
+    setError(null);
+    setStatus("Saving profile fact.");
+    setIsProjectEnriching(true);
+    try {
+      const patch = buildProfileFactPatchFromText(activeProfileGap.field, projectNoteText, {
+        taskId: activeProfileGap.taskId,
+      });
+      if (!patch) {
+        setError("Add at least one usable profile fact before saving.");
+        return;
+      }
+      const response = await fetchJson("/api/profile/facts", {
+        body: JSON.stringify(patch),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; kind?: string }
+        | null;
+      if (!response.ok) {
+        setError(
+          payload?.error
+            ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
+            : "Profile fact save failed.",
+        );
+        return;
+      }
+      setStatus("Profile fact saved.");
+      setProjectNoteText("");
+      setProjectNoteTitle("");
+      setActiveProfileGap(null);
+      await refreshLibraryAfterMutation();
+      setActiveSection("review");
+      setLibraryMode("work_queue");
+      setWorkQueueView("imported");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Profile fact save failed.");
+    } finally {
+      setIsProjectEnriching(false);
+    }
+  }
+
   const sourceIsReady = sourceText.trim().length >= 80;
   const guidedReadiness = getGuidedMaterialReadiness(guidedMaterialFields);
   const projectNoteIsReady =
     activeProfileGap
-      ? projectNoteText.trim().length >= 40
+      ? projectNoteText.trim().length >= 2
       : projectSourceMode === "guided"
         ? guidedReadiness.isReady && hasGuidedMaterialContent(projectNoteText)
         : projectNoteText.trim().length >= 80;
@@ -1588,7 +1630,7 @@ export function ProfileEvidenceWorkspace({
     setHasChosenMaterialType(true);
     setIsEditingMaterialType(false);
     setProjectSourceMode("guided");
-    setActiveProfileGap({ field, label: copy.title });
+    setActiveProfileGap({ field, label: copy.title, taskId: task.id });
     setSelectedStoryTarget(null);
     setEvidenceFocus(null);
     setStarStoryFocus(null);
@@ -1769,9 +1811,14 @@ export function ProfileEvidenceWorkspace({
       return { ok: false, message };
     }
     await refreshLibraryAfterMutation();
-      const message =
+    const task = enrichmentTasks.find((item) => item.id === taskId) ?? null;
+    const message =
       payload.action === "answer"
-        ? "Saved answer and prepared a proposed library update."
+        ? task && isProfileContextTask(task)
+          ? "Saved profile answer."
+          : "Saved answer and prepared a suggested update."
+        : payload.action === "acknowledge"
+          ? "Confirmed import note."
         : payload.action === "link"
           ? "Updated destination and regenerated a suggested update."
         : payload.action === "accept_proposal"
@@ -1782,9 +1829,9 @@ export function ProfileEvidenceWorkspace({
           ? "Updated suggested draft evidence."
         : payload.action === "convert"
           ? "Saved draft evidence. Next: review wording, then approve for resume use."
-          : payload.action === "dismiss"
-            ? "Dismissed enrichment task."
-            : "Reopened enrichment task.";
+        : payload.action === "dismiss"
+          ? "Dismissed enrichment task."
+          : "Reopened enrichment task.";
     setStatus(message);
     return { ok: true, message };
   }
@@ -1999,7 +2046,7 @@ export function ProfileEvidenceWorkspace({
               <h2 className="panel__title">Add Material</h2>
               <p className="panel__note">
                 {activeProfileGap
-                  ? "Add missing profile facts as source material without turning them into work stories."
+                  ? "Add missing profile facts directly without turning them into work stories."
                   : entryGuidance.summary}
               </p>
             </div>
@@ -2536,6 +2583,7 @@ export function ProfileEvidenceWorkspace({
               linkTargets={linkTargets}
               onCreateLibraryItems={openCreateLibraryItemsForTask}
               onOpenProfileFact={openProfileFactFromImportedNote}
+              onRefresh={() => refreshLibraryAfterMutation()}
               onReviewImportedMaterial={() => openLibraryAssetView("stories")}
               onReturnToIntake={() => setActiveSection("intake")}
               onUpdate={updateEnrichmentTask}
@@ -2554,6 +2602,7 @@ export function ProfileEvidenceWorkspace({
               linkTargets={linkTargets}
               onCreateLibraryItems={openCreateLibraryItemsForTask}
               onOpenProfileFact={openProfileFactFromImportedNote}
+              onRefresh={() => refreshLibraryAfterMutation()}
               onReviewImportedMaterial={() => openLibraryAssetView("stories")}
               onReturnToIntake={() => setActiveSection("intake")}
               onUpdate={updateEnrichmentTask}
@@ -3009,7 +3058,7 @@ function MaterialSelectionSummary({
       : sourceTitle.trim() || "Source selected";
   const detail =
     profileGap
-      ? "Add source material for profile facts. This is not a work story."
+      ? "Add or correct profile facts. This is not a work story."
       : activeIntent === "resume"
       ? selectedResume?.status === "extracted"
         ? "Library items already exist for this resume. You can review or add more material below."
@@ -3185,7 +3234,7 @@ function ProfileFactSourceForm({
     <section className="profile-fact-source-form source-active-form">
       <div className="profile-fact-source-form__header">
         <div>
-          <span>Profile fact source</span>
+          <span>Profile fact editor</span>
           <h3>
             {copy.title}
             <HelpHint text={copy.description} />
@@ -3218,7 +3267,7 @@ function ProfileFactSourceForm({
           type="button"
           onClick={onRun}
         >
-          {isRunning ? "Saving..." : "Save profile source"}
+          {isRunning ? "Saving..." : "Save profile fact"}
         </button>
         <span className={error ? "status status--error" : "status"}>
           {error ?? status}
@@ -3638,6 +3687,7 @@ function EnrichmentTaskQueue({
   linkTargets,
   onCreateLibraryItems,
   onOpenProfileFact,
+  onRefresh,
   onReviewImportedMaterial,
   onReturnToIntake,
   onUpdate,
@@ -3653,6 +3703,7 @@ function EnrichmentTaskQueue({
   linkTargets: EvidenceLinkTargets;
   onCreateLibraryItems: (task: EnrichmentTaskItem) => void;
   onOpenProfileFact: (task: EnrichmentTaskItem) => void;
+  onRefresh: () => Promise<void>;
   onReviewImportedMaterial: () => void;
   onReturnToIntake: () => void;
   onUpdate: (
@@ -3869,7 +3920,7 @@ function EnrichmentTaskQueue({
                     >
                       <span className="enrichment-task-row__header">
                         <span>{formatEnrichmentTaskScope(task.target_scope)}</span>
-                        <small>{formatEnrichmentStatus(task.status)}</small>
+                        <small>{formatEnrichmentTaskStatus(task)}</small>
                       </span>
                       <strong>{task.prompt}</strong>
                       <small className="enrichment-task-row__meta">
@@ -3899,6 +3950,7 @@ function EnrichmentTaskQueue({
               onOpenProfileFact={() => onOpenProfileFact(selectedTask)}
               onReviewImportedMaterial={onReviewImportedMaterial}
               onAcknowledge={() => void handleUpdate(selectedTask, { action: "acknowledge" })}
+              onRoleFieldUpdated={onRefresh}
               onDismiss={() => void handleUpdate(selectedTask, { action: "dismiss" })}
               onLink={(anchor) =>
                 void handleUpdate(selectedTask, {
@@ -3979,6 +4031,7 @@ function EnrichmentTaskFocusPane({
   onReviewImportedMaterial,
   onRejectProposal,
   onReviseProposal,
+  onRoleFieldUpdated,
   onSaveAnswer,
   portfolioProjects,
   pendingAction,
@@ -4010,6 +4063,7 @@ function EnrichmentTaskFocusPane({
     proposalId: string,
     revision: { revisedText?: string; revisionInstruction?: string },
   ) => void;
+  onRoleFieldUpdated: () => Promise<void>;
   onSaveAnswer: (answer: string) => void;
   portfolioProjects: PortfolioProjectItem[];
   pendingAction: EnrichmentPendingAction | null;
@@ -4041,9 +4095,11 @@ function EnrichmentTaskFocusPane({
         onOpenProfileFact={onOpenProfileFact}
         onPrevious={onPrevious}
         onReviewImportedMaterial={onReviewImportedMaterial}
+        onRoleFieldUpdated={onRoleFieldUpdated}
         task={task}
         taskIndex={taskIndex}
         taskTotal={taskTotal}
+        workExperiences={workExperiences}
       />
     );
   }
@@ -4057,7 +4113,7 @@ function EnrichmentTaskFocusPane({
           <h3>{task.prompt}</h3>
           <p>From {task.source_label}</p>
         </div>
-        <em data-state={task.status}>{formatEnrichmentStatus(task.status)}</em>
+        <em data-state={task.status}>{formatEnrichmentTaskStatus(task)}</em>
       </div>
       {!hasLibraryAnchor && requiresTargetBeforeAnswer ? (
         <div className="enrichment-task-card__stage">
@@ -4333,9 +4389,11 @@ function SourceSectionReviewPane({
   onOpenProfileFact,
   onPrevious,
   onReviewImportedMaterial,
+  onRoleFieldUpdated,
   task,
   taskIndex,
   taskTotal,
+  workExperiences,
 }: {
   canGoNext: boolean;
   canGoPrevious: boolean;
@@ -4348,19 +4406,71 @@ function SourceSectionReviewPane({
   onOpenProfileFact: () => void;
   onPrevious: () => void;
   onReviewImportedMaterial: () => void;
+  onRoleFieldUpdated: () => Promise<void>;
   task: EnrichmentTaskItem;
   taskIndex: number;
   taskTotal: number;
+  workExperiences: WorkExperienceItem[];
 }) {
+  const { fetchJson } = useAccess();
   const [customizing, setCustomizing] = useState(false);
+  const [roleEditStatus, setRoleEditStatus] = useState<string | null>(null);
+  const [selectedRoleId, setSelectedRoleId] = useState(() =>
+    getEnrichmentTargetId(task, "work_experience") || workExperiences[0]?.id || "",
+  );
+  const [roleLocation, setRoleLocation] = useState("");
+  const [isSavingRoleField, setIsSavingRoleField] = useState(false);
   const sectionName = extractSourceSectionName(task.prompt);
   const actionModel = getImportedNoteActionModel(task, sectionName);
+  const showRoleFieldEditor = task.expected_action === "edit_role_field";
   const handlePrimaryAction =
     actionModel.primaryAction === "acknowledge"
       ? onAcknowledge
+      : actionModel.primaryAction === "edit_role_field"
+        ? () => setCustomizing(true)
       : actionModel.primaryAction === "add_material"
         ? onOpenProfileFact
         : onReviewImportedMaterial;
+  async function saveRoleField() {
+    if (!selectedRoleId) {
+      setRoleEditStatus("Choose the matching role first.");
+      return;
+    }
+    if (roleLocation.trim().length < 2) {
+      setRoleEditStatus("Add the role location before saving.");
+      return;
+    }
+    setIsSavingRoleField(true);
+    setRoleEditStatus("Saving role field...");
+    try {
+      const response = await fetchJson(`/api/work-experiences/${selectedRoleId}`, {
+        body: JSON.stringify({
+          action: "update_fields",
+          location: roleLocation,
+          taskId: task.id,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; kind?: string }
+        | null;
+      if (!response.ok) {
+        setRoleEditStatus(
+          payload?.error
+            ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
+            : "Role field update failed.",
+        );
+        return;
+      }
+      setRoleEditStatus("Role field saved.");
+      await onRoleFieldUpdated();
+    } catch (error) {
+      setRoleEditStatus(error instanceof Error ? error.message : "Role field update failed.");
+    } finally {
+      setIsSavingRoleField(false);
+    }
+  }
   return (
     <article className="enrichment-focus-pane enrichment-focus-pane--source-section">
       <div className="enrichment-focus-pane__top">
@@ -4371,7 +4481,7 @@ function SourceSectionReviewPane({
           <h3>{actionModel.title}</h3>
           <p>From {task.source_label}</p>
         </div>
-        <em data-state={task.status}>{formatEnrichmentStatus(task.status)}</em>
+        <em data-state={task.status}>{formatEnrichmentTaskStatus(task)}</em>
       </div>
       <div className="source-section-review">
         <div className="source-section-review__summary">
@@ -4401,6 +4511,45 @@ function SourceSectionReviewPane({
             </div>
           ) : null}
         </dl>
+        {showRoleFieldEditor ? (
+          <div className="source-section-review__customize">
+            <label className="source-field">
+              <span>Matching role</span>
+              <select
+                className="jd-input jd-input--compact"
+                disabled={isPending || isSavingRoleField}
+                value={selectedRoleId}
+                onChange={(event) => setSelectedRoleId(event.target.value)}
+              >
+                <option value="">Choose role</option>
+                {workExperiences.map((experience) => (
+                  <option key={experience.id} value={experience.id}>
+                    {experience.employer} · {experience.role_title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="source-field">
+              <span>{formatImportedNoteTargetField(task.target_field ?? "location")}</span>
+              <input
+                className="jd-input jd-input--compact"
+                disabled={isPending || isSavingRoleField}
+                placeholder="City, region, or remote"
+                value={roleLocation}
+                onChange={(event) => setRoleLocation(event.target.value)}
+              />
+            </label>
+            <button
+              className="primary-action"
+              disabled={isPending || isSavingRoleField || !selectedRoleId || roleLocation.trim().length < 2}
+              type="button"
+              onClick={() => void saveRoleField()}
+            >
+              {isSavingRoleField ? "Saving..." : "Save role field"}
+            </button>
+            {roleEditStatus ? <span className="status">{roleEditStatus}</span> : null}
+          </div>
+        ) : null}
         <div className="source-section-review__actions">
           <button
             className="primary-action"
@@ -4523,8 +4672,8 @@ function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: strin
       description: `This note points to a missing ${field} on a work experience. Edit the role field directly.`,
       eyebrow: "Role field",
       heading: `Review missing ${field}.`,
-      primaryAction: "review_import" as const,
-      primaryLabel: "Review roles",
+      primaryAction: "edit_role_field" as const,
+      primaryLabel: `Edit role ${field}`,
       recommendedAction: `Open the extracted roles and edit ${field} on the matching role.`,
       title: `Missing role ${field}`,
     };
@@ -5341,7 +5490,7 @@ function IntakeStageHeader({
     },
     {
       label: profileGap
-        ? "Save profile source"
+        ? "Save profile fact"
         : activeIntent === "scratch"
           ? "Strengthen story"
           : "Create library items",
@@ -5561,6 +5710,17 @@ function formatEnrichmentStatus(status: EnrichmentTaskItem["status"]) {
   if (status === "converted") return "draft saved";
   if (status === "dismissed") return "dismissed";
   return "open";
+}
+
+function formatEnrichmentTaskStatus(task: EnrichmentTaskItem) {
+  if (task.status === "converted") {
+    if (task.resolution_kind === "profile_answer_saved") return "profile answer saved";
+    if (task.resolution_kind === "acknowledged") return "confirmed";
+    if (task.resolution_kind === "profile_fact_updated") return "profile fact updated";
+    if (task.resolution_kind === "role_field_updated") return "role field updated";
+    if (task.resolution_kind === "import_reviewed") return "import reviewed";
+  }
+  return formatEnrichmentStatus(task.status);
 }
 
 function formatEnrichmentProposalType(
@@ -8705,34 +8865,34 @@ function profileGapGuidance(field: ProfileGapIntent["field"]) {
     return {
       template:
         "Contact details to add:\n- Name:\n- Email:\n- Phone:\n- City / region:\n- LinkedIn:\n- Portfolio / GitHub / personal site:\n\nUse only details I want JobDesk to remember for resume and profile workflows.",
-      status: "Add contact details below, then save them as profile source material.",
+      status: "Add contact details below, then save them as profile facts.",
     };
   }
   if (field === "location") {
     return {
       template:
         "Location details to add:\n- City / region:\n- Country:\n- Remote / relocation preferences, if relevant:\n\nUse only location details I want JobDesk to remember for resume and profile workflows.",
-      status: "Add location details below, then save them as profile source material.",
+      status: "Add location details below, then save them as profile facts.",
     };
   }
   if (field === "education") {
     return {
       template:
         "Education details to add:\n- School:\n- Degree / program:\n- Graduation date:\n- GPA / honors, if relevant:\n- Relevant coursework:\n- Certifications or academic projects:\n\nUse only education facts that are accurate and reusable for resume/profile workflows.",
-      status: "Add education details below, then save them as profile source material.",
+      status: "Add education details below, then save them as profile facts.",
     };
   }
   if (field === "certifications") {
     return {
       template:
         "Certifications to add:\n- Certification name:\n- Issuer:\n- Date earned / expiration, if relevant:\n- Credential URL or ID, if relevant:\n\nOnly include certifications I want JobDesk to reuse.",
-      status: "Add certification details below, then save them as profile source material.",
+      status: "Add certification details below, then save them as profile facts.",
     };
   }
   return {
     template:
       "Skills to add or correct:\n- Programming languages:\n- Frameworks / libraries:\n- Tools / platforms:\n- Methods / domain knowledge:\n- Skills to remove or avoid:\n\nGroup skills clearly so JobDesk can update the profile without turning this into a work story.",
-    status: "Add skill details below, then save them as profile source material.",
+    status: "Add skill details below, then save them as profile facts.",
   };
 }
 
@@ -8741,7 +8901,7 @@ function profileFactSourceCopy(field: ProfileGapIntent["field"]) {
     return {
       description: "Add only contact details you want reused across resume and profile workflows.",
       examples: ["Name", "Email", "Phone", "LinkedIn", "Portfolio", "Location"],
-      helper: "This is profile data, not a work story. It will be saved as source material for profile review.",
+      helper: "This is profile data, not a work story. It will be saved directly to profile facts.",
       inputLabel: "Contact details",
       placeholder: "Name:\nEmail:\nPhone:\nLinkedIn:\nPortfolio:\nCity / region:",
       title: "Add contact information",
@@ -8751,7 +8911,7 @@ function profileFactSourceCopy(field: ProfileGapIntent["field"]) {
     return {
       description: "Add location details you want reused across resume and profile workflows.",
       examples: ["City", "Region", "Country", "Remote preference", "Relocation"],
-      helper: "This is profile data, not a work story. It will be saved as source material for profile review.",
+      helper: "This is profile data, not a work story. It will be saved directly to profile facts.",
       inputLabel: "Location details",
       placeholder: "City / region:\nCountry:\nRemote / relocation preference:",
       title: "Add location details",
@@ -8761,7 +8921,7 @@ function profileFactSourceCopy(field: ProfileGapIntent["field"]) {
     return {
       description: "Add education facts that should appear in your career profile.",
       examples: ["School", "Degree", "Program", "Graduation", "GPA", "Coursework"],
-      helper: "This updates source material for profile facts. It is not treated as a project or role.",
+      helper: "This updates profile facts directly. It is not treated as a project or role.",
       inputLabel: "Education details",
       placeholder: "School:\nDegree / program:\nGraduation date:\nRelevant coursework:\nCertifications:\nAcademic projects:",
       title: "Add education details",

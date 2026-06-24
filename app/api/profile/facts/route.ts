@@ -29,6 +29,12 @@ export async function PATCH(request: Request) {
         { status: 404 },
       );
     }
+    if (result.status === "invalid") {
+      return NextResponse.json(
+        { error: result.reason, kind: "invalid_profile_fact_update" },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ data: result.profile });
   } catch (error) {
     return NextResponse.json(

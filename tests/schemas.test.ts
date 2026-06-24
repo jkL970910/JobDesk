@@ -14,7 +14,7 @@ import { ResumeReview } from "../src/schemas/resume-review";
 import { GeneratedClaim, TailoredResumeDraft } from "../src/schemas/tailored-resume";
 import { ExternalSafeSummarySuggestion } from "../src/schemas/external-safe-summary";
 import { EvidenceUpdateProposalPatch } from "../src/schemas/enrichment-proposal-patches";
-import { ProfileFactPatchRequest } from "../src/schemas/profile-facts";
+import { buildProfileFactPatchFromText, ProfileFactPatchRequest } from "../src/schemas/profile-facts";
 
 describe("ExtractedField", () => {
   it("applies defaults (verified=false, confidence=0) when omitted", () => {
@@ -524,6 +524,7 @@ describe("Profile fact patch request", () => {
           links: ["https://github.com/candidate"],
           location: "Toronto, Canada",
         },
+        taskId: "11111111-1111-4111-8111-111111111111",
       }).field,
     ).toBe("contact");
     expect(
@@ -547,6 +548,26 @@ describe("Profile fact patch request", () => {
         certifications: ["AWS"],
       }).success,
     ).toBe(false);
+  });
+
+  it("builds typed profile fact patches from imported-note editor text", () => {
+    expect(
+      buildProfileFactPatchFromText(
+        "certifications",
+        "Certification name: AWS Certified Cloud Practitioner\nIssuer: AWS",
+        { taskId: "11111111-1111-4111-8111-111111111111" },
+      ),
+    ).toEqual({
+      field: "certifications",
+      certifications: ["AWS Certified Cloud Practitioner · Issuer: AWS"],
+      taskId: "11111111-1111-4111-8111-111111111111",
+    });
+    expect(
+      buildProfileFactPatchFromText("location", "City / region: Toronto\nCountry: Canada"),
+    ).toEqual({
+      field: "location",
+      location: "Toronto, Canada",
+    });
   });
 });
 

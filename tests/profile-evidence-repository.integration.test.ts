@@ -16,6 +16,7 @@ import {
   evidenceItems,
   generatedClaims,
   initiatives,
+  profiles,
   resumeSourceVersions,
   sourceDocuments,
   workExperiences,
@@ -33,6 +34,8 @@ import {
   mergeStoryTargets,
   persistProfileEvidenceExtraction,
   updateEvidenceItem,
+  updateProfileFacts,
+  updateWorkExperienceFields,
 } from "../src/server/profile-evidence-repository";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
 import { skillRegistry } from "../src/ai/skills-registry";
@@ -1193,7 +1196,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(updatedInitiative?.context).toContain(answer);
   });
 
-  it("routes unassigned enrichment answers to clarify assignment context", async () => {
+  it("saves profile context answers without creating evidence or proposals", async () => {
     const db = getDb();
     const workspace = await getCurrentWorkspace(db);
     const prompt = `What techniques are strongest today? ${crypto.randomUUID()}`;
@@ -1205,8 +1208,8 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
           sourceType: "user_input",
           sourceLabel: "Clarify assignment smoke",
           prompt,
-          targetScope: "assign_later",
-          expectedOutcome: "clarify_assignment",
+          targetScope: "profile_context",
+          expectedOutcome: "save_profile_answer",
         },
       ],
     });
@@ -1218,7 +1221,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(queue.status).toBe("ready");
     if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
     const task = queue.tasks.find((item) => item.prompt === prompt);
-    if (!task) throw new Error("Expected clarify-assignment task.");
+    if (!task) throw new Error("Expected profile-context task.");
 
     const answer = `I am strongest in metric definition and event taxonomy cleanup ${crypto.randomUUID()}.`;
     const answered = await updateEnrichmentTask({
@@ -1228,36 +1231,134 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     });
     expect(answered.status).toBe("saved");
     if (answered.status !== "saved") throw new Error("Expected saved answer.");
-    const proposal = answered.task.proposals.find(
-      (item) => item.status === "pending_review",
-    );
-    if (!proposal) throw new Error("Expected clarify-assignment proposal.");
-    expect(proposal).toMatchObject({
-      proposal_type: "clarify_assignment",
-      target_kind: null,
-      target_id: null,
+    expect(answered.task).toMatchObject({
+      status: "converted",
+      resolution_kind: "profile_answer_saved",
     });
-    expect(proposal.proposed_patch_json).toMatchObject({
-      patch_type: "clarify_assignment",
-      text: answer,
-      expected_outcome: "clarify_assignment",
-      task_scope: "assign_later",
-    });
-
-    const accepted = await updateEnrichmentTask({
-      taskId: task.id,
-      action: "accept_proposal",
-      proposalId: proposal.id,
-    });
-    expect(accepted).toMatchObject({
-      status: "saved",
-      task: { status: "converted" },
-      conversionMode: "proposal_commit",
-      evidenceCount: 0,
-      evidenceItemId: null,
-    });
+    expect(answered.task.proposals).toHaveLength(0);
     const evidenceRows = await db.select().from(evidenceItems).where(eq(evidenceItems.text, answer));
     expect(evidenceRows).toHaveLength(0);
+  });
+
+  it("updates profile facts and resolves the originating imported note task", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const prompt = `No certifications were found in the source ${crypto.randomUUID()}.`;
+    await db.insert(profiles).values({
+      workspaceId: workspace.id,
+      displayName: "Profile Fact Test",
+      profileJson: buildEmptyProfileJson(),
+    });
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          taskType: "source_section_review",
+          sourceType: "extraction_note",
+          sourceLabel: "Resume import",
+          prompt,
+          targetScope: "profile_fact",
+          expectedOutcome: "update_profile_fact",
+          noteKind: "missing_profile_fact",
+          expectedAction: "add_profile_fact",
+          targetField: "certifications",
+        },
+      ],
+    });
+    const queue = await getEnrichmentTaskQueue({
+      limit: 20,
+      sourceType: "extraction_note",
+      statuses: ["open"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const task = queue.tasks.find((item) => item.prompt === prompt);
+    if (!task) throw new Error("Expected imported note task.");
+
+    const result = await updateProfileFacts({
+      field: "certifications",
+      certifications: ["AWS Certified Cloud Practitioner · Issuer: AWS"],
+      taskId: task.id,
+    });
+    expect(result.status).toBe("updated");
+    const refreshed = await getEnrichmentTaskQueue({
+      limit: 20,
+      sourceType: "extraction_note",
+      statuses: ["converted"],
+    });
+    expect(refreshed.status).toBe("ready");
+    if (refreshed.status !== "ready") throw new Error("Expected converted queue.");
+    const resolvedTask = refreshed.tasks.find((item) => item.id === task.id);
+    expect(resolvedTask).toMatchObject({
+      status: "converted",
+      resolution_kind: "profile_fact_updated",
+    });
+  });
+
+  it("updates missing role fields and resolves the originating imported note task", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const prompt = `NVIDIA work experience line does not state a location ${crypto.randomUUID()}.`;
+    const [role] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: "NVIDIA",
+        roleTitle: "Software Engineer Intern",
+      })
+      .returning({ id: workExperiences.id });
+    if (!role) throw new Error("Expected role.");
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          taskType: "source_section_review",
+          sourceType: "extraction_note",
+          sourceLabel: "Resume import",
+          prompt,
+          targetScope: "source_material",
+          expectedOutcome: "review_imported_material",
+          noteKind: "missing_role_field",
+          expectedAction: "edit_role_field",
+          targetField: "location",
+        },
+      ],
+    });
+    const queue = await getEnrichmentTaskQueue({
+      limit: 20,
+      sourceType: "extraction_note",
+      statuses: ["open"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const task = queue.tasks.find((item) => item.prompt === prompt);
+    if (!task) throw new Error("Expected imported note task.");
+
+    const result = await updateWorkExperienceFields({
+      workExperienceId: role.id,
+      location: "Santa Clara, CA",
+      taskId: task.id,
+    });
+    expect(result.status).toBe("saved");
+    const [updatedRole] = await db
+      .select()
+      .from(workExperiences)
+      .where(eq(workExperiences.id, role.id))
+      .limit(1);
+    expect(updatedRole?.location).toBe("Santa Clara, CA");
+    const refreshed = await getEnrichmentTaskQueue({
+      limit: 20,
+      sourceType: "extraction_note",
+      statuses: ["converted"],
+    });
+    expect(refreshed.status).toBe("ready");
+    if (refreshed.status !== "ready") throw new Error("Expected converted queue.");
+    const resolvedTask = refreshed.tasks.find((item) => item.id === task.id);
+    expect(resolvedTask).toMatchObject({
+      status: "converted",
+      resolution_kind: "role_field_updated",
+      work_experience_id: role.id,
+    });
   });
 
   it("applies evidence update proposals in place and marks linked claims stale", async () => {
@@ -1865,6 +1966,22 @@ function simpleField(
   };
 }
 
+function buildEmptyProfileJson() {
+  return {
+    name: simpleField("Profile Fact Test", "Profile Fact Test", 1),
+    email: null,
+    phone: null,
+    location: null,
+    links: [],
+    education: [],
+    experience: [],
+    skills: [],
+    certifications: [],
+    missing_fields: [],
+    low_confidence_fields: [],
+    invented_field_flags: [],
+  };
+}
 
 function buildDuplicateExtraction(text: string): ProfileEvidenceExtraction {
   return {
