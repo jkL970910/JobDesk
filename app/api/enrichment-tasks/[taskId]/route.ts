@@ -25,6 +25,27 @@ const requestSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("reopen") }),
   z.object({ action: z.literal("convert") }),
   z.object({
+    action: z.literal("accept_suggested_target"),
+    targetId: z.string().uuid(),
+  }),
+  z.object({
+    action: z.literal("reject_suggested_target"),
+    targetId: z.string().uuid(),
+  }),
+  z.object({
+    action: z.literal("choose_different_target"),
+  }),
+  z.object({
+    action: z.literal("change_workflow_route"),
+    route: z.enum([
+      "create_evidence",
+      "update_evidence",
+      "update_story",
+      "update_role",
+      "profile_context",
+    ]),
+  }),
+  z.object({
     action: z.literal("accept_proposal"),
     proposalId: z.string().uuid(),
   }),

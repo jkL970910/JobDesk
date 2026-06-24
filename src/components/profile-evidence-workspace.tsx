@@ -302,6 +302,10 @@ type EnrichmentTargetRoute =
 type EnrichmentTaskUpdatePayload =
   | { action: "answer"; userAnswer: string }
   | { action: "save_profile_context"; userAnswer: string }
+  | { action: "accept_suggested_target"; targetId: string }
+  | { action: "reject_suggested_target"; targetId: string }
+  | { action: "choose_different_target" }
+  | { action: "change_workflow_route"; route: EnrichmentTargetRoute }
   | { action: "acknowledge" }
   | { action: "dismiss" }
   | { action: "mark_import_reviewed" }
@@ -1890,6 +1894,14 @@ export function ProfileEvidenceWorkspace({
     const message =
       payload.action === "save_profile_context"
         ? "Saved profile context."
+      : payload.action === "accept_suggested_target"
+        ? "Using suggested target."
+      : payload.action === "reject_suggested_target"
+        ? "Rejected suggested target."
+      : payload.action === "choose_different_target"
+        ? "Choose a different target or workflow."
+      : payload.action === "change_workflow_route"
+        ? "Updated workflow route."
       : payload.action === "answer"
         ? task && isProfileContextTask(task)
           ? "Saved profile answer."
@@ -4055,6 +4067,27 @@ function EnrichmentTaskQueue({
                   anchor,
                 })
               }
+              onAcceptSuggestedTarget={(targetId) =>
+                void handleUpdate(selectedTask, {
+                  action: "accept_suggested_target",
+                  targetId,
+                })
+              }
+              onChangeWorkflowRoute={(route) =>
+                void handleUpdate(selectedTask, {
+                  action: "change_workflow_route",
+                  route,
+                })
+              }
+              onChooseDifferentTarget={() =>
+                void handleUpdate(selectedTask, { action: "choose_different_target" })
+              }
+              onRejectSuggestedTarget={(targetId) =>
+                void handleUpdate(selectedTask, {
+                  action: "reject_suggested_target",
+                  targetId,
+                })
+              }
               onNext={() => selectRelativeTask(1)}
               onPrevious={() => selectRelativeTask(-1)}
               onSaveAnswer={(answer, route) =>
@@ -4098,6 +4131,14 @@ function getPendingEnrichmentAction(
 ): EnrichmentPendingAction {
   if (payload.action === "accept_proposal") return "accept";
   if (payload.action === "reject_proposal") return "discard";
+  if (
+    payload.action === "accept_suggested_target" ||
+    payload.action === "reject_suggested_target" ||
+    payload.action === "choose_different_target" ||
+    payload.action === "change_workflow_route"
+  ) {
+    return "other";
+  }
   if (payload.action === "save_profile_context") return "save_context";
   if (payload.action === "answer") {
     return isProfileContextTask(task) ? "save_context" : "generate";
@@ -4120,6 +4161,9 @@ function EnrichmentTaskFocusPane({
   onAnswerChange,
   onAcceptProposal,
   onAcknowledge,
+  onAcceptSuggestedTarget,
+  onChangeWorkflowRoute,
+  onChooseDifferentTarget,
   onConvertToQuestion,
   onCreateLibraryItems,
   onDismiss,
@@ -4130,6 +4174,7 @@ function EnrichmentTaskFocusPane({
   onPrevious,
   onReviewImportedMaterial,
   onRejectProposal,
+  onRejectSuggestedTarget,
   onRequestRerun,
   onReviseProposal,
   onRoleFieldUpdated,
@@ -4152,6 +4197,9 @@ function EnrichmentTaskFocusPane({
   onAnswerChange: (answer: string) => void;
   onAcceptProposal: (proposalId: string) => void;
   onAcknowledge: () => void;
+  onAcceptSuggestedTarget: (targetId: string) => void;
+  onChangeWorkflowRoute: (route: EnrichmentTargetRoute) => void;
+  onChooseDifferentTarget: () => void;
   onConvertToQuestion: () => void;
   onCreateLibraryItems: () => void;
   onDismiss: () => void;
@@ -4162,6 +4210,7 @@ function EnrichmentTaskFocusPane({
   onPrevious: () => void;
   onReviewImportedMaterial: () => void;
   onRejectProposal: (proposalId: string) => void;
+  onRejectSuggestedTarget: (targetId: string) => void;
   onRequestRerun: () => void;
   onReviseProposal: (
     proposalId: string,
@@ -4241,8 +4290,12 @@ function EnrichmentTaskFocusPane({
             evidenceItems={evidenceItems}
             initiatives={initiatives}
             onCreateLibraryItems={onCreateLibraryItems}
+            onAcceptSuggestedTarget={onAcceptSuggestedTarget}
+            onChangeWorkflowRoute={onChangeWorkflowRoute}
+            onChooseDifferentTarget={onChooseDifferentTarget}
             onLink={onLink}
             onRouteChange={setSelectedRoute}
+            onRejectSuggestedTarget={onRejectSuggestedTarget}
             portfolioProjects={portfolioProjects}
             route={selectedRoute}
             task={task}
@@ -4308,6 +4361,14 @@ function EnrichmentTaskFocusPane({
               task={task}
               workExperiences={workExperiences}
             />
+            <button
+              className="secondary-button secondary-button--quiet"
+              disabled={isPending}
+              type="button"
+              onClick={onChooseDifferentTarget}
+            >
+              Change target or workflow
+            </button>
           </details>
           {pendingProposal ? (
             <EnrichmentProposalPreview
@@ -5684,9 +5745,13 @@ function RouteAwareTargetGate({
   disabled,
   evidenceItems,
   initiatives,
+  onAcceptSuggestedTarget,
+  onChangeWorkflowRoute,
+  onChooseDifferentTarget,
   onCreateLibraryItems,
   onLink,
   onRouteChange,
+  onRejectSuggestedTarget,
   portfolioProjects,
   route,
   task,
@@ -5695,9 +5760,13 @@ function RouteAwareTargetGate({
   disabled: boolean;
   evidenceItems: EvidenceCardItem[];
   initiatives: InitiativeItem[];
+  onAcceptSuggestedTarget: (targetId: string) => void;
+  onChangeWorkflowRoute: (route: EnrichmentTargetRoute) => void;
+  onChooseDifferentTarget: () => void;
   onCreateLibraryItems: () => void;
   onLink: (anchor: EnrichmentTaskAnchorPatch) => void;
   onRouteChange: (route: EnrichmentTargetRoute) => void;
+  onRejectSuggestedTarget: (targetId: string) => void;
   portfolioProjects: PortfolioProjectItem[];
   route: EnrichmentTargetRoute | null;
   task: EnrichmentTaskItem;
@@ -5712,20 +5781,44 @@ function RouteAwareTargetGate({
         <div className="enrichment-route-gate__suggestions">
           <span>Suggested target</span>
           {suggestedTargets.slice(0, 3).map((target) => (
-            <button
-              className="secondary-button secondary-button--quiet"
-              disabled={disabled}
-              key={`${target.target_kind}-${target.target_id}`}
-              type="button"
-              onClick={() => onLink(anchorFromTargetPayload(target))}
-            >
-              {formatEnrichmentTargetPayload(target, {
-                evidenceItems,
-                initiatives,
-                portfolioProjects,
-                workExperiences,
-              })}
-            </button>
+            <div className="enrichment-route-gate__suggestion" key={`${target.target_kind}-${target.target_id}`}>
+              <strong>
+                {formatEnrichmentTargetPayload(target, {
+                  evidenceItems,
+                  initiatives,
+                  portfolioProjects,
+                  workExperiences,
+                })}
+              </strong>
+              {target.reason ? <small>Reason: {target.reason}</small> : null}
+              <small>Confidence: {target.confidence}</small>
+              <div className="actions actions--compact">
+                <button
+                  className="primary-action"
+                  disabled={disabled}
+                  type="button"
+                  onClick={() => onAcceptSuggestedTarget(target.target_id)}
+                >
+                  Use this target
+                </button>
+                <button
+                  className="secondary-button secondary-button--quiet"
+                  disabled={disabled}
+                  type="button"
+                  onClick={onChooseDifferentTarget}
+                >
+                  Choose another
+                </button>
+                <button
+                  className="ghost-button"
+                  disabled={disabled}
+                  type="button"
+                  onClick={() => onRejectSuggestedTarget(target.target_id)}
+                >
+                  Reject suggestion
+                </button>
+              </div>
+            </div>
           ))}
         </div>
       ) : null}
@@ -5734,7 +5827,11 @@ function RouteAwareTargetGate({
           className={route === "create_evidence" ? "primary-action" : "secondary-button"}
           disabled={disabled}
           type="button"
-          onClick={onCreateLibraryItems}
+          onClick={() => {
+            onRouteChange("create_evidence");
+            onChangeWorkflowRoute("create_evidence");
+            onCreateLibraryItems();
+          }}
         >
           Create new evidence
         </button>
@@ -5742,7 +5839,10 @@ function RouteAwareTargetGate({
           className={route === "update_evidence" ? "primary-action" : "secondary-button"}
           disabled={disabled}
           type="button"
-          onClick={() => onRouteChange("update_evidence")}
+          onClick={() => {
+            onRouteChange("update_evidence");
+            onChangeWorkflowRoute("update_evidence");
+          }}
         >
           Update existing claim
         </button>
@@ -5750,7 +5850,10 @@ function RouteAwareTargetGate({
           className={route === "update_story" ? "primary-action" : "secondary-button"}
           disabled={disabled}
           type="button"
-          onClick={() => onRouteChange("update_story")}
+          onClick={() => {
+            onRouteChange("update_story");
+            onChangeWorkflowRoute("update_story");
+          }}
         >
           Attach to story
         </button>
@@ -5758,7 +5861,10 @@ function RouteAwareTargetGate({
           className={route === "update_role" ? "primary-action" : "secondary-button"}
           disabled={disabled}
           type="button"
-          onClick={() => onRouteChange("update_role")}
+          onClick={() => {
+            onRouteChange("update_role");
+            onChangeWorkflowRoute("update_role");
+          }}
         >
           Attach to role
         </button>
@@ -5766,7 +5872,10 @@ function RouteAwareTargetGate({
           className={route === "profile_context" ? "primary-action" : "secondary-button"}
           disabled={disabled}
           type="button"
-          onClick={() => onRouteChange("profile_context")}
+          onClick={() => {
+            onRouteChange("profile_context");
+            onChangeWorkflowRoute("profile_context");
+          }}
         >
           Save as profile context
         </button>

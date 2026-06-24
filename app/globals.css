@@ -8009,6 +8009,48 @@ span > .help-hint {
   margin-top: 0;
 }
 
+.enrichment-route-gate {
+  display: grid;
+  gap: 12px;
+}
+
+.enrichment-route-gate__suggestions {
+  border-left: 2px solid rgba(112, 211, 162, 0.42);
+  display: grid;
+  gap: 10px;
+  padding-left: 12px;
+}
+
+.enrichment-route-gate__suggestions > span {
+  color: var(--accent);
+  font-size: 0.74rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.enrichment-route-gate__suggestion {
+  display: grid;
+  gap: 7px;
+}
+
+.enrichment-route-gate__suggestion strong {
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.enrichment-route-gate__suggestion small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.enrichment-route-gate__routes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .enrichment-task-card__stage-actions {
   justify-content: flex-start;
 }

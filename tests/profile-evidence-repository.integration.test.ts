@@ -890,10 +890,11 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     ) {
       throw new Error("Expected accepted proposal evidence item.");
     }
+    const evidenceItemId = accepted.evidenceItemId as string;
     const [evidence] = await db
       .select()
       .from(evidenceItems)
-      .where(eq(evidenceItems.id, accepted.evidenceItemId))
+      .where(eq(evidenceItems.id, evidenceItemId))
       .limit(1);
     expect(evidence).toMatchObject({
       text: revisedText,
@@ -2069,37 +2070,57 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       target_scope: "assign_later",
       expected_outcome: "route_answer",
     });
-    expect(
-      task?.targets.some(
-        (target) => target.target_kind === "evidence" && target.target_role === "suggested",
-      ),
-    ).toBe(true);
+    const suggestedTarget = task?.targets.find(
+      (target) => target.target_kind === "evidence" && target.target_role === "suggested",
+    );
+    expect(suggestedTarget).toBeDefined();
 
     const [alternateEvidence] = await db
       .select()
       .from(evidenceItems)
       .where(eq(evidenceItems.sourceDocumentId, result.sourceDocumentId))
       .limit(1);
-    if (!task || !alternateEvidence) throw new Error("Expected task and evidence.");
-    const linked = await updateEnrichmentTask({
-      action: "link",
-      anchor: { evidenceItemId: alternateEvidence.id },
+    if (!task || !alternateEvidence || !suggestedTarget) {
+      throw new Error("Expected task, suggestion, and evidence.");
+    }
+    const answer = `The SQL dashboards reduced weekly reporting review time ${crypto.randomUUID()}.`;
+    const blocked = await updateEnrichmentTask({
+      action: "answer",
+      taskId: task.id,
+      userAnswer: answer,
+    });
+    expect(blocked).toMatchObject({
+      status: "invalid",
+      reason: "target_confirmation_required",
+    });
+
+    const acceptedSuggestion = await updateEnrichmentTask({
+      action: "accept_suggested_target",
+      targetId: suggestedTarget.target_id,
       taskId: task.id,
     });
-    expect(linked).toMatchObject({
+    expect(acceptedSuggestion).toMatchObject({
       status: "saved",
       task: {
-        evidence_item_id: alternateEvidence.id,
+        evidence_item_id: suggestedTarget.target_id,
         target_scope: "evidence_detail",
       },
     });
-    if (linked.status !== "saved") throw new Error("Expected linked task.");
+    if (acceptedSuggestion.status !== "saved") throw new Error("Expected accepted suggestion.");
     expect(
-      linked.task.targets.some(
+      acceptedSuggestion.task.targets.some(
         (target) =>
           target.target_kind === "evidence" &&
-          target.target_id === alternateEvidence.id &&
+          target.target_id === suggestedTarget.target_id &&
           target.target_role === "primary",
+      ),
+    ).toBe(true);
+    expect(
+      acceptedSuggestion.task.proposals.some(
+        (proposal) =>
+          proposal.status === "pending_review" &&
+          proposal.proposal_type === "update_evidence" &&
+          proposal.target_id === suggestedTarget.target_id,
       ),
     ).toBe(true);
     const persistedTargets = await db
@@ -2109,9 +2130,156 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(persistedTargets).toHaveLength(1);
     expect(persistedTargets[0]).toMatchObject({
       targetKind: "evidence",
-      targetId: alternateEvidence.id,
+      targetId: suggestedTarget.target_id,
       targetRole: "primary",
       createdBy: "user",
+    });
+  });
+
+  it("rejects suggested targets and prevents reuse without confirmation", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const [evidence] = await db
+      .insert(evidenceItems)
+      .values({
+        workspaceId: workspace.id,
+        text: `Suggested evidence ${crypto.randomUUID()}`,
+        sourceQuote: "Suggested source.",
+        evidenceType: "extracted",
+        sensitivityLevel: "private",
+        status: "pending",
+      })
+      .returning({ id: evidenceItems.id });
+    if (!evidence) throw new Error("Expected evidence.");
+    const prompt = `Suggested target rejection ${crypto.randomUUID()}`;
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          expectedOutcome: "route_answer",
+          prompt,
+          sourceLabel: "Suggestion reject smoke",
+          sourceType: "user_input",
+          targetScope: "assign_later",
+          taskType: "metric",
+        },
+      ],
+    });
+    const queue = await getEnrichmentTaskQueue({
+      limit: 30,
+      sourceType: "user_input",
+      statuses: ["open"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const task = queue.tasks.find((item) => item.prompt === prompt);
+    if (!task) throw new Error("Expected task.");
+    await db.insert(enrichmentTaskTargets).values({
+      workspaceId: workspace.id,
+      taskId: task.id,
+      targetKind: "evidence",
+      targetId: evidence.id,
+      targetRole: "suggested",
+      confidence: "medium",
+      createdBy: "system",
+      reason: "Suggested by test.",
+    });
+
+    const rejected = await updateEnrichmentTask({
+      action: "reject_suggested_target",
+      targetId: evidence.id,
+      taskId: task.id,
+    });
+    expect(rejected.status).toBe("saved");
+    const answer = await updateEnrichmentTask({
+      action: "answer",
+      taskId: task.id,
+      userAnswer: `This answer still needs routing ${crypto.randomUUID()}.`,
+    });
+    expect(answer).toMatchObject({
+      status: "invalid",
+      reason: "target_required",
+    });
+    const targetRows = await db
+      .select()
+      .from(enrichmentTaskTargets)
+      .where(eq(enrichmentTaskTargets.taskId, task.id));
+    expect(targetRows[0]?.rejectedAt).toBeTruthy();
+  });
+
+  it("rejects pending proposals when changing route to profile context", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const [evidence] = await db
+      .insert(evidenceItems)
+      .values({
+        workspaceId: workspace.id,
+        text: `Route change evidence ${crypto.randomUUID()}`,
+        sourceQuote: "Route change source.",
+        evidenceType: "extracted",
+        sensitivityLevel: "private",
+        status: "pending",
+      })
+      .returning({ id: evidenceItems.id });
+    if (!evidence) throw new Error("Expected evidence.");
+    const prompt = `Route change profile context ${crypto.randomUUID()}`;
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          evidenceItemId: evidence.id,
+          expectedOutcome: "update_evidence",
+          prompt,
+          sourceLabel: "Route change smoke",
+          sourceType: "user_input",
+          targetScope: "evidence_detail",
+          taskType: "metric",
+        },
+      ],
+    });
+    const queue = await getEnrichmentTaskQueue({
+      limit: 30,
+      sourceType: "user_input",
+      statuses: ["open"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const task = queue.tasks.find((item) => item.prompt === prompt);
+    if (!task) throw new Error("Expected task.");
+    const answered = await updateEnrichmentTask({
+      action: "answer",
+      taskId: task.id,
+      userAnswer: `Add source detail before profile route ${crypto.randomUUID()}.`,
+    });
+    expect(answered.status).toBe("saved");
+    if (answered.status !== "saved") throw new Error("Expected answer.");
+    const pendingProposal = answered.task.proposals.find(
+      (proposal) => proposal.status === "pending_review",
+    );
+    if (!pendingProposal) throw new Error("Expected pending proposal.");
+
+    const rerouted = await updateEnrichmentTask({
+      action: "change_workflow_route",
+      route: "profile_context",
+      taskId: task.id,
+    });
+    expect(rerouted).toMatchObject({
+      status: "saved",
+      task: {
+        evidence_item_id: null,
+        expected_outcome: "save_profile_answer",
+        target_scope: "profile_context",
+      },
+    });
+    if (rerouted.status !== "saved") throw new Error("Expected reroute.");
+    expect(rerouted.task.targets).toHaveLength(0);
+    const [proposalAfterRoute] = await db
+      .select()
+      .from(enrichmentProposals)
+      .where(eq(enrichmentProposals.id, pendingProposal.id))
+      .limit(1);
+    expect(proposalAfterRoute).toMatchObject({
+      status: "rejected",
     });
   });
 
