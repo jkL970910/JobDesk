@@ -41,6 +41,8 @@ export const ClarifyAssignmentProposalPatch = z
       "role_context",
       "source_material",
       "assign_later",
+      "profile_context",
+      "profile_fact",
     ]),
     expected_outcome: z.enum([
       "create_evidence",
@@ -49,6 +51,9 @@ export const ClarifyAssignmentProposalPatch = z
       "update_role",
       "clarify_assignment",
       "review_imported_material",
+      "save_profile_answer",
+      "update_profile_fact",
+      "route_answer",
     ]),
     target_summary: nonEmptyText,
     rationale: z.string().trim().min(1).default("Needs a clearer target before canonical update."),

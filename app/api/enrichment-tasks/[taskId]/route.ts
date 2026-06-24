@@ -13,6 +13,7 @@ const requestSchema = z.discriminatedUnion("action", [
     action: z.literal("answer"),
     userAnswer: z.string().trim().min(1).max(4000),
   }),
+  z.object({ action: z.literal("acknowledge") }),
   z.object({ action: z.literal("dismiss") }),
   z.object({ action: z.literal("reopen") }),
   z.object({ action: z.literal("convert") }),

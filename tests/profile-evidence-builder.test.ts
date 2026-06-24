@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildProfileEvidenceInstructions } from "../src/ai/profile-evidence-extraction";
 import {
   buildConservativeEvidenceRewrite,
+  deriveEnrichmentTaskTargetMetadataForTest,
   buildExtractionNoteEnrichmentTasks,
   buildEvidenceUpdateProposalPatch,
   buildInitialProposalGenerationInstruction,
@@ -186,11 +187,38 @@ describe("Evidence Library Builder instructions", () => {
 
     expect(task).toMatchObject({
       sourceType: "resume_review",
-      targetScope: "assign_later",
+      targetScope: "profile_context",
       targetConfidence: "low",
-      expectedOutcome: "clarify_assignment",
+      expectedOutcome: "save_profile_answer",
     });
     expect(task?.targetReason).toContain("profile-level positioning preference");
+    expect(task).not.toHaveProperty("evidenceItemId");
+    expect(task).not.toHaveProperty("initiativeId");
+    expect(task).not.toHaveProperty("workExperienceId");
+  });
+
+  it("routes concrete unanchored resume questions to target assignment before proposal review", () => {
+    const [task] = buildResumeReviewEnrichmentTasks({
+      resumeTitle: "Main resume",
+      resumeSourceVersionId: "resume-source-1",
+      resumeReviewReportId: "review-1",
+      missingEvidenceQuestions: [
+        "Which project should this latency result support in your evidence library?",
+      ],
+    });
+
+    expect(task).toBeDefined();
+    if (!task) throw new Error("Expected enrichment task.");
+    const targetMetadata = deriveEnrichmentTaskTargetMetadataForTest(task);
+
+    expect(task).toMatchObject({
+      sourceType: "resume_review",
+    });
+    expect(targetMetadata).toMatchObject({
+      targetScope: "assign_later",
+      targetConfidence: "low",
+      expectedOutcome: "route_answer",
+    });
     expect(task).not.toHaveProperty("evidenceItemId");
     expect(task).not.toHaveProperty("initiativeId");
     expect(task).not.toHaveProperty("workExperienceId");

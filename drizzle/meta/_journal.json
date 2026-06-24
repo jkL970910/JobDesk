@@ -162,6 +162,20 @@
       "when": 1782252000000,
       "tag": "0022_repair_broad_profile_enrichment_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1782262800000,
+      "tag": "0023_typed_extraction_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1782349200000,
+      "tag": "0024_enrichment_routing_resolution",
+      "breakpoints": true
     }
   ]
 }

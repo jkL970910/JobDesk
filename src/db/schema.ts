@@ -131,6 +131,8 @@ export const enrichmentTaskTargetScopeEnum = pgEnum("enrichment_task_target_scop
   "role_context",
   "source_material",
   "assign_later",
+  "profile_context",
+  "profile_fact",
 ]);
 export const enrichmentTaskTargetConfidenceEnum = pgEnum(
   "enrichment_task_target_confidence",
@@ -145,6 +147,9 @@ export const enrichmentTaskExpectedOutcomeEnum = pgEnum(
     "update_role",
     "clarify_assignment",
     "review_imported_material",
+    "save_profile_answer",
+    "update_profile_fact",
+    "route_answer",
   ],
 );
 export const enrichmentTaskNoteKindEnum = pgEnum("enrichment_task_note_kind", [
@@ -165,6 +170,16 @@ export const enrichmentTaskExpectedActionEnum = pgEnum("enrichment_task_expected
   "review_import",
   "rerun_extraction",
   "answer_enrichment_question",
+]);
+export const enrichmentTaskResolutionKindEnum = pgEnum("enrichment_task_resolution_kind", [
+  "acknowledged",
+  "dismissed",
+  "profile_answer_saved",
+  "profile_fact_updated",
+  "role_field_updated",
+  "import_reviewed",
+  "rerun_requested",
+  "converted_to_enrichment_question",
 ]);
 export const enrichmentTaskTargetKindEnum = pgEnum("enrichment_task_target_kind", [
   "evidence",
@@ -1024,6 +1039,9 @@ export const enrichmentTasks = pgTable(
     answeredAt: timestamp("answered_at", { withTimezone: true }),
     convertedAt: timestamp("converted_at", { withTimezone: true }),
     dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolutionKind: enrichmentTaskResolutionKindEnum("resolution_kind"),
   },
   (table) => ({
     workspaceStatusIdx: index("enrichment_tasks_workspace_status_idx").on(

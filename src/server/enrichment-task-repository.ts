@@ -471,6 +471,7 @@ export async function updateEnrichmentTask(args: {
   taskId: string;
   action:
     | "answer"
+    | "acknowledge"
     | "dismiss"
     | "reopen"
     | "convert"
@@ -564,12 +565,37 @@ export async function updateEnrichmentTask(args: {
     patch.userAnswer = answer;
     patch.answeredAt = now;
     patch.dismissedAt = null;
+    if (shouldSaveProfileContextAnswer(existing)) {
+      patch.status = "converted";
+      patch.convertedAt = now;
+      patch.resolvedAt = now;
+      patch.resolutionKind = "profile_answer_saved";
+      await rejectPendingProposals(db, {
+        workspaceId: workspace.id,
+        taskId: existing.id,
+        now,
+      });
+    }
+  } else if (args.action === "acknowledge") {
+    if (!canAcknowledgeEnrichmentTask(existing)) {
+      return { status: "invalid" as const, reason: "unsupported_acknowledge_action" as const };
+    }
+    patch.status = "converted";
+    patch.acknowledgedAt = now;
+    patch.resolvedAt = now;
+    patch.resolutionKind = "acknowledged";
+    patch.convertedAt = now;
   } else if (args.action === "dismiss") {
     patch.status = "dismissed";
     patch.dismissedAt = now;
+    patch.resolvedAt = now;
+    patch.resolutionKind = "dismissed";
   } else if (args.action === "reopen") {
     patch.status = existing.userAnswer ? "answered" : "open";
     patch.dismissedAt = null;
+    patch.acknowledgedAt = null;
+    patch.resolvedAt = null;
+    patch.resolutionKind = null;
   } else if (args.action === "link") {
     const anchor = await validateReusableLibraryAnchor(db, {
       anchor: args.anchor ?? {},
@@ -595,12 +621,25 @@ export async function updateEnrichmentTask(args: {
 
   const updated =
     args.action === "answer"
-      ? await saveAnswerAndCreateProposal(db, {
-          workspaceId: workspace.id,
-          taskId: args.taskId,
-          patch,
-          now,
-        })
+      ? shouldSaveProfileContextAnswer(existing)
+        ? (
+            await db
+              .update(enrichmentTasks)
+              .set(patch)
+              .where(
+                and(
+                  eq(enrichmentTasks.workspaceId, workspace.id),
+                  eq(enrichmentTasks.id, args.taskId),
+                ),
+              )
+              .returning()
+          )[0]
+        : await saveAnswerAndCreateProposal(db, {
+            workspaceId: workspace.id,
+            taskId: args.taskId,
+            patch,
+            now,
+          })
       : (
           await db
             .update(enrichmentTasks)
@@ -627,7 +666,7 @@ export async function updateEnrichmentTask(args: {
       confidence: "high",
     });
     const answer = updated.userAnswer?.trim();
-    if (answer) {
+    if (answer && shouldCreateProposalForTask(updated)) {
       const proposalDraft = await buildAndEnhanceEnrichmentProposalDraft(db, {
         answer,
         task: updated,
@@ -972,15 +1011,18 @@ async function saveAnswerAndCreateProposal(
     .limit(1);
   if (!existingTask) return undefined;
   const answer = typeof args.patch.userAnswer === "string" ? args.patch.userAnswer.trim() : "";
+  const proposalTask = {
+    ...existingTask,
+    ...args.patch,
+    userAnswer: answer,
+  };
   const proposalDraft = answer
-    ? await buildAndEnhanceEnrichmentProposalDraft(db, {
+    ? shouldCreateProposalForTask(proposalTask)
+      ? await buildAndEnhanceEnrichmentProposalDraft(db, {
         answer,
-        task: {
-          ...existingTask,
-          ...args.patch,
-          userAnswer: answer,
-        },
+        task: proposalTask,
       })
+      : null
     : null;
   return db.transaction(async (tx) => {
     const [updated] = await tx
@@ -2190,6 +2232,28 @@ function shouldGenerateInitialProposalWithAi(type: EnrichmentProposalType) {
   );
 }
 
+function shouldSaveProfileContextAnswer(task: typeof enrichmentTasks.$inferSelect) {
+  return task.targetScope === "profile_context" || task.expectedOutcome === "save_profile_answer";
+}
+
+function shouldCreateProposalForTask(task: typeof enrichmentTasks.$inferSelect) {
+  return (
+    task.expectedOutcome === "create_evidence" ||
+    task.expectedOutcome === "update_evidence" ||
+    task.expectedOutcome === "update_story" ||
+    task.expectedOutcome === "update_role" ||
+    Boolean(task.evidenceItemId || task.initiativeId || task.portfolioProjectId || task.workExperienceId)
+  );
+}
+
+function canAcknowledgeEnrichmentTask(task: typeof enrichmentTasks.$inferSelect) {
+  return (
+    task.expectedAction === "acknowledge" ||
+    task.noteKind === "observation" ||
+    task.expectedOutcome === "review_imported_material"
+  );
+}
+
 export function buildInitialProposalGenerationInstruction(type: EnrichmentProposalType) {
   if (type === "create_evidence") {
     return "Generate a concise draft evidence statement from the user's answer. Use only confirmed facts. Keep the user's answer as source_quote.";
@@ -2224,6 +2288,8 @@ async function getEvidenceTextForProposal(
 }
 
 function proposalTypeForTask(task: typeof enrichmentTasks.$inferSelect): EnrichmentProposalType {
+  if (task.expectedOutcome === "save_profile_answer") return "clarify_assignment";
+  if (task.expectedOutcome === "route_answer") return "clarify_assignment";
   if (task.expectedOutcome === "create_evidence") return "create_evidence";
   if (task.expectedOutcome === "update_evidence" || task.evidenceItemId) {
     return task.evidenceItemId ? "update_evidence" : "create_evidence";
@@ -2697,11 +2763,11 @@ export function isBroadProfilePositioningQuestion(prompt: string) {
 
 function getProfileContextTaskDefaults() {
   return {
-    targetScope: "assign_later" as const,
+    targetScope: "profile_context" as const,
     targetConfidence: "low" as const,
     targetReason:
       "This is a profile-level positioning preference, not a claim-specific evidence gap.",
-    expectedOutcome: "clarify_assignment" as const,
+    expectedOutcome: "save_profile_answer" as const,
   };
 }
 
@@ -3078,8 +3144,15 @@ function deriveTaskTargetMetadata(
     targetConfidence: explicitTask?.targetConfidence ?? "low",
     targetReason:
       explicitTask?.targetReason ?? reason ?? "No reusable library target is attached yet.",
-    expectedOutcome: explicitTask?.expectedOutcome ?? "clarify_assignment",
+    expectedOutcome: explicitTask?.expectedOutcome ?? "route_answer",
   };
+}
+
+export function deriveEnrichmentTaskTargetMetadataForTest(
+  task: EnrichmentTaskDraft | ReusableLibraryAnchor,
+  reason?: string,
+) {
+  return deriveTaskTargetMetadata(task, reason);
 }
 
 function toEnrichmentTaskPayload(
@@ -3118,6 +3191,9 @@ function toEnrichmentTaskPayload(
     answeredAt: task.answeredAt?.toISOString() ?? null,
     convertedAt: task.convertedAt?.toISOString() ?? null,
     dismissedAt: task.dismissedAt?.toISOString() ?? null,
+    acknowledgedAt: task.acknowledgedAt?.toISOString() ?? null,
+    resolvedAt: task.resolvedAt?.toISOString() ?? null,
+    resolution_kind: task.resolutionKind,
   };
 }
 

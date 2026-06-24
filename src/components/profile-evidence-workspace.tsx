@@ -168,7 +168,9 @@ type EnrichmentTaskItem = {
     | "story_context"
     | "role_context"
     | "source_material"
-    | "assign_later";
+    | "assign_later"
+    | "profile_context"
+    | "profile_fact";
   target_confidence: "low" | "medium" | "high";
   target_reason: string | null;
   expected_outcome:
@@ -177,7 +179,10 @@ type EnrichmentTaskItem = {
     | "update_story"
     | "update_role"
     | "clarify_assignment"
-    | "review_imported_material";
+    | "review_imported_material"
+    | "save_profile_answer"
+    | "update_profile_fact"
+    | "route_answer";
   note_kind:
     | "observation"
     | "missing_profile_fact"
@@ -245,6 +250,21 @@ type EnrichmentTaskItem = {
   resume_source_version_id: string | null;
   resume_review_report_id: string | null;
   updatedAt: string;
+  answeredAt: string | null;
+  convertedAt: string | null;
+  dismissedAt: string | null;
+  acknowledgedAt: string | null;
+  resolvedAt: string | null;
+  resolution_kind:
+    | "acknowledged"
+    | "dismissed"
+    | "profile_answer_saved"
+    | "profile_fact_updated"
+    | "role_field_updated"
+    | "import_reviewed"
+    | "rerun_requested"
+    | "converted_to_enrichment_question"
+    | null;
 };
 
 type EnrichmentPendingAction =
@@ -262,6 +282,22 @@ type EnrichmentTaskAnchorPatch = {
   portfolioProjectId?: string | null;
   workExperienceId?: string | null;
 };
+
+type EnrichmentTaskUpdatePayload =
+  | { action: "answer"; userAnswer: string }
+  | { action: "acknowledge" }
+  | { action: "dismiss" }
+  | { action: "reopen" }
+  | { action: "convert" }
+  | { action: "accept_proposal"; proposalId: string }
+  | { action: "reject_proposal"; proposalId: string }
+  | {
+      action: "revise_proposal";
+      proposalId: string;
+      revisedText?: string;
+      revisionInstruction?: string;
+    }
+  | { action: "link"; anchor: EnrichmentTaskAnchorPatch };
 
 type WorkExperienceItem = {
   id?: string;
@@ -1717,20 +1753,7 @@ export function ProfileEvidenceWorkspace({
 
   async function updateEnrichmentTask(
     taskId: string,
-    payload:
-      | { action: "answer"; userAnswer: string }
-      | { action: "dismiss" }
-      | { action: "reopen" }
-      | { action: "convert" }
-      | { action: "accept_proposal"; proposalId: string }
-      | { action: "reject_proposal"; proposalId: string }
-      | {
-          action: "revise_proposal";
-          proposalId: string;
-          revisedText?: string;
-          revisionInstruction?: string;
-        }
-      | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
+    payload: EnrichmentTaskUpdatePayload,
   ): Promise<{ ok: boolean; message: string }> {
     const response = await fetchJson(`/api/enrichment-tasks/${taskId}`, {
       method: "PATCH",
@@ -3634,20 +3657,7 @@ function EnrichmentTaskQueue({
   onReturnToIntake: () => void;
   onUpdate: (
     taskId: string,
-    payload:
-      | { action: "answer"; userAnswer: string }
-      | { action: "dismiss" }
-      | { action: "reopen" }
-      | { action: "convert" }
-      | { action: "accept_proposal"; proposalId: string }
-      | { action: "reject_proposal"; proposalId: string }
-      | {
-          action: "revise_proposal";
-          proposalId: string;
-          revisedText?: string;
-          revisionInstruction?: string;
-        }
-      | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
+    payload: EnrichmentTaskUpdatePayload,
   ) => Promise<{ ok: boolean; message: string }>;
   portfolioProjects: PortfolioProjectItem[];
   queueStatus: "ready" | "skipped" | "error";
@@ -3716,20 +3726,7 @@ function EnrichmentTaskQueue({
 
   async function handleUpdate(
     task: EnrichmentTaskItem,
-    payload:
-      | { action: "answer"; userAnswer: string }
-      | { action: "dismiss" }
-      | { action: "reopen" }
-      | { action: "convert" }
-      | { action: "accept_proposal"; proposalId: string }
-      | { action: "reject_proposal"; proposalId: string }
-      | {
-          action: "revise_proposal";
-          proposalId: string;
-          revisedText?: string;
-          revisionInstruction?: string;
-        }
-      | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
+    payload: EnrichmentTaskUpdatePayload,
   ) {
     setPendingTasks((current) => ({
       ...current,
@@ -3901,6 +3898,7 @@ function EnrichmentTaskQueue({
               onCreateLibraryItems={() => onCreateLibraryItems(selectedTask)}
               onOpenProfileFact={() => onOpenProfileFact(selectedTask)}
               onReviewImportedMaterial={onReviewImportedMaterial}
+              onAcknowledge={() => void handleUpdate(selectedTask, { action: "acknowledge" })}
               onDismiss={() => void handleUpdate(selectedTask, { action: "dismiss" })}
               onLink={(anchor) =>
                 void handleUpdate(selectedTask, {
@@ -3946,26 +3944,13 @@ function EnrichmentTaskQueue({
 }
 
 function getPendingEnrichmentAction(
-  payload:
-    | { action: "answer"; userAnswer: string }
-    | { action: "dismiss" }
-    | { action: "reopen" }
-    | { action: "convert" }
-    | { action: "accept_proposal"; proposalId: string }
-    | { action: "reject_proposal"; proposalId: string }
-    | {
-        action: "revise_proposal";
-        proposalId: string;
-        revisedText?: string;
-        revisionInstruction?: string;
-      }
-    | { action: "link"; anchor: EnrichmentTaskAnchorPatch },
+  payload: EnrichmentTaskUpdatePayload,
   task: EnrichmentTaskItem,
 ): EnrichmentPendingAction {
   if (payload.action === "accept_proposal") return "accept";
   if (payload.action === "reject_proposal") return "discard";
   if (payload.action === "answer") {
-    return proposalTypePreviewForTask(task) === "clarify_assignment" ? "save_context" : "generate";
+    return isProfileContextTask(task) ? "save_context" : "generate";
   }
   if (payload.action === "revise_proposal") {
     return payload.revisionInstruction ? "ai_revision" : "manual_edit";
@@ -3984,6 +3969,7 @@ function EnrichmentTaskFocusPane({
   message,
   onAnswerChange,
   onAcceptProposal,
+  onAcknowledge,
   onCreateLibraryItems,
   onDismiss,
   onLink,
@@ -4011,6 +3997,7 @@ function EnrichmentTaskFocusPane({
   message?: { ok: boolean; text: string };
   onAnswerChange: (answer: string) => void;
   onAcceptProposal: (proposalId: string) => void;
+  onAcknowledge: () => void;
   onCreateLibraryItems: () => void;
   onDismiss: () => void;
   onLink: (anchor: EnrichmentTaskAnchorPatch) => void;
@@ -4047,6 +4034,7 @@ function EnrichmentTaskFocusPane({
         canGoPrevious={canGoPrevious}
         isPending={isPending}
         message={message}
+        onAcknowledge={onAcknowledge}
         onCreateLibraryItems={onCreateLibraryItems}
         onDismiss={onDismiss}
         onNext={onNext}
@@ -4177,7 +4165,7 @@ function EnrichmentTaskFocusPane({
                 type="button"
                 onClick={() => onSaveAnswer(currentAnswer)}
               >
-                {formatPrimaryAnswerCta(proposalType, task.status, pendingAction)}
+                {formatPrimaryAnswerCta(task, proposalType, task.status, pendingAction)}
               </button>
             </>
           ) : null}
@@ -4242,6 +4230,7 @@ function EnrichmentAnswerWorkspace({
   workExperiences: WorkExperienceItem[];
 }) {
   const proposalType = proposalTypePreviewForTask(task);
+  const isProfileContext = isProfileContextTask(task);
   const referenceItems = buildEnrichmentTaskReferences(task, {
     evidenceItems,
     initiatives,
@@ -4276,8 +4265,9 @@ function EnrichmentAnswerWorkspace({
             <div className="enrichment-proposal__context-note">
               <span>Related material</span>
               <p>
-                This question is not attached to a specific evidence card yet. Save your answer to
-                preview the next step before anything changes in the Evidence Library.
+                {isProfileContext
+                  ? "This is a profile-level answer. It will guide your profile direction, not create evidence."
+                  : "This answer needs a target before JobDesk can turn it into reusable evidence or story context."}
               </p>
             </div>
           )}
@@ -4288,7 +4278,7 @@ function EnrichmentAnswerWorkspace({
             </div>
             <div>
               <dt>Next step</dt>
-              <dd>{formatEnrichmentPreProposalNextStep(proposalType)}</dd>
+              <dd>{formatEnrichmentPreProposalNextStep(task, proposalType)}</dd>
             </div>
           </dl>
         </section>
@@ -4299,13 +4289,21 @@ function EnrichmentAnswerWorkspace({
               className="jd-input jd-input--compact"
               disabled={disabled}
               onChange={(event) => onAnswerChange(event.target.value)}
-              placeholder={formatEnrichmentConversationPlaceholder(proposalType)}
+              placeholder={formatEnrichmentConversationPlaceholder(task, proposalType)}
               value={answer}
             />
           </label>
           <div className="enrichment-proposal__history">
-            <span>{answerSaved ? "Ready to generate" : "After you generate"}</span>
-            <p>{formatEnrichmentAnswerWorkspaceHelp(proposalType, answerSaved)}</p>
+            <span>
+              {isProfileContext
+                ? answerSaved
+                  ? "Saved"
+                  : "After you save"
+                : answerSaved
+                  ? "Ready to generate"
+                  : "After you generate"}
+            </span>
+            <p>{formatEnrichmentAnswerWorkspaceHelp(task, proposalType, answerSaved)}</p>
           </div>
           {isGenerating || isSavingContext ? (
             <div className="enrichment-proposal__progress" role="status" aria-live="polite">
@@ -4329,6 +4327,7 @@ function SourceSectionReviewPane({
   isPending,
   message,
   onCreateLibraryItems,
+  onAcknowledge,
   onDismiss,
   onNext,
   onOpenProfileFact,
@@ -4342,6 +4341,7 @@ function SourceSectionReviewPane({
   canGoPrevious: boolean;
   isPending: boolean;
   message?: { ok: boolean; text: string };
+  onAcknowledge: () => void;
   onCreateLibraryItems: () => void;
   onDismiss: () => void;
   onNext: () => void;
@@ -4356,8 +4356,8 @@ function SourceSectionReviewPane({
   const sectionName = extractSourceSectionName(task.prompt);
   const actionModel = getImportedNoteActionModel(task, sectionName);
   const handlePrimaryAction =
-    actionModel.primaryAction === "dismiss"
-      ? onDismiss
+    actionModel.primaryAction === "acknowledge"
+      ? onAcknowledge
       : actionModel.primaryAction === "add_material"
         ? onOpenProfileFact
         : onReviewImportedMaterial;
@@ -4499,7 +4499,7 @@ function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: strin
       description: "This is an import observation. Confirm it if the imported result is correct.",
       eyebrow: "Imported note",
       heading: "Confirm this import note.",
-      primaryAction: "dismiss" as const,
+      primaryAction: "acknowledge" as const,
       primaryLabel: "Confirm note",
       recommendedAction: "Confirm if this observation matches the source, or dismiss it if it is not useful.",
       title: sectionName ? `${sectionName} import note` : "Import note",
@@ -5503,6 +5503,8 @@ function formatEnrichmentTaskScope(scope: EnrichmentTaskItem["target_scope"]) {
   const labels: Record<EnrichmentTaskItem["target_scope"], string> = {
     assign_later: "Profile/context question",
     evidence_detail: "Evidence question",
+    profile_context: "Profile question",
+    profile_fact: "Profile fact",
     role_context: "Role question",
     source_material: "Imported material",
     story_context: "Story question",
@@ -5649,10 +5651,14 @@ function formatEnrichmentProposalNextStep(
 }
 
 function formatEnrichmentPreProposalNextStep(
+  task: EnrichmentTaskItem,
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
 ) {
-  if (type === "clarify_assignment") {
-    return "Save this as profile context. It will not become resume evidence until you choose a specific target later.";
+  if (isProfileContextTask(task)) {
+    return "Save this answer as profile direction. It will not become evidence or a resume claim.";
+  }
+  if (isAssignLaterRoutingTask(task)) {
+    return "Choose a target first. This answer cannot become reusable material until JobDesk knows where it belongs.";
   }
   if (type === "create_evidence") {
     return "Generate a suggested draft evidence update from your answer. Nothing changes until you review and accept it.";
@@ -5670,21 +5676,33 @@ function formatEnrichmentPreProposalNextStep(
 }
 
 function formatPrimaryAnswerCta(
+  task: EnrichmentTaskItem,
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
   status: EnrichmentTaskItem["status"],
   pendingAction?: EnrichmentPendingAction | null,
 ) {
   if (pendingAction === "generate") return "Generating update...";
-  if (pendingAction === "save_context") return "Saving context...";
-  if (type === "clarify_assignment") return "Save profile context";
+  if (pendingAction === "save_context") return "Saving answer...";
+  if (isProfileContextTask(task)) return status === "answered" ? "Update saved answer" : "Save answer";
+  if (isAssignLaterRoutingTask(task)) return "Choose target first";
+  if (type === "clarify_assignment") return "Save answer";
   if (status === "answered") return "Regenerate suggested update";
   return "Generate suggested update";
 }
 
 function formatEnrichmentAnswerWorkspaceHelp(
+  task: EnrichmentTaskItem,
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
   answerSaved: boolean,
 ) {
+  if (isProfileContextTask(task)) {
+    return answerSaved
+      ? "Saved as profile direction. It will not create evidence or change a resume by itself."
+      : "Answer with preference or positioning context. Saving completes this task.";
+  }
+  if (isAssignLaterRoutingTask(task)) {
+    return "Choose a target before JobDesk turns this answer into reusable evidence, story context, or role context.";
+  }
   if (answerSaved) {
     return "Generate a suggested update from this answer. Nothing changes until you review and accept it.";
   }
@@ -5704,8 +5722,15 @@ function formatEnrichmentAnswerWorkspaceHelp(
 }
 
 function formatEnrichmentConversationPlaceholder(
+  task: EnrichmentTaskItem,
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
 ) {
+  if (isProfileContextTask(task)) {
+    return "Answer with your preference, direction, or emphasis. This will guide your profile, not create evidence.";
+  }
+  if (isAssignLaterRoutingTask(task)) {
+    return "Choose where this belongs before writing a reusable evidence or story update.";
+  }
   if (type === "create_evidence" || type === "update_evidence") {
     return "Add facts or instructions, e.g. make this focus on backend ownership and remove dashboard wording.";
   }
@@ -5744,11 +5769,15 @@ function taskHasReusableLibraryAnchor(task: EnrichmentTaskItem) {
 
 function shouldRequireTargetBeforeAnswer(task: EnrichmentTaskItem) {
   if (isSourceSectionReviewTask(task)) return false;
-  return (
-    task.target_scope === "evidence_detail" ||
-    task.target_scope === "story_context" ||
-    task.target_scope === "role_context"
-  );
+  return isAssignLaterRoutingTask(task);
+}
+
+function isProfileContextTask(task: EnrichmentTaskItem) {
+  return task.target_scope === "profile_context" || task.expected_outcome === "save_profile_answer";
+}
+
+function isAssignLaterRoutingTask(task: EnrichmentTaskItem) {
+  return task.target_scope === "assign_later" || task.expected_outcome === "route_answer";
 }
 
 function isSourceSectionReviewTask(task: EnrichmentTaskItem) {
