@@ -124,6 +124,16 @@ type EvidenceLibrary = {
   projectCards: ProjectCardItem[];
 };
 
+type TargetEligibility = {
+  eligible: boolean;
+  reason: string;
+};
+
+type LibraryItemProvenance = {
+  kind: "manual_or_generated" | "source_document";
+  source_document_id?: string | null;
+};
+
 type EvidenceCardItem = {
   id?: string;
   text: string;
@@ -140,6 +150,8 @@ type EvidenceCardItem = {
   status: string;
   needs_user_confirmation: boolean;
   enrichment_task_count?: number;
+  provenance?: LibraryItemProvenance;
+  target_eligibility?: TargetEligibility;
   updatedAt?: string;
 };
 
@@ -333,11 +345,14 @@ type WorkExperienceItem = {
   end_date?: string | null;
   summary?: string | null;
   status: string;
+  provenance?: LibraryItemProvenance;
+  target_eligibility?: TargetEligibility;
 };
 
 type InitiativeItem = {
   id?: string;
   work_experience_id?: string | null;
+  source_document_id?: string | null;
   internal_title: string;
   external_safe_title?: string | null;
   context: string | null;
@@ -352,10 +367,13 @@ type InitiativeItem = {
   sensitivity_level?: string;
   needs_redaction_review?: boolean;
   status: string;
+  provenance?: LibraryItemProvenance;
+  target_eligibility?: TargetEligibility;
 };
 
 type PortfolioProjectItem = {
   id?: string;
+  source_document_id?: string | null;
   project_type: string;
   title: string;
   external_safe_title?: string | null;
@@ -371,6 +389,8 @@ type PortfolioProjectItem = {
   sensitivity_level?: string;
   needs_redaction_review?: boolean;
   status: string;
+  provenance?: LibraryItemProvenance;
+  target_eligibility?: TargetEligibility;
 };
 
 type EvidenceLinkTargets = {
@@ -5644,6 +5664,26 @@ function EnrichmentTaskTargetPicker({
   const selectedInitiativeId = getEnrichmentTargetId(task, "initiative");
   const selectedPortfolioProjectId = getEnrichmentTargetId(task, "portfolio_project");
   const selectedWorkExperienceId = getEnrichmentTargetId(task, "work_experience");
+  const eligibleEvidenceItems = evidenceItems.filter(isEligibleTargetItem);
+  const eligibleInitiatives = initiatives.filter(isEligibleTargetItem);
+  const eligiblePortfolioProjects = portfolioProjects.filter(isEligibleTargetItem);
+  const eligibleWorkExperiences = workExperiences.filter(isEligibleTargetItem);
+  const selectedIneligibleEvidence = findSelectedIneligibleTarget(
+    evidenceItems,
+    selectedEvidenceId,
+  );
+  const selectedIneligibleInitiative = findSelectedIneligibleTarget(
+    initiatives,
+    selectedInitiativeId,
+  );
+  const selectedIneligiblePortfolioProject = findSelectedIneligibleTarget(
+    portfolioProjects,
+    selectedPortfolioProjectId,
+  );
+  const selectedIneligibleWorkExperience = findSelectedIneligibleTarget(
+    workExperiences,
+    selectedWorkExperienceId,
+  );
   return (
     <div className="enrichment-task-card__target-grid">
       {mode === "all" || mode === "evidence" ? (
@@ -5662,7 +5702,12 @@ function EnrichmentTaskTargetPicker({
           value={selectedEvidenceId ? `evidence:${selectedEvidenceId}` : ""}
         >
           <option value="">Choose a claim</option>
-          {evidenceItems.slice(0, 80).map((item) => (
+          {selectedIneligibleEvidence ? (
+            <option disabled value={`evidence:${selectedIneligibleEvidence.id}`}>
+              Current unavailable claim · {truncateOptionText(selectedIneligibleEvidence.text)}
+            </option>
+          ) : null}
+          {eligibleEvidenceItems.slice(0, 80).map((item) => (
             item.id ? (
               <option key={`evidence:${item.id}`} value={`evidence:${item.id}`}>
                 {truncateOptionText(item.text)}
@@ -5694,14 +5739,28 @@ function EnrichmentTaskTargetPicker({
           }
         >
           <option value="">Choose a project or story</option>
-          {initiatives.map((item) => (
+          {selectedIneligibleInitiative ? (
+            <option disabled value={`initiative:${selectedIneligibleInitiative.id}`}>
+              Current unavailable story ·{" "}
+              {selectedIneligibleInitiative.external_safe_title ??
+                selectedIneligibleInitiative.internal_title}
+            </option>
+          ) : null}
+          {eligibleInitiatives.map((item) => (
             item.id ? (
               <option key={`initiative:${item.id}`} value={`initiative:${item.id}`}>
                 {item.external_safe_title ?? item.internal_title}
               </option>
             ) : null
           ))}
-          {portfolioProjects.map((item) => (
+          {selectedIneligiblePortfolioProject ? (
+            <option disabled value={`portfolio_project:${selectedIneligiblePortfolioProject.id}`}>
+              Current unavailable project ·{" "}
+              {selectedIneligiblePortfolioProject.external_safe_title ??
+                selectedIneligiblePortfolioProject.title}
+            </option>
+          ) : null}
+          {eligiblePortfolioProjects.map((item) => (
             item.id ? (
               <option key={`portfolio_project:${item.id}`} value={`portfolio_project:${item.id}`}>
                 {item.external_safe_title ?? item.title}
@@ -5727,7 +5786,13 @@ function EnrichmentTaskTargetPicker({
           value={selectedWorkExperienceId ? `work_experience:${selectedWorkExperienceId}` : ""}
         >
           <option value="">Choose a role</option>
-          {workExperiences.map((item) => (
+          {selectedIneligibleWorkExperience ? (
+            <option disabled value={`work_experience:${selectedIneligibleWorkExperience.id}`}>
+              Current unavailable role · {selectedIneligibleWorkExperience.employer} ·{" "}
+              {selectedIneligibleWorkExperience.role_title}
+            </option>
+          ) : null}
+          {eligibleWorkExperiences.map((item) => (
             item.id ? (
               <option key={`work_experience:${item.id}`} value={`work_experience:${item.id}`}>
                 {item.employer} · {item.role_title}
@@ -5739,6 +5804,18 @@ function EnrichmentTaskTargetPicker({
       ) : null}
     </div>
   );
+}
+
+function isEligibleTargetItem(item: { target_eligibility?: TargetEligibility }) {
+  return item.target_eligibility?.eligible ?? true;
+}
+
+function findSelectedIneligibleTarget<T extends { id?: string; target_eligibility?: TargetEligibility }>(
+  items: T[],
+  selectedId: string | null,
+) {
+  if (!selectedId) return null;
+  return items.find((item) => item.id === selectedId && !isEligibleTargetItem(item)) ?? null;
 }
 
 function RouteAwareTargetGate({

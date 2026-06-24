@@ -16,6 +16,7 @@ import {
   evidenceItems,
   generatedClaims,
   initiatives,
+  portfolioProjects,
   profileContextAnswers,
   profileFactHistory,
   profiles,
@@ -1714,6 +1715,126 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       resolution_kind: "role_field_updated",
       work_experience_id: role.id,
     });
+  });
+
+  it("exposes provenance and target eligibility for library targets", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const unique = crypto.randomUUID();
+    const sourceText = `Eligibility source ${unique}`;
+    const [sourceDocument] = await db
+      .insert(sourceDocuments)
+      .values({
+        workspaceId: workspace.id,
+        sourceType: "resume-review",
+        title: `Eligibility source ${unique}`,
+        contentText: sourceText,
+        contentHash: crypto.createHash("sha256").update(sourceText).digest("hex"),
+        lifecycleStatus: "reviewed",
+      })
+      .returning();
+    if (!sourceDocument) throw new Error("Expected source document.");
+    const [eligibleEvidence] = await db
+      .insert(evidenceItems)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        text: `Eligible target evidence ${unique}`,
+        sourceQuote: "Eligible target source quote.",
+        evidenceType: "extracted",
+        sensitivityLevel: "private",
+        status: "pending",
+        needsUserConfirmation: 1,
+      })
+      .returning();
+    const [rejectedEvidence] = await db
+      .insert(evidenceItems)
+      .values({
+        workspaceId: workspace.id,
+        text: `Rejected target evidence ${unique}`,
+        sourceQuote: "Rejected target source quote.",
+        evidenceType: "extracted",
+        sensitivityLevel: "private",
+        status: "rejected",
+      })
+      .returning();
+    if (!eligibleEvidence || !rejectedEvidence) {
+      throw new Error("Expected evidence rows.");
+    }
+    const [role] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        employer: `Eligibility employer ${unique}`,
+        roleTitle: "Software Engineer",
+        status: "pending",
+      })
+      .returning();
+    if (!role) throw new Error("Expected role row.");
+    const [initiative] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        workExperienceId: role.id,
+        sourceDocumentId: sourceDocument.id,
+        internalTitle: `Eligibility initiative ${unique}`,
+        actions: ["Built eligibility metadata."],
+        results: ["Kept canonical target selectable."],
+        technologies: ["TypeScript"],
+        status: "pending",
+      })
+      .returning();
+    const [portfolioProject] = await db
+      .insert(portfolioProjects)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        projectType: "personal_project",
+        title: `Eligibility portfolio project ${unique}`,
+        actions: ["Shipped provenance UI."],
+        results: ["Clarified target selection."],
+        technologies: ["Postgres"],
+        status: "pending",
+      })
+      .returning();
+    if (!initiative || !portfolioProject) {
+      throw new Error("Expected story target rows.");
+    }
+
+    const library = await getRecentEvidenceLibrary(80);
+    const eligible = library.evidenceItems.find((item) => item.id === eligibleEvidence.id);
+    const rejected = library.evidenceItems.find((item) => item.id === rejectedEvidence.id);
+    const libraryRole = library.workExperiences.find((item) => item.id === role.id);
+    const libraryInitiative = library.initiatives.find((item) => item.id === initiative.id);
+    const libraryPortfolioProject = library.portfolioProjects.find(
+      (item) => item.id === portfolioProject.id,
+    );
+
+    expect(eligible?.provenance).toMatchObject({
+      kind: "source_document",
+      source_document_id: sourceDocument.id,
+    });
+    expect(eligible?.target_eligibility).toMatchObject({
+      eligible: true,
+    });
+    expect(eligible?.target_eligibility?.reason).toContain("Draft evidence");
+    expect(rejected?.provenance).toMatchObject({
+      kind: "manual_or_generated",
+      source_document_id: null,
+    });
+    expect(rejected?.target_eligibility).toMatchObject({
+      eligible: false,
+    });
+    for (const item of [libraryRole, libraryInitiative, libraryPortfolioProject]) {
+      expect(item?.provenance).toMatchObject({
+        kind: "source_document",
+        source_document_id: sourceDocument.id,
+      });
+      expect(item?.target_eligibility).toMatchObject({
+        eligible: true,
+      });
+    }
   });
 
   it("updates non-location role fields from imported note tasks", async () => {

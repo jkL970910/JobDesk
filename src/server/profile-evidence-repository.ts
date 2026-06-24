@@ -1273,6 +1273,11 @@ export async function getRecentEvidenceLibrary(limit = 8) {
       related_work_experience_id: item.relatedWorkExperienceId,
       related_initiative_id: item.relatedInitiativeId,
       related_portfolio_project_id: item.relatedPortfolioProjectId,
+      provenance: buildLibraryItemProvenance({
+        sourceDocumentId: item.sourceDocumentId,
+        sourceType: item.sourceDocumentId ? "source_document" : "manual_or_generated",
+      }),
+      target_eligibility: buildEvidenceTargetEligibility(item),
       updatedAt: item.updatedAt.toISOString(),
     })),
     workExperiences: experiences.map((experience) => ({
@@ -1285,6 +1290,11 @@ export async function getRecentEvidenceLibrary(limit = 8) {
       end_date: experience.endDate,
       summary: experience.summary,
       status: experience.status,
+      provenance: buildLibraryItemProvenance({
+        sourceDocumentId: experience.sourceDocumentId,
+        sourceType: experience.sourceDocumentId ? "source_document" : "manual_or_generated",
+      }),
+      target_eligibility: buildCanonicalTargetEligibility(experience.status),
       updatedAt: experience.updatedAt.toISOString(),
     })),
     initiatives: initiativeRows.map((initiative) => ({
@@ -1304,6 +1314,12 @@ export async function getRecentEvidenceLibrary(limit = 8) {
       sensitivity_level: initiative.sensitivityLevel,
       needs_redaction_review: initiative.needsRedactionReview === 1,
       status: initiative.status,
+      source_document_id: initiative.sourceDocumentId,
+      provenance: buildLibraryItemProvenance({
+        sourceDocumentId: initiative.sourceDocumentId,
+        sourceType: initiative.sourceDocumentId ? "source_document" : "manual_or_generated",
+      }),
+      target_eligibility: buildCanonicalTargetEligibility(initiative.status),
       updatedAt: initiative.updatedAt.toISOString(),
     })),
     portfolioProjects: portfolioProjectRows.map((project) => ({
@@ -1323,6 +1339,12 @@ export async function getRecentEvidenceLibrary(limit = 8) {
       sensitivity_level: project.sensitivityLevel,
       needs_redaction_review: project.needsRedactionReview === 1,
       status: project.status,
+      source_document_id: project.sourceDocumentId,
+      provenance: buildLibraryItemProvenance({
+        sourceDocumentId: project.sourceDocumentId,
+        sourceType: project.sourceDocumentId ? "source_document" : "manual_or_generated",
+      }),
+      target_eligibility: buildCanonicalTargetEligibility(project.status),
       updatedAt: project.updatedAt.toISOString(),
     })),
     projectCards: projects.map((project) => ({
@@ -1341,6 +1363,49 @@ export async function getRecentEvidenceLibrary(limit = 8) {
       status: project.status,
       updatedAt: project.updatedAt.toISOString(),
     })),
+  };
+}
+
+function buildLibraryItemProvenance(args: {
+  sourceDocumentId?: string | null;
+  sourceType: "manual_or_generated" | "source_document";
+}) {
+  return {
+    kind: args.sourceType,
+    source_document_id: args.sourceDocumentId ?? null,
+  };
+}
+
+function buildCanonicalTargetEligibility(status: string) {
+  if (status === "rejected") {
+    return {
+      eligible: false,
+      reason: "Rejected library items cannot be selected as enrichment targets.",
+    };
+  }
+  return {
+    eligible: true,
+    reason: "Canonical library item; safe to select as an enrichment target.",
+  };
+}
+
+function buildEvidenceTargetEligibility(item: typeof evidenceItems.$inferSelect) {
+  if (item.status === "rejected") {
+    return {
+      eligible: false,
+      reason: "Rejected evidence cannot be selected as an enrichment target.",
+    };
+  }
+  if (item.needsUserConfirmation === 1) {
+    return {
+      eligible: true,
+      reason:
+        "Draft evidence can be strengthened, but resume use still requires separate review.",
+    };
+  }
+  return {
+    eligible: true,
+    reason: "Canonical evidence item; safe to select as an enrichment target.",
   };
 }
 
