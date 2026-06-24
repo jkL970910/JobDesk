@@ -9354,6 +9354,42 @@ span > .help-hint {
   padding: 8px 14px;
 }
 
+.story-target-row__status-strip {
+  align-items: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.045);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 7px 14px;
+}
+
+.story-target-row__status-strip small,
+.story-target-row__status-chip {
+  background: rgba(255, 255, 255, 0.032);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 780;
+  padding: 4px 7px;
+}
+
+.story-target-row__status-chip {
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.story-target-row__status-chip:hover:not(:disabled) {
+  background: var(--primary-soft);
+  border-color: rgba(79, 140, 255, 0.28);
+  color: var(--primary-strong);
+}
+
+.story-target-row__status-chip:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
 .story-target-row__missing {
   align-items: center;
   display: inline-flex;
@@ -9647,15 +9683,59 @@ span > .help-hint {
 }
 
 .story-target-row__detail-grid .section-block--nested {
-  border-top: 0;
+  background: rgba(255, 255, 255, 0.026);
+  border: 1px solid var(--line);
+  border-radius: 14px;
   margin-top: 0;
-  padding-top: 0;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.story-target-row__detail-grid .section-block--nested h3 {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.63rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  margin-bottom: 7px;
+  text-transform: uppercase;
+}
+
+.story-target-row__detail-grid .section-block--nested ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  padding-left: 0;
+}
+
+.story-target-row__detail-grid .section-block--nested li {
+  background: rgba(255, 255, 255, 0.032);
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 10px;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  line-height: 1.38;
+  padding: 7px 8px;
 }
 
 .story-detail-merge {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.story-detail-merge__toggle {
+  align-self: flex-start;
+  min-height: 30px;
+  padding: 5px 9px;
+}
+
+.story-detail-merge__body {
   display: grid;
   gap: 10px;
-  margin-top: 12px;
+  width: 100%;
 }
 
 .story-detail-merge strong {

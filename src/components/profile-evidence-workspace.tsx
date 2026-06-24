@@ -1814,6 +1814,16 @@ export function ProfileEvidenceWorkspace({
     openWorkQueueView("claims");
   }
 
+  function openEvidenceClaimsForStory(target: StoryEnrichmentTarget) {
+    setEvidenceFocus({
+      targetId: target.targetId,
+      targetType: target.targetType,
+      title: target.targetTitle,
+    });
+    setLibraryMode("library");
+    setLibraryView("evidence_claims");
+  }
+
   function reviewStarStoryForStory(target: StoryEnrichmentTarget) {
     setEvidenceFocus(null);
     setStarStoryFocus({
@@ -2653,6 +2663,7 @@ export function ProfileEvidenceWorkspace({
                   onMergeStory={mergeStoryTargetsManually}
                   onAssignStory={updateStoryAssignment}
                   onEnrichStory={startProjectEnrichment}
+                  onOpenEvidenceClaims={openEvidenceClaimsForStory}
                   onReviewClaims={reviewClaimsForStory}
                   onReviewStarStory={reviewStarStoryForStory}
                   portfolioProjects={portfolioProjects}
@@ -8907,6 +8918,7 @@ function WorkInitiativeList({
   onAssignStory,
   onEnrichStory,
   onMergeStory,
+  onOpenEvidenceClaims,
   onReviewClaims,
   onReviewStarStory,
   portfolioProjects,
@@ -8923,6 +8935,7 @@ function WorkInitiativeList({
     primaryStoryId: string,
     duplicateStoryId: string,
   ) => Promise<{ ok: boolean; message: string }>;
+  onOpenEvidenceClaims: (target: StoryEnrichmentTarget) => void;
   onReviewClaims: (target: StoryEnrichmentTarget) => void;
   onReviewStarStory: (target: StoryEnrichmentTarget) => void;
   portfolioProjects: PortfolioProjectItem[];
@@ -9033,6 +9046,7 @@ function WorkInitiativeList({
                 onAssignStory={onAssignStory}
                 onEnrichStory={onEnrichStory}
                 onMergeStory={onMergeStory}
+                onOpenEvidenceClaims={onOpenEvidenceClaims}
                 onReviewClaims={onReviewClaims}
                 onReviewStarStory={onReviewStarStory}
                 story={initiative}
@@ -9062,6 +9076,7 @@ function WorkInitiativeList({
               onAssignStory={onAssignStory}
               onEnrichStory={onEnrichStory}
               onMergeStory={onMergeStory}
+              onOpenEvidenceClaims={onOpenEvidenceClaims}
               onReviewClaims={onReviewClaims}
               onReviewStarStory={onReviewStarStory}
               story={project}
@@ -9084,6 +9099,7 @@ function StoryTargetRow({
   onAssignStory,
   onEnrichStory,
   onMergeStory,
+  onOpenEvidenceClaims,
   onReviewClaims,
   onReviewStarStory,
   story,
@@ -9104,6 +9120,7 @@ function StoryTargetRow({
     primaryStoryId: string,
     duplicateStoryId: string,
   ) => Promise<{ ok: boolean; message: string }>;
+  onOpenEvidenceClaims: (target: StoryEnrichmentTarget) => void;
   onReviewClaims: (target: StoryEnrichmentTarget) => void;
   onReviewStarStory: (target: StoryEnrichmentTarget) => void;
   story: InitiativeItem | PortfolioProjectItem;
@@ -9120,6 +9137,7 @@ function StoryTargetRow({
   const [mergeMessage, setMergeMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [mergeTargetId, setMergeTargetId] = useState("");
   const [isMergingStory, setIsMergingStory] = useState(false);
+  const [isMergeOpen, setIsMergeOpen] = useState(false);
   const [newRoleDraft, setNewRoleDraft] = useState({
     employer: "",
     endDate: "",
@@ -9343,9 +9361,21 @@ function StoryTargetRow({
             <small>Resume angle ready</small>
           </span>
         )}
-        <small>{linkedStatus}</small>
-        <small>{linkedUsage}</small>
-        <small>From: {linkedSource}</small>
+      </div>
+      <div className="story-target-row__status-strip">
+        <button
+          className="story-target-row__status-chip"
+          disabled={!target || evidenceItems.length === 0}
+          title="Open linked evidence claims"
+          type="button"
+          onClick={() => {
+            if (target) onOpenEvidenceClaims(target);
+          }}
+        >
+          Evidence: {linkedStatus}
+        </button>
+        <small>Use: {linkedUsage}</small>
+        <small>Linked source document: {linkedSource}</small>
         {story.needs_redaction_review ? <small>Redaction review</small> : null}
       </div>
       {canAssignRole && isEditingAssignment && assignmentMode === "new" ? (
@@ -9459,7 +9489,7 @@ function StoryTargetRow({
             </article>
           ) : null}
           <article>
-            <span>Context</span>
+            <span>Background context</span>
             <p>{story.context || "No context captured yet."}</p>
           </article>
           <article>
@@ -9467,7 +9497,7 @@ function StoryTargetRow({
             <p>{story.problem || "No problem statement yet."}</p>
           </article>
           <article>
-            <span>Ownership</span>
+            <span>My contribution</span>
             <p>{story.role || "No ownership or role detail yet."}</p>
           </article>
           <article>
@@ -9476,50 +9506,61 @@ function StoryTargetRow({
           </article>
         </div>
         <div className="story-target-row__detail-grid">
-          <SectionList title="Actions" items={story.actions} />
-          <SectionList title="Results" items={story.results} />
-          <SectionList title="Metrics" items={metrics} />
+          <SectionList title="What I did" items={story.actions} />
+          <SectionList title="Outcomes" items={story.results} />
+          <SectionList title="Evidence-backed metrics" items={metrics} />
         </div>
         {canMergeStory ? (
           <section className="story-detail-merge">
-            <div>
-              <strong>Merge duplicate story</strong>
-              <p>Use this only when two initiative cards describe the same project.</p>
-            </div>
-            <div className="story-assignment-control">
-              <label>
-                <span>Story to merge into this one</span>
-                <select
-                  disabled={isMergingStory}
-                  value={mergeTargetId}
-                  onChange={(event) => {
-                    setMergeTargetId(event.target.value);
-                    setMergeMessage(null);
-                  }}
-                >
-                  <option value="">Choose a duplicate story</option>
-                  {mergeOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {formatMergeStoryOptionLabel({
-                        claimCount: option.id ? mergeOptionEvidenceCounts?.get(option.id) ?? 0 : 0,
-                        option,
-                        workExperiences,
-                      })}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                className="secondary-button"
-                disabled={isMergingStory || !mergeTargetId}
-                type="button"
-                onClick={() => void handleMergeStory()}
-              >
-                {isMergingStory ? "Merging..." : "Merge selected story"}
-              </button>
-            </div>
-            {mergeMessage ? (
-              <p className={mergeMessage.ok ? "status" : "error"}>{mergeMessage.text}</p>
+            <button
+              className="secondary-button secondary-button--quiet story-detail-merge__toggle"
+              type="button"
+              onClick={() => setIsMergeOpen((value) => !value)}
+            >
+              {isMergeOpen ? "Hide merge options" : "Merge duplicate story"}
+            </button>
+            {isMergeOpen ? (
+              <div className="story-detail-merge__body">
+                <div>
+                  <strong>Merge duplicate story</strong>
+                  <p>Use this only when two initiative cards describe the same project.</p>
+                </div>
+                <div className="story-assignment-control">
+                  <label>
+                    <span>Story to merge into this one</span>
+                    <select
+                      disabled={isMergingStory}
+                      value={mergeTargetId}
+                      onChange={(event) => {
+                        setMergeTargetId(event.target.value);
+                        setMergeMessage(null);
+                      }}
+                    >
+                      <option value="">Choose a duplicate story</option>
+                      {mergeOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {formatMergeStoryOptionLabel({
+                            claimCount: option.id ? mergeOptionEvidenceCounts?.get(option.id) ?? 0 : 0,
+                            option,
+                            workExperiences,
+                          })}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    className="secondary-button"
+                    disabled={isMergingStory || !mergeTargetId}
+                    type="button"
+                    onClick={() => void handleMergeStory()}
+                  >
+                    {isMergingStory ? "Merging..." : "Merge selected story"}
+                  </button>
+                </div>
+                {mergeMessage ? (
+                  <p className={mergeMessage.ok ? "status" : "error"}>{mergeMessage.text}</p>
+                ) : null}
+              </div>
             ) : null}
           </section>
         ) : null}
@@ -9543,7 +9584,7 @@ function formatStorySourceSummary(evidenceItems: EvidenceCardItem[]) {
   if (evidenceItems.length === 0) return "no linked evidence yet";
   const sourcedCount = evidenceItems.filter((item) => item.source_document_id).length;
   return sourcedCount > 0
-    ? `${sourcedCount} linked source document${sourcedCount === 1 ? "" : "s"}`
+    ? `${sourcedCount} document${sourcedCount === 1 ? "" : "s"}`
     : "extracted source";
 }
 
