@@ -7755,6 +7755,17 @@ select:focus {
   transform: translate(-50%, 0);
 }
 
+.help-hint {
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+h3 > .help-hint,
+strong > .help-hint,
+span > .help-hint {
+  display: inline-flex;
+}
+
 .enrichment-proposal__field-preview article p {
   color: var(--ink-soft);
   font-size: var(--type-caption);

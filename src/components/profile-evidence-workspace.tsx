@@ -349,7 +349,7 @@ export type MaterialReviewTab =
   | "cleanup"
   | "stories";
 type EvidenceLibraryMode = "library" | "work_queue";
-type EvidenceAssetView = "ready" | "all" | "stories" | "interview_stories";
+type EvidenceAssetView = "all" | "stories" | "interview_stories";
 type EvidenceWorkQueueView = "enrichment" | "imported" | "claims" | "unlinked" | "cleanup";
 type EvidenceLibraryFilters = {
   hasMetricOnly: boolean;
@@ -494,7 +494,7 @@ export function ProfileEvidenceWorkspace({
   );
   const [isEditingMaterialType, setIsEditingMaterialType] = useState(false);
   const [libraryMode, setLibraryMode] = useState<EvidenceLibraryMode>("library");
-  const [libraryView, setLibraryView] = useState<EvidenceAssetView>("ready");
+  const [libraryView, setLibraryView] = useState<EvidenceAssetView>("all");
   const [workQueueView, setWorkQueueView] =
     useState<EvidenceWorkQueueView>("enrichment");
   const [libraryFilters, setLibraryFilters] = useState<EvidenceLibraryFilters>({
@@ -1360,7 +1360,6 @@ export function ProfileEvidenceWorkspace({
     linkTargets,
     projectCards,
   );
-  const readyEvidenceItems = filteredEvidenceItems.filter(isReusableReadyEvidence);
   const allEvidenceItems = filteredEvidenceItems;
   const toolbarOptions = buildEvidenceLibraryFilterOptions(
     evidenceItems,
@@ -2399,13 +2398,6 @@ export function ProfileEvidenceWorkspace({
               />
               <div className="review-switcher review-switcher--library" role="tablist" aria-label="Library asset views">
                 <button
-                  data-active={libraryView === "ready"}
-                  type="button"
-                  onClick={() => openLibraryAssetView("ready")}
-                >
-                  Ready to Use ({readyEvidenceItems.length})
-                </button>
-                <button
                   data-active={libraryView === "all"}
                   type="button"
                   onClick={() => openLibraryAssetView("all")}
@@ -2427,17 +2419,9 @@ export function ProfileEvidenceWorkspace({
                   Interview Stories ({starStories.length})
                 </button>
               </div>
-              {libraryView === "ready" ? (
-                <ReadyToUseLibraryView
-                  items={readyEvidenceItems}
-                  linkTargets={linkTargets}
-                  onOpenAllEvidence={() => openLibraryAssetView("all")}
-                  projects={projectCards}
-                />
-              ) : null}
               {libraryView === "all" ? (
                 <EvidenceList
-                  description="Browse every source-backed claim in the library. Use filters above to narrow by reuse, status, sensitivity, source, role, or story."
+                  description="Browse reviewed library material. Use filters to find resume-ready, interview-ready, or approved evidence."
                   emptyMessage="No evidence matches the current library filters."
                   items={allEvidenceItems}
                   onUpdate={updateEvidence}
@@ -2495,7 +2479,7 @@ export function ProfileEvidenceWorkspace({
                 openWorkQueueView("claims");
               }}
             >
-              Claims to Review ({claimReviewEvidenceItems.length})
+              Evidence Review ({claimReviewEvidenceItems.length})
             </button>
             <button
               data-active={workQueueView === "unlinked"}
@@ -2573,7 +2557,7 @@ export function ProfileEvidenceWorkspace({
               description={
                 evidenceFocus
                   ? "These claims are already linked to the selected story target. Review truth, sensitivity, public-safe wording, and resume usage."
-                  : "These evidence claims still need approval, public-safe wording, or resume-use approval before they can support generated resumes."
+                  : "Approve evidence, review safe wording, and choose whether it can support generated resumes."
               }
               emptyMessage={
                 evidenceFocus
@@ -2584,7 +2568,7 @@ export function ProfileEvidenceWorkspace({
               onUpdate={updateEvidence}
               projects={projectCards}
               linkTargets={linkTargets}
-              title={evidenceFocus ? "Claims for " + evidenceFocus.title : "Evidence Claims Awaiting Review"}
+              title={evidenceFocus ? "Claims for " + evidenceFocus.title : "Evidence Review"}
             />
             </>
           ) : null}
@@ -3171,13 +3155,17 @@ function ProfileFactSourceForm({
       <div className="profile-fact-source-form__header">
         <div>
           <span>Profile fact source</span>
-          <h3>{copy.title}</h3>
-          <p>{copy.description}</p>
+          <h3>
+            {copy.title}
+            <HelpHint text={copy.description} />
+          </h3>
         </div>
       </div>
       <label className="source-field source-field--textarea profile-fact-source-form__input">
-        <span>{copy.inputLabel}</span>
-        <small>{copy.helper}</small>
+        <span>
+          {copy.inputLabel}
+          <HelpHint text={copy.helper} />
+        </span>
         <textarea
           aria-label={copy.inputLabel}
           className="jd-input jd-input--compact"
@@ -3697,6 +3685,16 @@ function ReadyToUseLibraryView({
         </div>
       )}
     </section>
+  );
+}
+
+function HelpHint({ label = "More info", text }: { label?: string; text?: string | null }) {
+  if (!text) return null;
+  return (
+    <span className="enrichment-proposal__help help-hint" tabIndex={0} aria-label={label}>
+      ?
+      <small>{text}</small>
+    </span>
   );
 }
 
@@ -4468,8 +4466,10 @@ function SourceSectionReviewPane({
       <div className="source-section-review">
         <div className="source-section-review__summary">
           <span>{actionModel.eyebrow}</span>
-          <strong>{actionModel.heading}</strong>
-          <p>{actionModel.description}</p>
+          <strong>
+            {actionModel.heading}
+            <HelpHint text={actionModel.description} />
+          </strong>
         </div>
         <dl className="source-section-review__meta">
           <div>
@@ -7265,8 +7265,10 @@ function EvidenceList({
       <section className="section-block evidence-review">
         <div className="section-block__top">
           <div>
-            <h3>{title}</h3>
-            <p>{description}</p>
+            <h3>
+              {title}
+              <HelpHint text={description} />
+            </h3>
           </div>
           <span>0 total</span>
         </div>
@@ -7278,8 +7280,10 @@ function EvidenceList({
     <section className="section-block evidence-review">
       <div className="section-block__top">
         <div>
-          <h3>{title}</h3>
-          <p>{description}</p>
+          <h3>
+            {title}
+            <HelpHint text={description} />
+          </h3>
         </div>
         <span>
           {counts.needs_review} need review · {counts.resume_ready} resume-ready ·{" "}
