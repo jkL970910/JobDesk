@@ -2760,8 +2760,10 @@ function ProfileReferenceView({
 function extractProfileFacts(profile: unknown) {
   const record = isRecord(profile) ? profile : {};
   const contact = isRecord(record.contact) ? record.contact : {};
+  const educationDetails = extractEducationFacts(record.education);
   return {
-    education: extractFactList(record.education),
+    education: educationDetails.map(formatEducationFact).filter(Boolean),
+    educationDetails,
     email: extractFactValue(record.email ?? contact.email),
     experience: extractFactList(record.experience),
     certifications: extractFactList(record.certifications),
@@ -3028,6 +3030,85 @@ function extractFactList(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function extractEducationFacts(value: unknown) {
+  if (!Array.isArray(value)) {
+    const single = extractFactValue(value);
+    return single
+      ? [
+          {
+            degree: single,
+            endDate: null,
+            fieldOfStudy: null,
+            institution: null,
+            startDate: null,
+          },
+        ]
+      : [];
+  }
+  return value
+    .map((item) => {
+      if (typeof item === "string") {
+        const value = item.trim();
+        return value
+          ? {
+              degree: value,
+              endDate: null,
+              fieldOfStudy: null,
+              institution: null,
+              startDate: null,
+            }
+          : null;
+      }
+      if (!isRecord(item)) return null;
+      const institution =
+        extractNestedFactValue(item.institution) ??
+        extractNestedFactValue(item.school) ??
+        extractNestedFactValue(item.university) ??
+        extractNestedFactValue(item.college);
+      const degree =
+        extractNestedFactValue(item.degree) ??
+        extractNestedFactValue(item.program) ??
+        extractNestedFactValue(item.title) ??
+        extractNestedFactValue(item.value);
+      const fieldOfStudy =
+        extractNestedFactValue(item.field_of_study) ??
+        extractNestedFactValue(item.fieldOfStudy) ??
+        extractNestedFactValue(item.field) ??
+        extractNestedFactValue(item.major);
+      const startDate =
+        extractNestedFactValue(item.start_date) ?? extractNestedFactValue(item.startDate);
+      const endDate =
+        extractNestedFactValue(item.end_date) ?? extractNestedFactValue(item.endDate);
+      if (!institution && !degree && !fieldOfStudy && !startDate && !endDate) return null;
+      return {
+        degree,
+        endDate,
+        fieldOfStudy,
+        institution,
+        startDate,
+      };
+    })
+    .filter((item): item is {
+      degree: string | null;
+      endDate: string | null;
+      fieldOfStudy: string | null;
+      institution: string | null;
+      startDate: string | null;
+    } => Boolean(item));
+}
+
+function extractNestedFactValue(value: unknown) {
+  return extractFactValue(value);
+}
+
+function formatEducationFact(item: {
+  degree: string | null;
+  fieldOfStudy: string | null;
+  institution: string | null;
+}) {
+  return [item.institution, item.degree, item.fieldOfStudy].filter(Boolean).join(" · ");
+}
+
 function extractSkillFacts(value: unknown): string[] {
   const rawValues = extractFactList(value);
   const categoryLabels = new Set([
@@ -3105,8 +3186,19 @@ function buildProfileFactDraftFromExisting(
     return facts.location ? `City / region: ${facts.location}` : "";
   }
   if (field === "education") {
-    return facts.education
-      .map((item) => `School: ${item}\nDegree / program: ${item}`)
+    return facts.educationDetails
+      .map((item) =>
+        [
+          item.institution ? `School: ${item.institution}` : null,
+          item.degree ? `Degree / program: ${item.degree}` : null,
+          item.fieldOfStudy ? `Field of study: ${item.fieldOfStudy}` : null,
+          item.startDate ? `Start date: ${item.startDate}` : null,
+          item.endDate ? `End date: ${item.endDate}` : null,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      )
+      .filter(Boolean)
       .join("\n\n");
   }
   if (field === "certifications") {
