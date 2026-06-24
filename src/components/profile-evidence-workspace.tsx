@@ -394,6 +394,7 @@ type PortfolioProjectItem = {
 };
 
 type EvidenceLinkTargets = {
+  evidenceItems?: EvidenceCardItem[];
   initiatives: InitiativeItem[];
   portfolioProjects: PortfolioProjectItem[];
   projects: ProjectCardItem[];
@@ -432,7 +433,13 @@ export type MaterialReviewTab =
   | "stories";
 type EvidenceLibraryMode = "library" | "work_queue";
 type EvidenceAssetView = "work_experiences" | "work_initiatives" | "evidence_claims" | "star_stories";
-type EvidenceWorkQueueView = "enrichment" | "imported" | "claims" | "unlinked" | "cleanup";
+type EvidenceWorkQueueView =
+  | "imported"
+  | "roles"
+  | "unlinked"
+  | "enrichment"
+  | "claims"
+  | "cleanup";
 type EvidenceLibraryFilters = {
   query: string;
   role: string;
@@ -575,6 +582,7 @@ export function ProfileEvidenceWorkspace({
   const [libraryView, setLibraryView] = useState<EvidenceAssetView>("work_experiences");
   const [workQueueView, setWorkQueueView] =
     useState<EvidenceWorkQueueView>("imported");
+  const [workQueueRoleFilter, setWorkQueueRoleFilter] = useState("all");
   const [libraryFilters, setLibraryFilters] = useState<EvidenceLibraryFilters>({
     query: "",
     role: "all",
@@ -1504,6 +1512,7 @@ export function ProfileEvidenceWorkspace({
     (task) => !isSourceSectionReviewTask(task),
   );
   const linkTargets = {
+    evidenceItems,
     initiatives,
     portfolioProjects,
     projects: projectCards,
@@ -1516,6 +1525,47 @@ export function ProfileEvidenceWorkspace({
   const focusedEvidenceItems = evidenceFocus
     ? evidenceItems.filter((item) => evidenceMatchesFocus(item, evidenceFocus))
     : unlinkedEvidenceItems;
+  const roleReviewItems = workExperiences.filter((experience) =>
+    shouldReviewWorkExperience(experience),
+  );
+  const roleFilteredImportedTasks = filterEnrichmentTasksByRole(
+    importedMaterialTasks,
+    workQueueRoleFilter,
+    linkTargets,
+  );
+  const roleFilteredAnswerTasks = filterEnrichmentTasksByRole(
+    answerEnrichmentTasks,
+    workQueueRoleFilter,
+    linkTargets,
+  );
+  const roleFilteredRoleReviewItems = filterWorkExperiencesByRole(
+    roleReviewItems,
+    workQueueRoleFilter,
+  );
+  const roleFilteredClaimReviewItems = filterEvidenceItemsByRole(
+    claimReviewEvidenceItems,
+    workQueueRoleFilter,
+    linkTargets,
+  );
+  const roleFilteredFocusedEvidenceItems = filterEvidenceItemsByRole(
+    focusedEvidenceItems,
+    workQueueRoleFilter,
+    linkTargets,
+  );
+  const roleFilteredUnlinkedEvidenceItems = filterEvidenceItemsByRole(
+    unlinkedEvidenceItems,
+    workQueueRoleFilter,
+    linkTargets,
+  );
+  const workQueueRoleFilterOptions = buildWorkQueueRoleFilterOptions({
+    importedTasks: importedMaterialTasks,
+    answerTasks: answerEnrichmentTasks,
+    claimItems: claimReviewEvidenceItems,
+    focusedItems: focusedEvidenceItems,
+    roleReviewItems,
+    unlinkedItems: unlinkedEvidenceItems,
+    linkTargets,
+  });
   const libraryReadiness = summarizeLibraryReadiness({
     cleanupCount: storyDedupeCandidates.length + dedupeCandidates.length,
     evidenceItems,
@@ -2702,7 +2752,14 @@ export function ProfileEvidenceWorkspace({
               type="button"
               onClick={() => openWorkQueueView("imported")}
             >
-              Import Review ({importedMaterialTasks.length})
+              Import Review ({formatQueueCount(importedMaterialTasks.length, roleFilteredImportedTasks.length, workQueueRoleFilter)})
+            </button>
+            <button
+              data-active={workQueueView === "roles"}
+              type="button"
+              onClick={() => openWorkQueueView("roles")}
+            >
+              Review Roles ({formatQueueCount(roleReviewItems.length, roleFilteredRoleReviewItems.length, workQueueRoleFilter)})
             </button>
             <button
               data-active={workQueueView === "unlinked"}
@@ -2712,14 +2769,14 @@ export function ProfileEvidenceWorkspace({
                 openWorkQueueView("unlinked");
               }}
             >
-              {evidenceFocus ? "Focused" : "Link Claims"} ({focusedEvidenceItems.length})
+              {evidenceFocus ? "Focused" : "Link Claims"} ({formatQueueCount(focusedEvidenceItems.length, evidenceFocus ? roleFilteredFocusedEvidenceItems.length : roleFilteredUnlinkedEvidenceItems.length, workQueueRoleFilter)})
             </button>
             <button
               data-active={workQueueView === "enrichment"}
               type="button"
               onClick={() => openWorkQueueView("enrichment")}
             >
-              Add Detail ({answerEnrichmentTasks.length})
+              Add Detail ({formatQueueCount(answerEnrichmentTasks.length, roleFilteredAnswerTasks.length, workQueueRoleFilter)})
             </button>
             <button
               data-active={workQueueView === "claims"}
@@ -2729,7 +2786,7 @@ export function ProfileEvidenceWorkspace({
                 openWorkQueueView("claims");
               }}
             >
-              Approve Claims ({claimReviewEvidenceItems.length})
+              Approve Claims ({formatQueueCount(claimReviewEvidenceItems.length, roleFilteredClaimReviewItems.length, workQueueRoleFilter)})
             </button>
             <button
               data-active={workQueueView === "cleanup"}
@@ -2739,6 +2796,11 @@ export function ProfileEvidenceWorkspace({
               Cleanup ({storyDedupeCandidates.length + dedupeCandidates.length})
             </button>
           </div>
+          <WorkQueueRoleFilter
+            options={workQueueRoleFilterOptions}
+            value={workQueueRoleFilter}
+            onChange={setWorkQueueRoleFilter}
+          />
           {workQueueView === "enrichment" ? (
             <EnrichmentTaskQueue
               evidenceItems={evidenceItems}
@@ -2753,7 +2815,7 @@ export function ProfileEvidenceWorkspace({
               onUpdate={updateEnrichmentTask}
               portfolioProjects={portfolioProjects}
               queueStatus={enrichmentTaskQueueStatus}
-              tasks={answerEnrichmentTasks}
+              tasks={roleFilteredAnswerTasks}
               variant="questions"
               workExperiences={workExperiences}
             />
@@ -2772,9 +2834,18 @@ export function ProfileEvidenceWorkspace({
               onUpdate={updateEnrichmentTask}
               portfolioProjects={portfolioProjects}
               queueStatus={enrichmentTaskQueueStatus}
-              tasks={importedMaterialTasks}
+              tasks={roleFilteredImportedTasks}
               variant="imported"
               workExperiences={workExperiences}
+            />
+          ) : null}
+          {workQueueView === "roles" ? (
+            <RoleReviewQueue
+              directEvidence={evidenceItems}
+              initiatives={initiatives}
+              onRefresh={() => refreshLibraryAfterMutation()}
+              roleFilter={workQueueRoleFilter}
+              roles={roleFilteredRoleReviewItems}
             />
           ) : null}
           {workQueueView === "claims" ? (
@@ -2806,7 +2877,7 @@ export function ProfileEvidenceWorkspace({
                   ? "No claims are linked to this story target yet. Use Enrich story to add source context."
                   : "All current evidence claims are approved and resume-ready."
               }
-              items={evidenceFocus ? focusedEvidenceItems : claimReviewEvidenceItems}
+              items={evidenceFocus ? roleFilteredFocusedEvidenceItems : roleFilteredClaimReviewItems}
               mode="review"
               onUpdate={updateEvidence}
               projects={projectCards}
@@ -2844,7 +2915,7 @@ export function ProfileEvidenceWorkspace({
                   ? "No claims are linked to this story target yet. Use Enrich story to add source context."
                   : "All current evidence is attached to story targets."
               }
-              items={focusedEvidenceItems}
+              items={evidenceFocus ? roleFilteredFocusedEvidenceItems : roleFilteredUnlinkedEvidenceItems}
               mode="review"
               onUpdate={updateEvidence}
               projects={projectCards}
@@ -6908,6 +6979,70 @@ function filterEvidenceLibraryItems(
   });
 }
 
+function formatQueueCount(total: number, filtered: number, roleFilter: string) {
+  return roleFilter === "all" ? String(total) : `${filtered}/${total}`;
+}
+
+function filterEvidenceItemsByRole(
+  items: EvidenceCardItem[],
+  roleFilter: string,
+  linkTargets: EvidenceLinkTargets,
+) {
+  if (roleFilter === "all") return items;
+  return items.filter((item) => evidenceMatchesRoleFilter(item, roleFilter, linkTargets));
+}
+
+function filterEnrichmentTasksByRole(
+  tasks: EnrichmentTaskItem[],
+  roleFilter: string,
+  linkTargets: EvidenceLinkTargets,
+) {
+  if (roleFilter === "all") return tasks;
+  return tasks.filter((task) => enrichmentTaskMatchesRoleFilter(task, roleFilter, linkTargets));
+}
+
+function filterWorkExperiencesByRole(items: WorkExperienceItem[], roleFilter: string) {
+  if (roleFilter === "all") return items;
+  const [kind, id] = roleFilter.split(":");
+  if (kind !== "work_experience" || !id) return [];
+  return items.filter((item) => item.id === id);
+}
+
+function buildWorkQueueRoleFilterOptions({
+  answerTasks,
+  claimItems,
+  focusedItems,
+  importedTasks,
+  linkTargets,
+  roleReviewItems,
+  unlinkedItems,
+}: {
+  answerTasks: EnrichmentTaskItem[];
+  claimItems: EvidenceCardItem[];
+  focusedItems: EvidenceCardItem[];
+  importedTasks: EnrichmentTaskItem[];
+  linkTargets: EvidenceLinkTargets;
+  roleReviewItems: WorkExperienceItem[];
+  unlinkedItems: EvidenceCardItem[];
+}) {
+  const roleIds = new Set<string>();
+  for (const role of roleReviewItems) {
+    if (role.id) roleIds.add(role.id);
+  }
+  for (const item of [...claimItems, ...focusedItems, ...unlinkedItems]) {
+    collectEvidenceRoleIds(item, linkTargets).forEach((id) => roleIds.add(id));
+  }
+  for (const task of [...importedTasks, ...answerTasks]) {
+    collectEnrichmentTaskRoleIds(task, linkTargets).forEach((id) => roleIds.add(id));
+  }
+  return (linkTargets.workExperiences ?? [])
+    .filter((experience) => experience.id && roleIds.has(experience.id))
+    .map((experience) => ({
+      label: [experience.employer, experience.role_title].filter(Boolean).join(" · "),
+      value: `work_experience:${experience.id}`,
+    }));
+}
+
 function buildEvidenceLibraryFilterOptions(
   items: EvidenceCardItem[],
   linkTargets: EvidenceLinkTargets,
@@ -7012,17 +7147,58 @@ function evidenceMatchesRoleFilter(
   value: string,
   linkTargets: EvidenceLinkTargets,
 ) {
-  const initiativeRoleById = buildInitiativeRoleMap(linkTargets);
   if (value === "standalone") {
+    const initiativeRoleById = buildInitiativeRoleMap(linkTargets);
     return isStandaloneEvidenceForFilter(item, initiativeRoleById);
   }
   const [kind, id] = value.split(":");
   if (kind !== "work_experience" || !id) return false;
-  if (item.related_work_experience_id === id) return true;
+  return collectEvidenceRoleIds(item, linkTargets).has(id);
+}
+
+function enrichmentTaskMatchesRoleFilter(
+  task: EnrichmentTaskItem,
+  value: string,
+  linkTargets: EvidenceLinkTargets,
+) {
+  const [kind, id] = value.split(":");
+  if (kind !== "work_experience" || !id) return false;
+  return collectEnrichmentTaskRoleIds(task, linkTargets).has(id);
+}
+
+function collectEvidenceRoleIds(item: EvidenceCardItem, linkTargets: EvidenceLinkTargets) {
+  const roleIds = new Set<string>();
+  const initiativeRoleById = buildInitiativeRoleMap(linkTargets);
+  if (item.related_work_experience_id) roleIds.add(item.related_work_experience_id);
   const initiativeRoleId = item.related_initiative_id
     ? initiativeRoleById.get(item.related_initiative_id)
     : null;
-  return initiativeRoleId === id;
+  if (initiativeRoleId) roleIds.add(initiativeRoleId);
+  return roleIds;
+}
+
+function collectEnrichmentTaskRoleIds(task: EnrichmentTaskItem, linkTargets: EvidenceLinkTargets) {
+  const roleIds = new Set<string>();
+  if (task.work_experience_id) roleIds.add(task.work_experience_id);
+  for (const target of task.targets ?? []) {
+    if (target.target_kind === "work_experience" && !target.rejected_at) {
+      roleIds.add(target.target_id);
+    }
+    if (target.target_kind === "initiative" && !target.rejected_at) {
+      const initiative = linkTargets.initiatives.find((item) => item.id === target.target_id);
+      if (initiative?.work_experience_id) roleIds.add(initiative.work_experience_id);
+    }
+  }
+  if (task.initiative_id) {
+    const initiative = linkTargets.initiatives.find((item) => item.id === task.initiative_id);
+    if (initiative?.work_experience_id) roleIds.add(initiative.work_experience_id);
+  }
+  if (task.evidence_item_id) {
+    const evidence = (linkTargets as EvidenceLinkTargets & { evidenceItems?: EvidenceCardItem[] }).evidenceItems
+      ?.find((item) => item.id === task.evidence_item_id);
+    if (evidence) collectEvidenceRoleIds(evidence, linkTargets).forEach((id) => roleIds.add(id));
+  }
+  return roleIds;
 }
 
 function evidenceMatchesStoryFilter(item: EvidenceCardItem, value: string) {
@@ -8653,11 +8829,13 @@ function WorkExperienceRow({
   experience,
   initiatives,
   onRefresh,
+  reviewMode = false,
 }: {
   directEvidence: EvidenceCardItem[];
   experience: WorkExperienceItem;
   initiatives: InitiativeItem[];
   onRefresh: () => Promise<void>;
+  reviewMode?: boolean;
 }) {
   const { fetchJson } = useAccess();
   const [isEditing, setIsEditing] = useState(false);
@@ -8759,11 +8937,12 @@ function WorkExperienceRow({
   const canMarkReviewed = experience.status !== "approved" && experience.status !== "rejected";
   const canMarkNeedsUpdate = experience.status !== "pending" && experience.status !== "rejected";
   const canRejectRole = experience.status !== "rejected";
+  const completeness = getWorkExperienceCompleteness(experience);
 
   return (
     <article className="story-group-row work-experience-row">
       <div className="story-group-row__summary">
-        <span>Work experience</span>
+        <span>{reviewMode ? "Role review" : "Work experience"}</span>
         <div>
           <strong>{experience.employer} · {experience.role_title}</strong>
           <p>
@@ -8775,6 +8954,15 @@ function WorkExperienceRow({
         <em>{formatWorkExperienceStatus(experience.status)}</em>
         <small>{initiatives.length} initiatives · {directEvidence.length} direct claims</small>
       </div>
+      {reviewMode ? (
+        <div className="work-experience-row__checklist">
+          {completeness.checks.map((check) => (
+            <span data-complete={check.complete} key={check.key}>
+              {check.complete ? "✓" : "•"} {check.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
       {experience.summary ? (
         <p className="story-group-row__note">{experience.summary}</p>
       ) : null}
@@ -8802,32 +8990,34 @@ function WorkExperienceRow({
           {isEditing ? "Cancel edit" : "Edit role details"}
         </button>
       </div>
-      <div className="work-experience-row__actions">
-        <button
-          className="secondary-button"
-          disabled={isSaving || !canMarkReviewed}
-          type="button"
-          onClick={() => void updateRoleReview("mark_reviewed")}
-        >
-          Mark reviewed
-        </button>
-        <button
-          className="secondary-button secondary-button--quiet"
-          disabled={isSaving || !canMarkNeedsUpdate}
-          type="button"
-          onClick={() => void updateRoleReview("mark_needs_update")}
-        >
-          Needs update
-        </button>
-        <button
-          className="secondary-button secondary-button--danger"
-          disabled={isSaving || !canRejectRole}
-          type="button"
-          onClick={() => void updateRoleReview("reject_role")}
-        >
-          Reject role
-        </button>
-      </div>
+      {reviewMode ? (
+        <div className="work-experience-row__actions">
+          <button
+            className="secondary-button"
+            disabled={isSaving || !canMarkReviewed}
+            type="button"
+            onClick={() => void updateRoleReview("mark_reviewed")}
+          >
+            Mark reviewed
+          </button>
+          <button
+            className="secondary-button secondary-button--quiet"
+            disabled={isSaving || !canMarkNeedsUpdate}
+            type="button"
+            onClick={() => void updateRoleReview("mark_needs_update")}
+          >
+            Needs update
+          </button>
+          <button
+            className="secondary-button secondary-button--danger"
+            disabled={isSaving || !canRejectRole}
+            type="button"
+            onClick={() => void updateRoleReview("reject_role")}
+          >
+            Reject role
+          </button>
+        </div>
+      ) : null}
       {isEditing ? (
         <div className="story-new-role-form work-experience-row__editor">
           <label>
@@ -8884,6 +9074,83 @@ function WorkExperienceRow({
         </div>
       ) : null}
     </article>
+  );
+}
+
+function RoleReviewQueue({
+  directEvidence,
+  initiatives,
+  onRefresh,
+  roleFilter,
+  roles,
+}: {
+  directEvidence: EvidenceCardItem[];
+  initiatives: InitiativeItem[];
+  onRefresh: () => Promise<void>;
+  roleFilter: string;
+  roles: WorkExperienceItem[];
+}) {
+  return (
+    <section className="section-block role-review-queue">
+      <div className="section-block__top">
+        <div>
+          <h3>Review Roles</h3>
+          <p>
+            Confirm imported work experiences before they become stable containers for initiatives,
+            evidence claims, and resume generation context.
+          </p>
+        </div>
+        <span>{roles.length} role{roles.length === 1 ? "" : "s"} need review</span>
+      </div>
+      {roles.length === 0 ? (
+        <div className="empty-state-row">
+          <div>
+            <strong>No roles need review{roleFilter === "all" ? "" : " for this filter"}.</strong>
+            <p>Reviewed roles stay in Library. Rejected roles are preserved but hidden from target pickers.</p>
+          </div>
+        </div>
+      ) : (
+        <div className="story-table result-stack--inner">
+          {roles.map((experience) => (
+            <WorkExperienceRow
+              directEvidence={directEvidence.filter(
+                (item) => item.related_work_experience_id === experience.id,
+              )}
+              experience={experience}
+              initiatives={initiatives.filter(
+                (initiative) => initiative.work_experience_id === experience.id,
+              )}
+              key={experience.id ?? `${experience.employer}-${experience.role_title}`}
+              onRefresh={onRefresh}
+              reviewMode
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function WorkQueueRoleFilter({
+  onChange,
+  options,
+  value,
+}: {
+  onChange: (value: string) => void;
+  options: Array<{ label: string; value: string }>;
+  value: string;
+}) {
+  if (options.length === 0) return null;
+  return (
+    <section className="work-queue-filter" aria-label="Work Queue role filter">
+      <span>Filter by role</span>
+      <ThemeSelect
+        label="Role"
+        value={value}
+        options={[{ label: "All roles", value: "all" }, ...options]}
+        onChange={onChange}
+      />
+    </section>
   );
 }
 
@@ -9589,6 +9856,58 @@ function formatWorkExperienceStatus(status: string) {
   if (normalized === "approved" || normalized === "reviewed") return "Reviewed role";
   if (normalized === "rejected") return "Rejected";
   return status.replace(/_/g, " ");
+}
+
+function shouldReviewWorkExperience(experience: WorkExperienceItem) {
+  if (experience.status === "rejected") return false;
+  return experience.status !== "approved";
+}
+
+function getWorkExperienceCompleteness(experience: WorkExperienceItem) {
+  const hasDate = Boolean((experience.start_date ?? "").trim() || (experience.end_date ?? "").trim());
+  const checks = [
+    {
+      key: "employer",
+      label: "Employer",
+      complete: Boolean(experience.employer.trim()),
+      required: true,
+    },
+    {
+      key: "role_title",
+      label: "Role title",
+      complete: Boolean(experience.role_title.trim()),
+      required: true,
+    },
+    {
+      key: "date",
+      label: "Date range",
+      complete: hasDate,
+      required: true,
+    },
+    {
+      key: "location",
+      label: "Location",
+      complete: Boolean((experience.location ?? "").trim()),
+      required: false,
+    },
+    {
+      key: "team",
+      label: "Team",
+      complete: Boolean((experience.team ?? "").trim()),
+      required: false,
+    },
+    {
+      key: "summary",
+      label: "Role summary",
+      complete: Boolean((experience.summary ?? "").trim()),
+      required: false,
+    },
+  ];
+  return {
+    checks,
+    missingRequired: checks.filter((check) => check.required && !check.complete),
+    missingRecommended: checks.filter((check) => !check.required && !check.complete),
+  };
 }
 
 function storyTargetMatchesQuery(

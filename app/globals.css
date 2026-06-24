@@ -9596,6 +9596,55 @@ span > .help-hint {
   padding: 6px 10px;
 }
 
+.work-queue-filter {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin: 8px 0 12px;
+  padding: 8px 10px;
+}
+
+.work-queue-filter > span {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.work-queue-filter .theme-select {
+  min-width: 240px;
+}
+
+.work-experience-row__checklist {
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 14px 0;
+}
+
+.work-experience-row__checklist span {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--faint);
+  font-size: 0.68rem;
+  font-weight: 780;
+  padding: 4px 8px;
+}
+
+.work-experience-row__checklist span[data-complete="true"] {
+  background: rgba(87, 199, 133, 0.12);
+  border-color: rgba(87, 199, 133, 0.26);
+  color: var(--success);
+}
+
 .work-experience-row__editor {
   border-top: 1px solid rgba(255, 255, 255, 0.055);
   padding: 12px 14px;
@@ -10431,6 +10480,15 @@ span > .help-hint {
 
   .work-experience-row__summary-field {
     grid-column: 1 / -1;
+  }
+
+  .work-queue-filter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .work-queue-filter .theme-select {
+    min-width: 0;
   }
 
   .library-readiness article,
