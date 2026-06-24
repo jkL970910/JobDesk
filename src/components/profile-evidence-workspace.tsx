@@ -4426,6 +4426,12 @@ function SourceSectionReviewPane({
   const sectionName = extractSourceSectionName(task.prompt);
   const actionModel = getImportedNoteActionModel(task, sectionName);
   const showRoleFieldEditor = task.expected_action === "edit_role_field";
+  useEffect(() => {
+    setSelectedRoleId(taskWorkExperienceId);
+    setRoleLocation("");
+    setRoleEditStatus(null);
+    setCustomizing(false);
+  }, [task.id, taskWorkExperienceId]);
   const handlePrimaryAction =
     actionModel.primaryAction === "acknowledge"
       ? onAcknowledge
