@@ -9162,7 +9162,7 @@ function StoryTargetRow({
         workExperienceId: workExperienceId || null,
       });
       setAssignmentMessage({ ok: result.ok, text: result.message });
-      if (result.ok && workExperienceId) {
+      if (result.ok) {
         setIsEditingAssignment(false);
         setAssignmentMode("existing");
       }
@@ -9227,12 +9227,28 @@ function StoryTargetRow({
           <span className="story-target-row__eyebrow">
             {canAssignRole ? (
               <>
-                <span className="story-target-row__role-chip">
-                  Role:{" "}
-                  {assignedWorkExperience
-                    ? `${assignedWorkExperience.employer} · ${assignedWorkExperience.role_title}`
-                    : "Unassigned"}
-                </span>
+                {isEditingAssignment && assignmentMode === "existing" ? (
+                  <select
+                    className="story-target-row__role-select"
+                    disabled={isAssigning}
+                    title="Change role assignment"
+                    value={currentWorkExperienceId}
+                    onChange={(event) => void handleAssignExisting(event.target.value)}
+                  >
+                    <option value="">Unassigned / standalone</option>
+                    {workExperiences.map((experience) => (
+                      <option key={experience.id} value={experience.id}>
+                        {experience.employer} · {experience.role_title}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="story-target-row__role-chip">
+                    {assignedWorkExperience
+                      ? `${assignedWorkExperience.employer} · ${assignedWorkExperience.role_title}`
+                      : "Unassigned"}
+                  </span>
+                )}
                 <button
                   className="icon-button"
                   disabled={!target}
@@ -9251,6 +9267,16 @@ function StoryTargetRow({
                     />
                   </svg>
                 </button>
+                {isEditingAssignment ? (
+                  <button
+                    className="icon-button"
+                    title="Create a new role"
+                    type="button"
+                    onClick={() => setAssignmentMode((mode) => (mode === "new" ? "existing" : "new"))}
+                  >
+                    +
+                  </button>
+                ) : null}
               </>
             ) : (
               kind
@@ -9310,7 +9336,7 @@ function StoryTargetRow({
         <small>From: {linkedSource}</small>
         {story.needs_redaction_review ? <small>Redaction review</small> : null}
       </div>
-      {canAssignRole && isEditingAssignment ? (
+      {canAssignRole && isEditingAssignment && assignmentMode === "new" ? (
         <div
           className="story-target-row__assignment"
           data-state="editing"
@@ -9332,30 +9358,6 @@ function StoryTargetRow({
             </p>
           </div>
           <div className="story-assignment-control">
-            <label>
-              <span>Existing role</span>
-              <select
-                disabled={isAssigning || assignmentMode === "new"}
-                value={currentWorkExperienceId}
-                onChange={(event) => void handleAssignExisting(event.target.value)}
-              >
-                <option value="">Keep standalone / assign later</option>
-                {workExperiences.map((experience) => (
-                  <option key={experience.id} value={experience.id}>
-                    {experience.employer} · {experience.role_title}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              className="secondary-button secondary-button--quiet"
-              type="button"
-              onClick={() =>
-                setAssignmentMode((mode) => (mode === "new" ? "existing" : "new"))
-              }
-            >
-              {assignmentMode === "new" ? "Use existing role" : "Create new role"}
-            </button>
             <button
               className="secondary-button secondary-button--quiet"
               type="button"
@@ -9368,68 +9370,66 @@ function StoryTargetRow({
               Cancel
             </button>
           </div>
-          {assignmentMode === "new" ? (
-            <div className="story-new-role-form">
-              <label>
-                <span>Employer</span>
-                <input
-                  value={newRoleDraft.employer}
-                  onChange={(event) =>
-                    setNewRoleDraft((draft) => ({ ...draft, employer: event.target.value }))
-                  }
-                  placeholder="Company or organization"
-                />
-              </label>
-              <label>
-                <span>Role title</span>
-                <input
-                  value={newRoleDraft.roleTitle}
-                  onChange={(event) =>
-                    setNewRoleDraft((draft) => ({ ...draft, roleTitle: event.target.value }))
-                  }
-                  placeholder="Product Manager, Data Analyst..."
-                />
-              </label>
-              <label>
-                <span>Start date</span>
-                <input
-                  value={newRoleDraft.startDate}
-                  onChange={(event) =>
-                    setNewRoleDraft((draft) => ({ ...draft, startDate: event.target.value }))
-                  }
-                  placeholder="Optional"
-                />
-              </label>
-              <label>
-                <span>End date</span>
-                <input
-                  value={newRoleDraft.endDate}
-                  onChange={(event) =>
-                    setNewRoleDraft((draft) => ({ ...draft, endDate: event.target.value }))
-                  }
-                  placeholder="Optional, e.g. Present"
-                />
-              </label>
-              <label>
-                <span>Role note</span>
-                <input
-                  value={newRoleDraft.summary}
-                  onChange={(event) =>
-                    setNewRoleDraft((draft) => ({ ...draft, summary: event.target.value }))
-                  }
-                  placeholder="Optional user-confirmed context"
-                />
-              </label>
-              <button
-                className="secondary-button"
-                disabled={isAssigning}
-                type="button"
-                onClick={() => void handleCreateRole()}
-              >
-                Create role and assign
-              </button>
-            </div>
-          ) : null}
+          <div className="story-new-role-form">
+            <label>
+              <span>Employer</span>
+              <input
+                value={newRoleDraft.employer}
+                onChange={(event) =>
+                  setNewRoleDraft((draft) => ({ ...draft, employer: event.target.value }))
+                }
+                placeholder="Company or organization"
+              />
+            </label>
+            <label>
+              <span>Role title</span>
+              <input
+                value={newRoleDraft.roleTitle}
+                onChange={(event) =>
+                  setNewRoleDraft((draft) => ({ ...draft, roleTitle: event.target.value }))
+                }
+                placeholder="Product Manager, Data Analyst..."
+              />
+            </label>
+            <label>
+              <span>Start date</span>
+              <input
+                value={newRoleDraft.startDate}
+                onChange={(event) =>
+                  setNewRoleDraft((draft) => ({ ...draft, startDate: event.target.value }))
+                }
+                placeholder="Optional"
+              />
+            </label>
+            <label>
+              <span>End date</span>
+              <input
+                value={newRoleDraft.endDate}
+                onChange={(event) =>
+                  setNewRoleDraft((draft) => ({ ...draft, endDate: event.target.value }))
+                }
+                placeholder="Optional, e.g. Present"
+              />
+            </label>
+            <label>
+              <span>Role note</span>
+              <input
+                value={newRoleDraft.summary}
+                onChange={(event) =>
+                  setNewRoleDraft((draft) => ({ ...draft, summary: event.target.value }))
+                }
+                placeholder="Optional user-confirmed context"
+              />
+            </label>
+            <button
+              className="secondary-button"
+              disabled={isAssigning}
+              type="button"
+              onClick={() => void handleCreateRole()}
+            >
+              Create role and assign
+            </button>
+          </div>
           {assignmentMessage ? (
             <p className={assignmentMessage.ok ? "status" : "error"}>
               {assignmentMessage.text}

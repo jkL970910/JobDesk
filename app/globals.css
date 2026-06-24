@@ -9209,6 +9209,19 @@ span > .help-hint {
   white-space: nowrap;
 }
 
+.story-target-row__role-select {
+  background: rgba(8, 12, 20, 0.78);
+  border: 1px solid rgba(79, 140, 255, 0.26);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  font-weight: 780;
+  max-width: min(420px, 100%);
+  min-height: 26px;
+  padding: 3px 28px 3px 9px;
+}
+
 .icon-button {
   align-items: center;
   background: rgba(255, 255, 255, 0.045);
