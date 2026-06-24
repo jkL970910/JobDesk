@@ -8705,6 +8705,49 @@ function WorkExperienceRow({
     }
   }
 
+  async function updateRoleReview(action: "mark_reviewed" | "mark_needs_update" | "reject_role") {
+    if (!experience.id) {
+      setMessage({ ok: false, text: "This role has not been saved yet." });
+      return;
+    }
+    const loadingCopy = action === "mark_reviewed"
+      ? "Marking role reviewed..."
+      : action === "reject_role"
+        ? "Rejecting role..."
+        : "Marking role as needing updates...";
+    setIsSaving(true);
+    setMessage({ ok: true, text: loadingCopy });
+    try {
+      const response = await fetchJson(`/api/work-experiences/${experience.id}`, {
+        body: JSON.stringify({ action }),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) {
+        setMessage({ ok: false, text: formatWorkExperienceReviewError(payload?.error) });
+        return;
+      }
+      await onRefresh();
+      setMessage({
+        ok: true,
+        text: action === "mark_reviewed"
+          ? "Role marked reviewed."
+          : action === "reject_role"
+            ? "Role rejected. Linked initiatives and claims are preserved for reassignment."
+            : "Role marked as needing updates.",
+      });
+    } catch (error) {
+      setMessage({ ok: false, text: error instanceof Error ? error.message : "Could not update role review state." });
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  const canMarkReviewed = experience.status !== "approved" && experience.status !== "rejected";
+  const canMarkNeedsUpdate = experience.status !== "pending" && experience.status !== "rejected";
+  const canRejectRole = experience.status !== "rejected";
+
   return (
     <article className="story-group-row work-experience-row">
       <div className="story-group-row__summary">
@@ -8745,6 +8788,32 @@ function WorkExperienceRow({
           }}
         >
           {isEditing ? "Cancel edit" : "Edit role details"}
+        </button>
+      </div>
+      <div className="work-experience-row__actions">
+        <button
+          className="secondary-button"
+          disabled={isSaving || !canMarkReviewed}
+          type="button"
+          onClick={() => void updateRoleReview("mark_reviewed")}
+        >
+          Mark reviewed
+        </button>
+        <button
+          className="secondary-button secondary-button--quiet"
+          disabled={isSaving || !canMarkNeedsUpdate}
+          type="button"
+          onClick={() => void updateRoleReview("mark_needs_update")}
+        >
+          Needs update
+        </button>
+        <button
+          className="secondary-button secondary-button--danger"
+          disabled={isSaving || !canRejectRole}
+          type="button"
+          onClick={() => void updateRoleReview("reject_role")}
+        >
+          Reject role
         </button>
       </div>
       {isEditing ? (
@@ -8804,6 +8873,14 @@ function WorkExperienceRow({
       ) : null}
     </article>
   );
+}
+
+function formatWorkExperienceReviewError(error?: string) {
+  if (error === "work_experience_review_missing_core_fields") {
+    return "Add employer, role title, and at least one date before marking this role reviewed.";
+  }
+  if (error === "work_experience_rejected") return "Rejected roles cannot be edited.";
+  return error ?? "Could not update role review state.";
 }
 
 function WorkInitiativeList({

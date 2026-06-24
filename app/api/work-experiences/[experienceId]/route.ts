@@ -2,21 +2,29 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { schedulePersonalEmbeddingsSync } from "../../../../src/server/embedding-service";
-import { updateWorkExperienceFields } from "../../../../src/server/profile-evidence-repository";
+import {
+  reviewWorkExperience,
+  updateWorkExperienceFields,
+} from "../../../../src/server/profile-evidence-repository";
 
 const paramsSchema = z.object({
   experienceId: z.string().uuid(),
 });
 
-const requestSchema = z.object({
-  action: z.literal("update_fields"),
-  endDate: z.string().trim().max(80).nullable().optional(),
-  location: z.string().trim().max(240).nullable().optional(),
-  startDate: z.string().trim().max(80).nullable().optional(),
-  summary: z.string().trim().max(1000).nullable().optional(),
-  taskId: z.string().uuid().nullable().optional(),
-  team: z.string().trim().max(240).nullable().optional(),
-});
+const requestSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("update_fields"),
+    endDate: z.string().trim().max(80).nullable().optional(),
+    location: z.string().trim().max(240).nullable().optional(),
+    startDate: z.string().trim().max(80).nullable().optional(),
+    summary: z.string().trim().max(1000).nullable().optional(),
+    taskId: z.string().uuid().nullable().optional(),
+    team: z.string().trim().max(240).nullable().optional(),
+  }),
+  z.object({
+    action: z.enum(["mark_reviewed", "mark_needs_update", "reject_role"]),
+  }),
+]);
 
 export async function PATCH(
   request: Request,
@@ -31,15 +39,20 @@ export async function PATCH(
     );
   }
 
-  const result = await updateWorkExperienceFields({
-    workExperienceId: params.data.experienceId,
-    endDate: body.data.endDate,
-    location: body.data.location,
-    startDate: body.data.startDate,
-    summary: body.data.summary,
-    taskId: body.data.taskId,
-    team: body.data.team,
-  });
+  const result = body.data.action === "update_fields"
+    ? await updateWorkExperienceFields({
+        workExperienceId: params.data.experienceId,
+        endDate: body.data.endDate,
+        location: body.data.location,
+        startDate: body.data.startDate,
+        summary: body.data.summary,
+        taskId: body.data.taskId,
+        team: body.data.team,
+      })
+    : await reviewWorkExperience({
+        workExperienceId: params.data.experienceId,
+        action: body.data.action,
+      });
 
   if (result.status === "skipped") {
     return NextResponse.json(
@@ -60,6 +73,8 @@ export async function PATCH(
     );
   }
 
-  schedulePersonalEmbeddingsSync("work_experience_field_update");
+  schedulePersonalEmbeddingsSync(
+    body.data.action === "update_fields" ? "work_experience_field_update" : "work_experience_review",
+  );
   return NextResponse.json({ data: result });
 }

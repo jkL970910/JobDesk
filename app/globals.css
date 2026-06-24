@@ -8233,6 +8233,12 @@ span > .help-hint {
   color: var(--muted);
 }
 
+.secondary-button--danger {
+  background: rgba(255, 94, 94, 0.08);
+  border-color: rgba(255, 94, 94, 0.22);
+  color: #ffb8b8;
+}
+
 .secondary-button:hover:not(:disabled),
 .secondary-link-button:hover {
   background: var(--primary-soft);
@@ -9426,6 +9432,20 @@ span > .help-hint {
   font-size: 0.68rem;
   font-weight: 780;
   padding: 4px 7px;
+}
+
+.work-experience-row__actions {
+  align-items: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+}
+
+.work-experience-row__actions .secondary-button {
+  min-height: 32px;
+  padding: 6px 10px;
 }
 
 .work-experience-row__editor {

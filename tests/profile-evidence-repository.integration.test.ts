@@ -39,6 +39,7 @@ import {
   persistProfileEvidenceExtraction,
   updateEvidenceItem,
   updateProfileFacts,
+  reviewWorkExperience,
   updateWorkExperienceFields,
 } from "../src/server/profile-evidence-repository";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
@@ -1859,6 +1860,60 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
         eligible: true,
       });
     }
+  });
+
+  it("reviews and rejects work experiences without exposing rejected roles as targets", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const unique = crypto.randomUUID();
+    const [reviewableRole] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: `Reviewed role ${unique}`,
+        roleTitle: "Software Engineer",
+        startDate: "2024",
+        status: "pending",
+      })
+      .returning({ id: workExperiences.id });
+    const [incompleteRole] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: `Incomplete role ${unique}`,
+        roleTitle: "Intern",
+        status: "pending",
+      })
+      .returning({ id: workExperiences.id });
+    if (!reviewableRole || !incompleteRole) throw new Error("Expected role rows.");
+
+    const reviewed = await reviewWorkExperience({
+      workExperienceId: reviewableRole.id,
+      action: "mark_reviewed",
+    });
+    expect(reviewed.status).toBe("saved");
+    const invalidReview = await reviewWorkExperience({
+      workExperienceId: incompleteRole.id,
+      action: "mark_reviewed",
+    });
+    expect(invalidReview).toMatchObject({
+      status: "invalid",
+      reason: "work_experience_review_missing_core_fields",
+    });
+    const rejected = await reviewWorkExperience({
+      workExperienceId: reviewableRole.id,
+      action: "reject_role",
+    });
+    expect(rejected.status).toBe("saved");
+
+    const library = await getRecentEvidenceLibrary(80);
+    const rejectedRole = library.workExperiences.find((item) => item.id === reviewableRole.id);
+    expect(rejectedRole).toMatchObject({
+      status: "rejected",
+      target_eligibility: {
+        eligible: false,
+      },
+    });
   });
 
   it("updates non-location role fields from imported note tasks", async () => {

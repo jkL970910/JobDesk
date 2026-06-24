@@ -1226,7 +1226,7 @@ export async function getRecentEvidenceLibrary(limit = 8) {
   const experiences = await db
     .select()
     .from(workExperiences)
-    .where(and(eq(workExperiences.workspaceId, workspace.id), ne(workExperiences.status, "rejected")))
+    .where(eq(workExperiences.workspaceId, workspace.id))
     .orderBy(desc(workExperiences.updatedAt))
     .limit(limit);
   const initiativeRows = await db
@@ -2880,6 +2880,66 @@ export async function updateWorkExperienceFields(args: {
 
     return { status: "saved" as const, workExperience: updated };
   });
+}
+
+export async function reviewWorkExperience(args: {
+  workExperienceId: string;
+  action: "mark_reviewed" | "mark_needs_update" | "reject_role";
+}) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [current] = await db
+    .select({
+      id: workExperiences.id,
+      employer: workExperiences.employer,
+      roleTitle: workExperiences.roleTitle,
+      startDate: workExperiences.startDate,
+      endDate: workExperiences.endDate,
+      status: workExperiences.status,
+      workspaceId: workExperiences.workspaceId,
+    })
+    .from(workExperiences)
+    .where(and(eq(workExperiences.workspaceId, workspace.id), eq(workExperiences.id, args.workExperienceId)))
+    .limit(1);
+  if (!current) return { status: "not_found" as const };
+  if (current.status === "rejected" && args.action !== "reject_role") {
+    return { status: "invalid" as const, reason: "work_experience_rejected" as const };
+  }
+
+  if (args.action === "mark_reviewed") {
+    const missingCore = [
+      current.employer.trim(),
+      current.roleTitle.trim(),
+      current.startDate?.trim() || current.endDate?.trim() || "",
+    ].some((value) => value.length === 0);
+    if (missingCore) {
+      return { status: "invalid" as const, reason: "work_experience_review_missing_core_fields" as const };
+    }
+  }
+
+  const status = args.action === "mark_reviewed"
+    ? "approved"
+    : args.action === "reject_role"
+      ? "rejected"
+      : "pending";
+  const [updated] = await db
+    .update(workExperiences)
+    .set({ status, updatedAt: new Date() })
+    .where(and(eq(workExperiences.workspaceId, workspace.id), eq(workExperiences.id, args.workExperienceId)))
+    .returning({
+      id: workExperiences.id,
+      employer: workExperiences.employer,
+      roleTitle: workExperiences.roleTitle,
+      status: workExperiences.status,
+      updatedAt: workExperiences.updatedAt,
+    });
+  return updated
+    ? ({ status: "saved" as const, workExperience: updated })
+    : ({ status: "not_found" as const });
 }
 
 function getSubmittedWorkExperienceFields(args: {
