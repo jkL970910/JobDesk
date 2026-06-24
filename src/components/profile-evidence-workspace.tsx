@@ -2683,14 +2683,14 @@ export function ProfileEvidenceWorkspace({
               type="button"
               onClick={() => openWorkQueueView("enrichment")}
             >
-              Improve Evidence ({answerEnrichmentTasks.length})
+              Improve ({answerEnrichmentTasks.length})
             </button>
             <button
               data-active={workQueueView === "imported"}
               type="button"
               onClick={() => openWorkQueueView("imported")}
             >
-              Imported Material ({importedMaterialTasks.length})
+              Imports ({importedMaterialTasks.length})
             </button>
             <button
               data-active={workQueueView === "claims"}
@@ -2700,7 +2700,7 @@ export function ProfileEvidenceWorkspace({
                 openWorkQueueView("claims");
               }}
             >
-              Evidence Review ({claimReviewEvidenceItems.length})
+              Review ({claimReviewEvidenceItems.length})
             </button>
             <button
               data-active={workQueueView === "unlinked"}
@@ -2710,7 +2710,7 @@ export function ProfileEvidenceWorkspace({
                 openWorkQueueView("unlinked");
               }}
             >
-              {evidenceFocus ? "Focused" : "Needs Target"} ({focusedEvidenceItems.length})
+              {evidenceFocus ? "Focused" : "Link"} ({focusedEvidenceItems.length})
             </button>
             <button
               data-active={workQueueView === "cleanup"}
