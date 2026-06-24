@@ -1531,7 +1531,7 @@ export function ProfileEvidenceWorkspace({
   );
   const reusableEvidenceItems = filteredEvidenceItems.filter(isReusableReadyEvidence);
   const allEvidenceItems = reusableEvidenceItems;
-  const toolbarOptions = buildEvidenceLibraryFilterOptions(
+  const evidenceClaimFilterOptions = buildEvidenceLibraryFilterOptions(
     reusableEvidenceItems,
     linkTargets,
     projectCards,
@@ -2596,11 +2596,6 @@ export function ProfileEvidenceWorkspace({
 
           {libraryMode === "library" ? (
             <>
-              <EvidenceLibraryToolbar
-                filters={libraryFilters}
-                onChange={setLibraryFilters}
-                options={toolbarOptions}
-              />
               <div className="review-switcher review-switcher--library" role="tablist" aria-label="Library asset views">
                 <button
                   data-active={libraryView === "work_experiences"}
@@ -2653,23 +2648,24 @@ export function ProfileEvidenceWorkspace({
                 />
               ) : null}
               {libraryView === "evidence_claims" ? (
-                <EvidenceList
-                  description="Browse approved reusable evidence. Items that still need review live in Work Queue."
-                  emptyMessage="No evidence matches the current library filters."
+                <EvidenceClaimsLibraryView
+                  filters={libraryFilters}
+                  filterOptions={evidenceClaimFilterOptions}
                   items={allEvidenceItems}
-                  mode="library"
+                  linkTargets={linkTargets}
+                  onChangeFilters={setLibraryFilters}
                   onUpdate={updateEvidence}
                   projects={projectCards}
-                  linkTargets={linkTargets}
-                  title="All Evidence"
                 />
               ) : null}
               {libraryView === "star_stories" ? (
                 <StarStoryPanel
                   focus={starStoryFocus}
+                  initiatives={initiatives}
                   onImproveStory={startProjectEnrichment}
                   stories={starStories}
                   onRefresh={() => void loadStarStories()}
+                  workExperiences={workExperiences}
                 />
               ) : null}
             </>
@@ -2683,7 +2679,7 @@ export function ProfileEvidenceWorkspace({
               type="button"
               onClick={() => openWorkQueueView("imported")}
             >
-              Imports ({importedMaterialTasks.length})
+              Import Review ({importedMaterialTasks.length})
             </button>
             <button
               data-active={workQueueView === "unlinked"}
@@ -2693,14 +2689,14 @@ export function ProfileEvidenceWorkspace({
                 openWorkQueueView("unlinked");
               }}
             >
-              {evidenceFocus ? "Focused" : "Link"} ({focusedEvidenceItems.length})
+              {evidenceFocus ? "Focused" : "Link Claims"} ({focusedEvidenceItems.length})
             </button>
             <button
               data-active={workQueueView === "enrichment"}
               type="button"
               onClick={() => openWorkQueueView("enrichment")}
             >
-              Improve ({answerEnrichmentTasks.length})
+              Add Detail ({answerEnrichmentTasks.length})
             </button>
             <button
               data-active={workQueueView === "claims"}
@@ -2710,7 +2706,7 @@ export function ProfileEvidenceWorkspace({
                 openWorkQueueView("claims");
               }}
             >
-              Review ({claimReviewEvidenceItems.length})
+              Approve Claims ({claimReviewEvidenceItems.length})
             </button>
             <button
               data-active={workQueueView === "cleanup"}
@@ -3623,60 +3619,91 @@ function LibraryOverviewSummary({
   );
 }
 
-function EvidenceLibraryToolbar({
+function EvidenceClaimsLibraryView({
   filters,
-  onChange,
-  options,
+  filterOptions,
+  items,
+  linkTargets,
+  onChangeFilters,
+  onUpdate,
+  projects,
 }: {
   filters: EvidenceLibraryFilters;
-  onChange: (filters: EvidenceLibraryFilters) => void;
-  options: {
+  filterOptions: {
     roles: Array<{ label: string; value: string }>;
     sources: Array<{ label: string; value: string }>;
     storiesByRole: Record<string, Array<{ label: string; value: string }>>;
   };
+  items: EvidenceCardItem[];
+  linkTargets: EvidenceLinkTargets;
+  onChangeFilters: (filters: EvidenceLibraryFilters) => void;
+  onUpdate: (
+    item: EvidenceCardItem,
+    action: EvidenceUpdateAction,
+    patch?: EvidenceUpdatePatch,
+  ) => Promise<{ ok: boolean; message: string }>;
+  projects: ProjectCardItem[];
 }) {
   function update(patch: Partial<EvidenceLibraryFilters>) {
-    onChange({ ...filters, ...patch });
+    onChangeFilters({ ...filters, ...patch });
   }
   const storyOptions = filters.role !== "all"
-    ? options.storiesByRole[filters.role] ?? []
+    ? filterOptions.storiesByRole[filters.role] ?? []
     : [];
   return (
-    <section className="evidence-library-toolbar" aria-label="Evidence Library search and filters">
-      <label className="evidence-library-toolbar__search">
-        <span>Search evidence, stories, roles</span>
-        <input
-          value={filters.query}
-          onChange={(event) => update({ query: event.target.value })}
-          placeholder="Search claims, source quotes, roles, or stories..."
-        />
-      </label>
-      <div className="evidence-library-toolbar__filters">
-        <ThemeSelect
-          label="Role"
-          value={filters.role}
-          options={[{ label: "All roles", value: "all" }, ...options.roles]}
-          onChange={(role) => update({ role, story: "all" })}
-        />
-        {filters.role !== "all" ? (
-          <ThemeSelect
-            label="Story"
-            value={filters.story}
-            options={[
-              { label: storyOptions.length > 0 ? "All stories under role" : "No stories under role", value: "all" },
-              ...storyOptions,
-            ]}
-            onChange={(story) => update({ story })}
-          />
-        ) : null}
-        <ThemeSelect
-          label="Source"
-          value={filters.source}
-          options={[{ label: "All sources", value: "all" }, ...options.sources]}
-          onChange={(source) => update({ source })}
-        />
+    <section className="section-block">
+      <div className="section-block__top">
+        <div>
+          <h3>Evidence Claims</h3>
+          <p>Approved reusable claims. Items that still need review live in Work Queue.</p>
+        </div>
+        <span>{items.length} claims</span>
       </div>
+      <section className="evidence-library-toolbar evidence-library-toolbar--local" aria-label="Evidence claim filters">
+        <label className="evidence-library-toolbar__search">
+          <span>Search claims</span>
+          <input
+            value={filters.query}
+            onChange={(event) => update({ query: event.target.value })}
+            placeholder="Search claim text, source quote, role, or story..."
+          />
+        </label>
+        <div className="evidence-library-toolbar__filters">
+          <ThemeSelect
+            label="Role"
+            value={filters.role}
+            options={[{ label: "All roles", value: "all" }, ...filterOptions.roles]}
+            onChange={(role) => update({ role, story: "all" })}
+          />
+          {filters.role !== "all" ? (
+            <ThemeSelect
+              label="Story"
+              value={filters.story}
+              options={[
+                { label: storyOptions.length > 0 ? "All stories under role" : "No stories under role", value: "all" },
+                ...storyOptions,
+              ]}
+              onChange={(story) => update({ story })}
+            />
+          ) : null}
+          <ThemeSelect
+            label="Source"
+            value={filters.source}
+            options={[{ label: "All sources", value: "all" }, ...filterOptions.sources]}
+            onChange={(source) => update({ source })}
+          />
+        </div>
+      </section>
+      <EvidenceList
+        description=""
+        emptyMessage="No evidence matches these filters."
+        items={items}
+        mode="library"
+        onUpdate={onUpdate}
+        projects={projects}
+        linkTargets={linkTargets}
+        title=""
+      />
     </section>
   );
 }
@@ -7274,6 +7301,11 @@ function starStoryMatchesFocus(story: StarStory, focus: NonNullable<StarStoryFoc
   return story.story_target_type === focus.targetType && story.story_target_id === focus.targetId;
 }
 
+function getStarStoryRoleId(story: StarStory, initiativeRoleById: Map<string, string>) {
+  if (story.story_target_type !== "initiative") return null;
+  return initiativeRoleById.get(story.story_target_id) ?? null;
+}
+
 function getUnlinkedEvidenceItems(
   targets: EvidenceLinkTargets,
   evidenceItems: EvidenceCardItem[],
@@ -7668,21 +7700,69 @@ function EvidenceOverlapSummary({
 
 function StarStoryPanel({
   focus,
+  initiatives,
   onImproveStory,
   onRefresh,
   stories,
+  workExperiences,
 }: {
   focus: StarStoryFocus;
+  initiatives: InitiativeItem[];
   onImproveStory: (project: ProjectCardItem) => void;
   onRefresh: () => void;
   stories: StarStory[];
+  workExperiences: WorkExperienceItem[];
 }) {
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [angleFilter, setAngleFilter] = useState("all");
+  const initiativeRoleById = new Map(
+    initiatives
+      .filter((initiative): initiative is InitiativeItem & { id: string; work_experience_id: string } =>
+        Boolean(initiative.id && initiative.work_experience_id),
+      )
+      .map((initiative) => [initiative.id, initiative.work_experience_id]),
+  );
+  const angleOptions = Array.from(new Set(stories.flatMap((story) => story.interview_angles))).sort();
+  const normalizedQuery = query.trim().toLowerCase();
   const focusedStories = focus
     ? stories.filter((story) => starStoryMatchesFocus(story, focus))
     : [];
+  const filteredStories = stories.filter((story) => {
+    if (roleFilter !== "all") {
+      const roleId = getStarStoryRoleId(story, initiativeRoleById);
+      if (roleFilter === "standalone") {
+        if (roleId) return false;
+      } else if (roleId !== roleFilter) {
+        return false;
+      }
+    }
+    if (angleFilter !== "all" && !story.interview_angles.includes(angleFilter)) return false;
+    if (!normalizedQuery) return true;
+    return [
+      story.title,
+      story.internal_title,
+      story.situation,
+      story.task,
+      story.external_safe_summary,
+      ...(story.action ?? []),
+      ...(story.result ?? []),
+      ...(story.metrics ?? []),
+      ...(story.technologies ?? []),
+      ...(story.stakeholders ?? []),
+      ...(story.interview_angles ?? []),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedQuery);
+  });
   const visibleStories = focus
-    ? [...focusedStories, ...stories.filter((story) => !starStoryMatchesFocus(story, focus))]
-    : stories;
+    ? [
+        ...filteredStories.filter((story) => starStoryMatchesFocus(story, focus)),
+        ...filteredStories.filter((story) => !starStoryMatchesFocus(story, focus)),
+      ]
+    : filteredStories;
   return (
     <section className="section-block interview-stories">
       <div className="section-block__top">
@@ -7699,10 +7779,51 @@ function StarStoryPanel({
           Refresh stories
         </button>
       </div>
+      <section className="evidence-library-toolbar evidence-library-toolbar--local" aria-label="STAR story filters">
+        <label className="evidence-library-toolbar__search">
+          <span>Search STAR stories</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search story, actions, results, metrics, or interview angle..."
+          />
+        </label>
+        <div className="evidence-library-toolbar__filters">
+          <ThemeSelect
+            label="Role"
+            value={roleFilter}
+            options={[
+              { label: "All roles", value: "all" },
+              ...workExperiences.map((experience) => ({
+                label: `${experience.employer} · ${experience.role_title}`,
+                value: experience.id ?? "",
+              })).filter((option) => option.value),
+              { label: "Standalone / portfolio stories", value: "standalone" },
+            ]}
+            onChange={setRoleFilter}
+          />
+          <ThemeSelect
+            label="Angle"
+            value={angleFilter}
+            options={[
+              { label: "All angles", value: "all" },
+              ...angleOptions.map((angle) => ({ label: angle, value: angle })),
+            ]}
+            onChange={setAngleFilter}
+          />
+        </div>
+      </section>
       {stories.length === 0 ? (
         <p className="requirement__quote">
           No initiatives or portfolio projects are ready to promote into STAR stories yet.
         </p>
+      ) : visibleStories.length === 0 ? (
+        <div className="empty-state-row">
+          <div>
+            <strong>No STAR stories match these filters.</strong>
+            <p>Clear search, choose another role, or refresh generated stories.</p>
+          </div>
+        </div>
       ) : (
         <div className="interview-story-grid">
           {visibleStories.slice(0, 4).map((story) => (
@@ -8417,6 +8538,27 @@ function WorkExperienceList({
   onRefresh: () => Promise<void>;
   workExperiences: WorkExperienceItem[];
 }) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const normalizedQuery = query.trim().toLowerCase();
+  const statusOptions = Array.from(new Set(workExperiences.map((experience) => experience.status).filter(Boolean)));
+  const visibleWorkExperiences = workExperiences.filter((experience) => {
+    if (statusFilter !== "all" && experience.status !== statusFilter) return false;
+    if (!normalizedQuery) return true;
+    return [
+      experience.employer,
+      experience.role_title,
+      experience.team,
+      experience.location,
+      experience.start_date,
+      experience.end_date,
+      experience.summary,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedQuery);
+  });
   if (workExperiences.length === 0) {
     return (
       <section className="section-block">
@@ -8441,10 +8583,42 @@ function WorkExperienceList({
             Detailed projects live in Work Initiatives.
           </p>
         </div>
-        <span>{workExperiences.length} roles</span>
+        <span>{visibleWorkExperiences.length} roles</span>
       </div>
+      <section className="evidence-library-toolbar evidence-library-toolbar--local" aria-label="Work experience filters">
+        <label className="evidence-library-toolbar__search">
+          <span>Search roles</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search employer, title, team, location, or dates..."
+          />
+        </label>
+        <div className="evidence-library-toolbar__filters">
+          <ThemeSelect
+            label="Status"
+            value={statusFilter}
+            options={[
+              { label: "All statuses", value: "all" },
+              ...statusOptions.map((status) => ({
+                label: formatWorkExperienceStatus(status),
+                value: status,
+              })),
+            ]}
+            onChange={setStatusFilter}
+          />
+        </div>
+      </section>
+      {visibleWorkExperiences.length === 0 ? (
+        <div className="empty-state-row">
+          <div>
+            <strong>No work experiences match these filters.</strong>
+            <p>Clear search or choose another status.</p>
+          </div>
+        </div>
+      ) : null}
       <div className="story-table story-table--work result-stack--inner">
-        {workExperiences.map((experience) => (
+        {visibleWorkExperiences.map((experience) => (
           <WorkExperienceRow
             directEvidence={evidenceItems.filter(
               (item) => item.related_work_experience_id === experience.id,
@@ -8543,7 +8717,7 @@ function WorkExperienceRow({
               .join(" · ") || "Role details need review"}
           </p>
         </div>
-        <em>{experience.status}</em>
+        <em>{formatWorkExperienceStatus(experience.status)}</em>
         <small>{initiatives.length} initiatives · {directEvidence.length} direct claims</small>
       </div>
       {experience.summary ? (
@@ -8662,6 +8836,8 @@ function WorkInitiativeList({
   const hasAny =
     workExperiences.length > 0 || initiatives.length > 0 || portfolioProjects.length > 0;
   const [roleFilter, setRoleFilter] = useState("all");
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
   const visibleInitiatives = roleFilter === "all"
     ? initiatives
     : roleFilter === "standalone"
@@ -8670,6 +8846,12 @@ function WorkInitiativeList({
   const visiblePortfolioProjects = roleFilter === "all" || roleFilter === "standalone"
     ? portfolioProjects
     : [];
+  const filteredInitiatives = visibleInitiatives.filter((initiative) =>
+    storyTargetMatchesQuery(initiative, normalizedQuery),
+  );
+  const filteredPortfolioProjects = visiblePortfolioProjects.filter((project) =>
+    storyTargetMatchesQuery(project, normalizedQuery),
+  );
   const evidenceCountByInitiative = new Map<string, number>();
   for (const item of evidenceItems) {
     if (!item.related_initiative_id) continue;
@@ -8705,94 +8887,54 @@ function WorkInitiativeList({
           </p>
         </div>
         <span>
-          {visibleInitiatives.length} initiatives · {visiblePortfolioProjects.length} portfolio projects
+          {filteredInitiatives.length} initiatives · {filteredPortfolioProjects.length} portfolio projects
         </span>
       </div>
 
-      <div className="library-inline-filter">
-        <label>
-          <span>Role filter</span>
-          <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
-            <option value="all">All roles and standalone projects</option>
-            {workExperiences.map((experience) => (
-              <option key={experience.id} value={experience.id}>
-                {experience.employer} · {experience.role_title}
-              </option>
-            ))}
-            <option value="standalone">Standalone / portfolio projects</option>
-          </select>
+      <section className="evidence-library-toolbar evidence-library-toolbar--local" aria-label="Work initiative filters">
+        <label className="evidence-library-toolbar__search">
+          <span>Search initiatives</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search initiative title, context, metrics, technologies, or results..."
+          />
         </label>
-      </div>
+        <div className="evidence-library-toolbar__filters">
+          <ThemeSelect
+            label="Role"
+            value={roleFilter}
+            options={[
+              { label: "All roles and standalone projects", value: "all" },
+              ...workExperiences.map((experience) => ({
+                label: `${experience.employer} · ${experience.role_title}`,
+                value: experience.id ?? "",
+              })).filter((option) => option.value),
+              { label: "Standalone / portfolio projects", value: "standalone" },
+            ]}
+            onChange={setRoleFilter}
+          />
+        </div>
+      </section>
 
-      {visibleInitiatives.length === 0 && visiblePortfolioProjects.length === 0 ? (
+      {filteredInitiatives.length === 0 && filteredPortfolioProjects.length === 0 ? (
         <div className="empty-state-row">
           <div>
-            <strong>No initiatives match this role filter.</strong>
-            <p>Choose another role or add source material for this work experience.</p>
+            <strong>No initiatives match these filters.</strong>
+            <p>Choose another role, clear search, or add source material for this work experience.</p>
           </div>
         </div>
       ) : null}
 
-      {workExperiences.length > 0 && roleFilter !== "standalone" ? (
-        <div className="story-table story-table--work result-stack--inner">
-          {workExperiences.map((experience) => {
-            if (roleFilter !== "all" && roleFilter !== experience.id) return null;
-            const childInitiatives = visibleInitiatives.filter(
-              (initiative) => initiative.work_experience_id === experience.id,
-            );
-            if (childInitiatives.length === 0) return null;
-            return (
-              <section className="story-group-row story-group-row--initiative-group" key={experience.id}>
-                <div className="story-group-row__summary">
-                  <span>Role group</span>
-                  <div>
-                    <strong>{experience.employer} · {experience.role_title}</strong>
-                    <p>{childInitiatives.length} linked work initiatives</p>
-                  </div>
-                  <em>{experience.status}</em>
-                  <small>{childInitiatives.length} initiatives</small>
-                </div>
-                {childInitiatives.map((initiative) => (
-                  <StoryTargetRow
-                    evidenceItems={evidenceItems.filter(
-                      (item) => item.related_initiative_id === initiative.id,
-                    )}
-                    key={initiative.id ?? initiative.internal_title}
-                    kind="Work initiative"
-                    onAssignStory={onAssignStory}
-                    onEnrichStory={onEnrichStory}
-                    onMergeStory={onMergeStory}
-                    onReviewClaims={onReviewClaims}
-                    onReviewStarStory={onReviewStarStory}
-                    story={initiative}
-                    title={initiative.external_safe_title ?? initiative.internal_title}
-                    targetType="initiative"
-                    workExperiences={workExperiences}
-                    mergeOptions={initiatives.filter(
-                      (option) =>
-                        option.id &&
-                        option.id !== initiative.id,
-                    )}
-                    mergeOptionEvidenceCounts={evidenceCountByInitiative}
-                  />
-                ))}
-              </section>
-            );
-          })}
-        </div>
-      ) : null}
-
-      {visibleInitiatives.some((initiative) => !initiative.work_experience_id) ? (
+      {filteredInitiatives.length > 0 ? (
         <div className="story-table result-stack--inner">
-          {visibleInitiatives
-            .filter((initiative) => !initiative.work_experience_id)
-            .map((initiative) => (
+          {filteredInitiatives.map((initiative) => (
               <StoryTargetRow
                 evidenceItems={evidenceItems.filter(
                   (item) => item.related_initiative_id === initiative.id,
                 )}
                 key={initiative.id ?? initiative.internal_title}
-                kind="Standalone initiative"
+                kind={formatInitiativeRoleChip(initiative, workExperiences)}
                 onAssignStory={onAssignStory}
                 onEnrichStory={onEnrichStory}
                 onMergeStory={onMergeStory}
@@ -8813,9 +8955,9 @@ function WorkInitiativeList({
         </div>
       ) : null}
 
-      {visiblePortfolioProjects.length > 0 ? (
+      {filteredPortfolioProjects.length > 0 ? (
         <div className="story-table result-stack--inner">
-          {visiblePortfolioProjects.map((project) => (
+          {filteredPortfolioProjects.map((project) => (
             <StoryTargetRow
               evidenceItems={evidenceItems.filter(
                 (item) => item.related_portfolio_project_id === project.id,
@@ -9273,6 +9415,49 @@ function formatStoryEvidenceStatus(evidenceItems: EvidenceCardItem[]) {
   }
   if (evidenceItems.some((item) => item.status === "approved")) return "has approved evidence";
   return "needs review";
+}
+
+function formatWorkExperienceStatus(status: string) {
+  const normalized = status.toLowerCase();
+  if (normalized === "pending") return "Needs role review";
+  if (normalized === "approved" || normalized === "reviewed") return "Reviewed role";
+  if (normalized === "rejected") return "Rejected";
+  return status.replace(/_/g, " ");
+}
+
+function storyTargetMatchesQuery(
+  story: InitiativeItem | PortfolioProjectItem,
+  normalizedQuery: string,
+) {
+  if (!normalizedQuery) return true;
+  const title = "internal_title" in story
+    ? `${story.internal_title} ${story.external_safe_title ?? ""}`
+    : `${story.title} ${story.external_safe_title ?? ""}`;
+  return [
+    title,
+    story.context,
+    story.problem,
+    story.role,
+    story.external_safe_summary,
+    ...(story.actions ?? []),
+    ...(story.results ?? []),
+    ...(story.technologies ?? []),
+    ...(story.stakeholders ?? []),
+    ...(story.metrics?.map((metric) => metric.value) ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .includes(normalizedQuery);
+}
+
+function formatInitiativeRoleChip(
+  initiative: InitiativeItem,
+  workExperiences: WorkExperienceItem[],
+) {
+  if (!initiative.work_experience_id) return "Standalone initiative";
+  const role = workExperiences.find((experience) => experience.id === initiative.work_experience_id);
+  return role ? `${role.employer} · ${role.role_title}` : "Work initiative";
 }
 
 function formatMergeStoryOptionLabel({

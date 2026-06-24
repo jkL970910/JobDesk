@@ -8828,7 +8828,7 @@ span > .help-hint {
 }
 
 .review-switcher--queue {
-  grid-template-columns: repeat(5, minmax(92px, 1fr));
+  grid-template-columns: repeat(5, minmax(112px, 1fr));
   margin-bottom: 14px;
 }
 
@@ -9144,31 +9144,6 @@ span > .help-hint {
   border-radius: 12px;
   display: grid;
   overflow: hidden;
-}
-
-.library-inline-filter {
-  align-items: center;
-  display: flex;
-  justify-content: flex-end;
-  margin: -2px 0 12px;
-}
-
-.library-inline-filter label {
-  align-items: center;
-  color: var(--muted);
-  display: flex;
-  font-size: 0.72rem;
-  font-weight: 780;
-  gap: 8px;
-}
-
-.library-inline-filter select {
-  background: rgba(8, 12, 20, 0.72);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--ink);
-  min-height: 34px;
-  padding: 7px 32px 7px 11px;
 }
 
 .story-table .story-target-row,
