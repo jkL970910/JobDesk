@@ -626,6 +626,19 @@ export async function updateEnrichmentTask(args: {
       reason: "User selected this destination.",
       confidence: "high",
     });
+    const answer = updated.userAnswer?.trim();
+    if (answer) {
+      const proposalDraft = await buildAndEnhanceEnrichmentProposalDraft(db, {
+        answer,
+        task: updated,
+      });
+      await createPendingProposalForAnswer(db, {
+        proposalDraft,
+        task: updated,
+        answer,
+        now,
+      });
+    }
   }
   const targetMap = updated ? await getTaskTargetMap(db, [updated.id]) : new Map();
   const proposalMap = updated ? await getTaskProposalMap(db, [updated.id]) : new Map();

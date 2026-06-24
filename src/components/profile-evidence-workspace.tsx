@@ -1746,7 +1746,7 @@ export function ProfileEvidenceWorkspace({
       payload.action === "answer"
         ? "Saved answer and prepared a proposed library update."
         : payload.action === "link"
-          ? "Updated destination. Save & preview again before accepting."
+          ? "Updated destination and regenerated a suggested update."
         : payload.action === "accept_proposal"
           ? "Accepted update and saved draft evidence."
         : payload.action === "reject_proposal"
