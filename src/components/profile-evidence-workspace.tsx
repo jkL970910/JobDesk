@@ -434,8 +434,9 @@ type EvidenceAssetView = "all" | "stories" | "interview_stories";
 type EvidenceWorkQueueView = "enrichment" | "imported" | "claims" | "unlinked" | "cleanup";
 type EvidenceLibraryFilters = {
   query: string;
-  roleOrStory: string;
+  role: string;
   source: string;
+  story: string;
 };
 type ProjectSourceMode = "upload" | "paste" | "guided";
 type StoryEnrichmentTargetType = "initiative" | "portfolio_project" | "legacy_project";
@@ -575,8 +576,9 @@ export function ProfileEvidenceWorkspace({
     useState<EvidenceWorkQueueView>("enrichment");
   const [libraryFilters, setLibraryFilters] = useState<EvidenceLibraryFilters>({
     query: "",
-    roleOrStory: "all",
+    role: "all",
     source: "all",
+    story: "all",
   });
   const [sourceDrafts, setSourceDrafts] = useState<Record<"resume" | "jd", SourceDraft>>({
     jd: { text: "", title: "" },
@@ -3593,13 +3595,17 @@ function EvidenceLibraryToolbar({
   filters: EvidenceLibraryFilters;
   onChange: (filters: EvidenceLibraryFilters) => void;
   options: {
-    rolesAndStories: Array<{ label: string; value: string }>;
+    roles: Array<{ label: string; value: string }>;
     sources: Array<{ label: string; value: string }>;
+    storiesByRole: Record<string, Array<{ label: string; value: string }>>;
   };
 }) {
   function update(patch: Partial<EvidenceLibraryFilters>) {
     onChange({ ...filters, ...patch });
   }
+  const storyOptions = filters.role !== "all"
+    ? options.storiesByRole[filters.role] ?? []
+    : [];
   return (
     <section className="evidence-library-toolbar" aria-label="Evidence Library search and filters">
       <label className="evidence-library-toolbar__search">
@@ -3612,11 +3618,22 @@ function EvidenceLibraryToolbar({
       </label>
       <div className="evidence-library-toolbar__filters">
         <ThemeSelect
-          label="Role / story"
-          value={filters.roleOrStory}
-          options={[{ label: "All roles and stories", value: "all" }, ...options.rolesAndStories]}
-          onChange={(roleOrStory) => update({ roleOrStory })}
+          label="Role"
+          value={filters.role}
+          options={[{ label: "All roles", value: "all" }, ...options.roles]}
+          onChange={(role) => update({ role, story: "all" })}
         />
+        {filters.role !== "all" ? (
+          <ThemeSelect
+            label="Story"
+            value={filters.story}
+            options={[
+              { label: storyOptions.length > 0 ? "All stories under role" : "No stories under role", value: "all" },
+              ...storyOptions,
+            ]}
+            onChange={(story) => update({ story })}
+          />
+        ) : null}
         <ThemeSelect
           label="Source"
           value={filters.source}
@@ -6791,7 +6808,10 @@ function filterEvidenceLibraryItems(
       const source = item.source_document_id ? `source:${item.source_document_id}` : "source:extracted";
       if (source !== filters.source) return false;
     }
-    if (filters.roleOrStory !== "all" && !evidenceMatchesTargetFilter(item, filters.roleOrStory)) {
+    if (filters.role !== "all" && !evidenceMatchesRoleFilter(item, filters.role, linkTargets)) {
+      return false;
+    }
+    if (filters.story !== "all" && !evidenceMatchesStoryFilter(item, filters.story)) {
       return false;
     }
     return true;
@@ -6803,7 +6823,8 @@ function buildEvidenceLibraryFilterOptions(
   linkTargets: EvidenceLinkTargets,
   projects: ProjectCardItem[],
 ) {
-  const rolesAndStories = buildEvidenceTargetOptions(linkTargets, projects);
+  const roleOptions = buildEvidenceRoleFilterOptions(items, linkTargets);
+  const storiesByRole = buildEvidenceStoryFilterOptions(items, linkTargets, projects);
   const sourceIds = Array.from(
     new Set(items.map((item) => item.source_document_id).filter((id): id is string => Boolean(id))),
   );
@@ -6816,17 +6837,132 @@ function buildEvidenceLibraryFilterOptions(
       value: `source:${id}`,
     })),
   ];
-  return { rolesAndStories, sources };
+  return { roles: roleOptions, sources, storiesByRole };
 }
 
-function evidenceMatchesTargetFilter(item: EvidenceCardItem, value: string) {
+function buildEvidenceRoleFilterOptions(
+  items: EvidenceCardItem[],
+  linkTargets: EvidenceLinkTargets,
+) {
+  const initiativeRoleById = buildInitiativeRoleMap(linkTargets);
+  const roleIdsWithEvidence = new Set<string>();
+  for (const item of items) {
+    if (item.related_work_experience_id) {
+      roleIdsWithEvidence.add(item.related_work_experience_id);
+    }
+    const initiativeRoleId = item.related_initiative_id
+      ? initiativeRoleById.get(item.related_initiative_id)
+      : null;
+    if (initiativeRoleId) {
+      roleIdsWithEvidence.add(initiativeRoleId);
+    }
+  }
+  const roles = (linkTargets.workExperiences ?? [])
+    .filter((experience) => experience.id && roleIdsWithEvidence.has(experience.id))
+    .map((experience) => ({
+      label: [experience.employer, experience.role_title].filter(Boolean).join(" · "),
+      value: `work_experience:${experience.id}`,
+    }));
+  const hasStandaloneEvidence = items.some((item) => isStandaloneEvidenceForFilter(item, initiativeRoleById));
+  return hasStandaloneEvidence
+    ? [...roles, { label: "Standalone / portfolio stories", value: "standalone" }]
+    : roles;
+}
+
+function buildEvidenceStoryFilterOptions(
+  items: EvidenceCardItem[],
+  linkTargets: EvidenceLinkTargets,
+  legacyProjects: ProjectCardItem[] = [],
+) {
+  const options: Record<string, Array<{ label: string; value: string }>> = {};
+  for (const initiative of linkTargets.initiatives ?? []) {
+    if (!initiative.id) continue;
+    const hasEvidence = items.some((item) => item.related_initiative_id === initiative.id);
+    if (!hasEvidence) continue;
+    const roleKey = initiative.work_experience_id
+      ? `work_experience:${initiative.work_experience_id}`
+      : "standalone";
+    options[roleKey] = [
+      ...(options[roleKey] ?? []),
+      {
+        label: initiative.external_safe_title ?? initiative.internal_title,
+        value: `initiative:${initiative.id}`,
+      },
+    ];
+  }
+  for (const project of linkTargets.portfolioProjects ?? []) {
+    if (!project.id) continue;
+    const hasEvidence = items.some((item) => item.related_portfolio_project_id === project.id);
+    if (!hasEvidence) continue;
+    options.standalone = [
+      ...(options.standalone ?? []),
+      {
+        label: project.external_safe_title ?? project.title,
+        value: `portfolio_project:${project.id}`,
+      },
+    ];
+  }
+  for (const project of legacyProjects) {
+    if (!project.id) continue;
+    const hasEvidence = items.some((item) => item.related_project_id === project.id);
+    if (!hasEvidence) continue;
+    options.standalone = [
+      ...(options.standalone ?? []),
+      {
+        label: project.title,
+        value: `legacy_project:${project.id}`,
+      },
+    ];
+  }
+  return options;
+}
+
+function evidenceMatchesRoleFilter(
+  item: EvidenceCardItem,
+  value: string,
+  linkTargets: EvidenceLinkTargets,
+) {
+  const initiativeRoleById = buildInitiativeRoleMap(linkTargets);
+  if (value === "standalone") {
+    return isStandaloneEvidenceForFilter(item, initiativeRoleById);
+  }
+  const [kind, id] = value.split(":");
+  if (kind !== "work_experience" || !id) return false;
+  if (item.related_work_experience_id === id) return true;
+  const initiativeRoleId = item.related_initiative_id
+    ? initiativeRoleById.get(item.related_initiative_id)
+    : null;
+  return initiativeRoleId === id;
+}
+
+function evidenceMatchesStoryFilter(item: EvidenceCardItem, value: string) {
   const [kind, id] = value.split(":");
   if (!id) return false;
   if (kind === "initiative") return item.related_initiative_id === id;
   if (kind === "portfolio_project") return item.related_portfolio_project_id === id;
-  if (kind === "work_experience") return item.related_work_experience_id === id;
   if (kind === "legacy_project") return item.related_project_id === id;
   return false;
+}
+
+function buildInitiativeRoleMap(linkTargets: EvidenceLinkTargets) {
+  return new Map(
+    (linkTargets.initiatives ?? [])
+      .filter((initiative): initiative is InitiativeItem & { id: string; work_experience_id: string } =>
+        Boolean(initiative.id && initiative.work_experience_id),
+      )
+      .map((initiative) => [initiative.id, initiative.work_experience_id]),
+  );
+}
+
+function isStandaloneEvidenceForFilter(
+  item: EvidenceCardItem,
+  initiativeRoleById: Map<string, string>,
+) {
+  if (item.related_work_experience_id) return false;
+  if (item.related_initiative_id && initiativeRoleById.has(item.related_initiative_id)) {
+    return false;
+  }
+  return true;
 }
 
 function isResumeReadyEvidence(item: EvidenceCardItem) {
