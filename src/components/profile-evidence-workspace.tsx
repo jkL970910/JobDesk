@@ -3833,9 +3833,6 @@ function EnrichmentTaskQueue({
         ...current,
         [task.id]: { ok: result.ok, text: result.message },
       }));
-      if (result.ok && payload.action === "answer") {
-        setAnswers((current) => ({ ...current, [task.id]: "" }));
-      }
     } finally {
       setPendingTasks((current) => {
         const next = { ...current };
@@ -4134,6 +4131,7 @@ function EnrichmentTaskFocusPane({
   const pendingProposal =
     task.proposals.find((proposal) => proposal.status === "pending_review") ?? null;
   const proposalType = pendingProposal?.proposal_type ?? proposalTypePreviewForTask(task);
+  const currentAnswer = answer.trim() ? answer : task.user_answer ?? "";
   if (isSourceSectionReviewTask(task)) {
     return (
       <SourceSectionReviewPane
@@ -4229,7 +4227,7 @@ function EnrichmentTaskFocusPane({
           </details>
           {pendingProposal ? (
             <EnrichmentProposalPreview
-              answer={answer}
+              answer={currentAnswer}
               disabled={isPending}
               evidenceItems={evidenceItems}
               initiatives={initiatives}
@@ -4247,7 +4245,7 @@ function EnrichmentTaskFocusPane({
             />
           ) : (
             <EnrichmentAnswerWorkspace
-              answer={answer}
+              answer={currentAnswer}
               disabled={isPending}
               evidenceItems={evidenceItems}
               initiatives={initiatives}
@@ -4267,9 +4265,9 @@ function EnrichmentTaskFocusPane({
             <>
               <button
                 className="primary-button"
-                disabled={isPending || answer.trim().length < 3}
+                disabled={isPending || currentAnswer.trim().length < 3}
                 type="button"
-                onClick={() => onSaveAnswer(answer)}
+                onClick={() => onSaveAnswer(currentAnswer)}
               >
                 {formatPrimaryAnswerCta(proposalType, task.status, pendingAction)}
               </button>
