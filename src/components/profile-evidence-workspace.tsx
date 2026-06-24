@@ -9334,6 +9334,22 @@ function StoryTargetRow({
           {primaryAction}
         </button>
       </div>
+      <div className="story-target-row__status-strip">
+        <button
+          className="story-target-row__status-chip"
+          disabled={!target || evidenceItems.length === 0}
+          title="Open linked evidence claims"
+          type="button"
+          onClick={() => {
+            if (target) onOpenEvidenceClaims(target);
+          }}
+        >
+          Evidence: {linkedStatus}
+        </button>
+        <small>Use: {linkedUsage}</small>
+        <small>Linked source document: {linkedSource}</small>
+        {story.needs_redaction_review ? <small>Redaction review</small> : null}
+      </div>
       <div className="story-target-row__meta">
         {missingFields.length > 0 ? (
           <span className="story-target-row__missing">
@@ -9361,22 +9377,6 @@ function StoryTargetRow({
             <small>Resume angle ready</small>
           </span>
         )}
-      </div>
-      <div className="story-target-row__status-strip">
-        <button
-          className="story-target-row__status-chip"
-          disabled={!target || evidenceItems.length === 0}
-          title="Open linked evidence claims"
-          type="button"
-          onClick={() => {
-            if (target) onOpenEvidenceClaims(target);
-          }}
-        >
-          Evidence: {linkedStatus}
-        </button>
-        <small>Use: {linkedUsage}</small>
-        <small>Linked source document: {linkedSource}</small>
-        {story.needs_redaction_review ? <small>Redaction review</small> : null}
       </div>
       {canAssignRole && isEditingAssignment && assignmentMode === "new" ? (
         <div
