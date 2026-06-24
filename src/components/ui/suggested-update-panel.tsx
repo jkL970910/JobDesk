@@ -146,9 +146,14 @@ export function SuggestedUpdatePanel({
               <span>{draftLabel}</span>
               {previewItems.map((item) => (
                 <article data-kind={item.kind ?? "context"} key={`${item.label}-${item.values.join("|")}`}>
-                  <div>
+                  <div className="enrichment-proposal__field-heading">
                     <strong>{item.label}</strong>
-                    {item.description ? <small>{item.description}</small> : null}
+                    {item.description ? (
+                      <span className="enrichment-proposal__help" tabIndex={0}>
+                        ?
+                        <small>{item.description}</small>
+                      </span>
+                    ) : null}
                   </div>
                   {item.values.map((value) => (
                     <p key={value}>{value}</p>
