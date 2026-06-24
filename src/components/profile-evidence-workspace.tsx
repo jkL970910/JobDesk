@@ -425,6 +425,7 @@ export type ProfileGapIntent = {
 };
 export type MaterialReviewTab =
   | "library"
+  | "roles"
   | "enrichment"
   | "projects"
   | "claims"
@@ -1528,6 +1529,9 @@ export function ProfileEvidenceWorkspace({
   const roleReviewItems = workExperiences.filter((experience) =>
     shouldReviewWorkExperience(experience),
   );
+  const reviewedWorkExperiences = workExperiences.filter(
+    (experience) => experience.status === "approved",
+  );
   const roleFilteredImportedTasks = filterEnrichmentTasksByRole(
     importedMaterialTasks,
     workQueueRoleFilter,
@@ -1632,6 +1636,7 @@ export function ProfileEvidenceWorkspace({
       return;
     }
     setLibraryMode("work_queue");
+    if (destination === "roles") setWorkQueueView("roles");
     if (destination === "enrichment") setWorkQueueView("enrichment");
     if (destination === "claims") setWorkQueueView("claims");
     if (destination === "unlinked") setWorkQueueView("unlinked");
@@ -2703,7 +2708,8 @@ export function ProfileEvidenceWorkspace({
                   evidenceItems={evidenceItems}
                   initiatives={initiatives}
                   onRefresh={() => refreshLibraryAfterMutation()}
-                  workExperiences={workExperiences}
+                  pendingReviewCount={roleReviewItems.length}
+                  workExperiences={reviewedWorkExperiences}
                 />
               ) : null}
               {libraryView === "work_initiatives" ? (
@@ -8736,11 +8742,13 @@ function WorkExperienceList({
   evidenceItems,
   initiatives,
   onRefresh,
+  pendingReviewCount = 0,
   workExperiences,
 }: {
   evidenceItems: EvidenceCardItem[];
   initiatives: InitiativeItem[];
   onRefresh: () => Promise<void>;
+  pendingReviewCount?: number;
   workExperiences: WorkExperienceItem[];
 }) {
   const [query, setQuery] = useState("");
@@ -8767,9 +8775,13 @@ function WorkExperienceList({
         <div className="section-block__top">
           <div>
             <h3>Work Experience</h3>
-            <p>Import a resume or source document to create role-level work experience records.</p>
+            <p>
+              {pendingReviewCount > 0
+                ? "Role records are waiting in Work Queue > Review Roles before they appear here."
+                : "Import a resume or source document to create role-level work experience records."}
+            </p>
           </div>
-          <span>0 roles</span>
+          <span>{pendingReviewCount > 0 ? `${pendingReviewCount} pending review` : "0 roles"}</span>
         </div>
       </section>
     );

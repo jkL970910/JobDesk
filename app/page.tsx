@@ -206,6 +206,7 @@ type ResumePrepWorkflowState =
 
 type MaterialReviewTab =
   | "library"
+  | "roles"
   | "enrichment"
   | "projects"
   | "claims"
