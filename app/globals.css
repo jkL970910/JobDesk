@@ -9290,14 +9290,26 @@ span > .help-hint {
   padding: 8px 14px;
 }
 
-.story-target-row__meta span {
-  color: var(--muted);
-  flex: 1 1 260px;
-  font-size: 0.78rem;
-  line-height: 1.38;
+.story-target-row__missing {
+  align-items: center;
+  display: inline-flex;
+  flex: 1 1 280px;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
 }
 
-.story-target-row__meta small {
+.story-target-row__missing strong {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.story-target-row__meta small,
+.story-target-row__missing small {
   background: rgba(255, 255, 255, 0.045);
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -9307,27 +9319,49 @@ span > .help-hint {
   padding: 4px 7px;
 }
 
+.story-target-row__missing--ready small {
+  background: var(--accent-soft);
+  border-color: rgba(70, 211, 154, 0.2);
+  color: var(--accent);
+}
+
 .story-target-row__assignment {
-  align-items: start;
+  align-items: center;
   border-top: 1px solid rgba(255, 255, 255, 0.055);
-  display: grid;
-  gap: 12px;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.85fr);
-  padding: 10px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 8px 14px;
 }
 
-.story-target-row__assignment strong {
+.story-target-row__assignment-summary {
+  align-items: center;
+  display: flex;
+  flex: 1 1 260px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.story-target-row__assignment-summary strong {
   color: var(--ink);
-  display: block;
+  align-items: center;
+  display: inline-flex;
   font-size: 0.82rem;
-  margin-bottom: 3px;
+  gap: 0;
+  margin: 0;
+  white-space: nowrap;
 }
 
-.story-target-row__assignment p {
+.story-target-row__assignment-summary p {
   color: var(--muted);
-  font-size: 0.76rem;
-  line-height: 1.4;
+  font-size: 0.78rem;
+  line-height: 1.35;
   margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .story-target-row__assignment[data-state="assigned"] {
@@ -9336,13 +9370,10 @@ span > .help-hint {
 
 .story-assignment-confirmed {
   align-items: center;
-  background: rgba(70, 211, 154, 0.055);
-  border: 1px solid rgba(70, 211, 154, 0.16);
-  border-radius: 12px;
-  display: grid;
-  gap: 12px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  padding: 10px 12px;
+  display: inline-flex;
+  gap: 8px;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .story-assignment-confirmed span {
@@ -9363,7 +9394,7 @@ span > .help-hint {
   color: var(--muted);
   display: block;
   font-size: 0.73rem;
-  margin-top: 3px;
+  margin: 0;
 }
 
 .story-assignment-control {

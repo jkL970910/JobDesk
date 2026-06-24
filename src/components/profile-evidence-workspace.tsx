@@ -9131,14 +9131,11 @@ function StoryTargetRow({
         targetType,
       }
     : null;
-  const meta = [
-    story.status,
-    story.sensitivity_level,
-    story.needs_redaction_review ? "redaction review" : null,
-  ].filter((item): item is string => Boolean(item));
   const linkedUsage = formatStoryReusableUsage(evidenceItems);
   const linkedSource = formatStorySourceSummary(evidenceItems);
   const linkedStatus = formatStoryEvidenceStatus(evidenceItems);
+  const visibleMissingFields = missingFields.slice(0, 4);
+  const hiddenMissingCount = Math.max(0, missingFields.length - visibleMissingFields.length);
   const currentWorkExperienceId =
     targetType === "initiative" && "work_experience_id" in story
       ? story.work_experience_id ?? ""
@@ -9248,40 +9245,54 @@ function StoryTargetRow({
         </button>
       </div>
       <div className="story-target-row__meta">
-        <span>{readiness.next}</span>
-        <small>Status: {linkedStatus}</small>
-        <small>Use: {linkedUsage}</small>
+        {missingFields.length > 0 ? (
+          <span className="story-target-row__missing">
+            <strong>Missing</strong>
+            {visibleMissingFields.map((field) => (
+              <small key={field}>{field}</small>
+            ))}
+            {hiddenMissingCount > 0 ? <small>+{hiddenMissingCount}</small> : null}
+          </span>
+        ) : (
+          <span className="story-target-row__missing story-target-row__missing--ready">
+            <strong>Ready</strong>
+            <small>STAR-ready</small>
+            <small>Resume angle ready</small>
+          </span>
+        )}
+        <small>{linkedStatus}</small>
+        <small>{linkedUsage}</small>
         <small>From: {linkedSource}</small>
-        {meta.map((item) => (
-          <small key={item}>{item}</small>
-        ))}
+        {story.needs_redaction_review ? <small>Redaction review</small> : null}
       </div>
       {canAssignRole ? (
         <div
           className="story-target-row__assignment"
           data-state={assignedWorkExperience && !isEditingAssignment ? "assigned" : "editing"}
         >
-          <div>
-            <strong>Role assignment</strong>
+          <div className="story-target-row__assignment-summary">
+            <strong>
+              Role
+              <span
+                className="help-hint"
+                title="Role assignment only decides which work experience owns this initiative. It does not approve claims for resume use."
+              >
+                ?
+              </span>
+            </strong>
             <p>
-              {assignedWorkExperience && !isEditingAssignment
-                ? "This story is linked to a confirmed role. Edit only if the match is wrong."
-                : "Choose where this story happened, or keep it standalone until context is clear."}
+              {assignedWorkExperience
+                ? `${assignedWorkExperience.employer} · ${assignedWorkExperience.role_title}`
+                : "Unassigned / standalone"}
             </p>
           </div>
           {assignedWorkExperience && !isEditingAssignment ? (
             <div className="story-assignment-confirmed">
-              <div>
-                <span>Assigned role</span>
-                <strong>
-                  {assignedWorkExperience.employer} · {assignedWorkExperience.role_title}
-                </strong>
-                <small>
-                  {[assignedWorkExperience.start_date, assignedWorkExperience.end_date]
-                    .filter(Boolean)
-                    .join(" - ") || "Timeline not set"}
-                </small>
-              </div>
+              <small>
+                {[assignedWorkExperience.start_date, assignedWorkExperience.end_date]
+                  .filter(Boolean)
+                  .join(" - ") || "Timeline not set"}
+              </small>
               <button
                 className="secondary-button secondary-button--quiet"
                 type="button"
@@ -9291,7 +9302,7 @@ function StoryTargetRow({
                   setAssignmentMessage(null);
                 }}
               >
-                Edit role
+                Change role
               </button>
             </div>
           ) : (
