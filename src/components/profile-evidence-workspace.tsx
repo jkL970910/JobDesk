@@ -9225,7 +9225,6 @@ function StoryTargetRow({
       <div className="story-target-row__main">
         <div>
           <span className="story-target-row__eyebrow">
-            {kind}
             {canAssignRole ? (
               <>
                 <span className="story-target-row__role-chip">
@@ -9245,15 +9244,19 @@ function StoryTargetRow({
                     setAssignmentMessage(null);
                   }}
                 >
-                  Edit
+                  <svg aria-hidden="true" viewBox="0 0 20 20" focusable="false">
+                    <path
+                      d="M4 13.9V16h2.1l8.03-8.03-2.1-2.1L4 13.9Zm11.64-7.44a.74.74 0 0 0 0-1.06L14.6 4.36a.74.74 0 0 0-1.06 0l-.82.82 2.1 2.1.82-.82Z"
+                      fill="currentColor"
+                    />
+                  </svg>
                 </button>
               </>
-            ) : null}
+            ) : (
+              kind
+            )}
           </span>
           <strong>{title}</strong>
-          {"internal_title" in story && story.internal_title !== title ? (
-            <p>Internal: {story.internal_title}</p>
-          ) : null}
         </div>
         <em data-ready={readiness.state === "story_ready"}>{readiness.label}</em>
         <small>{evidenceItems.length} claims</small>
@@ -9280,7 +9283,18 @@ function StoryTargetRow({
           <span className="story-target-row__missing">
             <strong>Next fixes</strong>
             {visibleMissingFields.map((field) => (
-              <small key={field}>{formatStoryMissingAction(field)}</small>
+              <button
+                className="story-target-row__fix-chip"
+                disabled={!target}
+                key={field}
+                title="Open guided enrichment for this initiative"
+                type="button"
+                onClick={() => {
+                  if (target) onEnrichStory(target);
+                }}
+              >
+                {formatStoryMissingAction(field)}
+              </button>
             ))}
             {hiddenMissingCount > 0 ? <small>+{hiddenMissingCount}</small> : null}
           </span>
@@ -9426,6 +9440,12 @@ function StoryTargetRow({
       <details className="story-target-row__details">
         <summary>View story detail</summary>
         <div className="story-detail-grid">
+          {"internal_title" in story && story.internal_title !== title ? (
+            <article>
+              <span>Internal source title</span>
+              <p>{story.internal_title}</p>
+            </article>
+          ) : null}
           <article>
             <span>Context</span>
             <p>{story.context || "No context captured yet."}</p>

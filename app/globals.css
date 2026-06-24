@@ -9232,6 +9232,11 @@ span > .help-hint {
   color: var(--primary-strong);
 }
 
+.icon-button svg {
+  height: 14px;
+  width: 14px;
+}
+
 .story-group-row__summary strong,
 .story-target-row__main strong {
   color: var(--ink);
@@ -9363,6 +9368,23 @@ span > .help-hint {
   font-size: 0.68rem;
   font-weight: 780;
   padding: 4px 7px;
+}
+
+.story-target-row__fix-chip {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 820;
+  padding: 4px 8px;
+}
+
+.story-target-row__fix-chip:hover:not(:disabled) {
+  background: var(--primary-soft);
+  border-color: rgba(79, 140, 255, 0.28);
+  color: var(--primary-strong);
 }
 
 .story-target-row__missing--ready small {
