@@ -2679,28 +2679,11 @@ export function ProfileEvidenceWorkspace({
             <>
           <div className="review-switcher review-switcher--queue" role="tablist" aria-label="Work Queue panels">
             <button
-              data-active={workQueueView === "enrichment"}
-              type="button"
-              onClick={() => openWorkQueueView("enrichment")}
-            >
-              Improve ({answerEnrichmentTasks.length})
-            </button>
-            <button
               data-active={workQueueView === "imported"}
               type="button"
               onClick={() => openWorkQueueView("imported")}
             >
               Imports ({importedMaterialTasks.length})
-            </button>
-            <button
-              data-active={workQueueView === "claims"}
-              type="button"
-              onClick={() => {
-                setEvidenceFocus(null);
-                openWorkQueueView("claims");
-              }}
-            >
-              Review ({claimReviewEvidenceItems.length})
             </button>
             <button
               data-active={workQueueView === "unlinked"}
@@ -2711,6 +2694,23 @@ export function ProfileEvidenceWorkspace({
               }}
             >
               {evidenceFocus ? "Focused" : "Link"} ({focusedEvidenceItems.length})
+            </button>
+            <button
+              data-active={workQueueView === "enrichment"}
+              type="button"
+              onClick={() => openWorkQueueView("enrichment")}
+            >
+              Improve ({answerEnrichmentTasks.length})
+            </button>
+            <button
+              data-active={workQueueView === "claims"}
+              type="button"
+              onClick={() => {
+                setEvidenceFocus(null);
+                openWorkQueueView("claims");
+              }}
+            >
+              Review ({claimReviewEvidenceItems.length})
             </button>
             <button
               data-active={workQueueView === "cleanup"}
