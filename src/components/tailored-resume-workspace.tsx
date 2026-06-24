@@ -3,6 +3,11 @@
 import { useEffect, useState, useTransition } from "react";
 
 import { useAccess } from "./access-provider";
+import {
+  RetrievalExplanationPanel,
+  type RetrievalEvidenceExplanation,
+  type RetrievalSourceMaterialExplanation,
+} from "./retrieval-explanation-panel";
 
 import type { JDAnalysis } from "../schemas/jd-analysis";
 import type { TailoredResumeDraft } from "../schemas/tailored-resume";
@@ -88,11 +93,7 @@ type TailorResponse =
           coverageReason?: string | null;
           claims?: ResumeClaim[];
         } | null;
-        selectedEvidence?: Array<{
-          id: string;
-          retrieval_score: number;
-          reason_for_selection: string[];
-        }>;
+        selectedEvidence?: RetrievalEvidenceExplanation[];
       };
     }
   | { error: string; kind?: string };
@@ -115,6 +116,8 @@ export function TailoredResumeWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isFactGuardPending, startFactGuardTransition] = useTransition();
+  const [selectedEvidence, setSelectedEvidence] = useState<RetrievalEvidenceExplanation[]>([]);
+  const [sourceMaterial, setSourceMaterial] = useState<RetrievalSourceMaterialExplanation[]>([]);
 
   useEffect(() => {
     void loadJobs();
@@ -175,6 +178,23 @@ export function TailoredResumeWorkspace() {
     });
   }
 
+  async function loadRetrievalExplanation(jobId: string) {
+    const response = await fetchJson("/api/retrieval/resume-explanations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId, limit: 8 }),
+    });
+    if (!response.ok) return;
+    const payload = (await response.json()) as {
+      data?: {
+        evidence?: RetrievalEvidenceExplanation[];
+        sourceMaterial?: RetrievalSourceMaterialExplanation[];
+      };
+    };
+    setSelectedEvidence(payload.data?.evidence ?? []);
+    setSourceMaterial(payload.data?.sourceMaterial ?? []);
+  }
+
   function generateResume() {
     if (!selectedJobId) return;
     setError(null);
@@ -195,6 +215,7 @@ export function TailoredResumeWorkspace() {
           return;
         }
         const factGuard = payload.meta.factGuard;
+        setSelectedEvidence(payload.meta.selectedEvidence ?? []);
         setStatus(buildGenerationStatus(payload));
         void loadReadiness();
         const resumes = await loadRecentResumes();
@@ -235,6 +256,15 @@ export function TailoredResumeWorkspace() {
       }
     });
   }
+
+  useEffect(() => {
+    if (!selectedJobId) {
+      setSelectedEvidence([]);
+      setSourceMaterial([]);
+      return;
+    }
+    void loadRetrievalExplanation(selectedJobId);
+  }, [selectedJobId]);
 
   async function runFactGuard() {
     if (!latestResume?.id) return;
@@ -399,6 +429,11 @@ export function TailoredResumeWorkspace() {
             </p>
           </section>
         ) : null}
+        <RetrievalExplanationPanel
+          evidence={selectedEvidence}
+          sourceMaterial={sourceMaterial}
+          title="Why this evidence was chosen"
+        />
       </div>
 
       <div className="panel">

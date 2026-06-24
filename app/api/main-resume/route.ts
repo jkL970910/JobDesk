@@ -139,6 +139,7 @@ export async function POST(request: Request) {
               styleConstraints: refresh.styleConstraints,
             }
           : null,
+        selectedEvidence: context.evidenceItems,
         persistence,
         factGuard,
       },

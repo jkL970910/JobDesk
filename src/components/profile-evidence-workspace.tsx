@@ -8,6 +8,11 @@ import {
   GradualBlur,
   MotionPanel,
 } from "./ui/motion-primitives";
+import {
+  RetrievalExplanationPanel,
+  type RetrievalEvidenceExplanation,
+  type RetrievalSourceMaterialExplanation,
+} from "./retrieval-explanation-panel";
 import { SuggestedUpdatePanel } from "./ui/suggested-update-panel";
 
 import {
@@ -584,6 +589,10 @@ export function ProfileEvidenceWorkspace({
     useState<"ready" | "skipped" | "error">("ready");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Add material to continue.");
+  const [retrievalPreview, setRetrievalPreview] = useState<{
+    evidence: RetrievalEvidenceExplanation[];
+    sourceMaterial: RetrievalSourceMaterialExplanation[];
+  }>({ evidence: [], sourceMaterial: [] });
   const [lastIntakeSummary, setLastIntakeSummary] = useState<{
     evidenceCount: number;
     projectCount: number;
@@ -696,6 +705,16 @@ export function ProfileEvidenceWorkspace({
   const sourceTitle = sourceDrafts[activeSourceIntent].title;
   const sourceDocumentId = sourceDrafts[activeSourceIntent].sourceDocumentId;
 
+  useEffect(() => {
+    const query =
+      activeSection === "intake"
+        ? selectedEntryIntent === "scratch"
+          ? projectNoteText
+          : sourceText
+        : libraryFilters.query;
+    void loadRetrievalPreview(query);
+  }, [activeSection, libraryFilters.query, projectNoteText, selectedEntryIntent, sourceText]);
+
   function updateActiveSourceDraft(patch: Partial<SourceDraft>) {
     setSourceDrafts((current) => ({
       ...current,
@@ -716,6 +735,21 @@ export function ProfileEvidenceWorkspace({
     }));
   }
 
+  function jumpToSourceMaterial(source: RetrievalSourceMaterialExplanation) {
+    setActiveSection("intake");
+    setHasChosenMaterialType(true);
+    setIsEditingMaterialType(false);
+    setSelectedEntryIntent("scratch");
+    setProjectSourceMode("paste");
+    setSelectedStoryTarget(null);
+    setActiveProfileGap(null);
+    setProjectNoteTitle(`${source.title} evidence enrichment`);
+    setProjectNoteText(source.chunk_excerpt);
+    setProjectSourceDocumentId(source.source_document_id || undefined);
+    setStatus("Loaded source chunk into Add Material. Convert or enrich evidence before resume use.");
+    setError(null);
+  }
+
   async function loadLibrary() {
     const response = await fetchJson("/api/profile-evidence/recent");
     if (!response.ok) {
@@ -724,6 +758,30 @@ export function ProfileEvidenceWorkspace({
     }
     const payload = (await response.json()) as { data?: EvidenceLibrary };
     setLibrary(payload.data ?? null);
+  }
+
+  async function loadRetrievalPreview(query: string) {
+    const trimmed = query.trim();
+    if (trimmed.length < 3) {
+      setRetrievalPreview({ evidence: [], sourceMaterial: [] });
+      return;
+    }
+    const response = await fetchJson("/api/retrieval/resume-explanations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: trimmed, limit: 6 }),
+    });
+    if (!response.ok) return;
+    const payload = (await response.json()) as {
+      data?: {
+        evidence?: RetrievalEvidenceExplanation[];
+        sourceMaterial?: RetrievalSourceMaterialExplanation[];
+      };
+    };
+    setRetrievalPreview({
+      evidence: payload.data?.evidence ?? [],
+      sourceMaterial: payload.data?.sourceMaterial ?? [],
+    });
   }
 
   async function loadDedupeCandidates() {
@@ -2449,6 +2507,12 @@ export function ProfileEvidenceWorkspace({
             extraction={profile ? result : null}
             library={library}
             summary={libraryReadiness}
+          />
+          <RetrievalExplanationPanel
+            evidence={retrievalPreview.evidence}
+            onJumpToSourceMaterial={jumpToSourceMaterial}
+            sourceMaterial={retrievalPreview.sourceMaterial}
+            title="Retrieval explanation"
           />
           <div className="library-mode-switcher" role="tablist" aria-label="Evidence Library mode">
             <button

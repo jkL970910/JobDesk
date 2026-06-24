@@ -50,6 +50,10 @@ export type SourceChunkGapResult = {
   title: string;
   chunk_index: number;
   chunk_text: string;
+  chunk_excerpt: string;
+  matched_phrase: string | null;
+  why_this_may_help: string;
+  required_next_step: "convert_or_enrich_evidence_before_resume_use";
   retrieval_policy: "evidence_enrichment";
   retrieval_score: number;
   reason_for_selection: string[];
@@ -243,7 +247,7 @@ export async function searchSourceChunksForGaps(
     }))
     .sort((left, right) => right.similarity - left.similarity)
     .slice(0, options.limit ?? 8)
-    .map(({ row, similarity }) => toSourceChunkGapResult(row, similarity));
+    .map(({ row, similarity }) => toSourceChunkGapResult(row, similarity, query));
 }
 
 async function rebuildSourceChunksForDocument(args: {
@@ -316,14 +320,22 @@ function shouldIndexSourceDocument(lifecycleStatus: string) {
 function toSourceChunkGapResult(
   row: SourceChunkRecord,
   similarity: number,
+  query: string,
 ): SourceChunkGapResult {
   const metadata = row.metadataJson;
+  const matchedPhrase = selectMatchedSourceChunkPhrase(row.chunkText, query);
   return {
     source_document_id: row.sourceDocumentId,
     source_type: row.sourceType,
     title: String(metadata.title ?? "Source material"),
     chunk_index: row.chunkIndex,
     chunk_text: row.chunkText,
+    chunk_excerpt:
+      row.chunkText.length <= 260 ? row.chunkText : `${row.chunkText.slice(0, 257).trimEnd()}...`,
+    matched_phrase: matchedPhrase,
+    why_this_may_help:
+      "This source chunk may contain concrete facts, scope, or metrics that can be converted into evidence or used to enrich an existing evidence card.",
+    required_next_step: "convert_or_enrich_evidence_before_resume_use",
     retrieval_policy: "evidence_enrichment",
     retrieval_score: Number((Math.max(0, similarity) * 100).toFixed(3)),
     reason_for_selection: [
@@ -339,6 +351,36 @@ function toSourceChunkGapResult(
     sensitivity_hint: String(metadata.sensitivity_hint ?? "unknown"),
     convert_to_evidence_first: true,
   };
+}
+
+export function selectMatchedSourceChunkPhrase(
+  chunkText: string,
+  query: string,
+) {
+  const queryTerms = Array.from(
+    new Set(
+      query
+        .split(/[^A-Za-z0-9+#.]+/)
+        .map((term) => term.trim().toLowerCase())
+        .filter((term) => term.length >= 3),
+    ),
+  );
+  const sentences = splitSentences(chunkText);
+  if (sentences.length === 0) return null;
+  const scored = sentences.map((sentence, index) => {
+    const normalized = sentence.toLowerCase();
+    return {
+      index,
+      sentence,
+      score: queryTerms.filter((term) => normalized.includes(term)).length,
+    };
+  });
+  scored.sort((left, right) => {
+    if (right.score !== left.score) return right.score - left.score;
+    return left.index - right.index;
+  });
+  const selected = scored[0]?.sentence ?? sentences[0];
+  return selected ? selected.slice(0, 160) : null;
 }
 
 function buildChunkContentHash(seed: string, chunkText: string) {

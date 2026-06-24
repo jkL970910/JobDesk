@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSourceChunkId,
   buildSourceDocumentChunks,
+  selectMatchedSourceChunkPhrase,
   type SourceChunkGapResult,
 } from "../src/server/source-chunk-service";
 
@@ -62,6 +63,11 @@ describe("source chunk service", () => {
       title: "Launch notes",
       chunk_index: 1,
       chunk_text: "Raw launch note about activation metrics and follow-up evidence gaps.",
+      chunk_excerpt: "Raw launch note about activation metrics and follow-up evidence gaps.",
+      matched_phrase: "Raw launch note about activation metrics and follow-up evidence gaps.",
+      why_this_may_help:
+        "This source chunk may contain concrete facts, scope, or metrics that can be converted into evidence or used to enrich an existing evidence card.",
+      required_next_step: "convert_or_enrich_evidence_before_resume_use",
       retrieval_policy: "evidence_enrichment",
       retrieval_score: 51.2,
       reason_for_selection: [
@@ -78,5 +84,20 @@ describe("source chunk service", () => {
     expect(result.convert_to_evidence_first).toBe(true);
     expect(result.reason_for_selection.join(" ")).toContain("convert to evidence");
     expect(result.retrieval_policy).toBe("evidence_enrichment");
+  });
+
+  it("selects matched phrase from the best query-term sentence", () => {
+    const phrase = selectMatchedSourceChunkPhrase(
+      [
+        "General launch context and stakeholder updates.",
+        "Activation dashboard metrics showed weekly onboarding drop-off.",
+        "Follow-up notes mention unrelated documentation cleanup.",
+      ].join(" "),
+      "activation metrics onboarding",
+    );
+
+    expect(phrase).toBe(
+      "Activation dashboard metrics showed weekly onboarding drop-off.",
+    );
   });
 });

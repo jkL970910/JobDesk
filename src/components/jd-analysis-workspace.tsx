@@ -3,6 +3,11 @@
 import { useEffect, useState, useTransition } from "react";
 
 import { useAccess } from "./access-provider";
+import {
+  RetrievalExplanationPanel,
+  type RetrievalEvidenceExplanation,
+  type RetrievalSourceMaterialExplanation,
+} from "./retrieval-explanation-panel";
 
 import type { JDAnalysis } from "../schemas/jd-analysis";
 
@@ -52,6 +57,8 @@ export function JdAnalysisWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [persistenceLabel, setPersistenceLabel] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [retrievalEvidence, setRetrievalEvidence] = useState<RetrievalEvidenceExplanation[]>([]);
+  const [sourceMaterial, setSourceMaterial] = useState<RetrievalSourceMaterialExplanation[]>([]);
 
   useEffect(() => {
     void loadRecentJobs();
@@ -92,6 +99,9 @@ export function JdAnalysisWorkspace() {
         setResult(payload.data);
         setSelectedJobId(payload.meta.persistence?.jobId ?? selectedJobId);
         setPersistenceLabel(formatPersistence(payload.meta.persistence));
+        if (payload.meta.persistence?.jobId) {
+          void loadRetrievalExplanation(payload.meta.persistence.jobId);
+        }
         void loadRecentJobs();
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "JD analysis failed.");
@@ -115,6 +125,7 @@ export function JdAnalysisWorkspace() {
     }
     applyJob(payload.data);
     setPersistenceLabel("loaded");
+    void loadRetrievalExplanation(jobId);
   }
 
   async function archiveSelectedJob() {
@@ -152,6 +163,23 @@ export function JdAnalysisWorkspace() {
       keywords: job.keywords,
       interview_implications: job.interview_implications,
     });
+  }
+
+  async function loadRetrievalExplanation(jobId: string) {
+    const response = await fetchJson("/api/retrieval/resume-explanations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId, limit: 8 }),
+    });
+    if (!response.ok) return;
+    const payload = (await response.json()) as {
+      data?: {
+        evidence?: RetrievalEvidenceExplanation[];
+        sourceMaterial?: RetrievalSourceMaterialExplanation[];
+      };
+    };
+    setRetrievalEvidence(payload.data?.evidence ?? []);
+    setSourceMaterial(payload.data?.sourceMaterial ?? []);
   }
 
   return (
@@ -229,7 +257,18 @@ export function JdAnalysisWorkspace() {
             </p>
           </div>
         </div>
-        {result ? <ResultView result={result} /> : <EmptyState />}
+        {result ? (
+          <>
+            <ResultView result={result} />
+            <RetrievalExplanationPanel
+              evidence={retrievalEvidence}
+              sourceMaterial={sourceMaterial}
+              title="Why this evidence may fit the JD"
+            />
+          </>
+        ) : (
+          <EmptyState />
+        )}
       </div>
     </section>
   );

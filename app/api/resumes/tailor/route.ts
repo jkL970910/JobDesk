@@ -100,11 +100,7 @@ export async function POST(request: Request) {
         retryCount: result.retryCount,
         skill: result.skill,
         evidenceCount: context.evidenceItems.length,
-        selectedEvidence: context.evidenceItems.map((item) => ({
-          id: item.id,
-          retrieval_score: item.retrieval_score,
-          reason_for_selection: item.reason_for_selection,
-        })),
+        selectedEvidence: context.evidenceItems,
         persistence,
         factGuard,
       },

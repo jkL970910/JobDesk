@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildResumeRetrievalContextFromQuery,
   isEvidenceEligible,
   rankEvidenceForPolicy,
   retrieveSourceMaterialForEvidenceGaps,
@@ -113,15 +114,46 @@ describe("retrieval service", () => {
 
     expect(ranked.map((item) => item.id)).toEqual(["sql", "stakeholder"]);
     expect(ranked[0]?.reason_for_selection.join(" ")).toContain("sql");
-    expect(ranked[0]?.matched_terms).toContain("sql");
-    expect(ranked[0]?.score_breakdown.keyword).toBeGreaterThan(0);
-    expect(ranked[0]?.score_breakdown.semantic).toBeGreaterThanOrEqual(0);
-    expect(ranked[0]?.score_breakdown.metric).toBe(0);
+    expect(ranked[0]?.keyword_matches).toContain("sql");
+    expect(ranked[0]?.score_breakdown.keyword_score).toBeGreaterThan(0);
+    expect(ranked[0]?.score_breakdown.semantic_score).toBeGreaterThanOrEqual(0);
+    expect(ranked[0]?.score_breakdown.metric_bonus).toBe(0);
     expect(ranked[0]?.score_breakdown.total).toBe(ranked[0]?.retrieval_score);
     expect(ranked[0]?.retrieval_score).toBeGreaterThan(
       ranked[1]?.retrieval_score ?? 0,
     );
     expect(ranked.some((item) => item.id === "sensitive")).toBe(false);
+  });
+
+  it("builds query-derived context so query-only retrieval explains the query match", () => {
+    const context = buildResumeRetrievalContextFromQuery(
+      "activation metrics dashboard",
+    );
+    const ranked = rankEvidenceForPolicy({
+      policy: { ...resumePolicy, limit: 2 },
+      job: context,
+      candidates: [
+        candidate({
+          id: "activation",
+          text: "Built activation metrics dashboard for onboarding.",
+          source_quote: "Built activation metrics dashboard for onboarding.",
+          sensitivity_level: "public_safe",
+        }),
+        candidate({
+          id: "other",
+          text: "Led stakeholder communications.",
+          source_quote: "Led stakeholder communications.",
+          sensitivity_level: "public_safe",
+        }),
+      ],
+    });
+
+    expect(ranked[0]?.id).toBe("activation");
+    expect(ranked[0]?.matched_requirement).toBe("activation metrics dashboard");
+    expect(ranked[0]?.keyword_matches).toEqual(
+      expect.arrayContaining(["activation", "metrics", "dashboard"]),
+    );
+    expect(ranked[0]?.matched_question).toContain("activation metrics dashboard");
   });
 
   it("uses different eligibility for interview prep than resume generation", () => {
@@ -168,22 +200,26 @@ describe("retrieval service", () => {
   });
 
   it("maps source chunks as possible source material, not resume evidence", () => {
-    const mapped = toRetrievedSourceMaterialItem({
-      source_entity_id: "11111111-2222-5333-8444-000000000000",
-      source_entity_type: "source_document",
-      index_type: sourceChunkIndexType,
-      chunk_text: "Raw work note about activation dashboard metrics.",
-      similarity: 0.42,
-      metadata: {
-        source_document_id: "11111111-2222-4333-8444-555555555555",
-        source_type: "work_summary",
-        title: "Launch notes",
-        chunk_index: 2,
-        lifecycle_status: "parsed",
-        parse_quality_status: "usable",
-        sensitivity_hint: "unknown",
+    const mapped = toRetrievedSourceMaterialItem(
+      {
+        source_entity_id: "11111111-2222-5333-8444-000000000000",
+        source_entity_type: "source_document",
+        index_type: sourceChunkIndexType,
+        chunk_text:
+          "Raw work note about onboarding. Activation dashboard metrics improved review quality.",
+        similarity: 0.42,
+        metadata: {
+          source_document_id: "11111111-2222-4333-8444-555555555555",
+          source_type: "work_summary",
+          title: "Launch notes",
+          chunk_index: 2,
+          lifecycle_status: "parsed",
+          parse_quality_status: "usable",
+          sensitivity_hint: "unknown",
+        },
       },
-    });
+      "activation metrics",
+    );
 
     expect(mapped).toMatchObject({
       source_document_id: "11111111-2222-4333-8444-555555555555",
@@ -196,6 +232,9 @@ describe("retrieval service", () => {
     });
     expect(mapped.reason_for_selection.join(" ")).toContain("convert to evidence");
     expect(mapped.reason_for_selection.join(" ")).toContain("semantic match 42%");
+    expect(mapped.matched_phrase).toBe(
+      "Activation dashboard metrics improved review quality.",
+    );
   });
 });
 

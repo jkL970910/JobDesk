@@ -12,6 +12,11 @@ import {
 } from "../src/components/profile-evidence-workspace";
 import { ResumeReviewWorkspace } from "../src/components/resume-review-workspace";
 import { TailoredResumeWorkspace } from "../src/components/tailored-resume-workspace";
+import {
+  RetrievalExplanationPanel,
+  type RetrievalEvidenceExplanation,
+  type RetrievalSourceMaterialExplanation,
+} from "../src/components/retrieval-explanation-panel";
 import { AccountMenu, useAccess } from "../src/components/access-provider";
 import {
   CountUpMetric,
@@ -99,6 +104,13 @@ type MainResumeSummary = {
     claim_status: string;
     risk_level: string;
   }>;
+};
+
+type RetrievalExplanationResponse = {
+  data?: {
+    evidence?: RetrievalEvidenceExplanation[];
+    sourceMaterial?: RetrievalSourceMaterialExplanation[];
+  };
 };
 
 type ProfilePositioningReportSummary = {
@@ -1364,6 +1376,10 @@ function ProfileReferenceView({
   const [exportPagePolicy, setExportPagePolicy] = useState<
     "one_page" | "two_page" | "unrestricted"
   >("unrestricted");
+  const [mainResumeEvidence, setMainResumeEvidence] = useState<RetrievalEvidenceExplanation[]>([]);
+  const [mainResumeSourceMaterial, setMainResumeSourceMaterial] = useState<
+    RetrievalSourceMaterialExplanation[]
+  >([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1431,6 +1447,10 @@ function ProfileReferenceView({
       cancelled = true;
     };
   }, [fetchJson, profileReloadKey]);
+
+  useEffect(() => {
+    void loadMainResumeExplanation();
+  }, [fetchJson, profileReloadKey, selectedPositioningDirectionId]);
 
   const resumeEligibleEvidence =
     countResumeReadyClaims(library?.evidenceItems ?? []);
@@ -1761,7 +1781,11 @@ function ProfileReferenceView({
       const payload = (await response.json().catch(() => null)) as
         | {
             data?: unknown;
-            meta?: { persistence?: { status: string }; factGuard?: { status?: string } | null };
+            meta?: {
+              persistence?: { status: string };
+              factGuard?: { status?: string } | null;
+              selectedEvidence?: RetrievalEvidenceExplanation[];
+            };
             error?: string;
             kind?: string;
           }
@@ -1781,6 +1805,7 @@ function ProfileReferenceView({
         };
         setMainResumes(mainResumePayload.data?.resumes ?? []);
       }
+      setMainResumeEvidence(payload?.meta?.selectedEvidence ?? []);
       setMainResumeStatus(
         payload?.meta?.factGuard?.status === "validated"
           ? useRefresh
@@ -1801,6 +1826,18 @@ function ProfileReferenceView({
     } finally {
       setIsGeneratingMainResume(false);
     }
+  }
+
+  async function loadMainResumeExplanation() {
+    const response = await fetchJson("/api/retrieval/resume-explanations", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ limit: 8 }),
+    });
+    if (!response.ok) return;
+    const payload = (await response.json()) as RetrievalExplanationResponse;
+    setMainResumeEvidence(payload.data?.evidence ?? []);
+    setMainResumeSourceMaterial(payload.data?.sourceMaterial ?? []);
   }
 
   async function createPositioningEnrichmentTasks() {
@@ -2409,6 +2446,11 @@ function ProfileReferenceView({
             ) : null}
 
             {positioningStatus ? <p className="status">{positioningStatus}</p> : null}
+            <RetrievalExplanationPanel
+              evidence={mainResumeEvidence}
+              sourceMaterial={mainResumeSourceMaterial}
+              title="Why this evidence is available for main resume generation"
+            />
 
             {latestPositioningReport ? (
               <details className="build-export-details">
