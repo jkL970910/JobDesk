@@ -4769,7 +4769,7 @@ function EnrichmentProposalPreview({
     <SuggestedUpdatePanel
       acceptLabel={
         hasSupportOnly
-          ? "Save supporting detail"
+          ? "Save original answer"
           : hasProposedLibraryWording
             ? "Accept evidence update"
             : "Accept context update"
@@ -4814,7 +4814,7 @@ function formatEnrichmentPatchPreview(patch: Record<string, unknown>) {
   const sourceQuotePatch = getStringPatchValue(patch, "source_quote_patch");
   addPatchLine(lines, "Suggested evidence update", textPatch);
   if (sourceQuotePatch && sourceQuotePatch !== textPatch) {
-    addPatchLine(lines, "Supporting detail", sourceQuotePatch);
+    addPatchLine(lines, "Your original answer", sourceQuotePatch);
   }
   addPatchLine(lines, "Context", getStringPatchValue(patch, "context_patch"));
   addPatchLine(lines, "Problem", getStringPatchValue(patch, "problem_patch"));
@@ -4849,8 +4849,8 @@ function buildEnrichmentPatchPreviewItems(patch: Record<string, unknown>) {
     kind: "proposed",
   });
   if (sourceQuotePatch && sourceQuotePatch !== textPatch) {
-    addPatchPreviewItem(items, "Supporting detail", sourceQuotePatch, {
-      description: "Your answer is kept as source support for this update.",
+    addPatchPreviewItem(items, "Your original answer", sourceQuotePatch, {
+      description: "This is the answer you typed. JobDesk keeps it as source context for the library update.",
       kind: "support",
     });
   }

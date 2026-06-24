@@ -99,6 +99,22 @@ export function SuggestedUpdatePanel({
   const isManualEditPending = disabled && pendingAction === "manual_edit";
   const hasProposedWording = previewItems.some((item) => item.kind === "proposed");
   const hasSupportOnly = previewItems.some((item) => item.kind === "support") && !hasProposedWording;
+  const cleanOriginalAnswer = originalAnswer?.trim() ?? "";
+  const existingPreviewValues = new Set(
+    previewItems.flatMap((item) => item.values.map((value) => value.trim())),
+  );
+  const displayPreviewItems =
+    cleanOriginalAnswer && !existingPreviewValues.has(cleanOriginalAnswer)
+      ? [
+          ...previewItems,
+          {
+            description: "This is the answer you typed before JobDesk generated the suggestion.",
+            kind: "support" as const,
+            label: "Your original answer",
+            values: [cleanOriginalAnswer],
+          },
+        ]
+      : previewItems;
   const reviewState = hasProposedWording
     ? {
         copy:
@@ -109,7 +125,7 @@ export function SuggestedUpdatePanel({
     : hasSupportOnly
       ? {
           copy:
-            "This answer is saved as supporting detail. Add more specifics before changing the evidence wording.",
+            "Your original answer is saved as context. Add more specifics before changing the evidence wording.",
           label: "More detail needed",
           state: "needs_more",
         }
@@ -141,10 +157,10 @@ export function SuggestedUpdatePanel({
               <p>{originalPrompt}</p>
             </div>
           ) : null}
-          {previewItems.length > 0 ? (
+          {displayPreviewItems.length > 0 ? (
             <div className="enrichment-proposal__field-preview">
               <span>{draftLabel}</span>
-              {previewItems.map((item) => (
+              {displayPreviewItems.map((item) => (
                 <article data-kind={item.kind ?? "context"} key={`${item.label}-${item.values.join("|")}`}>
                   <div className="enrichment-proposal__field-heading">
                     <strong>{item.label}</strong>
@@ -162,10 +178,10 @@ export function SuggestedUpdatePanel({
               ))}
             </div>
           ) : null}
-          <details className="enrichment-proposal__edit-details" open={previewItems.length === 0}>
-            <summary>{previewItems.length > 0 ? "Edit suggestion text" : draftLabel}</summary>
+          <details className="enrichment-proposal__edit-details" open={displayPreviewItems.length === 0}>
+            <summary>{displayPreviewItems.length > 0 ? "Edit suggestion text" : draftLabel}</summary>
             <label className="enrichment-proposal__editor">
-              <span>{previewItems.length > 0 ? "Editable draft" : draftLabel}</span>
+              <span>{displayPreviewItems.length > 0 ? "Editable draft" : draftLabel}</span>
               <textarea
                 className="jd-input jd-input--compact"
                 disabled={disabled}
@@ -178,7 +194,7 @@ export function SuggestedUpdatePanel({
           sourceQuote.trim() &&
           sourceQuote.trim() !== initialText.trim() &&
           !initialText.includes(sourceQuote.trim()) ? (
-            <p className="enrichment-proposal__quote">Supporting detail: {sourceQuote}</p>
+            <p className="enrichment-proposal__quote">Your original answer: {sourceQuote}</p>
           ) : null}
           {referenceItems.length > 0 ? (
             <div className="enrichment-proposal__references">
