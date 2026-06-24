@@ -114,7 +114,10 @@ export type EnrichmentTaskTargetPayload = {
   target_id: string;
   target_role: EnrichmentTaskTargetRole;
   confidence: EnrichmentTaskTargetConfidence;
+  accepted_at: string | null;
+  created_by: string | null;
   reason: string | null;
+  rejected_at: string | null;
 };
 
 export type EnrichmentTaskQueueFilters = {
@@ -499,6 +502,7 @@ export async function updateEnrichmentTask(args: {
   taskId: string;
   action:
     | "answer"
+    | "save_profile_context"
     | "acknowledge"
     | "dismiss"
     | "mark_import_reviewed"
@@ -589,18 +593,29 @@ export async function updateEnrichmentTask(args: {
   const patch: Partial<typeof enrichmentTasks.$inferInsert> = {
     updatedAt: now,
   };
-  if (args.action === "answer") {
+  if (args.action === "answer" || args.action === "save_profile_context") {
     const answer = args.userAnswer?.trim();
     if (!answer) return { status: "invalid" as const, reason: "missing_answer" as const };
+    if (args.action === "save_profile_context" && !canSaveProfileContextRoute(existing)) {
+      return { status: "invalid" as const, reason: "unsupported_profile_context_route" as const };
+    }
     patch.status = "answered";
     patch.userAnswer = answer;
     patch.answeredAt = now;
     patch.dismissedAt = null;
-    if (shouldSaveProfileContextAnswer(existing)) {
+    if (args.action === "save_profile_context" || shouldSaveProfileContextAnswer(existing)) {
       patch.status = "converted";
       patch.convertedAt = now;
       patch.resolvedAt = now;
       patch.resolutionKind = "profile_answer_saved";
+      patch.targetScope = "profile_context";
+      patch.expectedOutcome = "save_profile_answer";
+      patch.targetConfidence = "low";
+      patch.targetReason = "User chose to save this answer as profile context.";
+      patch.evidenceItemId = null;
+      patch.workExperienceId = null;
+      patch.initiativeId = null;
+      patch.portfolioProjectId = null;
       await rejectPendingProposals(db, {
         workspaceId: workspace.id,
         taskId: existing.id,
@@ -690,39 +705,45 @@ export async function updateEnrichmentTask(args: {
     });
   }
 
-  const updated =
-    args.action === "answer"
-      ? shouldSaveProfileContextAnswer(existing)
-        ? (
-            await db
-              .update(enrichmentTasks)
-              .set(patch)
-              .where(
-                and(
-                  eq(enrichmentTasks.workspaceId, workspace.id),
-                  eq(enrichmentTasks.id, args.taskId),
-                ),
-              )
-              .returning()
-          )[0]
-        : await saveAnswerAndCreateProposal(db, {
-            workspaceId: workspace.id,
-            taskId: args.taskId,
-            patch,
-            now,
-          })
-      : (
-          await db
-            .update(enrichmentTasks)
-            .set(patch)
-            .where(
-              and(
-                eq(enrichmentTasks.workspaceId, workspace.id),
-                eq(enrichmentTasks.id, args.taskId),
-              ),
-            )
-            .returning()
-        )[0];
+  const updateResult =
+    args.action === "answer" && !shouldSaveProfileContextAnswer(existing)
+      ? await saveAnswerAndCreateProposal(db, {
+          workspaceId: workspace.id,
+          taskId: args.taskId,
+          patch,
+          now,
+        })
+      : await updateTaskPatch(db, {
+          workspaceId: workspace.id,
+          taskId: args.taskId,
+          patch,
+        });
+  const updated = updateResult?.updated;
+  if (updated && args.action === "save_profile_context") {
+    await db
+      .delete(enrichmentTaskTargets)
+      .where(
+        and(
+          eq(enrichmentTaskTargets.workspaceId, workspace.id),
+          eq(enrichmentTaskTargets.taskId, updated.id),
+        ),
+      );
+  }
+  if (updated && updateResult?.targetRequired) {
+    const targetMap = await getTaskTargetMap(db, [updated.id]);
+    const proposalMap = await getTaskProposalMap(db, [updated.id]);
+    const revisionMap = await getTaskProposalRevisionMap(db, [updated.id]);
+    return {
+      status: "invalid" as const,
+      reason: "target_required" as const,
+      task: toEnrichmentTaskPayload(
+        updated,
+        targetMap.get(updated.id),
+        proposalMap.get(updated.id),
+        revisionMap.get(updated.id),
+      ),
+    };
+  }
   if (updated && args.action === "link") {
     await replaceTaskTargets(db, {
       workspaceId: workspace.id,
@@ -738,6 +759,22 @@ export async function updateEnrichmentTask(args: {
     });
     const answer = updated.userAnswer?.trim();
     if (answer && shouldCreateProposalForTask(updated)) {
+      const targetValidation = validateConfirmedTargetForProposal(updated);
+      if (targetValidation.status === "target_required") {
+        const targetMap = await getTaskTargetMap(db, [updated.id]);
+        const proposalMap = await getTaskProposalMap(db, [updated.id]);
+        const revisionMap = await getTaskProposalRevisionMap(db, [updated.id]);
+        return {
+          status: "invalid" as const,
+          reason: "target_required" as const,
+          task: toEnrichmentTaskPayload(
+            updated,
+            targetMap.get(updated.id),
+            proposalMap.get(updated.id),
+            revisionMap.get(updated.id),
+          ),
+        };
+      }
       const proposalDraft = await buildAndEnhanceEnrichmentProposalDraft(db, {
         answer,
         task: updated,
@@ -850,37 +887,16 @@ export async function reconcileResumeReviewEnrichmentTasksForSource(
     if (isBroadProfilePositioningQuestion(task.prompt)) continue;
     const anchor = pickBestAnchorForTask(task.prompt, cleanAnchors);
     if (!anchor) continue;
-    const [updated] = await db
-      .update(enrichmentTasks)
-      .set({
-        evidenceItemId: anchor.evidenceItemId ?? null,
-        workExperienceId: anchor.workExperienceId ?? null,
-        initiativeId: anchor.initiativeId ?? null,
-        portfolioProjectId: anchor.portfolioProjectId ?? null,
-        ...deriveTaskTargetMetadata(anchor, "Automatically matched to material from the same source."),
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(enrichmentTasks.workspaceId, args.workspaceId),
-          eq(enrichmentTasks.id, task.id),
-          sql`${enrichmentTasks.evidenceItemId} is null`,
-          sql`${enrichmentTasks.workExperienceId} is null`,
-          sql`${enrichmentTasks.initiativeId} is null`,
-          sql`${enrichmentTasks.portfolioProjectId} is null`,
-        ),
-      )
-      .returning({ id: enrichmentTasks.id });
-    if (updated) {
-      await replaceTaskTargets(db, {
-        workspaceId: args.workspaceId,
-        taskId: updated.id,
-        anchor,
-        reason: "Automatically matched to material from the same source.",
-        confidence: "medium",
-      });
-      updatedCount += 1;
-    }
+    await replaceTaskTargets(db, {
+      workspaceId: args.workspaceId,
+      taskId: task.id,
+      anchor,
+      reason: "Suggested from material imported from the same source. Confirm before using it.",
+      confidence: "medium",
+      createdBy: "system",
+      targetRole: "suggested",
+    });
+    updatedCount += 1;
   }
   return { updatedCount };
 }
@@ -1135,10 +1151,12 @@ async function saveAnswerAndCreateProposal(
   };
   const proposalDraft = answer
     ? shouldCreateProposalForTask(proposalTask)
-      ? await buildAndEnhanceEnrichmentProposalDraft(db, {
-        answer,
-        task: proposalTask,
-      })
+      ? validateConfirmedTargetForProposal(proposalTask).status === "target_required"
+        ? "target_required"
+        : await buildAndEnhanceEnrichmentProposalDraft(db, {
+          answer,
+          task: proposalTask,
+        })
       : null
     : null;
   return db.transaction(async (tx) => {
@@ -1153,6 +1171,9 @@ async function saveAnswerAndCreateProposal(
       )
       .returning();
     if (!updated) return undefined;
+    if (proposalDraft === "target_required") {
+      return { targetRequired: true, updated };
+    }
     if (proposalDraft) {
       await createPendingProposalForAnswer(tx, {
         proposalDraft,
@@ -1161,8 +1182,29 @@ async function saveAnswerAndCreateProposal(
         now: args.now,
       });
     }
-    return updated;
+    return { targetRequired: false, updated };
   });
+}
+
+async function updateTaskPatch(
+  db: DbHandle,
+  args: {
+    workspaceId: string;
+    taskId: string;
+    patch: Partial<typeof enrichmentTasks.$inferInsert>;
+  },
+) {
+  const [updated] = await db
+    .update(enrichmentTasks)
+    .set(args.patch)
+    .where(
+      and(
+        eq(enrichmentTasks.workspaceId, args.workspaceId),
+        eq(enrichmentTasks.id, args.taskId),
+      ),
+    )
+    .returning();
+  return updated ? { targetRequired: false, updated } : undefined;
 }
 
 async function canUseLegacyConvert(
@@ -2353,6 +2395,19 @@ function shouldSaveProfileContextAnswer(task: typeof enrichmentTasks.$inferSelec
   return task.targetScope === "profile_context" || task.expectedOutcome === "save_profile_answer";
 }
 
+function canSaveProfileContextRoute(task: typeof enrichmentTasks.$inferSelect) {
+  if (shouldSaveProfileContextAnswer(task)) return true;
+  if (task.targetScope !== "assign_later" && task.expectedOutcome !== "route_answer") {
+    return false;
+  }
+  return !Boolean(
+    task.evidenceItemId ||
+      task.initiativeId ||
+      task.portfolioProjectId ||
+      task.workExperienceId,
+  );
+}
+
 function inferProfileContextType(
   prompt: string,
   answer: string,
@@ -2399,8 +2454,32 @@ function shouldCreateProposalForTask(task: typeof enrichmentTasks.$inferSelect) 
     task.expectedOutcome === "update_evidence" ||
     task.expectedOutcome === "update_story" ||
     task.expectedOutcome === "update_role" ||
+    task.expectedOutcome === "route_answer" ||
     Boolean(task.evidenceItemId || task.initiativeId || task.portfolioProjectId || task.workExperienceId)
   );
+}
+
+function validateConfirmedTargetForProposal(task: typeof enrichmentTasks.$inferSelect) {
+  if (task.expectedOutcome === "create_evidence") return { status: "ready" as const };
+  if (task.expectedOutcome === "update_evidence") {
+    return task.evidenceItemId
+      ? { status: "ready" as const }
+      : { status: "target_required" as const };
+  }
+  if (task.expectedOutcome === "update_story") {
+    return task.initiativeId || task.portfolioProjectId
+      ? { status: "ready" as const }
+      : { status: "target_required" as const };
+  }
+  if (task.expectedOutcome === "update_role") {
+    return task.workExperienceId
+      ? { status: "ready" as const }
+      : { status: "target_required" as const };
+  }
+  if (task.evidenceItemId || task.initiativeId || task.portfolioProjectId || task.workExperienceId) {
+    return { status: "ready" as const };
+  }
+  return { status: "target_required" as const };
 }
 
 function canAcknowledgeEnrichmentTask(task: typeof enrichmentTasks.$inferSelect) {
@@ -3103,7 +3182,10 @@ async function getTaskTargetMap(
       target_id: row.targetId,
       target_role: row.targetRole,
       confidence: row.confidence,
+      accepted_at: row.acceptedAt?.toISOString() ?? null,
+      created_by: row.createdBy,
       reason: row.reason,
+      rejected_at: row.rejectedAt?.toISOString() ?? null,
     });
     map.set(row.taskId, targets);
   }
@@ -3210,7 +3292,9 @@ async function replaceTaskTargets(
     taskId: string;
     anchor: ReusableLibraryAnchor;
     confidence: EnrichmentTaskTargetConfidence;
+    createdBy?: "system" | "ai" | "user";
     reason: string;
+    targetRole?: EnrichmentTaskTargetRole;
   },
 ) {
   await db
@@ -3218,8 +3302,10 @@ async function replaceTaskTargets(
     .where(eq(enrichmentTaskTargets.taskId, args.taskId));
   const targets = buildTargetRows(args.anchor, {
     confidence: args.confidence,
+    createdBy: args.createdBy ?? "user",
     reason: args.reason,
     taskId: args.taskId,
+    targetRole: args.targetRole ?? "primary",
     workspaceId: args.workspaceId,
   });
   if (targets.length === 0) return [];
@@ -3230,12 +3316,15 @@ function buildTargetRows(
   anchor: ReusableLibraryAnchor,
   args: {
     confidence: EnrichmentTaskTargetConfidence;
+    createdBy?: "system" | "ai" | "user";
     reason: string;
     taskId: string;
+    targetRole?: EnrichmentTaskTargetRole;
     workspaceId: string;
   },
 ) {
   const rows: Array<typeof enrichmentTaskTargets.$inferInsert> = [];
+  const primaryRole = args.targetRole ?? "primary";
   const add = (targetKind: EnrichmentTaskTargetKind, targetId?: string | null) => {
     if (!targetId) return;
     rows.push({
@@ -3243,8 +3332,10 @@ function buildTargetRows(
       taskId: args.taskId,
       targetKind,
       targetId,
-      targetRole: rows.length === 0 ? "primary" : "parent",
+      targetRole: rows.length === 0 ? primaryRole : "parent",
       confidence: args.confidence,
+      createdBy: args.createdBy ?? "system",
+      acceptedAt: primaryRole === "primary" && rows.length === 0 ? new Date() : null,
       reason: args.reason,
     });
   };
@@ -3389,6 +3480,9 @@ function buildFallbackTargetPayloads(
     target_id: row.targetId,
     target_role: row.targetRole ?? "primary",
     confidence: row.confidence ?? "low",
+    accepted_at: null,
+    created_by: row.createdBy ?? null,
     reason: row.reason ?? null,
+    rejected_at: null,
   }));
 }

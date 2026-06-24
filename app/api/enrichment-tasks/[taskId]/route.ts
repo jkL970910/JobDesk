@@ -13,6 +13,10 @@ const requestSchema = z.discriminatedUnion("action", [
     action: z.literal("answer"),
     userAnswer: z.string().trim().min(1).max(4000),
   }),
+  z.object({
+    action: z.literal("save_profile_context"),
+    userAnswer: z.string().trim().min(1).max(4000),
+  }),
   z.object({ action: z.literal("acknowledge") }),
   z.object({ action: z.literal("dismiss") }),
   z.object({ action: z.literal("mark_import_reviewed") }),

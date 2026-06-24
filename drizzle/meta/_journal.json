@@ -197,6 +197,13 @@
       "when": 1782360000000,
       "tag": "0027_profile_fact_history",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1782363600000,
+      "tag": "0028_target_suggestions_gating",
+      "breakpoints": true
     }
   ]
 }

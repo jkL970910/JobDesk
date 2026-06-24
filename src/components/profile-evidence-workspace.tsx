@@ -214,7 +214,10 @@ type EnrichmentTaskItem = {
     target_id: string;
     target_role: "primary" | "parent" | "suggested" | "previous";
     confidence: "low" | "medium" | "high";
+    accepted_at?: string | null;
+    created_by?: string | null;
     reason: string | null;
+    rejected_at?: string | null;
   }>;
   proposals: Array<{
     id: string;
@@ -289,8 +292,16 @@ type EnrichmentTaskAnchorPatch = {
   workExperienceId?: string | null;
 };
 
+type EnrichmentTargetRoute =
+  | "create_evidence"
+  | "update_evidence"
+  | "update_story"
+  | "update_role"
+  | "profile_context";
+
 type EnrichmentTaskUpdatePayload =
   | { action: "answer"; userAnswer: string }
+  | { action: "save_profile_context"; userAnswer: string }
   | { action: "acknowledge" }
   | { action: "dismiss" }
   | { action: "mark_import_reviewed" }
@@ -1877,7 +1888,9 @@ export function ProfileEvidenceWorkspace({
     await refreshLibraryAfterMutation();
     const task = enrichmentTasks.find((item) => item.id === taskId) ?? null;
     const message =
-      payload.action === "answer"
+      payload.action === "save_profile_context"
+        ? "Saved profile context."
+      : payload.action === "answer"
         ? task && isProfileContextTask(task)
           ? "Saved profile answer."
           : "Saved answer and prepared a suggested update."
@@ -4044,9 +4057,9 @@ function EnrichmentTaskQueue({
               }
               onNext={() => selectRelativeTask(1)}
               onPrevious={() => selectRelativeTask(-1)}
-              onSaveAnswer={(answer) =>
+              onSaveAnswer={(answer, route) =>
                 void handleUpdate(selectedTask, {
-                  action: "answer",
+                  action: route === "profile_context" ? "save_profile_context" : "answer",
                   userAnswer: answer,
                 })
               }
@@ -4085,6 +4098,7 @@ function getPendingEnrichmentAction(
 ): EnrichmentPendingAction {
   if (payload.action === "accept_proposal") return "accept";
   if (payload.action === "reject_proposal") return "discard";
+  if (payload.action === "save_profile_context") return "save_context";
   if (payload.action === "answer") {
     return isProfileContextTask(task) ? "save_context" : "generate";
   }
@@ -4154,7 +4168,7 @@ function EnrichmentTaskFocusPane({
     revision: { revisedText?: string; revisionInstruction?: string },
   ) => void;
   onRoleFieldUpdated: () => Promise<void>;
-  onSaveAnswer: (answer: string) => void;
+  onSaveAnswer: (answer: string, route?: EnrichmentTargetRoute | null) => void;
   portfolioProjects: PortfolioProjectItem[];
   pendingAction: EnrichmentPendingAction | null;
   task: EnrichmentTaskItem;
@@ -4164,7 +4178,14 @@ function EnrichmentTaskFocusPane({
 }) {
   const hasLibraryAnchor = taskHasReusableLibraryAnchor(task);
   const requiresTargetBeforeAnswer = shouldRequireTargetBeforeAnswer(task);
-  const canAnswerNow = hasLibraryAnchor || !requiresTargetBeforeAnswer;
+  const [selectedRoute, setSelectedRoute] = useState<EnrichmentTargetRoute | null>(
+    getInitialTargetRoute(task),
+  );
+  useEffect(() => {
+    setSelectedRoute(getInitialTargetRoute(task));
+  }, [task.id]);
+  const canAnswerNow =
+    hasLibraryAnchor || !requiresTargetBeforeAnswer || selectedRoute === "profile_context";
   const linkedLabel = formatEnrichmentTaskAnchor(task, evidenceItems, linkTargets);
   const parentLabel = formatEnrichmentTaskParent(task, linkTargets);
   const pendingProposal =
@@ -4215,15 +4236,32 @@ function EnrichmentTaskFocusPane({
             <strong>Choose where this answer belongs</strong>
             <p>Link this question before answering.</p>
           </div>
-          <EnrichmentTaskTargetPicker
+          <RouteAwareTargetGate
             disabled={isPending}
             evidenceItems={evidenceItems}
             initiatives={initiatives}
+            onCreateLibraryItems={onCreateLibraryItems}
             onLink={onLink}
+            onRouteChange={setSelectedRoute}
             portfolioProjects={portfolioProjects}
+            route={selectedRoute}
             task={task}
             workExperiences={workExperiences}
           />
+          {selectedRoute === "profile_context" ? (
+            <EnrichmentAnswerWorkspace
+              answer={currentAnswer}
+              disabled={isPending}
+              evidenceItems={evidenceItems}
+              initiatives={initiatives}
+              pendingAction={pendingAction}
+              portfolioProjects={portfolioProjects}
+              task={task}
+              targetLabel="Profile context"
+              workExperiences={workExperiences}
+              onAnswerChange={onAnswerChange}
+            />
+          ) : null}
           <div className="enrichment-task-card__gate">
             <div>
               <strong>No matching target?</strong>
@@ -4264,6 +4302,7 @@ function EnrichmentTaskFocusPane({
               disabled={isPending}
               evidenceItems={evidenceItems}
               initiatives={initiatives}
+              mode={getTargetPickerMode(task)}
               onLink={onLink}
               portfolioProjects={portfolioProjects}
               task={task}
@@ -4312,9 +4351,11 @@ function EnrichmentTaskFocusPane({
                 className="primary-button"
                 disabled={isPending || currentAnswer.trim().length < 3}
                 type="button"
-                onClick={() => onSaveAnswer(currentAnswer)}
+                onClick={() => onSaveAnswer(currentAnswer, selectedRoute)}
               >
-                {formatPrimaryAnswerCta(task, proposalType, task.status, pendingAction)}
+                {selectedRoute === "profile_context"
+                  ? "Save profile context"
+                  : formatPrimaryAnswerCta(task, proposalType, task.status, pendingAction)}
               </button>
             </>
           ) : null}
@@ -5521,7 +5562,9 @@ function EnrichmentTaskTargetPicker({
   disabled,
   evidenceItems,
   initiatives,
+  mode = "all",
   onLink,
+  preserveExisting = true,
   portfolioProjects,
   task,
   workExperiences,
@@ -5529,7 +5572,9 @@ function EnrichmentTaskTargetPicker({
   disabled: boolean;
   evidenceItems: EvidenceCardItem[];
   initiatives: InitiativeItem[];
+  mode?: "all" | "evidence" | "story" | "role";
   onLink: (anchor: EnrichmentTaskAnchorPatch) => void;
+  preserveExisting?: boolean;
   portfolioProjects: PortfolioProjectItem[];
   task: EnrichmentTaskItem;
   workExperiences: WorkExperienceItem[];
@@ -5540,13 +5585,18 @@ function EnrichmentTaskTargetPicker({
   const selectedWorkExperienceId = getEnrichmentTargetId(task, "work_experience");
   return (
     <div className="enrichment-task-card__target-grid">
+      {mode === "all" || mode === "evidence" ? (
       <label className="source-field enrichment-task-card__destination">
         <span>Specific claim</span>
         <select
           className="jd-input jd-input--compact"
           disabled={disabled}
           onChange={(event) => {
-            onLink(buildMergedEnrichmentTaskAnchor(task, "evidence", event.target.value));
+            onLink(
+              buildMergedEnrichmentTaskAnchor(task, "evidence", event.target.value, {
+                preserveExisting,
+              }),
+            );
           }}
           value={selectedEvidenceId ? `evidence:${selectedEvidenceId}` : ""}
         >
@@ -5560,13 +5610,19 @@ function EnrichmentTaskTargetPicker({
           ))}
         </select>
       </label>
+      ) : null}
+      {mode === "all" || mode === "story" ? (
       <label className="source-field enrichment-task-card__destination">
         <span>Project / story</span>
         <select
           className="jd-input jd-input--compact"
           disabled={disabled}
           onChange={(event) => {
-            onLink(buildMergedEnrichmentTaskAnchor(task, "story", event.target.value));
+            onLink(
+              buildMergedEnrichmentTaskAnchor(task, "story", event.target.value, {
+                preserveExisting,
+              }),
+            );
           }}
           value={
             selectedInitiativeId
@@ -5593,13 +5649,19 @@ function EnrichmentTaskTargetPicker({
           ))}
         </select>
       </label>
+      ) : null}
+      {mode === "all" || mode === "role" ? (
       <label className="source-field enrichment-task-card__destination">
         <span>Role-level experience</span>
         <select
           className="jd-input jd-input--compact"
           disabled={disabled}
           onChange={(event) => {
-            onLink(buildMergedEnrichmentTaskAnchor(task, "work_experience", event.target.value));
+            onLink(
+              buildMergedEnrichmentTaskAnchor(task, "work_experience", event.target.value, {
+                preserveExisting,
+              }),
+            );
           }}
           value={selectedWorkExperienceId ? `work_experience:${selectedWorkExperienceId}` : ""}
         >
@@ -5613,6 +5675,139 @@ function EnrichmentTaskTargetPicker({
           ))}
         </select>
       </label>
+      ) : null}
+    </div>
+  );
+}
+
+function RouteAwareTargetGate({
+  disabled,
+  evidenceItems,
+  initiatives,
+  onCreateLibraryItems,
+  onLink,
+  onRouteChange,
+  portfolioProjects,
+  route,
+  task,
+  workExperiences,
+}: {
+  disabled: boolean;
+  evidenceItems: EvidenceCardItem[];
+  initiatives: InitiativeItem[];
+  onCreateLibraryItems: () => void;
+  onLink: (anchor: EnrichmentTaskAnchorPatch) => void;
+  onRouteChange: (route: EnrichmentTargetRoute) => void;
+  portfolioProjects: PortfolioProjectItem[];
+  route: EnrichmentTargetRoute | null;
+  task: EnrichmentTaskItem;
+  workExperiences: WorkExperienceItem[];
+}) {
+  const suggestedTargets = task.targets.filter(
+    (target) => target.target_role === "suggested" && !target.rejected_at,
+  );
+  return (
+    <div className="enrichment-route-gate">
+      {suggestedTargets.length > 0 ? (
+        <div className="enrichment-route-gate__suggestions">
+          <span>Suggested target</span>
+          {suggestedTargets.slice(0, 3).map((target) => (
+            <button
+              className="secondary-button secondary-button--quiet"
+              disabled={disabled}
+              key={`${target.target_kind}-${target.target_id}`}
+              type="button"
+              onClick={() => onLink(anchorFromTargetPayload(target))}
+            >
+              {formatEnrichmentTargetPayload(target, {
+                evidenceItems,
+                initiatives,
+                portfolioProjects,
+                workExperiences,
+              })}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className="enrichment-route-gate__routes">
+        <button
+          className={route === "create_evidence" ? "primary-action" : "secondary-button"}
+          disabled={disabled}
+          type="button"
+          onClick={onCreateLibraryItems}
+        >
+          Create new evidence
+        </button>
+        <button
+          className={route === "update_evidence" ? "primary-action" : "secondary-button"}
+          disabled={disabled}
+          type="button"
+          onClick={() => onRouteChange("update_evidence")}
+        >
+          Update existing claim
+        </button>
+        <button
+          className={route === "update_story" ? "primary-action" : "secondary-button"}
+          disabled={disabled}
+          type="button"
+          onClick={() => onRouteChange("update_story")}
+        >
+          Attach to story
+        </button>
+        <button
+          className={route === "update_role" ? "primary-action" : "secondary-button"}
+          disabled={disabled}
+          type="button"
+          onClick={() => onRouteChange("update_role")}
+        >
+          Attach to role
+        </button>
+        <button
+          className={route === "profile_context" ? "primary-action" : "secondary-button"}
+          disabled={disabled}
+          type="button"
+          onClick={() => onRouteChange("profile_context")}
+        >
+          Save as profile context
+        </button>
+      </div>
+      {route === "update_evidence" ? (
+        <EnrichmentTaskTargetPicker
+          disabled={disabled}
+          evidenceItems={evidenceItems}
+          initiatives={initiatives}
+          mode="evidence"
+          onLink={onLink}
+          preserveExisting={false}
+          portfolioProjects={portfolioProjects}
+          task={task}
+          workExperiences={workExperiences}
+        />
+      ) : route === "update_story" ? (
+        <EnrichmentTaskTargetPicker
+          disabled={disabled}
+          evidenceItems={evidenceItems}
+          initiatives={initiatives}
+          mode="story"
+          onLink={onLink}
+          preserveExisting={false}
+          portfolioProjects={portfolioProjects}
+          task={task}
+          workExperiences={workExperiences}
+        />
+      ) : route === "update_role" ? (
+        <EnrichmentTaskTargetPicker
+          disabled={disabled}
+          evidenceItems={evidenceItems}
+          initiatives={initiatives}
+          mode="role"
+          onLink={onLink}
+          preserveExisting={false}
+          portfolioProjects={portfolioProjects}
+          task={task}
+          workExperiences={workExperiences}
+        />
+      ) : null}
     </div>
   );
 }
@@ -6200,6 +6395,43 @@ function toEnrichmentTaskAnchorValue(task: EnrichmentTaskItem) {
   return "";
 }
 
+function anchorFromTargetPayload(
+  target: EnrichmentTaskItem["targets"][number],
+): EnrichmentTaskAnchorPatch {
+  return {
+    evidenceItemId: target.target_kind === "evidence" ? target.target_id : null,
+    initiativeId: target.target_kind === "initiative" ? target.target_id : null,
+    portfolioProjectId: target.target_kind === "portfolio_project" ? target.target_id : null,
+    workExperienceId: target.target_kind === "work_experience" ? target.target_id : null,
+  };
+}
+
+function getInitialTargetRoute(task: EnrichmentTaskItem): EnrichmentTargetRoute | null {
+  if (task.expected_outcome === "update_evidence" || task.evidence_item_id) return "update_evidence";
+  if (task.expected_outcome === "update_story" || task.initiative_id || task.portfolio_project_id) {
+    return "update_story";
+  }
+  if (task.expected_outcome === "update_role" || task.work_experience_id) return "update_role";
+  if (task.expected_outcome === "save_profile_answer" || task.target_scope === "profile_context") {
+    return "profile_context";
+  }
+  if (task.expected_outcome === "create_evidence") return "create_evidence";
+  return null;
+}
+
+function getTargetPickerMode(task: EnrichmentTaskItem): "all" | "evidence" | "story" | "role" {
+  if (task.expected_outcome === "update_evidence" || task.target_scope === "evidence_detail") {
+    return "evidence";
+  }
+  if (task.expected_outcome === "update_story" || task.target_scope === "story_context") {
+    return "story";
+  }
+  if (task.expected_outcome === "update_role" || task.target_scope === "role_context") {
+    return "role";
+  }
+  return "all";
+}
+
 function parseEnrichmentTaskAnchorValue(value: string): EnrichmentTaskAnchorPatch {
   const [kind, id] = value.split(":");
   return {
@@ -6214,13 +6446,22 @@ function buildMergedEnrichmentTaskAnchor(
   task: EnrichmentTaskItem,
   field: "evidence" | "story" | "work_experience",
   value: string,
+  options: { preserveExisting?: boolean } = {},
 ): EnrichmentTaskAnchorPatch {
-  const current: EnrichmentTaskAnchorPatch = {
-    evidenceItemId: getEnrichmentTargetId(task, "evidence") || null,
-    initiativeId: getEnrichmentTargetId(task, "initiative") || null,
-    portfolioProjectId: getEnrichmentTargetId(task, "portfolio_project") || null,
-    workExperienceId: getEnrichmentTargetId(task, "work_experience") || null,
-  };
+  const current: EnrichmentTaskAnchorPatch =
+    options.preserveExisting === false
+      ? {
+          evidenceItemId: null,
+          initiativeId: null,
+          portfolioProjectId: null,
+          workExperienceId: null,
+        }
+      : {
+          evidenceItemId: getEnrichmentTargetId(task, "evidence") || null,
+          initiativeId: getEnrichmentTargetId(task, "initiative") || null,
+          portfolioProjectId: getEnrichmentTargetId(task, "portfolio_project") || null,
+          workExperienceId: getEnrichmentTargetId(task, "work_experience") || null,
+        };
   if (!value) {
     if (field === "evidence") current.evidenceItemId = null;
     if (field === "story") {
@@ -6281,7 +6522,12 @@ function formatEnrichmentTaskParent(
 
 function formatEnrichmentTargetPayload(
   target: EnrichmentTaskItem["targets"][number],
-  linkTargets: EvidenceLinkTargets,
+  linkTargets: {
+    evidenceItems?: EvidenceCardItem[];
+    initiatives: InitiativeItem[];
+    portfolioProjects: PortfolioProjectItem[];
+    workExperiences: WorkExperienceItem[];
+  },
 ) {
   if (target.target_kind === "initiative") {
     const item = linkTargets.initiatives.find((candidate) => candidate.id === target.target_id);
@@ -6295,7 +6541,10 @@ function formatEnrichmentTargetPayload(
     const item = linkTargets.workExperiences.find((candidate) => candidate.id === target.target_id);
     return item ? `Role · ${item.employer} · ${item.role_title}` : "Role";
   }
-  if (target.target_kind === "evidence") return "Specific claim";
+  if (target.target_kind === "evidence") {
+    const item = linkTargets.evidenceItems?.find((candidate) => candidate.id === target.target_id);
+    return item ? `Claim · ${truncateOptionText(item.text, 72)}` : "Specific claim";
+  }
   return "";
 }
 

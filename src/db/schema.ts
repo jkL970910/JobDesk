@@ -1147,6 +1147,9 @@ export const enrichmentTaskTargets = pgTable(
     targetRole: enrichmentTaskTargetRoleEnum("target_role").notNull().default("primary"),
     confidence: enrichmentTaskTargetConfidenceEnum("confidence").notNull().default("medium"),
     reason: text("reason"),
+    createdBy: varchar("created_by", { length: 40 }).notNull().default("system"),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    rejectedAt: timestamp("rejected_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
