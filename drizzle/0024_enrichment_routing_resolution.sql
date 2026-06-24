@@ -3,16 +3,20 @@ ALTER TYPE "public"."enrichment_task_target_scope" ADD VALUE IF NOT EXISTS 'prof
 ALTER TYPE "public"."enrichment_task_expected_outcome" ADD VALUE IF NOT EXISTS 'save_profile_answer';--> statement-breakpoint
 ALTER TYPE "public"."enrichment_task_expected_outcome" ADD VALUE IF NOT EXISTS 'update_profile_fact';--> statement-breakpoint
 ALTER TYPE "public"."enrichment_task_expected_outcome" ADD VALUE IF NOT EXISTS 'route_answer';--> statement-breakpoint
-CREATE TYPE IF NOT EXISTS "public"."enrichment_task_resolution_kind" AS ENUM(
-  'acknowledged',
-  'dismissed',
-  'profile_answer_saved',
-  'profile_fact_updated',
-  'role_field_updated',
-  'import_reviewed',
-  'rerun_requested',
-  'converted_to_enrichment_question'
-);--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "public"."enrichment_task_resolution_kind" AS ENUM(
+    'acknowledged',
+    'dismissed',
+    'profile_answer_saved',
+    'profile_fact_updated',
+    'role_field_updated',
+    'import_reviewed',
+    'rerun_requested',
+    'converted_to_enrichment_question'
+  );
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
 ALTER TABLE "enrichment_tasks" ADD COLUMN IF NOT EXISTS "acknowledged_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "enrichment_tasks" ADD COLUMN IF NOT EXISTS "resolved_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "enrichment_tasks" ADD COLUMN IF NOT EXISTS "resolution_kind" "enrichment_task_resolution_kind";--> statement-breakpoint

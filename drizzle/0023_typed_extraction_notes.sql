@@ -1,25 +1,33 @@
-CREATE TYPE "public"."enrichment_task_note_kind" AS ENUM(
-  'observation',
-  'missing_profile_fact',
-  'missing_role_field',
-  'extraction_limit',
-  'import_review',
-  'evidence_gap',
-  'story_gap'
-);--> statement-breakpoint
-CREATE TYPE "public"."enrichment_task_expected_action" AS ENUM(
-  'acknowledge',
-  'dismiss',
-  'add_profile_fact',
-  'edit_profile_fact',
-  'edit_role_field',
-  'review_import',
-  'rerun_extraction',
-  'answer_enrichment_question'
-);--> statement-breakpoint
-ALTER TABLE "enrichment_tasks" ADD COLUMN "note_kind" "enrichment_task_note_kind";--> statement-breakpoint
-ALTER TABLE "enrichment_tasks" ADD COLUMN "expected_action" "enrichment_task_expected_action";--> statement-breakpoint
-ALTER TABLE "enrichment_tasks" ADD COLUMN "target_field" varchar(120);--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "public"."enrichment_task_note_kind" AS ENUM(
+    'observation',
+    'missing_profile_fact',
+    'missing_role_field',
+    'extraction_limit',
+    'import_review',
+    'evidence_gap',
+    'story_gap'
+  );
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "public"."enrichment_task_expected_action" AS ENUM(
+    'acknowledge',
+    'dismiss',
+    'add_profile_fact',
+    'edit_profile_fact',
+    'edit_role_field',
+    'review_import',
+    'rerun_extraction',
+    'answer_enrichment_question'
+  );
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+ALTER TABLE "enrichment_tasks" ADD COLUMN IF NOT EXISTS "note_kind" "enrichment_task_note_kind";--> statement-breakpoint
+ALTER TABLE "enrichment_tasks" ADD COLUMN IF NOT EXISTS "expected_action" "enrichment_task_expected_action";--> statement-breakpoint
+ALTER TABLE "enrichment_tasks" ADD COLUMN IF NOT EXISTS "target_field" varchar(120);--> statement-breakpoint
 UPDATE "enrichment_tasks"
 SET
   "task_type" = 'source_section_review'::"enrichment_task_type",
