@@ -198,6 +198,25 @@ export const enrichmentAnswerStatusEnum = pgEnum("enrichment_answer_status", [
   "applied",
   "rejected",
 ]);
+export const profileContextTypeEnum = pgEnum("profile_context_type", [
+  "target_role_preference",
+  "skills_to_emphasize",
+  "skills_to_avoid",
+  "positioning_preference",
+  "location_preference",
+  "work_style_preference",
+  "general_preference",
+]);
+export const profileContextStatusEnum = pgEnum("profile_context_status", [
+  "active",
+  "archived",
+]);
+export const profileFactSourceTypeEnum = pgEnum("profile_fact_source_type", [
+  "manual_edit",
+  "resume_import",
+  "profile_fact_task",
+  "system",
+]);
 export const enrichmentProposalTypeEnum = pgEnum("enrichment_proposal_type", [
   "create_evidence",
   "update_evidence",
@@ -1154,6 +1173,45 @@ export const enrichmentTaskTargets = pgTable(
   }),
 );
 
+export const profileFactHistory = pgTable(
+  "profile_fact_history",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+    field: varchar("field", { length: 80 }).notNull(),
+    valueJson: jsonb("value_json").$type<unknown>().notNull(),
+    previousValueJson: jsonb("previous_value_json").$type<unknown>(),
+    sourceType: profileFactSourceTypeEnum("source_type").notNull(),
+    sourceTaskId: uuid("source_task_id").references(() => enrichmentTasks.id, {
+      onDelete: "set null",
+    }),
+    sourceDocumentId: uuid("source_document_id").references(() => sourceDocuments.id, {
+      onDelete: "set null",
+    }),
+    updatedBy: varchar("updated_by", { length: 80 }).notNull().default("user"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    profileFieldIdx: index("profile_fact_history_profile_field_idx").on(
+      table.profileId,
+      table.field,
+      table.createdAt,
+    ),
+    workspaceFieldIdx: index("profile_fact_history_workspace_field_idx").on(
+      table.workspaceId,
+      table.field,
+      table.createdAt,
+    ),
+  }),
+);
+
 export const enrichmentAnswers = pgTable(
   "enrichment_answers",
   {
@@ -1183,6 +1241,43 @@ export const enrichmentAnswers = pgTable(
     ),
     workspaceUpdatedIdx: index("enrichment_answers_workspace_updated_idx").on(
       table.workspaceId,
+      table.updatedAt,
+    ),
+  }),
+);
+
+export const profileContextAnswers = pgTable(
+  "profile_context_answers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sourceTaskId: uuid("source_task_id").references(() => enrichmentTasks.id, {
+      onDelete: "set null",
+    }),
+    sourceAnswerId: uuid("source_answer_id").references(() => enrichmentAnswers.id, {
+      onDelete: "set null",
+    }),
+    contextType: profileContextTypeEnum("context_type")
+      .notNull()
+      .default("general_preference"),
+    answerText: text("answer_text").notNull(),
+    normalizedTags: jsonb("normalized_tags").$type<string[]>().notNull().default([]),
+    status: profileContextStatusEnum("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    taskIdx: index("profile_context_answers_task_idx").on(table.sourceTaskId),
+    workspaceTypeIdx: index("profile_context_answers_workspace_type_idx").on(
+      table.workspaceId,
+      table.contextType,
+      table.status,
       table.updatedAt,
     ),
   }),
@@ -1590,6 +1685,7 @@ export const enrichmentTaskRelations = relations(enrichmentTasks, ({ one, many }
     references: [resumeReviewReports.id],
   }),
   answers: many(enrichmentAnswers),
+  profileContextAnswers: many(profileContextAnswers),
   proposals: many(enrichmentProposals),
   proposalRevisions: many(enrichmentProposalRevisions),
 }));
@@ -1615,6 +1711,22 @@ export const enrichmentAnswerRelations = relations(enrichmentAnswers, ({ one, ma
     references: [enrichmentTasks.id],
   }),
   proposals: many(enrichmentProposals),
+  profileContextAnswers: many(profileContextAnswers),
+}));
+
+export const profileContextAnswerRelations = relations(profileContextAnswers, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [profileContextAnswers.workspaceId],
+    references: [workspaces.id],
+  }),
+  sourceTask: one(enrichmentTasks, {
+    fields: [profileContextAnswers.sourceTaskId],
+    references: [enrichmentTasks.id],
+  }),
+  sourceAnswer: one(enrichmentAnswers, {
+    fields: [profileContextAnswers.sourceAnswerId],
+    references: [enrichmentAnswers.id],
+  }),
 }));
 
 export const enrichmentProposalRelations = relations(enrichmentProposals, ({ one, many }) => ({

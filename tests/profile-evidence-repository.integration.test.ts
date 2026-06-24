@@ -16,6 +16,8 @@ import {
   evidenceItems,
   generatedClaims,
   initiatives,
+  profileContextAnswers,
+  profileFactHistory,
   profiles,
   resumeSourceVersions,
   sourceDocuments,
@@ -40,8 +42,9 @@ import {
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
 import { skillRegistry } from "../src/ai/skills-registry";
 import { expectWorkflowRunMetadata } from "./helpers/workflow-run-assertions";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { getCurrentWorkspace } from "../src/server/workspace-repository";
+import { getProfilePositioningContext } from "../src/server/profile-positioning-repository";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
 
@@ -1238,6 +1241,37 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(answered.task.proposals).toHaveLength(0);
     const evidenceRows = await db.select().from(evidenceItems).where(eq(evidenceItems.text, answer));
     expect(evidenceRows).toHaveLength(0);
+    const contextRows = await db
+      .select()
+      .from(profileContextAnswers)
+      .where(eq(profileContextAnswers.sourceTaskId, task.id));
+    expect(contextRows).toHaveLength(1);
+    expect(contextRows[0]).toMatchObject({
+      answerText: answer,
+      contextType: "skills_to_emphasize",
+      status: "active",
+    });
+    expect(contextRows[0]?.sourceAnswerId).toBeTruthy();
+    const linkedAnswers = await db
+      .select()
+      .from(enrichmentAnswers)
+      .where(eq(enrichmentAnswers.id, contextRows[0]?.sourceAnswerId ?? ""));
+    expect(linkedAnswers).toHaveLength(1);
+    expect(linkedAnswers[0]).toMatchObject({
+      answerText: answer,
+      answerStatus: "applied",
+      taskId: task.id,
+    });
+    const positioningContext = await getProfilePositioningContext();
+    expect(
+      positioningContext.profileContextAnswers.some(
+        (item) => item.id === contextRows[0]?.id && item.answerText === answer,
+      ),
+    ).toBe(true);
+    const resumeContext = await getResumeTailoringContext();
+    expect(resumeContext.evidenceItems.some((item) => item.text === answer)).toBe(false);
+    expect(resumeContext).not.toHaveProperty("profileContextAnswers");
+    expect(resumeContext).not.toHaveProperty("profile_context_answers");
   });
 
   it("resolves imported notes as reviewed, rerun requested, or converted to enrichment questions", async () => {
@@ -1420,6 +1454,31 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       taskId: task.id,
     });
     expect(result.status).toBe("updated");
+    const historyRows = await db
+      .select()
+      .from(profileFactHistory)
+      .where(eq(profileFactHistory.profileId, result.status === "updated" ? result.profile.id : ""))
+      .orderBy(desc(profileFactHistory.createdAt))
+      .limit(5);
+    expect(historyRows[0]).toMatchObject({
+      field: "certifications",
+      sourceType: "profile_fact_task",
+      sourceTaskId: task.id,
+      updatedBy: "user",
+    });
+    expect(historyRows[0]?.valueJson).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          value: "AWS Certified Cloud Practitioner · Issuer: AWS",
+        }),
+      ]),
+    );
+    const library = await getRecentEvidenceLibrary(10);
+    expect(library.profile?.fact_sources?.certifications).toMatchObject({
+      source_task_id: task.id,
+      source_type: "profile_fact_task",
+      updated_by: "user",
+    });
     const refreshed = await getEnrichmentTaskQueue({
       limit: 20,
       sourceType: "extraction_note",
@@ -1500,6 +1559,115 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     });
   });
 
+  it("updates non-location role fields from imported note tasks", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const prompt = `Amazon role end date is stated as Present ${crypto.randomUUID()}.`;
+    const [role] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: "Amazon",
+        roleTitle: "Software Development Engineer Intern",
+      })
+      .returning({ id: workExperiences.id });
+    if (!role) throw new Error("Expected role.");
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          taskType: "source_section_review",
+          sourceType: "extraction_note",
+          sourceLabel: "Resume import",
+          prompt,
+          targetScope: "source_material",
+          expectedOutcome: "review_imported_material",
+          noteKind: "missing_role_field",
+          expectedAction: "edit_role_field",
+          targetField: "end_date",
+          workExperienceId: role.id,
+        },
+      ],
+    });
+    const queue = await getEnrichmentTaskQueue({
+      limit: 20,
+      sourceType: "extraction_note",
+      statuses: ["open"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const task = queue.tasks.find((item) => item.prompt === prompt);
+    if (!task) throw new Error("Expected imported note task.");
+
+    const result = await updateWorkExperienceFields({
+      workExperienceId: role.id,
+      endDate: "Present",
+      taskId: task.id,
+    });
+    expect(result.status).toBe("saved");
+    const [updatedRole] = await db
+      .select()
+      .from(workExperiences)
+      .where(eq(workExperiences.id, role.id))
+      .limit(1);
+    expect(updatedRole?.endDate).toBe("Present");
+  });
+
+  it("rejects role field updates when the submitted field does not match the imported note field", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const prompt = `Shopify role team missing ${crypto.randomUUID()}.`;
+    const [role] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: "Shopify",
+        roleTitle: "Backend Intern",
+      })
+      .returning({ id: workExperiences.id });
+    if (!role) throw new Error("Expected role.");
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          taskType: "source_section_review",
+          sourceType: "extraction_note",
+          sourceLabel: "Resume import",
+          prompt,
+          targetScope: "source_material",
+          expectedOutcome: "review_imported_material",
+          noteKind: "missing_role_field",
+          expectedAction: "edit_role_field",
+          targetField: "team",
+          workExperienceId: role.id,
+        },
+      ],
+    });
+    const queue = await getEnrichmentTaskQueue({
+      limit: 20,
+      sourceType: "extraction_note",
+      statuses: ["open"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const task = queue.tasks.find((item) => item.prompt === prompt);
+    if (!task) throw new Error("Expected imported note task.");
+
+    const result = await updateWorkExperienceFields({
+      workExperienceId: role.id,
+      location: "Toronto, ON",
+      taskId: task.id,
+    });
+    expect(result).toMatchObject({ status: "invalid", reason: "task_field_mismatch" });
+    const [unchangedRole] = await db
+      .select()
+      .from(workExperiences)
+      .where(eq(workExperiences.id, role.id))
+      .limit(1);
+    expect(unchangedRole?.location).toBeNull();
+    expect(unchangedRole?.team).toBeNull();
+  });
+
   it("rejects role field updates when the imported note is anchored to a different role", async () => {
     const db = getDb();
     const workspace = await getCurrentWorkspace(db);
@@ -1546,15 +1714,6 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
     const task = queue.tasks.find((item) => item.prompt === prompt);
     if (!task) throw new Error("Expected imported note task.");
-    await db.insert(enrichmentTaskTargets).values({
-      workspaceId: workspace.id,
-      taskId: task.id,
-      targetKind: "work_experience",
-      targetId: targetRole.id,
-      targetRole: "primary",
-      confidence: "high",
-      reason: "Imported note references this role.",
-    });
 
     const result = await updateWorkExperienceFields({
       workExperienceId: wrongRole.id,

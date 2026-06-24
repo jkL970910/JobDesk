@@ -12,6 +12,7 @@ import type {
 import { getDb, hasDatabaseUrl } from "../db/client";
 import {
   evidenceItems,
+  profileContextAnswers,
   profilePositioningReports,
   profiles,
   workflowRuns,
@@ -67,6 +68,17 @@ export async function getProfilePositioningContext() {
   const evidence = rows
     .filter((item) => isUsefulPositioningEvidence(item))
     .map(toProfilePositioningEvidenceContext);
+  const profileContextRows = await db
+    .select()
+    .from(profileContextAnswers)
+    .where(
+      and(
+        eq(profileContextAnswers.workspaceId, workspace.id),
+        eq(profileContextAnswers.status, "active"),
+      ),
+    )
+    .orderBy(desc(profileContextAnswers.updatedAt))
+    .limit(25);
   return {
     profile: profile
       ? {
@@ -77,6 +89,13 @@ export async function getProfilePositioningContext() {
       : null,
     evidenceItems: evidence,
     evidenceSnapshotHash: buildEvidenceSnapshotHash(evidence),
+    profileContextAnswers: profileContextRows.map((item) => ({
+      id: item.id,
+      contextType: item.contextType,
+      answerText: item.answerText,
+      normalizedTags: item.normalizedTags,
+      updatedAt: item.updatedAt.toISOString(),
+    })),
   };
 }
 

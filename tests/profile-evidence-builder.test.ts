@@ -130,6 +130,8 @@ describe("Evidence Library Builder instructions", () => {
         "Project type for Full-Stack Shopping Market System is classified as personal_project because it appears under PROJECTS and not under an employer.",
         "No certifications were found in the source.",
         "NVIDIA work experience line does not state a location.",
+        "Shopify role line does not state a team.",
+        "Amazon role end date is stated as Present.",
       ],
     });
 
@@ -158,6 +160,16 @@ describe("Evidence Library Builder instructions", () => {
       expectedAction: "edit_role_field",
       targetField: "location",
     });
+    expect(tasks[5]).toMatchObject({
+      noteKind: "missing_role_field",
+      expectedAction: "edit_role_field",
+      targetField: "team",
+    });
+    expect(tasks[6]).toMatchObject({
+      noteKind: "missing_role_field",
+      expectedAction: "edit_role_field",
+      targetField: "end_date",
+    });
   });
 
   it("keeps concrete extraction notes as ordinary enrichment questions", () => {
@@ -173,6 +185,26 @@ describe("Evidence Library Builder instructions", () => {
       prompt: "Add a concrete activation metric for the onboarding dashboard.",
     });
     expect(task).not.toHaveProperty("expectedOutcome", "review_imported_material");
+  });
+
+  it("does not route generic project description notes to role summary editing", () => {
+    const [task] = buildExtractionNoteEnrichmentTasks({
+      sourceTitle: "Resume import",
+      notes: ["Project description missing for portfolio project entry."],
+    });
+
+    expect(task).toMatchObject({
+      taskType: "source_section_review",
+      sourceType: "extraction_note",
+      targetScope: "source_material",
+      expectedOutcome: "review_imported_material",
+      expectedAction: "review_import",
+    });
+    expect(task).not.toMatchObject({
+      noteKind: "missing_role_field",
+      expectedAction: "edit_role_field",
+      targetField: "summary",
+    });
   });
 
   it("classifies broad profile positioning questions without evidence anchors", () => {

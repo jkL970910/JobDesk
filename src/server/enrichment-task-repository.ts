@@ -27,6 +27,7 @@ import {
   enrichmentAnswers,
   enrichmentProposalRevisions,
   enrichmentProposals,
+  profileContextAnswers,
   enrichmentTaskTargets,
   enrichmentTasks,
   evidenceItems,
@@ -48,6 +49,7 @@ import {
   type enrichmentTaskTypeEnum,
   type enrichmentProposalStatusEnum,
   type enrichmentProposalTypeEnum,
+  type profileContextTypeEnum,
 } from "../db/schema";
 import { workflowSkillFields } from "./workflow-run-metadata";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
@@ -373,16 +375,17 @@ function classifyExtractionNoteAction(note: string): {
     };
   }
 
+  const roleField = inferRoleTargetField(normalized);
   if (
-    /\b(location was not|does not state a location|no location|location missing)\b/.test(normalized) &&
-    /\b(work experience|role|employer|nvidia|shopify|amazon)\b/.test(normalized)
+    roleField &&
+    looksLikeRoleFieldNote(normalized)
   ) {
     return {
       confidence: "high",
       expectedAction: "edit_role_field",
       noteKind: "missing_role_field",
       reason: "This note points to a missing role field. Edit the role directly instead of saving a generic answer.",
-      targetField: "location",
+      targetField: roleField,
     };
   }
 
@@ -465,6 +468,31 @@ function inferProfileTargetField(normalized: string) {
   if (/\blocation/.test(normalized)) return "location";
   if (/\bpresent|end date/.test(normalized)) return "end_date";
   return null;
+}
+
+function inferRoleTargetField(normalized: string) {
+  if (/\b(location was not|does not state a location|no location|location missing|role location|work location)\b/.test(normalized)) {
+    return "location";
+  }
+  if (/\b(team was not|does not state a team|no team|team missing|department missing|group missing|team\/department)\b/.test(normalized)) {
+    return "team";
+  }
+  if (/\b(start date was not|does not state a start date|no start date|start date missing|started date|begin date)\b/.test(normalized)) {
+    return "start_date";
+  }
+  if (/\b(end date was not|does not state an end date|does not state a clear end date|no end date|end date missing|present preserved|stated as present|end date is present|current role)\b/.test(normalized)) {
+    return "end_date";
+  }
+  if (/\b(summary was not|does not state a summary|no summary|summary missing|role summary|role description missing|description missing)\b/.test(normalized)) {
+    return "summary";
+  }
+  return null;
+}
+
+function looksLikeRoleFieldNote(normalized: string) {
+  return /\b(work experience|role|employer|company|internship|job|position|experience line|employment|role line|work line)\b/.test(
+    normalized,
+  );
 }
 
 export async function updateEnrichmentTask(args: {
@@ -577,6 +605,11 @@ export async function updateEnrichmentTask(args: {
         workspaceId: workspace.id,
         taskId: existing.id,
         now,
+      });
+      await saveProfileContextAnswer(db, {
+        answer,
+        now,
+        task: existing,
       });
     }
   } else if (args.action === "acknowledge") {
@@ -731,6 +764,52 @@ export async function updateEnrichmentTask(args: {
         ),
       })
     : ({ status: "not_found" as const });
+}
+
+async function saveProfileContextAnswer(
+  db: Pick<DbHandle, "insert" | "update">,
+  args: {
+    answer: string;
+    now: Date;
+    task: typeof enrichmentTasks.$inferSelect;
+  },
+) {
+  const [answerRow] = await db
+    .insert(enrichmentAnswers)
+    .values({
+      workspaceId: args.task.workspaceId,
+      taskId: args.task.id,
+      answerText: args.answer,
+      answerStatus: "applied",
+      createdAt: args.now,
+      updatedAt: args.now,
+    })
+    .returning({ id: enrichmentAnswers.id });
+  if (!answerRow) throw new Error("Failed to save profile context answer.");
+  await db
+    .update(profileContextAnswers)
+    .set({
+      status: "archived",
+      updatedAt: args.now,
+    })
+    .where(
+      and(
+        eq(profileContextAnswers.workspaceId, args.task.workspaceId),
+        eq(profileContextAnswers.sourceTaskId, args.task.id),
+        eq(profileContextAnswers.status, "active"),
+      ),
+    );
+  await db.insert(profileContextAnswers).values({
+    workspaceId: args.task.workspaceId,
+    sourceTaskId: args.task.id,
+    sourceAnswerId: answerRow.id,
+    contextType: inferProfileContextType(args.task.prompt, args.answer),
+    answerText: args.answer,
+    normalizedTags: normalizeProfileContextTags(args.task.prompt, args.answer),
+    status: "active",
+    createdAt: args.now,
+    updatedAt: args.now,
+  });
 }
 
 export async function reconcileResumeReviewEnrichmentTasksForSource(
@@ -2272,6 +2351,46 @@ function shouldGenerateInitialProposalWithAi(type: EnrichmentProposalType) {
 
 function shouldSaveProfileContextAnswer(task: typeof enrichmentTasks.$inferSelect) {
   return task.targetScope === "profile_context" || task.expectedOutcome === "save_profile_answer";
+}
+
+function inferProfileContextType(
+  prompt: string,
+  answer: string,
+): (typeof profileContextTypeEnum.enumValues)[number] {
+  const normalized = `${prompt} ${answer}`.toLowerCase();
+  if (/\b(avoid|deprioritize|less|not emphasize|hide|downplay)\b/.test(normalized) && /\b(skills?|techniques?|tech|technology|tool|framework)\b/.test(normalized)) {
+    return "skills_to_avoid";
+  }
+  if (/\b(skills?|techniques?|technology|technical|tool|framework|language)\b/.test(normalized)) {
+    return "skills_to_emphasize";
+  }
+  if (/\b(location|relocat|remote|hybrid|onsite|on-site|work style|timezone)\b/.test(normalized)) {
+    return "work_style_preference";
+  }
+  if (/\b(target role|future role|role direction|career direction|next role|software engineering role)\b/.test(normalized)) {
+    return "target_role_preference";
+  }
+  if (/\b(positioning|emphasize|highlight|focus|prioritize|strongest|most recent)\b/.test(normalized)) {
+    return "positioning_preference";
+  }
+  return "general_preference";
+}
+
+function normalizeProfileContextTags(prompt: string, answer: string) {
+  const text = `${prompt} ${answer}`.toLowerCase();
+  const tags = new Set<string>();
+  const tagPatterns: Array<[string, RegExp]> = [
+    ["skills", /\b(skills?|techniques?|technical|technology|tool|framework|language)\b/],
+    ["future_roles", /\b(future role|target role|next role|career direction)\b/],
+    ["positioning", /\b(positioning|emphasize|highlight|prioritize|focus)\b/],
+    ["location", /\b(location|remote|hybrid|onsite|relocat|timezone)\b/],
+    ["avoid", /\b(avoid|deprioritize|downplay|not emphasize)\b/],
+    ["work_style", /\b(work style|remote|hybrid|onsite|on-site)\b/],
+  ];
+  for (const [tag, pattern] of tagPatterns) {
+    if (pattern.test(text)) tags.add(tag);
+  }
+  return Array.from(tags);
 }
 
 function shouldCreateProposalForTask(task: typeof enrichmentTasks.$inferSelect) {

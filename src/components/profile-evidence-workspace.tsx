@@ -4516,14 +4516,16 @@ function SourceSectionReviewPane({
   const [roleEditStatus, setRoleEditStatus] = useState<string | null>(null);
   const taskWorkExperienceId = getEnrichmentTargetId(task, "work_experience");
   const [selectedRoleId, setSelectedRoleId] = useState(() => taskWorkExperienceId);
-  const [roleLocation, setRoleLocation] = useState("");
+  const [roleFieldValue, setRoleFieldValue] = useState("");
   const [isSavingRoleField, setIsSavingRoleField] = useState(false);
   const sectionName = extractSourceSectionName(task.prompt);
   const actionModel = getImportedNoteActionModel(task, sectionName);
   const showRoleFieldEditor = task.expected_action === "edit_role_field";
+  const roleFieldKey = normalizeImportedRoleTargetField(task.target_field);
+  const roleFieldConfig = getRoleFieldEditorConfig(roleFieldKey);
   useEffect(() => {
     setSelectedRoleId(taskWorkExperienceId);
-    setRoleLocation("");
+    setRoleFieldValue("");
     setRoleEditStatus(null);
     setCustomizing(false);
   }, [task.id, taskWorkExperienceId]);
@@ -4544,8 +4546,8 @@ function SourceSectionReviewPane({
       setRoleEditStatus("Choose the matching role first.");
       return;
     }
-    if (roleLocation.trim().length < 2) {
-      setRoleEditStatus("Add the role location before saving.");
+    if (roleFieldValue.trim().length < 2) {
+      setRoleEditStatus(`Add ${roleFieldConfig.label.toLowerCase()} before saving.`);
       return;
     }
     setIsSavingRoleField(true);
@@ -4554,7 +4556,7 @@ function SourceSectionReviewPane({
       const response = await fetchJson(`/api/work-experiences/${selectedRoleId}`, {
         body: JSON.stringify({
           action: "update_fields",
-          location: roleLocation,
+          [roleFieldConfig.requestKey]: roleFieldValue,
           taskId: task.id,
         }),
         headers: { "Content-Type": "application/json" },
@@ -4638,22 +4640,33 @@ function SourceSectionReviewPane({
               </select>
             </label>
             <label className="source-field">
-              <span>{formatImportedNoteTargetField(task.target_field ?? "location")}</span>
-              <input
-                className="jd-input jd-input--compact"
-                disabled={isPending || isSavingRoleField}
-                placeholder="City, region, or remote"
-                value={roleLocation}
-                onChange={(event) => setRoleLocation(event.target.value)}
-              />
+              <span>{roleFieldConfig.label}</span>
+              {roleFieldKey === "summary" ? (
+                <textarea
+                  className="jd-input jd-input--compact"
+                  disabled={isPending || isSavingRoleField}
+                  placeholder={roleFieldConfig.placeholder}
+                  rows={3}
+                  value={roleFieldValue}
+                  onChange={(event) => setRoleFieldValue(event.target.value)}
+                />
+              ) : (
+                <input
+                  className="jd-input jd-input--compact"
+                  disabled={isPending || isSavingRoleField}
+                  placeholder={roleFieldConfig.placeholder}
+                  value={roleFieldValue}
+                  onChange={(event) => setRoleFieldValue(event.target.value)}
+                />
+              )}
             </label>
             <button
               className="primary-action"
-              disabled={isPending || isSavingRoleField || !selectedRoleId || roleLocation.trim().length < 2}
+              disabled={isPending || isSavingRoleField || !selectedRoleId || roleFieldValue.trim().length < 2}
               type="button"
               onClick={() => void saveRoleField()}
             >
-              {isSavingRoleField ? "Saving..." : "Save role field"}
+              {isSavingRoleField ? "Saving..." : `Save ${roleFieldConfig.shortLabel}`}
             </button>
             {roleEditStatus ? <span className="status">{roleEditStatus}</span> : null}
           </div>
@@ -4848,8 +4861,63 @@ function formatImportedNoteTargetField(field: string) {
     personal_location: "location",
     skills: "skills",
     skill: "skills",
+    start_date: "start date",
+    summary: "summary",
+    team: "team",
   };
   return labels[field] ?? field.replace(/_/g, " ");
+}
+
+function normalizeImportedRoleTargetField(
+  field: string | null | undefined,
+): "location" | "team" | "start_date" | "end_date" | "summary" {
+  if (field === "team" || field === "start_date" || field === "end_date" || field === "summary") {
+    return field;
+  }
+  if (field === "startDate") return "start_date";
+  if (field === "endDate") return "end_date";
+  return "location";
+}
+
+function getRoleFieldEditorConfig(
+  field: "location" | "team" | "start_date" | "end_date" | "summary",
+) {
+  const configs = {
+    end_date: {
+      label: "End date",
+      placeholder: "Aug 2025 or Present",
+      requestKey: "endDate",
+      shortLabel: "end date",
+    },
+    location: {
+      label: "Location",
+      placeholder: "City, region, or Remote",
+      requestKey: "location",
+      shortLabel: "location",
+    },
+    start_date: {
+      label: "Start date",
+      placeholder: "May 2025",
+      requestKey: "startDate",
+      shortLabel: "start date",
+    },
+    summary: {
+      label: "Role summary",
+      placeholder: "One sentence about this role's scope or focus",
+      requestKey: "summary",
+      shortLabel: "summary",
+    },
+    team: {
+      label: "Team",
+      placeholder: "Platform, Growth, Infrastructure...",
+      requestKey: "team",
+      shortLabel: "team",
+    },
+  } satisfies Record<
+    "location" | "team" | "start_date" | "end_date" | "summary",
+    { label: string; placeholder: string; requestKey: string; shortLabel: string }
+  >;
+  return configs[field];
 }
 
 function profileGapFieldFromImportedNote(

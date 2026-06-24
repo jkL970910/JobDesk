@@ -10,6 +10,7 @@ import {
   overlapReviewDecisions,
   portfolioProjects,
   profiles,
+  profileFactHistory,
   projectCards,
   resumeSourceVersions,
   sourceDocuments,
@@ -1208,6 +1209,14 @@ export async function getRecentEvidenceLibrary(limit = 8) {
     .where(eq(profiles.workspaceId, workspace.id))
     .orderBy(desc(profiles.updatedAt))
     .limit(1);
+  const profileFactSources = profile
+    ? await db
+        .select()
+        .from(profileFactHistory)
+        .where(and(eq(profileFactHistory.workspaceId, workspace.id), eq(profileFactHistory.profileId, profile.id)))
+        .orderBy(desc(profileFactHistory.createdAt))
+        .limit(40)
+    : [];
   const evidence = await db
     .select()
     .from(evidenceItems)
@@ -1246,6 +1255,7 @@ export async function getRecentEvidenceLibrary(limit = 8) {
           displayName: profile.displayName,
           updatedAt: profile.updatedAt.toISOString(),
           profile: profile.profileJson,
+          fact_sources: summarizeProfileFactSources(profileFactSources),
         }
       : null,
     evidenceItems: evidence.map((item) => ({
@@ -1352,6 +1362,7 @@ export async function updateProfileFacts(args: ProfileFactPatchRequest) {
   }
 
   const now = new Date();
+  const previousProfileJson = profile.profileJson;
   const profileJson = applyProfileFactPatch(profile.profileJson, args);
   const displayName = extractManualProfileDisplayName(profileJson) ?? profile.displayName;
   const updated = await db.transaction(async (tx) => {
@@ -1392,6 +1403,18 @@ export async function updateProfileFacts(args: ProfileFactPatchRequest) {
         updatedAt: profiles.updatedAt,
       });
     if (!profileRow) return { status: "not_found" as const };
+    await tx.insert(profileFactHistory).values({
+      workspaceId: workspace.id,
+      profileId: profile.id,
+      field: args.field,
+      valueJson: getProfileFactValue(profileJson, args.field),
+      previousValueJson: getProfileFactValue(previousProfileJson, args.field),
+      sourceType: args.taskId ? "profile_fact_task" : "manual_edit",
+      sourceTaskId: args.taskId ?? null,
+      sourceDocumentId: profile.sourceDocumentId,
+      updatedBy: "user",
+      createdAt: now,
+    });
     if (args.taskId) {
       await tx
         .update(enrichmentTasks)
@@ -1448,6 +1471,46 @@ function normalizeProfileFactField(value: string | null | undefined) {
     return "skills";
   }
   return null;
+}
+
+function getProfileFactValue(
+  profile: CanonicalProfileJson,
+  field: ProfileFactPatchRequest["field"],
+) {
+  if (field === "location") {
+    return isPlainRecord(profile.contact) ? profile.contact.location ?? null : null;
+  }
+  if (field === "contact") return profile.contact ?? null;
+  if (field === "education") return profile.education ?? [];
+  if (field === "skills") return profile.skills ?? [];
+  if (field === "certifications") return profile.certifications ?? [];
+  return null;
+}
+
+function summarizeProfileFactSources(
+  rows: Array<typeof profileFactHistory.$inferSelect>,
+) {
+  const summary: Record<
+    string,
+    {
+      source_document_id: string | null;
+      source_task_id: string | null;
+      source_type: string;
+      updated_at: string;
+      updated_by: string;
+    }
+  > = {};
+  for (const row of rows) {
+    if (summary[row.field]) continue;
+    summary[row.field] = {
+      source_document_id: row.sourceDocumentId,
+      source_task_id: row.sourceTaskId,
+      source_type: row.sourceType,
+      updated_at: row.createdAt.toISOString(),
+      updated_by: row.updatedBy,
+    };
+  }
+  return summary;
 }
 
 export type EvidenceDedupeCandidate = {
@@ -2631,6 +2694,10 @@ export async function updateWorkExperienceFields(args: {
   const db = getDb();
   return db.transaction(async (tx) => {
     const workspace = await getCurrentWorkspace(tx);
+    const submittedFields = getSubmittedWorkExperienceFields(args);
+    if (submittedFields.length === 0) {
+      return { status: "invalid" as const, reason: "missing_work_experience_field" as const };
+    }
     const [current] = await tx
       .select({
         id: workExperiences.id,
@@ -2651,6 +2718,9 @@ export async function updateWorkExperienceFields(args: {
     }
 
     if (args.taskId) {
+      if (submittedFields.length > 1) {
+        return { status: "invalid" as const, reason: "multiple_work_experience_fields" as const };
+      }
       const [task] = await tx
         .select({
           id: enrichmentTasks.id,
@@ -2668,6 +2738,11 @@ export async function updateWorkExperienceFields(args: {
         task.expectedAction !== "edit_role_field"
       ) {
         return { status: "invalid" as const, reason: "task_not_role_field_update" as const };
+      }
+      const expectedField = normalizeWorkExperienceTargetField(task.targetField);
+      const submittedField = submittedFields[0];
+      if (!expectedField || expectedField !== submittedField) {
+        return { status: "invalid" as const, reason: "task_field_mismatch" as const };
       }
       const targetRows = await tx
         .select({
@@ -2740,6 +2815,29 @@ export async function updateWorkExperienceFields(args: {
 
     return { status: "saved" as const, workExperience: updated };
   });
+}
+
+function getSubmittedWorkExperienceFields(args: {
+  location?: string | null;
+  team?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  summary?: string | null;
+}) {
+  const fields: Array<"location" | "team" | "start_date" | "end_date" | "summary"> = [];
+  if (args.location !== undefined) fields.push("location");
+  if (args.team !== undefined) fields.push("team");
+  if (args.startDate !== undefined) fields.push("start_date");
+  if (args.endDate !== undefined) fields.push("end_date");
+  if (args.summary !== undefined) fields.push("summary");
+  return fields;
+}
+
+function normalizeWorkExperienceTargetField(value: string | null | undefined) {
+  if (value === "location" || value === "team" || value === "summary") return value;
+  if (value === "start_date" || value === "startDate") return "start_date";
+  if (value === "end_date" || value === "endDate") return "end_date";
+  return null;
 }
 
 export async function markClaimsStaleForEvidenceIds(evidenceIds: string[]) {
