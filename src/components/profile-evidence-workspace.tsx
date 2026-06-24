@@ -1320,9 +1320,7 @@ export function ProfileEvidenceWorkspace({
     setStatus("Saving profile fact.");
     setIsProjectEnriching(true);
     try {
-      const patch = buildProfileFactPatchFromText(activeProfileGap.field, projectNoteText, {
-        taskId: activeProfileGap.taskId,
-      });
+      const patch = activeProfileFactPatch;
       if (!patch) {
         setError("Add at least one usable profile fact before saving.");
         return;
@@ -1360,9 +1358,14 @@ export function ProfileEvidenceWorkspace({
 
   const sourceIsReady = sourceText.trim().length >= 80;
   const guidedReadiness = getGuidedMaterialReadiness(guidedMaterialFields);
+  const activeProfileFactPatch = activeProfileGap
+    ? buildProfileFactPatchFromText(activeProfileGap.field, projectNoteText, {
+        taskId: activeProfileGap.taskId,
+      })
+    : null;
   const projectNoteIsReady =
     activeProfileGap
-      ? projectNoteText.trim().length >= 2
+      ? Boolean(activeProfileFactPatch)
       : projectSourceMode === "guided"
         ? guidedReadiness.isReady && hasGuidedMaterialContent(projectNoteText)
         : projectNoteText.trim().length >= 80;
@@ -3230,6 +3233,7 @@ function ProfileFactSourceForm({
   status: string;
 }) {
   const copy = profileFactSourceCopy(field);
+  const canSave = Boolean(buildProfileFactPatchFromText(field, sourceText));
   return (
     <section className="profile-fact-source-form source-active-form">
       <div className="profile-fact-source-form__header">
@@ -3263,7 +3267,7 @@ function ProfileFactSourceForm({
       <div className="actions">
         <button
           className="primary-button"
-          disabled={isRunning || sourceText.trim().length < 40}
+          disabled={isRunning || !canSave}
           type="button"
           onClick={onRun}
         >
@@ -4415,9 +4419,8 @@ function SourceSectionReviewPane({
   const { fetchJson } = useAccess();
   const [customizing, setCustomizing] = useState(false);
   const [roleEditStatus, setRoleEditStatus] = useState<string | null>(null);
-  const [selectedRoleId, setSelectedRoleId] = useState(() =>
-    getEnrichmentTargetId(task, "work_experience") || workExperiences[0]?.id || "",
-  );
+  const taskWorkExperienceId = getEnrichmentTargetId(task, "work_experience");
+  const [selectedRoleId, setSelectedRoleId] = useState(() => taskWorkExperienceId);
   const [roleLocation, setRoleLocation] = useState("");
   const [isSavingRoleField, setIsSavingRoleField] = useState(false);
   const sectionName = extractSourceSectionName(task.prompt);

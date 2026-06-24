@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { getDb, hasDatabaseUrl } from "../db/client";
 import {
   evidenceItems,
+  enrichmentTaskTargets,
   enrichmentTasks,
   generatedClaims,
   initiatives,
@@ -2639,6 +2640,7 @@ export async function updateWorkExperienceFields(args: {
           noteKind: enrichmentTasks.noteKind,
           expectedAction: enrichmentTasks.expectedAction,
           targetField: enrichmentTasks.targetField,
+          workExperienceId: enrichmentTasks.workExperienceId,
         })
         .from(enrichmentTasks)
         .where(and(eq(enrichmentTasks.workspaceId, workspace.id), eq(enrichmentTasks.id, args.taskId)))
@@ -2649,6 +2651,27 @@ export async function updateWorkExperienceFields(args: {
         task.expectedAction !== "edit_role_field"
       ) {
         return { status: "invalid" as const, reason: "task_not_role_field_update" as const };
+      }
+      const targetRows = await tx
+        .select({
+          targetId: enrichmentTaskTargets.targetId,
+          targetRole: enrichmentTaskTargets.targetRole,
+        })
+        .from(enrichmentTaskTargets)
+        .where(
+          and(
+            eq(enrichmentTaskTargets.workspaceId, workspace.id),
+            eq(enrichmentTaskTargets.taskId, args.taskId),
+            eq(enrichmentTaskTargets.targetKind, "work_experience"),
+          ),
+        );
+      const anchoredWorkExperienceId =
+        task.workExperienceId ??
+        targetRows.find((target) => target.targetRole === "primary")?.targetId ??
+        targetRows.find((target) => target.targetRole === "parent")?.targetId ??
+        null;
+      if (anchoredWorkExperienceId && anchoredWorkExperienceId !== args.workExperienceId) {
+        return { status: "invalid" as const, reason: "task_target_mismatch" as const };
       }
     }
 

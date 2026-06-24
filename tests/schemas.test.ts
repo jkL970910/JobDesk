@@ -568,6 +568,14 @@ describe("Profile fact patch request", () => {
       field: "location",
       location: "Toronto, Canada",
     });
+    expect(buildProfileFactPatchFromText("skills", "AWS")).toEqual({
+      field: "skills",
+      skills: ["AWS"],
+    });
+    expect(buildProfileFactPatchFromText("certifications", "AWS")).toEqual({
+      field: "certifications",
+      certifications: ["AWS"],
+    });
   });
 });
 

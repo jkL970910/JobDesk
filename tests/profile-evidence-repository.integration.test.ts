@@ -1361,6 +1361,76 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     });
   });
 
+  it("rejects role field updates when the imported note is anchored to a different role", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const prompt = `NVIDIA location mismatch guard ${crypto.randomUUID()}.`;
+    const [targetRole, wrongRole] = await db
+      .insert(workExperiences)
+      .values([
+        {
+          workspaceId: workspace.id,
+          employer: "NVIDIA",
+          roleTitle: "Software Engineer Intern",
+        },
+        {
+          workspaceId: workspace.id,
+          employer: "Shopify",
+          roleTitle: "Backend Intern",
+        },
+      ])
+      .returning({ id: workExperiences.id });
+    if (!targetRole || !wrongRole) throw new Error("Expected work experiences.");
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          taskType: "source_section_review",
+          sourceType: "extraction_note",
+          sourceLabel: "Resume import",
+          prompt,
+          targetScope: "source_material",
+          expectedOutcome: "review_imported_material",
+          noteKind: "missing_role_field",
+          expectedAction: "edit_role_field",
+          targetField: "location",
+          workExperienceId: targetRole.id,
+        },
+      ],
+    });
+    const queue = await getEnrichmentTaskQueue({
+      limit: 20,
+      sourceType: "extraction_note",
+      statuses: ["open"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const task = queue.tasks.find((item) => item.prompt === prompt);
+    if (!task) throw new Error("Expected imported note task.");
+    await db.insert(enrichmentTaskTargets).values({
+      workspaceId: workspace.id,
+      taskId: task.id,
+      targetKind: "work_experience",
+      targetId: targetRole.id,
+      targetRole: "primary",
+      confidence: "high",
+      reason: "Imported note references this role.",
+    });
+
+    const result = await updateWorkExperienceFields({
+      workExperienceId: wrongRole.id,
+      location: "Toronto, ON",
+      taskId: task.id,
+    });
+    expect(result).toMatchObject({ status: "invalid", reason: "task_target_mismatch" });
+    const [unchangedWrongRole] = await db
+      .select()
+      .from(workExperiences)
+      .where(eq(workExperiences.id, wrongRole.id))
+      .limit(1);
+    expect(unchangedWrongRole?.location).toBeNull();
+  });
+
   it("applies evidence update proposals in place and marks linked claims stale", async () => {
     const db = getDb();
     const workspace = await getCurrentWorkspace(db);
