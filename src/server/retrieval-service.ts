@@ -16,7 +16,11 @@ import {
   type EvidenceRetrievalPolicy,
   type RetrievalPolicyId,
 } from "./retrieval-policy";
-import { sourceChunkIndexType } from "./source-chunk-service";
+import {
+  searchSourceChunksForGaps,
+  sourceChunkIndexType,
+  type SourceChunkGapResult,
+} from "./source-chunk-service";
 
 export type EvidenceRetrievalCandidate = {
   id: string;
@@ -79,6 +83,7 @@ export type RetrievedSourceMaterialItem = {
   parse_quality_status: string | null;
   lifecycle_status: string;
   sensitivity_hint: string;
+  convert_to_evidence_first: true;
 };
 
 export async function retrieveResumeEvidenceForJob(
@@ -131,16 +136,7 @@ export async function retrieveSourceMaterialForEvidenceGaps(
 ): Promise<RetrievedSourceMaterialItem[]> {
   const policy = getRetrievalPolicy("evidence_enrichment", { limit: options.limit });
   if (!policy.allowedIndexTypes.includes(sourceChunkIndexType)) return [];
-  const matches = await searchPersonalEmbeddings({
-    query,
-    indexTypes: [sourceChunkIndexType],
-    limit: policy.limit,
-  }).catch(() => []);
-
-  return matches
-    .filter((match) => match.index_type === sourceChunkIndexType)
-    .map(toRetrievedSourceMaterialItem)
-    .filter((item) => item.source_document_id);
+  return searchSourceChunksForGaps(query, { limit: policy.limit }).catch(() => []);
 }
 
 export function toRetrievedSourceMaterialItem(
@@ -157,6 +153,7 @@ export function toRetrievedSourceMaterialItem(
     retrieval_score: Number((Math.max(0, match.similarity) * 100).toFixed(3)),
     reason_for_selection: [
       "possible source material for evidence gap",
+      "convert to evidence before resume use",
       `semantic match ${Math.round(Math.max(0, match.similarity) * 100)}%`,
     ],
     parse_quality_status:
@@ -165,7 +162,12 @@ export function toRetrievedSourceMaterialItem(
         : null,
     lifecycle_status: String(metadata.lifecycle_status ?? "unknown"),
     sensitivity_hint: String(metadata.sensitivity_hint ?? "unknown"),
+    convert_to_evidence_first: true,
   };
+}
+
+export function fromSourceChunkGapResult(match: SourceChunkGapResult): RetrievedSourceMaterialItem {
+  return match;
 }
 
 export function rankEvidenceForPolicy(args: {

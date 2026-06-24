@@ -27,6 +27,7 @@ import {
 } from "./enrichment-task-repository";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 import type { ResumeSourceParseResult } from "./resume-source-parser";
+import { deleteRebuildSourceChunksForSource, indexSourceChunks } from "./source-chunk-service";
 
 type DbHandle = ReturnType<typeof getDb>;
 
@@ -118,6 +119,11 @@ export async function deleteResumeSourceVersion(resumeSourceVersionId: string) {
   if (!resume) return { status: "not_found" as const };
 
   await db.transaction(async (tx) => {
+    await deleteRebuildSourceChunksForSource({
+      db: tx,
+      sourceDocumentId: resume.sourceDocumentId,
+      workspaceId: workspace.id,
+    });
     await tx
       .delete(resumeSourceVersions)
       .where(and(eq(resumeSourceVersions.workspaceId, workspace.id), eq(resumeSourceVersions.id, resumeSourceVersionId)));
@@ -278,6 +284,11 @@ export async function createResumeSourceVersion(args: {
       })
       .returning({ id: sourceDocuments.id });
     if (!sourceDocument) throw new Error("Failed to save resume source document.");
+    await indexSourceChunks({
+      db: tx,
+      workspaceId: workspace.id,
+      sourceDocumentId: sourceDocument.id,
+    });
 
     const [resume] = await tx
       .insert(resumeSourceVersions)

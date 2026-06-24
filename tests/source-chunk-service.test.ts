@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSourceChunkId,
   buildSourceDocumentChunks,
+  type SourceChunkGapResult,
 } from "../src/server/source-chunk-service";
 
 describe("source chunk service", () => {
@@ -52,5 +53,30 @@ describe("source chunk service", () => {
     });
 
     expect(chunks[0]?.metadata.sensitivity_hint).toBe("possible_private");
+  });
+
+  it("preserves convert-to-evidence-first semantics for source chunk results", () => {
+    const result: SourceChunkGapResult = {
+      source_document_id: "11111111-2222-4333-8444-555555555555",
+      source_type: "work_summary",
+      title: "Launch notes",
+      chunk_index: 1,
+      chunk_text: "Raw launch note about activation metrics and follow-up evidence gaps.",
+      retrieval_policy: "evidence_enrichment",
+      retrieval_score: 51.2,
+      reason_for_selection: [
+        "possible source material for evidence gap",
+        "convert to evidence before resume use",
+        "semantic match 51%",
+      ],
+      parse_quality_status: "usable",
+      lifecycle_status: "parsed",
+      sensitivity_hint: "unknown",
+      convert_to_evidence_first: true,
+    };
+
+    expect(result.convert_to_evidence_first).toBe(true);
+    expect(result.reason_for_selection.join(" ")).toContain("convert to evidence");
+    expect(result.retrieval_policy).toBe("evidence_enrichment");
   });
 });

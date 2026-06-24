@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb, hasDatabaseUrl } from "../db/client";
 import { sourceDocuments } from "../db/schema";
 import type { ResumeSourceParseResult } from "./resume-source-parser";
+import { deleteRebuildSourceChunksForSource, indexSourceChunks } from "./source-chunk-service";
 import { getCurrentWorkspace } from "./workspace-repository";
 
 export type PersistParsedSourceDocumentResult =
@@ -89,6 +90,11 @@ export async function persistParsedSourceDocument(args: {
     .returning({ id: sourceDocuments.id });
   if (!sourceDocument) throw new Error("Failed to save source document.");
 
+  await indexSourceChunks({
+    workspaceId: workspace.id,
+    sourceDocumentId: sourceDocument.id,
+  });
+
   return {
     status: "saved",
     sourceDocumentId: sourceDocument.id,
@@ -150,6 +156,10 @@ export async function claimSourceDocumentForExtraction(args: {
         eq(sourceDocuments.id, args.sourceDocumentId),
       ),
     );
+  await deleteRebuildSourceChunksForSource({
+    sourceDocumentId: args.sourceDocumentId,
+    workspaceId: workspace.id,
+  });
 
   return {
     status: "claimed",

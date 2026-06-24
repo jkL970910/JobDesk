@@ -333,6 +333,63 @@ export const sourceDocuments = pgTable(
   }),
 );
 
+export const sourceChunks = pgTable(
+  "source_chunks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sourceDocumentId: uuid("source_document_id")
+      .notNull()
+      .references(() => sourceDocuments.id, { onDelete: "cascade" }),
+    resumeSourceVersionId: uuid("resume_source_version_id").references(
+      () => resumeSourceVersions.id,
+      { onDelete: "set null" },
+    ),
+    sourceType: varchar("source_type", { length: 40 }).notNull(),
+    chunkIndex: integer("chunk_index").notNull(),
+    chunkText: text("chunk_text").notNull(),
+    contentHash: varchar("content_hash", { length: 128 }).notNull(),
+    parseQuality: varchar("parse_quality", { length: 40 }),
+    lifecycleStatus: varchar("lifecycle_status", { length: 40 }).notNull(),
+    metadataJson: jsonb("metadata_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    embeddingModel: varchar("embedding_model", { length: 120 }).notNull(),
+    vectorJson: jsonb("vector_json").$type<number[]>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workspaceSourceIdx: index("source_chunks_workspace_source_idx").on(
+      table.workspaceId,
+      table.sourceDocumentId,
+    ),
+    workspaceLifecycleIdx: index("source_chunks_workspace_lifecycle_idx").on(
+      table.workspaceId,
+      table.lifecycleStatus,
+    ),
+    workspaceResumeIdx: index("source_chunks_workspace_resume_idx").on(
+      table.workspaceId,
+      table.resumeSourceVersionId,
+    ),
+    workspaceHashIdx: index("source_chunks_workspace_hash_idx").on(
+      table.workspaceId,
+      table.contentHash,
+    ),
+    sourceChunkUniqueIdx: uniqueIndex("source_chunks_source_chunk_unique_idx").on(
+      table.sourceDocumentId,
+      table.chunkIndex,
+    ),
+  }),
+);
+
 export const jobs = pgTable(
   "jobs",
   {

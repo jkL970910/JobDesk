@@ -176,6 +176,13 @@
       "when": 1782349200000,
       "tag": "0024_enrichment_routing_resolution",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1782352800000,
+      "tag": "0025_source_chunk_index",
+      "breakpoints": true
     }
   ]
 }

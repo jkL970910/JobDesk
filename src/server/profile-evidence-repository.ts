@@ -44,6 +44,7 @@ import {
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 import { buildParseQuality, sourceParserName, sourceParserVersion } from "./resume-source-parser";
 import { buildSourceContentHash } from "./source-document-repository";
+import { deleteRebuildSourceChunksForSource, indexSourceChunks } from "./source-chunk-service";
 
 export type ProfileEvidencePersistenceResult =
   | {
@@ -63,7 +64,7 @@ export type ProfileEvidencePersistenceResult =
       reason: "missing_database_url";
     };
 
-type SourceDocumentStore = Pick<ReturnType<typeof getDb>, "select" | "insert" | "update">;
+type SourceDocumentStore = Pick<ReturnType<typeof getDb>, "select" | "insert" | "update" | "delete">;
 type StoryTargetStore = Pick<ReturnType<typeof getDb>, "select">;
 type StoryTargetMergeStore = Pick<ReturnType<typeof getDb>, "select" | "update">;
 
@@ -506,6 +507,12 @@ export async function persistProfileEvidenceExtraction(args: {
       }
     }
 
+    await deleteRebuildSourceChunksForSource({
+      db: tx,
+      sourceDocumentId: sourceDocument.id,
+      workspaceId: workspace.id,
+    });
+
     return {
       status: "saved",
       workspaceId: workspace.id,
@@ -582,6 +589,11 @@ async function resolveExtractionSourceDocument(args: {
     if (!updated) {
       throw new Error("Failed to update parsed source lifecycle.");
     }
+    await deleteRebuildSourceChunksForSource({
+      db: args.db,
+      sourceDocumentId: args.sourceDocumentId,
+      workspaceId: args.workspaceId,
+    });
     return updated;
   }
 
@@ -607,6 +619,11 @@ async function resolveExtractionSourceDocument(args: {
   if (!sourceDocument) {
     throw new Error("Failed to create profile source document.");
   }
+  await indexSourceChunks({
+    db: args.db,
+    workspaceId: args.workspaceId,
+    sourceDocumentId: sourceDocument.id,
+  });
   return sourceDocument;
 }
 

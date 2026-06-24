@@ -2,7 +2,15 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { loadDotEnv } from "../src/ai/env";
 import { getDb } from "../src/db/client";
-import { embeddings, evidenceItems, initiatives, resumeSourceVersions, sourceDocuments, workExperiences } from "../src/db/schema";
+import {
+  embeddings,
+  evidenceItems,
+  initiatives,
+  resumeSourceVersions,
+  sourceChunks,
+  sourceDocuments,
+  workExperiences,
+} from "../src/db/schema";
 import {
   persistParsedSourceDocument,
   buildSourceContentHash,
@@ -226,7 +234,20 @@ describe.skipIf(!runIntegration)("source document lifecycle integration", () => 
       expect(sync.sourceChunkCount).toBeGreaterThan(0);
 
       const db = getDb();
-      const sourceChunks = await db
+      const chunkRows = await db
+        .select()
+        .from(sourceChunks)
+        .where(eq(sourceChunks.sourceDocumentId, saved.sourceDocumentId));
+      expect(chunkRows.length).toBeGreaterThan(0);
+      expect(
+        chunkRows.some(
+          (chunk) =>
+            chunk.sourceDocumentId === saved.sourceDocumentId &&
+            chunk.sourceType === "work_summary",
+        ),
+      ).toBe(true);
+
+      const sourceChunkEmbeddings = await db
         .select()
         .from(embeddings)
         .where(
@@ -236,7 +257,7 @@ describe.skipIf(!runIntegration)("source document lifecycle integration", () => 
           ),
         );
       expect(
-        sourceChunks.some(
+        sourceChunkEmbeddings.some(
           (chunk) =>
             chunk.metadata.source_document_id === saved.sourceDocumentId &&
             chunk.metadata.source_type === "work_summary",
@@ -251,6 +272,7 @@ describe.skipIf(!runIntegration)("source document lifecycle integration", () => 
         sourceMaterial.some((item) => item.source_document_id === saved.sourceDocumentId),
       ).toBe(true);
       expect(sourceMaterial.every((item) => item.retrieval_policy === "evidence_enrichment")).toBe(true);
+      expect(sourceMaterial.every((item) => item.convert_to_evidence_first)).toBe(true);
     });
   });
 

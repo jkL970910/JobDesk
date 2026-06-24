@@ -9,9 +9,9 @@ import {
   initiatives,
   portfolioProjects,
   projectCards,
-  sourceDocuments,
+  sourceChunks,
 } from "../db/schema";
-import { buildSourceDocumentChunks, sourceChunkIndexType } from "./source-chunk-service";
+import { indexSourceChunks, sourceChunkIndexType } from "./source-chunk-service";
 import { getOrCreateDefaultWorkspace } from "./workspace-repository";
 
 export const localEmbeddingModel = "jobdesk-local-hash-v1";
@@ -87,12 +87,13 @@ export async function syncPersonalEmbeddings() {
     .where(eq(projectCards.workspaceId, workspace.id))
     .orderBy(desc(projectCards.updatedAt))
     .limit(120);
-  const sourceDocumentRows = await db
+  const sourceChunkSync = await indexSourceChunks({ workspaceId: workspace.id });
+  const sourceChunkRows = await db
     .select()
-    .from(sourceDocuments)
-    .where(eq(sourceDocuments.workspaceId, workspace.id))
-    .orderBy(desc(sourceDocuments.updatedAt))
-    .limit(120);
+    .from(sourceChunks)
+    .where(eq(sourceChunks.workspaceId, workspace.id))
+    .orderBy(desc(sourceChunks.updatedAt))
+    .limit(240);
 
   const chunks = [
     ...evidence
@@ -209,22 +210,14 @@ export async function syncPersonalEmbeddings() {
           title: project.title,
         },
       })),
-    ...sourceDocumentRows
-      .filter((document) =>
-        ["parsed", "parsed_with_warnings", "reviewed", "extracted"].includes(
-          document.lifecycleStatus,
-        ),
-      )
-      .flatMap((document) =>
-        buildSourceDocumentChunks(document).map((chunk) => ({
-          workspaceId: workspace.id,
-          indexType: sourceChunkIndexType,
-          sourceEntityType: "source_document",
-          sourceEntityId: chunk.id,
-          chunkText: chunk.chunkText,
-          metadata: chunk.metadata,
-        })),
-      ),
+    ...sourceChunkRows.map((chunk) => ({
+      workspaceId: workspace.id,
+      indexType: sourceChunkIndexType,
+      sourceEntityType: "source_document",
+      sourceEntityId: chunk.id,
+      chunkText: chunk.chunkText,
+      metadata: chunk.metadataJson,
+    })),
   ];
 
   await db
@@ -271,7 +264,8 @@ export async function syncPersonalEmbeddings() {
     initiativeCount: initiativeRows.length,
     portfolioProjectCount: portfolioProjectRows.length,
     legacyProjectCount: legacyProjects.length,
-    sourceDocumentCount: sourceDocumentRows.length,
+    sourceDocumentCount:
+      sourceChunkSync.status === "saved" ? sourceChunkSync.sourceDocumentCount : 0,
     sourceChunkCount: chunks.filter((chunk) => chunk.indexType === sourceChunkIndexType).length,
     model: localEmbeddingModel,
   };

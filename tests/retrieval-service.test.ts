@@ -192,11 +192,10 @@ describe("retrieval service", () => {
       chunk_index: 2,
       retrieval_policy: "evidence_enrichment",
       retrieval_score: 42,
-      reason_for_selection: [
-        "possible source material for evidence gap",
-        "semantic match 42%",
-      ],
+      convert_to_evidence_first: true,
     });
+    expect(mapped.reason_for_selection.join(" ")).toContain("convert to evidence");
+    expect(mapped.reason_for_selection.join(" ")).toContain("semantic match 42%");
   });
 });
 
