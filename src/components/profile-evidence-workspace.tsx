@@ -1354,15 +1354,20 @@ export function ProfileEvidenceWorkspace({
     projectCards,
     workExperiences,
   });
+  const safeLibraryFilters =
+    libraryFilters.status === "needs_review"
+      ? { ...libraryFilters, status: "all" }
+      : libraryFilters;
   const filteredEvidenceItems = filterEvidenceLibraryItems(
     evidenceItems,
-    libraryFilters,
+    safeLibraryFilters,
     linkTargets,
     projectCards,
   );
-  const allEvidenceItems = filteredEvidenceItems;
+  const reusableEvidenceItems = filteredEvidenceItems.filter(isReusableReadyEvidence);
+  const allEvidenceItems = reusableEvidenceItems;
   const toolbarOptions = buildEvidenceLibraryFilterOptions(
-    evidenceItems,
+    reusableEvidenceItems,
     linkTargets,
     projectCards,
   );
@@ -2392,7 +2397,7 @@ export function ProfileEvidenceWorkspace({
           {libraryMode === "library" ? (
             <>
               <EvidenceLibraryToolbar
-                filters={libraryFilters}
+                filters={safeLibraryFilters}
                 onChange={setLibraryFilters}
                 options={toolbarOptions}
               />
@@ -2424,6 +2429,7 @@ export function ProfileEvidenceWorkspace({
                   description="Browse reviewed library material. Use filters to find resume-ready, interview-ready, or approved evidence."
                   emptyMessage="No evidence matches the current library filters."
                   items={allEvidenceItems}
+                  mode="library"
                   onUpdate={updateEvidence}
                   projects={projectCards}
                   linkTargets={linkTargets}
@@ -2565,6 +2571,7 @@ export function ProfileEvidenceWorkspace({
                   : "All current evidence claims are approved and resume-ready."
               }
               items={evidenceFocus ? focusedEvidenceItems : claimReviewEvidenceItems}
+              mode="review"
               onUpdate={updateEvidence}
               projects={projectCards}
               linkTargets={linkTargets}
@@ -2602,6 +2609,7 @@ export function ProfileEvidenceWorkspace({
                   : "All current evidence is attached to story targets."
               }
               items={focusedEvidenceItems}
+              mode="review"
               onUpdate={updateEvidence}
               projects={projectCards}
               linkTargets={linkTargets}
@@ -6316,7 +6324,6 @@ function buildEvidenceLibraryFilterOptions(
   const statuses = Array.from(
     new Set([
       ...items.map((item) => item.status),
-      "needs_review",
       "resume_ready",
       "approved",
     ]),
@@ -7191,6 +7198,7 @@ function EvidenceList({
   emptyMessage = "No evidence has been created yet.",
   items,
   linkTargets,
+  mode = "review",
   onUpdate,
   projects,
   title = "Evidence Claims",
@@ -7198,6 +7206,7 @@ function EvidenceList({
   description?: string;
   emptyMessage?: string;
   items: EvidenceCardItem[];
+  mode?: "library" | "review";
   onUpdate: (
     item: EvidenceCardItem,
     action: EvidenceUpdateAction,
@@ -7207,18 +7216,18 @@ function EvidenceList({
   projects?: ProjectCardItem[];
   title?: string;
 }) {
-  const [filter, setFilter] = useState<"needs_review" | "approved" | "resume_ready" | "all">(
-    "needs_review",
-  );
+  type EvidenceListFilter = "needs_review" | "approved" | "resume_ready" | "all";
+  const [filter, setFilter] = useState<EvidenceListFilter>(mode === "library" ? "all" : "needs_review");
   const [showAll, setShowAll] = useState(false);
   const [pendingEvidenceId, setPendingEvidenceId] = useState<string | null>(null);
   const [cardMessages, setCardMessages] = useState<Record<string, { ok: boolean; text: string }>>(
     {},
   );
+  const libraryItems = mode === "library" ? items.filter(isReusableReadyEvidence) : items;
   const counts = {
-    all: items.length,
-    approved: items.filter((item) => item.status === "approved").length,
-    resume_ready: items.filter(isResumeReadyEvidence).length,
+    all: libraryItems.length,
+    approved: libraryItems.filter((item) => item.status === "approved").length,
+    resume_ready: libraryItems.filter(isResumeReadyEvidence).length,
     needs_review: items.filter(
       (item) =>
         item.status !== "approved" ||
@@ -7226,7 +7235,8 @@ function EvidenceList({
         !(item.allowed_usage ?? []).includes("resume"),
     ).length,
   };
-  const filteredItems = items.filter((item) => {
+  const baseItems = mode === "library" ? libraryItems : items;
+  const filteredItems = baseItems.filter((item) => {
     if (filter === "all") return true;
     if (filter === "approved") return item.status === "approved";
     if (filter === "resume_ready") {
@@ -7238,6 +7248,19 @@ function EvidenceList({
       !(item.allowed_usage ?? []).includes("resume")
     );
   });
+  const filterOptions: Array<{ id: EvidenceListFilter; label: string; count: number }> =
+    mode === "library"
+      ? [
+          { id: "all", label: "All reusable", count: counts.all },
+          { id: "resume_ready", label: "Resume-ready", count: counts.resume_ready },
+          { id: "approved", label: "Approved", count: counts.approved },
+        ]
+      : [
+          { id: "needs_review", label: "Needs review", count: counts.needs_review },
+          { id: "resume_ready", label: "Resume-ready", count: counts.resume_ready },
+          { id: "approved", label: "Approved", count: counts.approved },
+          { id: "all", label: "All", count: counts.all },
+        ];
   const visibleItems = showAll ? filteredItems : filteredItems.slice(0, 6);
   async function handleUpdate(
     item: (typeof items)[number],
@@ -7286,55 +7309,31 @@ function EvidenceList({
           </h3>
         </div>
         <span>
-          {counts.needs_review} need review · {counts.resume_ready} resume-ready ·{" "}
-          {counts.all} total
+          {mode === "library"
+            ? `${counts.resume_ready} resume-ready · ${counts.all} reusable`
+            : `${counts.needs_review} need review · ${counts.resume_ready} resume-ready · ${counts.all} total`}
         </span>
       </div>
       <div className="filter-row" role="group" aria-label="Evidence filters">
-        <button
-          data-active={filter === "needs_review"}
-          type="button"
-          onClick={() => {
-            setFilter("needs_review");
-            setShowAll(false);
-          }}
-        >
-          Needs review ({counts.needs_review})
-        </button>
-        <button
-          data-active={filter === "resume_ready"}
-          type="button"
-          onClick={() => {
-            setFilter("resume_ready");
-            setShowAll(false);
-          }}
-        >
-          Resume-ready ({counts.resume_ready})
-        </button>
-        <button
-          data-active={filter === "approved"}
-          type="button"
-          onClick={() => {
-            setFilter("approved");
-            setShowAll(false);
-          }}
-        >
-          Approved ({counts.approved})
-        </button>
-        <button
-          data-active={filter === "all"}
-          type="button"
-          onClick={() => {
-            setFilter("all");
-            setShowAll(false);
-          }}
-        >
-          All ({counts.all})
-        </button>
+        {filterOptions.map((option) => (
+          <button
+            data-active={filter === option.id}
+            key={option.id}
+            type="button"
+            onClick={() => {
+              setFilter(option.id);
+              setShowAll(false);
+            }}
+          >
+            {option.label} ({option.count})
+          </button>
+        ))}
       </div>
       {filteredItems.length === 0 ? (
         <p className="requirement__quote">
-          No evidence matches this filter.
+          {mode === "library"
+            ? "No reusable evidence matches this filter. Review pending claims in Work Queue."
+            : "No evidence matches this filter."}
         </p>
       ) : null}
       <div className="evidence-row-table result-stack--inner">

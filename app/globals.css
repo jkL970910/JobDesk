@@ -6428,15 +6428,13 @@ select:focus {
 }
 
 .evidence-library-toolbar {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.034), rgba(255, 255, 255, 0.014)),
-    rgba(8, 12, 20, 0.34);
-  border: 1px solid var(--line);
-  border-radius: 18px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   display: grid;
   gap: 12px;
-  margin-bottom: 14px;
-  padding: 14px;
+  margin-bottom: 12px;
+  padding: 0;
 }
 
 .evidence-library-toolbar label {
@@ -6457,8 +6455,8 @@ select:focus {
 
 .evidence-library-toolbar input,
 .evidence-library-toolbar select {
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.075);
   border-radius: 10px;
   color: var(--ink);
   min-height: 38px;
@@ -8894,14 +8892,14 @@ span > .help-hint {
 }
 
 .review-switcher {
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   display: grid;
-  gap: 6px;
+  gap: 8px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 14px 0;
-  padding: 6px;
+  margin: 12px 0 18px;
+  padding: 0;
 }
 
 .review-switcher--library,
@@ -8910,9 +8908,9 @@ span > .help-hint {
 }
 
 .review-switcher button {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 840;
@@ -8929,7 +8927,7 @@ span > .help-hint {
 .review-switcher button:hover,
 .review-switcher button[data-active="true"] {
   background: var(--primary-soft);
-  border-color: rgba(79, 140, 255, 0.28);
+  border-color: rgba(79, 140, 255, 0.32);
   color: var(--primary-strong);
 }
 
