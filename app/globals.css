@@ -5746,6 +5746,7 @@ select {
 }
 
 .material-workspace {
+  align-content: start;
   display: grid;
   gap: 16px;
   min-height: calc(100dvh - var(--app-topbar-space) - var(--app-header-space) - 96px);
@@ -5753,6 +5754,7 @@ select {
 }
 
 .material-workspace__tabs {
+  align-self: start;
   justify-self: flex-start;
 }
 
