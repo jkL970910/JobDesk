@@ -433,14 +433,9 @@ type EvidenceLibraryMode = "library" | "work_queue";
 type EvidenceAssetView = "all" | "stories" | "interview_stories";
 type EvidenceWorkQueueView = "enrichment" | "imported" | "claims" | "unlinked" | "cleanup";
 type EvidenceLibraryFilters = {
-  hasMetricOnly: boolean;
   query: string;
   roleOrStory: string;
-  sensitivity: string;
   source: string;
-  status: string;
-  unlinkedOnly: boolean;
-  usage: string;
 };
 type ProjectSourceMode = "upload" | "paste" | "guided";
 type StoryEnrichmentTargetType = "initiative" | "portfolio_project" | "legacy_project";
@@ -579,14 +574,9 @@ export function ProfileEvidenceWorkspace({
   const [workQueueView, setWorkQueueView] =
     useState<EvidenceWorkQueueView>("enrichment");
   const [libraryFilters, setLibraryFilters] = useState<EvidenceLibraryFilters>({
-    hasMetricOnly: false,
     query: "",
     roleOrStory: "all",
-    sensitivity: "all",
     source: "all",
-    status: "all",
-    unlinkedOnly: false,
-    usage: "all",
   });
   const [sourceDrafts, setSourceDrafts] = useState<Record<"resume" | "jd", SourceDraft>>({
     jd: { text: "", title: "" },
@@ -1531,13 +1521,9 @@ export function ProfileEvidenceWorkspace({
     projectCards,
     workExperiences,
   });
-  const safeLibraryFilters =
-    libraryFilters.status === "needs_review"
-      ? { ...libraryFilters, status: "all" }
-      : libraryFilters;
   const filteredEvidenceItems = filterEvidenceLibraryItems(
     evidenceItems,
-    safeLibraryFilters,
+    libraryFilters,
     linkTargets,
     projectCards,
   );
@@ -2588,7 +2574,7 @@ export function ProfileEvidenceWorkspace({
           {libraryMode === "library" ? (
             <>
               <EvidenceLibraryToolbar
-                filters={safeLibraryFilters}
+                filters={libraryFilters}
                 onChange={setLibraryFilters}
                 options={toolbarOptions}
               />
@@ -2598,26 +2584,26 @@ export function ProfileEvidenceWorkspace({
                   type="button"
                   onClick={() => openLibraryAssetView("all")}
                 >
-                  All Evidence ({allEvidenceItems.length})
+                  Evidence Claims ({allEvidenceItems.length})
                 </button>
                 <button
                   data-active={libraryView === "stories"}
                   type="button"
                   onClick={() => openLibraryAssetView("stories")}
                 >
-                  Stories ({workExperiences.length} roles · {initiatives.length + portfolioProjects.length})
+                  Story Context ({workExperiences.length} roles · {initiatives.length + portfolioProjects.length} stories)
                 </button>
                 <button
                   data-active={libraryView === "interview_stories"}
                   type="button"
                   onClick={() => openLibraryAssetView("interview_stories")}
                 >
-                  Interview Stories ({starStories.length})
+                  STAR Stories ({starStories.length})
                 </button>
               </div>
               {libraryView === "all" ? (
                 <EvidenceList
-                  description="Browse reviewed library material. Use filters to find resume-ready, interview-ready, or approved evidence."
+                  description="Browse approved reusable evidence. Items that still need review live in Work Queue."
                   emptyMessage="No evidence matches the current library filters."
                   items={allEvidenceItems}
                   mode="library"
@@ -2686,7 +2672,7 @@ export function ProfileEvidenceWorkspace({
                 openWorkQueueView("unlinked");
               }}
             >
-              {evidenceFocus ? "Focused" : "Unlinked"} ({focusedEvidenceItems.length})
+              {evidenceFocus ? "Focused" : "Needs Target"} ({focusedEvidenceItems.length})
             </button>
             <button
               data-active={workQueueView === "cleanup"}
@@ -2786,7 +2772,7 @@ export function ProfileEvidenceWorkspace({
                   type="button"
                   onClick={() => setEvidenceFocus(null)}
                 >
-                  Show unlinked only
+                  Show needs-target claims
                 </button>
               </section>
             ) : null}
@@ -2806,7 +2792,7 @@ export function ProfileEvidenceWorkspace({
               onUpdate={updateEvidence}
               projects={projectCards}
               linkTargets={linkTargets}
-              title={evidenceFocus ? `Claims for ${evidenceFocus.title}` : "Unlinked Evidence Claims"}
+              title={evidenceFocus ? `Claims for ${evidenceFocus.title}` : "Needs Target Claims"}
             />
             </>
           ) : null}
@@ -3608,10 +3594,7 @@ function EvidenceLibraryToolbar({
   onChange: (filters: EvidenceLibraryFilters) => void;
   options: {
     rolesAndStories: Array<{ label: string; value: string }>;
-    sensitivities: string[];
     sources: Array<{ label: string; value: string }>;
-    statuses: string[];
-    usages: string[];
   };
 }) {
   function update(patch: Partial<EvidenceLibraryFilters>) {
@@ -3629,30 +3612,6 @@ function EvidenceLibraryToolbar({
       </label>
       <div className="evidence-library-toolbar__filters">
         <ThemeSelect
-          label="Usage"
-          value={filters.usage}
-          options={[
-            { label: "All usage", value: "all" },
-            ...options.usages.map((usage) => ({
-              label: formatFilterLabel(usage),
-              value: usage,
-            })),
-          ]}
-          onChange={(usage) => update({ usage })}
-        />
-        <ThemeSelect
-          label="Status"
-          value={filters.status}
-          options={[
-            { label: "All status", value: "all" },
-            ...options.statuses.map((status) => ({
-              label: formatFilterLabel(status),
-              value: status,
-            })),
-          ]}
-          onChange={(status) => update({ status })}
-        />
-        <ThemeSelect
           label="Role / story"
           value={filters.roleOrStory}
           options={[{ label: "All roles and stories", value: "all" }, ...options.rolesAndStories]}
@@ -3664,63 +3623,8 @@ function EvidenceLibraryToolbar({
           options={[{ label: "All sources", value: "all" }, ...options.sources]}
           onChange={(source) => update({ source })}
         />
-        <ThemeSelect
-          label="Sensitivity"
-          value={filters.sensitivity}
-          options={[
-            { label: "All sensitivity", value: "all" },
-            ...options.sensitivities.map((sensitivity) => ({
-              label: formatFilterLabel(sensitivity),
-              value: sensitivity,
-            })),
-          ]}
-          onChange={(sensitivity) => update({ sensitivity })}
-        />
-        <ThemeToggleFilter
-          active={filters.hasMetricOnly}
-          label="Metric"
-          activeText="Has metric"
-          inactiveText="Any metric"
-          onToggle={() => update({ hasMetricOnly: !filters.hasMetricOnly })}
-        />
-        <ThemeToggleFilter
-          active={filters.unlinkedOnly}
-          label="Link status"
-          activeText="Unlinked only"
-          inactiveText="Any link"
-          onToggle={() => update({ unlinkedOnly: !filters.unlinkedOnly })}
-        />
       </div>
     </section>
-  );
-}
-
-function ThemeToggleFilter({
-  active,
-  activeText,
-  inactiveText,
-  label,
-  onToggle,
-}: {
-  active: boolean;
-  activeText: string;
-  inactiveText: string;
-  label: string;
-  onToggle: () => void;
-}) {
-  return (
-    <div className="theme-select theme-toggle-filter">
-      <span>{label}</span>
-      <button
-        aria-pressed={active}
-        className="theme-select__trigger theme-toggle-filter__trigger"
-        type="button"
-        onClick={onToggle}
-      >
-        <span>{active ? activeText : inactiveText}</span>
-        <em aria-hidden="true">{active ? "On" : "Off"}</em>
-      </button>
-    </div>
   );
 }
 
@@ -3848,35 +3752,18 @@ function EnrichmentTaskQueue({
   const sourceSectionTaskCount = actionableTasks.length - questionTaskCount;
   const convertedCount = tasks.filter((task) => task.status === "converted").length;
   const [pendingTasks, setPendingTasks] = useState<Record<string, EnrichmentPendingAction>>({});
-  const [batchPending, setBatchPending] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<Record<string, { ok: boolean; text: string }>>({});
-  const [taskFilters, setTaskFilters] = useState({
-    query: "",
-    scope: "all",
-    sourceType: "all",
-    status: "all",
-    unlinkedOnly: false,
-  });
+  const [taskQuery, setTaskQuery] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const consumedFocusedTaskId = useRef<string | null>(null);
-  const filteredTasks = filterEnrichmentTasks(actionableTasks, taskFilters);
+  const filteredTasks = filterEnrichmentTasks(actionableTasks, taskQuery);
   const groupedTasks = groupEnrichmentTasks(filteredTasks);
   const selectedTask =
     filteredTasks.find((task) => task.id === selectedTaskId) ?? filteredTasks[0] ?? null;
   const selectedTaskIndex = selectedTask
     ? filteredTasks.findIndex((task) => task.id === selectedTask.id)
     : -1;
-  const selectedBatchIds = filteredTasks
-    .filter(
-      (task) =>
-        task.status === "open" &&
-        !taskHasReusableLibraryAnchor(task) &&
-        !isSourceSectionReviewTask(task),
-    )
-    .slice(0, 10)
-    .map((task) => task.id);
-  const taskFilterOptions = buildEnrichmentTaskFilterOptions(actionableTasks);
 
   useEffect(() => {
     if (
@@ -3927,20 +3814,6 @@ function EnrichmentTaskQueue({
       Math.max(0, selectedTaskIndex + direction),
     );
     setSelectedTaskId(filteredTasks[nextIndex]?.id ?? null);
-  }
-
-  async function dismissFilteredUnassigned() {
-    if (selectedBatchIds.length === 0) return;
-    setBatchPending(true);
-    try {
-      for (const taskId of selectedBatchIds) {
-        const task = filteredTasks.find((item) => item.id === taskId);
-        if (!task) continue;
-        await handleUpdate(task, { action: "dismiss" });
-      }
-    } finally {
-      setBatchPending(false);
-    }
   }
 
   return (
@@ -4002,12 +3875,8 @@ function EnrichmentTaskQueue({
       ) : (
         <>
         <EnrichmentTaskControls
-          batchCount={selectedBatchIds.length}
-          disabled={batchPending}
-          filters={taskFilters}
-          onBatchDismiss={() => void dismissFilteredUnassigned()}
-          onChange={setTaskFilters}
-          options={taskFilterOptions}
+          query={taskQuery}
+          onChange={setTaskQuery}
           resultCount={filteredTasks.length}
           totalCount={actionableTasks.length}
         />
@@ -5534,106 +5403,28 @@ function addArrayPatchLine(lines: string[], label: string, value: unknown) {
 }
 
 function EnrichmentTaskControls({
-  batchCount,
-  disabled,
-  filters,
-  onBatchDismiss,
+  query,
   onChange,
-  options,
   resultCount,
   totalCount,
 }: {
-  batchCount: number;
-  disabled: boolean;
-  filters: {
-    query: string;
-    scope: string;
-    sourceType: string;
-    status: string;
-    unlinkedOnly: boolean;
-  };
-  onBatchDismiss: () => void;
-  onChange: (filters: {
-    query: string;
-    scope: string;
-    sourceType: string;
-    status: string;
-    unlinkedOnly: boolean;
-  }) => void;
-  options: {
-    scopes: string[];
-    sourceTypes: string[];
-    statuses: string[];
-  };
+  query: string;
+  onChange: (query: string) => void;
   resultCount: number;
   totalCount: number;
 }) {
-  function update(patch: Partial<typeof filters>) {
-    onChange({ ...filters, ...patch });
-  }
   return (
     <section className="enrichment-task-controls" aria-label="Enrichment task filters">
       <label className="enrichment-task-controls__search">
         <span>Search tasks</span>
         <input
-          value={filters.query}
-          onChange={(event) => update({ query: event.target.value })}
+          value={query}
+          onChange={(event) => onChange(event.target.value)}
           placeholder="Search prompt, source, target, or reason..."
         />
       </label>
-      <ThemeSelect
-        label="Scope"
-        value={filters.scope}
-        options={[
-          { label: "All scopes", value: "all" },
-          ...options.scopes.map((scope) => ({
-            label: formatEnrichmentTaskScope(scope as EnrichmentTaskItem["target_scope"]),
-            value: scope,
-          })),
-        ]}
-        onChange={(scope) => update({ scope })}
-      />
-      <ThemeSelect
-        label="Source"
-        value={filters.sourceType}
-        options={[
-          { label: "All sources", value: "all" },
-          ...options.sourceTypes.map((sourceType) => ({
-            label: formatEnrichmentSourceType(sourceType),
-            value: sourceType,
-          })),
-        ]}
-        onChange={(sourceType) => update({ sourceType })}
-      />
-      <ThemeSelect
-        label="Status"
-        value={filters.status}
-        options={[
-          { label: "All status", value: "all" },
-          ...options.statuses.map((status) => ({
-            label: formatEnrichmentStatus(status as EnrichmentTaskItem["status"]),
-            value: status,
-          })),
-        ]}
-        onChange={(status) => update({ status })}
-      />
-      <ThemeToggleFilter
-        active={filters.unlinkedOnly}
-        label="Target"
-        activeText="Needs target"
-        inactiveText="Any target"
-        onToggle={() => update({ unlinkedOnly: !filters.unlinkedOnly })}
-      />
       <div className="enrichment-task-controls__batch">
         <span>{resultCount} of {totalCount} shown</span>
-        <button
-          className="secondary-button secondary-button--quiet"
-          disabled={disabled || batchCount === 0}
-          type="button"
-          onClick={onBatchDismiss}
-        >
-          Dismiss {batchCount > 0 ? `${batchCount} unassigned` : "unassigned"}
-        </button>
       </div>
     </section>
   );
@@ -6771,20 +6562,10 @@ function groupEnrichmentTasks(tasks: EnrichmentTaskItem[]) {
 
 function filterEnrichmentTasks(
   tasks: EnrichmentTaskItem[],
-  filters: {
-    query: string;
-    scope: string;
-    sourceType: string;
-    status: string;
-    unlinkedOnly: boolean;
-  },
+  queryText: string,
 ) {
-  const query = filters.query.trim().toLowerCase();
+  const query = queryText.trim().toLowerCase();
   return tasks.filter((task) => {
-    if (filters.scope !== "all" && task.target_scope !== filters.scope) return false;
-    if (filters.sourceType !== "all" && task.source_type !== filters.sourceType) return false;
-    if (filters.status !== "all" && task.status !== filters.status) return false;
-    if (filters.unlinkedOnly && taskHasReusableLibraryAnchor(task)) return false;
     if (!query) return true;
     return [
       task.prompt,
@@ -6799,14 +6580,6 @@ function filterEnrichmentTasks(
       .toLowerCase()
       .includes(query);
   });
-}
-
-function buildEnrichmentTaskFilterOptions(tasks: EnrichmentTaskItem[]) {
-  return {
-    scopes: Array.from(new Set(tasks.map((task) => task.target_scope))).sort(),
-    sourceTypes: Array.from(new Set(tasks.map((task) => task.source_type))).sort(),
-    statuses: Array.from(new Set(tasks.map((task) => task.status))).sort(),
-  };
 }
 
 function getEntryGuidance(intent: MaterialEntryIntent) {
@@ -7014,26 +6787,6 @@ function filterEvidenceLibraryItems(
         .toLowerCase();
       if (!haystack.includes(query)) return false;
     }
-    if (filters.usage !== "all" && !(item.allowed_usage ?? []).includes(filters.usage)) {
-      return false;
-    }
-    if (filters.status !== "all") {
-      const readiness = getEvidenceReadiness(item).state;
-      if (filters.status === "resume_ready" && readiness !== "resume_ready") return false;
-      if (filters.status === "approved" && item.status !== "approved") return false;
-      if (filters.status === "needs_review" && readiness === "resume_ready") return false;
-      if (
-        filters.status !== "resume_ready" &&
-        filters.status !== "approved" &&
-        filters.status !== "needs_review" &&
-        item.status !== filters.status
-      ) {
-        return false;
-      }
-    }
-    if (filters.sensitivity !== "all" && item.sensitivity_level !== filters.sensitivity) {
-      return false;
-    }
     if (filters.source !== "all") {
       const source = item.source_document_id ? `source:${item.source_document_id}` : "source:extracted";
       if (source !== filters.source) return false;
@@ -7041,8 +6794,6 @@ function filterEvidenceLibraryItems(
     if (filters.roleOrStory !== "all" && !evidenceMatchesTargetFilter(item, filters.roleOrStory)) {
       return false;
     }
-    if (filters.hasMetricOnly && !evidenceLooksMetricBacked(item)) return false;
-    if (filters.unlinkedOnly && !isEvidenceUnlinked(item)) return false;
     return true;
   });
 }
@@ -7053,15 +6804,6 @@ function buildEvidenceLibraryFilterOptions(
   projects: ProjectCardItem[],
 ) {
   const rolesAndStories = buildEvidenceTargetOptions(linkTargets, projects);
-  const sensitivities = Array.from(new Set(items.map((item) => item.sensitivity_level))).sort();
-  const statuses = Array.from(
-    new Set([
-      ...items.map((item) => item.status),
-      "resume_ready",
-      "approved",
-    ]),
-  ).sort();
-  const usages = Array.from(new Set(items.flatMap((item) => item.allowed_usage ?? []))).sort();
   const sourceIds = Array.from(
     new Set(items.map((item) => item.source_document_id).filter((id): id is string => Boolean(id))),
   );
@@ -7074,7 +6816,7 @@ function buildEvidenceLibraryFilterOptions(
       value: `source:${id}`,
     })),
   ];
-  return { rolesAndStories, sensitivities, sources, statuses, usages };
+  return { rolesAndStories, sources };
 }
 
 function evidenceMatchesTargetFilter(item: EvidenceCardItem, value: string) {
@@ -7085,21 +6827,6 @@ function evidenceMatchesTargetFilter(item: EvidenceCardItem, value: string) {
   if (kind === "work_experience") return item.related_work_experience_id === id;
   if (kind === "legacy_project") return item.related_project_id === id;
   return false;
-}
-
-function evidenceLooksMetricBacked(item: EvidenceCardItem) {
-  return /\b\d+[%x]?\b|\bpercent\b|\bhours?\b|\bweeks?\b|\busers?\b|\brevenue\b|\bcost\b/i.test(
-    `${item.text} ${item.source_quote}`,
-  );
-}
-
-function isEvidenceUnlinked(item: EvidenceCardItem) {
-  return (
-    !item.related_work_experience_id &&
-    !item.related_initiative_id &&
-    !item.related_portfolio_project_id &&
-    !item.related_project_id
-  );
 }
 
 function isResumeReadyEvidence(item: EvidenceCardItem) {
@@ -7949,18 +7676,15 @@ function EvidenceList({
   projects?: ProjectCardItem[];
   title?: string;
 }) {
-  type EvidenceListFilter = "needs_review" | "approved" | "resume_ready" | "all";
-  const [filter, setFilter] = useState<EvidenceListFilter>(mode === "library" ? "all" : "needs_review");
   const [showAll, setShowAll] = useState(false);
   const [pendingEvidenceId, setPendingEvidenceId] = useState<string | null>(null);
   const [cardMessages, setCardMessages] = useState<Record<string, { ok: boolean; text: string }>>(
     {},
   );
-  const libraryItems = mode === "library" ? items.filter(isReusableReadyEvidence) : items;
+  const visibleSourceItems = mode === "library" ? items.filter(isReusableReadyEvidence) : items;
   const counts = {
-    all: libraryItems.length,
-    approved: libraryItems.filter((item) => item.status === "approved").length,
-    resume_ready: libraryItems.filter(isResumeReadyEvidence).length,
+    all: visibleSourceItems.length,
+    resume_ready: visibleSourceItems.filter(isResumeReadyEvidence).length,
     needs_review: items.filter(
       (item) =>
         item.status !== "approved" ||
@@ -7968,33 +7692,7 @@ function EvidenceList({
         !(item.allowed_usage ?? []).includes("resume"),
     ).length,
   };
-  const baseItems = mode === "library" ? libraryItems : items;
-  const filteredItems = baseItems.filter((item) => {
-    if (filter === "all") return true;
-    if (filter === "approved") return item.status === "approved";
-    if (filter === "resume_ready") {
-      return isResumeReadyEvidence(item);
-    }
-    return (
-      item.status !== "approved" ||
-      item.needs_user_confirmation ||
-      !(item.allowed_usage ?? []).includes("resume")
-    );
-  });
-  const filterOptions: Array<{ id: EvidenceListFilter; label: string; count: number }> =
-    mode === "library"
-      ? [
-          { id: "all", label: "All reusable", count: counts.all },
-          { id: "resume_ready", label: "Resume-ready", count: counts.resume_ready },
-          { id: "approved", label: "Approved", count: counts.approved },
-        ]
-      : [
-          { id: "needs_review", label: "Needs review", count: counts.needs_review },
-          { id: "resume_ready", label: "Resume-ready", count: counts.resume_ready },
-          { id: "approved", label: "Approved", count: counts.approved },
-          { id: "all", label: "All", count: counts.all },
-        ];
-  const visibleItems = showAll ? filteredItems : filteredItems.slice(0, 6);
+  const visibleItems = showAll ? visibleSourceItems : visibleSourceItems.slice(0, 6);
   async function handleUpdate(
     item: (typeof items)[number],
     action: EvidenceUpdateAction,
@@ -8047,26 +7745,11 @@ function EvidenceList({
             : `${counts.needs_review} need review · ${counts.resume_ready} resume-ready · ${counts.all} total`}
         </span>
       </div>
-      <div className="filter-row" role="group" aria-label="Evidence filters">
-        {filterOptions.map((option) => (
-          <button
-            data-active={filter === option.id}
-            key={option.id}
-            type="button"
-            onClick={() => {
-              setFilter(option.id);
-              setShowAll(false);
-            }}
-          >
-            {option.label} ({option.count})
-          </button>
-        ))}
-      </div>
-      {filteredItems.length === 0 ? (
+      {visibleSourceItems.length === 0 ? (
         <p className="requirement__quote">
           {mode === "library"
-            ? "No reusable evidence matches this filter. Review pending claims in Work Queue."
-            : "No evidence matches this filter."}
+            ? "No reusable evidence matches this view. Review pending claims in Work Queue."
+            : "No evidence is waiting for review."}
         </p>
       ) : null}
       <div className="evidence-row-table result-stack--inner">
@@ -8084,13 +7767,13 @@ function EvidenceList({
           );
         })}
       </div>
-      {filteredItems.length > 6 ? (
+      {visibleSourceItems.length > 6 ? (
         <button
           className="secondary-button evidence-review__toggle"
           type="button"
           onClick={() => setShowAll((current) => !current)}
         >
-          {showAll ? "Show fewer" : `Show all ${filteredItems.length}`}
+          {showAll ? "Show fewer" : `Show all ${visibleSourceItems.length}`}
         </button>
       ) : null}
     </section>
