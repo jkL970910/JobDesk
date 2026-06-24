@@ -293,6 +293,9 @@ type EnrichmentTaskUpdatePayload =
   | { action: "answer"; userAnswer: string }
   | { action: "acknowledge" }
   | { action: "dismiss" }
+  | { action: "mark_import_reviewed" }
+  | { action: "request_rerun" }
+  | { action: "convert_to_enrichment_question" }
   | { action: "reopen" }
   | { action: "convert" }
   | { action: "accept_proposal"; proposalId: string }
@@ -1880,6 +1883,12 @@ export function ProfileEvidenceWorkspace({
           : "Saved answer and prepared a suggested update."
         : payload.action === "acknowledge"
           ? "Confirmed import note."
+        : payload.action === "mark_import_reviewed"
+          ? "Marked imported material reviewed."
+        : payload.action === "request_rerun"
+          ? "Marked this import for rerun."
+        : payload.action === "convert_to_enrichment_question"
+          ? "Converted note to an enrichment question."
         : payload.action === "link"
           ? "Updated destination and regenerated a suggested update."
         : payload.action === "accept_proposal"
@@ -4018,7 +4027,14 @@ function EnrichmentTaskQueue({
               onOpenProfileFact={() => onOpenProfileFact(selectedTask)}
               onReviewImportedMaterial={onReviewImportedMaterial}
               onAcknowledge={() => void handleUpdate(selectedTask, { action: "acknowledge" })}
+              onConvertToQuestion={() =>
+                void handleUpdate(selectedTask, { action: "convert_to_enrichment_question" })
+              }
+              onMarkImportReviewed={() =>
+                void handleUpdate(selectedTask, { action: "mark_import_reviewed" })
+              }
               onRoleFieldUpdated={onRefresh}
+              onRequestRerun={() => void handleUpdate(selectedTask, { action: "request_rerun" })}
               onDismiss={() => void handleUpdate(selectedTask, { action: "dismiss" })}
               onLink={(anchor) =>
                 void handleUpdate(selectedTask, {
@@ -4090,14 +4106,17 @@ function EnrichmentTaskFocusPane({
   onAnswerChange,
   onAcceptProposal,
   onAcknowledge,
+  onConvertToQuestion,
   onCreateLibraryItems,
   onDismiss,
   onLink,
+  onMarkImportReviewed,
   onNext,
   onOpenProfileFact,
   onPrevious,
   onReviewImportedMaterial,
   onRejectProposal,
+  onRequestRerun,
   onReviseProposal,
   onRoleFieldUpdated,
   onSaveAnswer,
@@ -4119,14 +4138,17 @@ function EnrichmentTaskFocusPane({
   onAnswerChange: (answer: string) => void;
   onAcceptProposal: (proposalId: string) => void;
   onAcknowledge: () => void;
+  onConvertToQuestion: () => void;
   onCreateLibraryItems: () => void;
   onDismiss: () => void;
   onLink: (anchor: EnrichmentTaskAnchorPatch) => void;
+  onMarkImportReviewed: () => void;
   onNext: () => void;
   onOpenProfileFact: () => void;
   onPrevious: () => void;
   onReviewImportedMaterial: () => void;
   onRejectProposal: (proposalId: string) => void;
+  onRequestRerun: () => void;
   onReviseProposal: (
     proposalId: string,
     revision: { revisedText?: string; revisionInstruction?: string },
@@ -4157,12 +4179,15 @@ function EnrichmentTaskFocusPane({
         isPending={isPending}
         message={message}
         onAcknowledge={onAcknowledge}
+        onConvertToQuestion={onConvertToQuestion}
         onCreateLibraryItems={onCreateLibraryItems}
         onDismiss={onDismiss}
+        onMarkImportReviewed={onMarkImportReviewed}
         onNext={onNext}
         onOpenProfileFact={onOpenProfileFact}
         onPrevious={onPrevious}
         onReviewImportedMaterial={onReviewImportedMaterial}
+        onRequestRerun={onRequestRerun}
         onRoleFieldUpdated={onRoleFieldUpdated}
         task={task}
         taskIndex={taskIndex}
@@ -4452,11 +4477,14 @@ function SourceSectionReviewPane({
   message,
   onCreateLibraryItems,
   onAcknowledge,
+  onConvertToQuestion,
   onDismiss,
+  onMarkImportReviewed,
   onNext,
   onOpenProfileFact,
   onPrevious,
   onReviewImportedMaterial,
+  onRequestRerun,
   onRoleFieldUpdated,
   task,
   taskIndex,
@@ -4468,12 +4496,15 @@ function SourceSectionReviewPane({
   isPending: boolean;
   message?: { ok: boolean; text: string };
   onAcknowledge: () => void;
+  onConvertToQuestion: () => void;
   onCreateLibraryItems: () => void;
   onDismiss: () => void;
+  onMarkImportReviewed: () => void;
   onNext: () => void;
   onOpenProfileFact: () => void;
   onPrevious: () => void;
   onReviewImportedMaterial: () => void;
+  onRequestRerun: () => void;
   onRoleFieldUpdated: () => Promise<void>;
   task: EnrichmentTaskItem;
   taskIndex: number;
@@ -4503,6 +4534,10 @@ function SourceSectionReviewPane({
         ? () => setCustomizing(true)
       : actionModel.primaryAction === "add_material"
         ? onOpenProfileFact
+      : actionModel.primaryAction === "mark_reviewed"
+        ? onMarkImportReviewed
+      : actionModel.primaryAction === "request_rerun"
+        ? onRequestRerun
         : onReviewImportedMaterial;
   async function saveRoleField() {
     if (!selectedRoleId) {
@@ -4654,6 +4689,30 @@ function SourceSectionReviewPane({
             <button
               className="secondary-button secondary-button--quiet"
               type="button"
+              disabled={isPending}
+              onClick={onMarkImportReviewed}
+            >
+              Mark import reviewed
+            </button>
+            <button
+              className="secondary-button secondary-button--quiet"
+              type="button"
+              disabled={isPending}
+              onClick={onRequestRerun}
+            >
+              Mark for rerun
+            </button>
+            <button
+              className="secondary-button secondary-button--quiet"
+              type="button"
+              disabled={isPending}
+              onClick={onConvertToQuestion}
+            >
+              Convert to evidence question
+            </button>
+            <button
+              className="secondary-button secondary-button--quiet"
+              type="button"
               onClick={onReviewImportedMaterial}
             >
               Review imported library items
@@ -4752,13 +4811,18 @@ function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: strin
     };
   }
   if (expectedAction === "rerun_extraction" || expectedAction === "review_import") {
+    const isRerun = expectedAction === "rerun_extraction";
     return {
-      description: "This note reports an import limit or source classification. Review the imported material before creating more evidence.",
+      description: isRerun
+        ? "This note reports an import limit. Mark it for rerun if the source should be processed again."
+        : "This note reports an import limit or source classification. Mark it reviewed once you have checked the imported material.",
       eyebrow: "Import review",
-      heading: "Review imported material.",
-      primaryAction: "review_import" as const,
-      primaryLabel: "Review imported material",
-      recommendedAction: "Review the extracted roles, stories, and source material before deciding whether to add more.",
+      heading: isRerun ? "Rerun extraction if needed." : "Review imported material.",
+      primaryAction: isRerun ? ("request_rerun" as const) : ("mark_reviewed" as const),
+      primaryLabel: isRerun ? "Mark for rerun" : "Mark import reviewed",
+      recommendedAction: isRerun
+        ? "Use rerun when this import was capped or incomplete. Otherwise review or dismiss it."
+        : "Mark reviewed after checking the extracted roles, stories, and source material.",
       title: "Imported material needs review",
     };
   }
@@ -5792,6 +5856,8 @@ function formatEnrichmentTaskStatus(task: EnrichmentTaskItem) {
     if (task.resolution_kind === "profile_fact_updated") return "profile fact updated";
     if (task.resolution_kind === "role_field_updated") return "role field updated";
     if (task.resolution_kind === "import_reviewed") return "import reviewed";
+    if (task.resolution_kind === "rerun_requested") return "rerun requested";
+    if (task.resolution_kind === "converted_to_enrichment_question") return "converted to question";
   }
   return formatEnrichmentStatus(task.status);
 }

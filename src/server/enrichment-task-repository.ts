@@ -473,6 +473,9 @@ export async function updateEnrichmentTask(args: {
     | "answer"
     | "acknowledge"
     | "dismiss"
+    | "mark_import_reviewed"
+    | "request_rerun"
+    | "convert_to_enrichment_question"
     | "reopen"
     | "convert"
     | "link"
@@ -590,6 +593,41 @@ export async function updateEnrichmentTask(args: {
     patch.dismissedAt = now;
     patch.resolvedAt = now;
     patch.resolutionKind = "dismissed";
+  } else if (args.action === "mark_import_reviewed") {
+    if (!canResolveImportedNote(existing)) {
+      return { status: "invalid" as const, reason: "unsupported_import_review_action" as const };
+    }
+    patch.status = "converted";
+    patch.resolvedAt = now;
+    patch.resolutionKind = "import_reviewed";
+    patch.convertedAt = now;
+  } else if (args.action === "request_rerun") {
+    if (!canResolveImportedNote(existing)) {
+      return { status: "invalid" as const, reason: "unsupported_rerun_action" as const };
+    }
+    patch.status = "converted";
+    patch.resolvedAt = now;
+    patch.resolutionKind = "rerun_requested";
+    patch.convertedAt = now;
+  } else if (args.action === "convert_to_enrichment_question") {
+    if (!canResolveImportedNote(existing)) {
+      return { status: "invalid" as const, reason: "unsupported_convert_note_action" as const };
+    }
+    patch.status = "open";
+    patch.taskType = classifyEnrichmentTaskAsQuestion(existing.prompt);
+    patch.targetScope = "assign_later";
+    patch.targetConfidence = "low";
+    patch.targetReason =
+      "Converted from an imported material note. Choose a target before saving reusable evidence.";
+    patch.expectedOutcome = "route_answer";
+    patch.noteKind = null;
+    patch.expectedAction = null;
+    patch.targetField = null;
+    patch.resolvedAt = null;
+    patch.resolutionKind = null;
+    patch.convertedAt = null;
+    patch.acknowledgedAt = null;
+    patch.dismissedAt = null;
   } else if (args.action === "reopen") {
     patch.status = existing.userAnswer ? "answered" : "open";
     patch.dismissedAt = null;
@@ -2254,6 +2292,16 @@ function canAcknowledgeEnrichmentTask(task: typeof enrichmentTasks.$inferSelect)
   );
 }
 
+function canResolveImportedNote(task: typeof enrichmentTasks.$inferSelect) {
+  return (
+    task.taskType === "source_section_review" ||
+    (task.sourceType === "extraction_note" &&
+      task.expectedOutcome === "review_imported_material" &&
+      task.targetScope === "source_material" &&
+      Boolean(task.noteKind || task.expectedAction))
+  );
+}
+
 export function buildInitialProposalGenerationInstruction(type: EnrichmentProposalType) {
   if (type === "create_evidence") {
     return "Generate a concise draft evidence statement from the user's answer. Use only confirmed facts. Keep the user's answer as source_quote.";
@@ -2865,6 +2913,10 @@ function classifyEnrichmentTask(prompt: string): EnrichmentTaskType {
   if (isImportedMaterialReviewNote(prompt)) {
     return "source_section_review";
   }
+  return classifyEnrichmentTaskAsQuestion(prompt);
+}
+
+function classifyEnrichmentTaskAsQuestion(prompt: string): EnrichmentTaskType {
   const text = prompt.toLowerCase();
   if (/\b(metric|measure|number|percent|%|revenue|cost|latency|volume)\b/.test(text)) {
     return "metric";

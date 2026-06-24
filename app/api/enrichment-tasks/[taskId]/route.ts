@@ -15,6 +15,9 @@ const requestSchema = z.discriminatedUnion("action", [
   }),
   z.object({ action: z.literal("acknowledge") }),
   z.object({ action: z.literal("dismiss") }),
+  z.object({ action: z.literal("mark_import_reviewed") }),
+  z.object({ action: z.literal("request_rerun") }),
+  z.object({ action: z.literal("convert_to_enrichment_question") }),
   z.object({ action: z.literal("reopen") }),
   z.object({ action: z.literal("convert") }),
   z.object({

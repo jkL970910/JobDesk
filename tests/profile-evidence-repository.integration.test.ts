@@ -1240,6 +1240,145 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(evidenceRows).toHaveLength(0);
   });
 
+  it("resolves imported notes as reviewed, rerun requested, or converted to enrichment questions", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const reviewedPrompt = `Full details beyond first four roles should be reviewed ${crypto.randomUUID()}.`;
+    const rerunPrompt = `Returned at most four work experiences and may need rerun ${crypto.randomUUID()}.`;
+    const convertPrompt = `Clarify project impact from imported note ${crypto.randomUUID()}.`;
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          taskType: "source_section_review",
+          sourceType: "extraction_note",
+          sourceLabel: "Resume import",
+          prompt: reviewedPrompt,
+          targetScope: "source_material",
+          expectedOutcome: "review_imported_material",
+          noteKind: "import_review",
+          expectedAction: "review_import",
+        },
+        {
+          taskType: "source_section_review",
+          sourceType: "extraction_note",
+          sourceLabel: "Resume import",
+          prompt: rerunPrompt,
+          targetScope: "source_material",
+          expectedOutcome: "review_imported_material",
+          noteKind: "extraction_limit",
+          expectedAction: "rerun_extraction",
+        },
+        {
+          taskType: "source_section_review",
+          sourceType: "extraction_note",
+          sourceLabel: "Resume import",
+          prompt: convertPrompt,
+          targetScope: "source_material",
+          expectedOutcome: "review_imported_material",
+          noteKind: "import_review",
+          expectedAction: "review_import",
+        },
+      ],
+    });
+    const queue = await getEnrichmentTaskQueue({
+      limit: 50,
+      sourceType: "extraction_note",
+      statuses: ["open"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const reviewedTask = queue.tasks.find((item) => item.prompt === reviewedPrompt);
+    const rerunTask = queue.tasks.find((item) => item.prompt === rerunPrompt);
+    const convertTask = queue.tasks.find((item) => item.prompt === convertPrompt);
+    if (!reviewedTask || !rerunTask || !convertTask) {
+      throw new Error("Expected imported note tasks.");
+    }
+
+    const reviewed = await updateEnrichmentTask({
+      taskId: reviewedTask.id,
+      action: "mark_import_reviewed",
+    });
+    expect(reviewed.status).toBe("saved");
+    if (reviewed.status !== "saved") throw new Error("Expected reviewed task update.");
+    expect(reviewed.task).toMatchObject({
+      status: "converted",
+      resolution_kind: "import_reviewed",
+    });
+
+    const rerun = await updateEnrichmentTask({
+      taskId: rerunTask.id,
+      action: "request_rerun",
+    });
+    expect(rerun.status).toBe("saved");
+    if (rerun.status !== "saved") throw new Error("Expected rerun task update.");
+    expect(rerun.task).toMatchObject({
+      status: "converted",
+      resolution_kind: "rerun_requested",
+    });
+
+    const converted = await updateEnrichmentTask({
+      taskId: convertTask.id,
+      action: "convert_to_enrichment_question",
+    });
+    expect(converted.status).toBe("saved");
+    if (converted.status !== "saved") throw new Error("Expected converted task update.");
+    expect(converted.task).toMatchObject({
+      status: "open",
+      source_type: "extraction_note",
+      target_scope: "assign_later",
+      expected_outcome: "route_answer",
+      note_kind: null,
+      expected_action: null,
+      resolvedAt: null,
+      resolution_kind: null,
+    });
+    expect(converted.task.task_type).not.toBe("source_section_review");
+    expect(converted.task.proposals).toHaveLength(0);
+
+    const ordinaryPrompt = `Ordinary evidence question ${crypto.randomUUID()}.`;
+    await upsertEnrichmentTasks(db, {
+      workspaceId: workspace.id,
+      tasks: [
+        {
+          taskType: "metric",
+          sourceType: "resume_review",
+          sourceLabel: "Resume Review",
+          prompt: ordinaryPrompt,
+          targetScope: "assign_later",
+          expectedOutcome: "route_answer",
+        },
+      ],
+    });
+    const ordinaryQueue = await getEnrichmentTaskQueue({
+      limit: 50,
+      sourceType: "resume_review",
+      statuses: ["open"],
+    });
+    expect(ordinaryQueue.status).toBe("ready");
+    if (ordinaryQueue.status !== "ready") throw new Error("Expected ordinary queue.");
+    const ordinaryTask = ordinaryQueue.tasks.find((item) => item.prompt === ordinaryPrompt);
+    if (!ordinaryTask) throw new Error("Expected ordinary enrichment task.");
+    await expect(
+      updateEnrichmentTask({
+        taskId: ordinaryTask.id,
+        action: "mark_import_reviewed",
+      }),
+    ).resolves.toMatchObject({ status: "invalid", reason: "unsupported_import_review_action" });
+    await expect(
+      updateEnrichmentTask({
+        taskId: ordinaryTask.id,
+        action: "request_rerun",
+      }),
+    ).resolves.toMatchObject({ status: "invalid", reason: "unsupported_rerun_action" });
+    await expect(
+      updateEnrichmentTask({
+        taskId: ordinaryTask.id,
+        action: "convert_to_enrichment_question",
+      }),
+    ).resolves.toMatchObject({ status: "invalid", reason: "unsupported_convert_note_action" });
+  });
+
   it("updates profile facts and resolves the originating imported note task", async () => {
     const db = getDb();
     const workspace = await getCurrentWorkspace(db);
