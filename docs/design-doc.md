@@ -356,6 +356,11 @@ Evidence Library IA should separate source intake from library review:
   Projects, Evidence claims, readiness,
   possible-overlap cleanup, STAR story review, and approval for resume/interview
   use.
+- The visible Library view is the canonical asset surface. Drafts, `Needs
+  context` story targets, unapproved claims, and redaction needs remain visible
+  as assets in Library, while unresolved actions on those assets appear in Work
+  Queue. Counts on Library tabs should match visible asset counts; Work Queue
+  counts should match unresolved action counts.
 - Successful intake can route the user back to Library Review, but importing and
   reviewing should not be visually mixed in one undifferentiated surface.
 - Library Review should not become one long vertical list. It should expose

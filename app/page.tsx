@@ -670,7 +670,7 @@ function DashboardView({
       label: "Stories",
       metric: storyTargets > 0 ? (thinStories > 0 ? `${thinStories} thin` : `${storyTargets} ready`) : "None",
       state: storyTargets > 0 ? (thinStories > 0 ? "active" : "complete") : "blocked",
-      target: () => onNavigate("evidence"),
+      target: () => onOpenEvidenceReview("stories"),
     },
     {
       action: "Build resume",
@@ -703,7 +703,7 @@ function DashboardView({
             action: "Enrich stories",
             detail: `${thinStories} stor${thinStories === 1 ? "y needs" : "ies need"} metrics, scope, role context, or public-safe wording.`,
             label: "Strengthen thin stories",
-            target: onOpenEvidenceLibrary,
+            target: () => onOpenEvidenceReview("stories"),
           },
         ]
       : []),
@@ -869,11 +869,11 @@ function DashboardView({
       tone: claimsNeedingReview > 0 ? "warning" : "ready",
     },
     {
-      action: onOpenEvidenceLibrary,
       label: "Stories",
       value: storyTargets,
       detail: thinStories > 0 ? `${thinStories} thin` : "story context",
       tone: thinStories > 0 ? "warning" : storyTargets > 0 ? "ready" : "blocked",
+      action: () => onOpenEvidenceReview("stories"),
     },
   ];
 
@@ -974,12 +974,6 @@ function DashboardView({
                   <small>{item.detail}</small>
                 </button>
               ))}
-            </div>
-            <div className="library-snapshot-footer">
-              <p>{resumeHealthIssue}</p>
-              <button disabled={dashboardLoadState === "loading"} type="button" onClick={primaryReadinessAction.target}>
-                {primaryReadinessAction.action}
-              </button>
             </div>
           </section>
         </div>

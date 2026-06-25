@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   assignInitiativeToWorkExperience,
   createWorkExperienceAndAssignInitiative,
+  updateStoryTargetReview,
 } from "../../../../src/server/profile-evidence-repository";
 import { schedulePersonalEmbeddingsSync } from "../../../../src/server/embedding-service";
 
@@ -12,6 +13,18 @@ const paramsSchema = z.object({
 });
 
 const requestSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("mark_reviewed"),
+    targetType: z.enum(["initiative", "portfolio_project"]),
+  }),
+  z.object({
+    action: z.literal("mark_needs_update"),
+    targetType: z.enum(["initiative", "portfolio_project"]),
+  }),
+  z.object({
+    action: z.literal("reject_story"),
+    targetType: z.enum(["initiative", "portfolio_project"]),
+  }),
   z.object({
     action: z.literal("assign_work_experience"),
     targetType: z.literal("initiative"),
@@ -43,22 +56,34 @@ export async function PATCH(
     );
   }
 
-  const result =
-    body.data.action === "assign_work_experience"
-      ? await assignInitiativeToWorkExperience({
-          initiativeId: params.data.targetId,
-          workExperienceId: body.data.workExperienceId,
-        })
-      : await createWorkExperienceAndAssignInitiative({
-          initiativeId: params.data.targetId,
-          employer: body.data.employer,
-          roleTitle: body.data.roleTitle,
-          team: body.data.team,
-          location: body.data.location,
-          startDate: body.data.startDate,
-          endDate: body.data.endDate,
-          summary: body.data.summary,
-        });
+  let result;
+  if (
+    body.data.action === "mark_reviewed" ||
+    body.data.action === "mark_needs_update" ||
+    body.data.action === "reject_story"
+  ) {
+    result = await updateStoryTargetReview({
+      action: body.data.action,
+      targetId: params.data.targetId,
+      targetType: body.data.targetType,
+    });
+  } else if (body.data.action === "assign_work_experience") {
+    result = await assignInitiativeToWorkExperience({
+      initiativeId: params.data.targetId,
+      workExperienceId: body.data.workExperienceId,
+    });
+  } else {
+    result = await createWorkExperienceAndAssignInitiative({
+      initiativeId: params.data.targetId,
+      employer: body.data.employer,
+      roleTitle: body.data.roleTitle,
+      team: body.data.team,
+      location: body.data.location,
+      startDate: body.data.startDate,
+      endDate: body.data.endDate,
+      summary: body.data.summary,
+    });
+  }
 
   if (result.status === "not_found") {
     return NextResponse.json(

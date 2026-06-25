@@ -22,6 +22,16 @@ import {
   hasGuidedMaterialContent,
   type GuidedMaterialFields,
 } from "../lib/guided-material";
+import {
+  buildEvidenceLibraryIaCounts,
+  getStoryTargetReadinessState,
+  isCanonicalLibraryAsset,
+  isResumeReadyEvidenceClaim,
+  shouldApproveEvidenceClaim,
+  shouldBuildStoryTarget,
+  shouldLinkEvidenceClaim,
+  shouldReviewWorkExperienceAsset,
+} from "../lib/evidence-library-ia";
 import { buildProfileFactPatchFromText } from "../schemas/profile-facts";
 import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
 
@@ -437,6 +447,7 @@ type EvidenceAssetView = "work_experiences" | "work_initiatives" | "evidence_cla
 type EvidenceWorkQueueView =
   | "imported"
   | "roles"
+  | "stories"
   | "unlinked"
   | "enrichment"
   | "claims"
@@ -1501,7 +1512,9 @@ export function ProfileEvidenceWorkspace({
       ? enrichmentTaskCountByEvidenceId.get(item.id) ?? 0
       : 0,
   }));
-  const workExperiences = result?.work_experiences ?? library?.workExperiences ?? [];
+  const workExperiences = sortWorkExperiencesReverseChronological(
+    result?.work_experiences ?? library?.workExperiences ?? [],
+  );
   const initiatives = result?.initiatives ?? library?.initiatives ?? [];
   const portfolioProjects = result?.portfolio_projects ?? library?.portfolioProjects ?? [];
   const projectCards = result?.project_cards ?? library?.projectCards ?? [];
@@ -1519,19 +1532,18 @@ export function ProfileEvidenceWorkspace({
     projects: projectCards,
     workExperiences,
   };
-  const unlinkedEvidenceItems = getUnlinkedEvidenceItems(linkTargets, evidenceItems);
-  const claimReviewEvidenceItems = evidenceItems.filter(
-    (item) => getEvidenceReadiness(item).state !== "resume_ready",
-  );
+  const canonicalEvidenceItems = evidenceItems.filter(isCanonicalLibraryAsset);
+  const canonicalWorkExperiences = workExperiences.filter(isCanonicalLibraryAsset);
+  const canonicalInitiatives = initiatives.filter(isCanonicalLibraryAsset);
+  const canonicalPortfolioProjects = portfolioProjects.filter(isCanonicalLibraryAsset);
+  const linkEvidenceItems = canonicalEvidenceItems.filter(shouldLinkEvidenceClaim);
+  const claimReviewEvidenceItems = canonicalEvidenceItems.filter(shouldApproveEvidenceClaim);
   const focusedEvidenceItems = evidenceFocus
-    ? evidenceItems.filter((item) => evidenceMatchesFocus(item, evidenceFocus))
-    : unlinkedEvidenceItems;
-  const roleReviewItems = workExperiences.filter((experience) =>
-    shouldReviewWorkExperience(experience),
-  );
-  const reviewedWorkExperiences = workExperiences.filter(
-    (experience) => experience.status === "approved",
-  );
+    ? canonicalEvidenceItems.filter((item) => evidenceMatchesFocus(item, evidenceFocus))
+    : linkEvidenceItems;
+  const roleReviewItems = canonicalWorkExperiences.filter(shouldReviewWorkExperienceAsset);
+  const queuedInitiatives = canonicalInitiatives.filter(shouldBuildStoryTarget);
+  const queuedPortfolioProjects = canonicalPortfolioProjects.filter(shouldBuildStoryTarget);
   const roleFilteredImportedTasks = filterEnrichmentTasksByRole(
     importedMaterialTasks,
     workQueueRoleFilter,
@@ -1557,18 +1569,36 @@ export function ProfileEvidenceWorkspace({
     linkTargets,
   );
   const roleFilteredUnlinkedEvidenceItems = filterEvidenceItemsByRole(
-    unlinkedEvidenceItems,
+    linkEvidenceItems,
     workQueueRoleFilter,
     linkTargets,
   );
+  const roleFilteredQueuedInitiatives = filterStoryTargetsByRole(
+    queuedInitiatives,
+    workQueueRoleFilter,
+  );
+  const roleFilteredQueuedPortfolioProjects =
+    workQueueRoleFilter === "all" ? queuedPortfolioProjects : [];
+  const filteredStoryTargetQueueCount =
+    roleFilteredQueuedInitiatives.length + roleFilteredQueuedPortfolioProjects.length;
   const workQueueRoleFilterOptions = buildWorkQueueRoleFilterOptions({
     importedTasks: importedMaterialTasks,
     answerTasks: answerEnrichmentTasks,
     claimItems: claimReviewEvidenceItems,
     focusedItems: focusedEvidenceItems,
     roleReviewItems,
-    unlinkedItems: unlinkedEvidenceItems,
+    unlinkedItems: linkEvidenceItems,
     linkTargets,
+  });
+  const visibleStarStories = starStories;
+  const iaCounts = buildEvidenceLibraryIaCounts({
+    cleanupCount: storyDedupeCandidates.length + dedupeCandidates.length,
+    evidenceClaims: evidenceItems,
+    importReviewTasks: importedMaterialTasks,
+    interviewStories: starStories,
+    storyTargets: [...initiatives, ...portfolioProjects],
+    strengthenEvidenceTasks: answerEnrichmentTasks,
+    workExperiences,
   });
   const libraryReadiness = summarizeLibraryReadiness({
     cleanupCount: storyDedupeCandidates.length + dedupeCandidates.length,
@@ -1579,15 +1609,13 @@ export function ProfileEvidenceWorkspace({
     workExperiences,
   });
   const filteredEvidenceItems = filterEvidenceLibraryItems(
-    evidenceItems,
+    canonicalEvidenceItems,
     libraryFilters,
     linkTargets,
     projectCards,
   );
-  const reusableEvidenceItems = filteredEvidenceItems.filter(isReusableReadyEvidence);
-  const allEvidenceItems = reusableEvidenceItems;
   const evidenceClaimFilterOptions = buildEvidenceLibraryFilterOptions(
-    reusableEvidenceItems,
+    filteredEvidenceItems,
     linkTargets,
     projectCards,
   );
@@ -1631,8 +1659,8 @@ export function ProfileEvidenceWorkspace({
       return;
     }
     if (destination === "stories") {
-      setLibraryMode("library");
-      setLibraryView("star_stories");
+      setLibraryMode("work_queue");
+      setWorkQueueView("stories");
       return;
     }
     setLibraryMode("work_queue");
@@ -1653,7 +1681,7 @@ export function ProfileEvidenceWorkspace({
     setLibraryMode("library");
     if (task.expected_action === "edit_role_field" || task.note_kind === "missing_role_field") {
       setLibraryView("work_experiences");
-      setStatus("Review extracted work experiences and edit role-level fields.");
+      setStatus("Review extracted Work Experiences and edit their fields.");
       return;
     }
     if (task.expected_action === "add_profile_fact" || task.expected_action === "edit_profile_fact") {
@@ -1662,11 +1690,11 @@ export function ProfileEvidenceWorkspace({
     }
     if (task.note_kind === "evidence_gap") {
       setLibraryView("evidence_claims");
-      setStatus("Review imported evidence claims and convert useful details into approved evidence.");
+      setStatus("Review imported Evidence Claims and approve only source-backed facts for resume use.");
       return;
     }
     setLibraryView("work_initiatives");
-    setStatus("Review imported work initiatives and source-material extraction.");
+    setStatus("Review imported Work Initiatives and Source Material extraction.");
   }
 
   function openWorkQueueView(view: EvidenceWorkQueueView) {
@@ -1946,7 +1974,7 @@ export function ProfileEvidenceWorkspace({
     patch: StoryAssignmentPatch,
   ): Promise<{ ok: boolean; message: string }> {
     if (target.targetType !== "initiative") {
-      return { ok: false, message: "Only work initiatives can be assigned to a role." };
+      return { ok: false, message: "Only Work Initiatives can be assigned to a Work Experience." };
     }
     const response = await fetchJson(`/api/story-targets/${target.targetId}`, {
       method: "PATCH",
@@ -1964,10 +1992,41 @@ export function ProfileEvidenceWorkspace({
     await refreshLibraryAfterMutation();
     const message =
       patch.action === "create_work_experience_and_assign"
-        ? "Created role and assigned initiative."
+        ? "Created Work Experience and assigned Story Target."
         : patch.workExperienceId
-          ? "Assigned initiative to selected role."
-          : "Kept initiative as standalone.";
+          ? "Assigned Story Target to selected Work Experience."
+          : "Kept Story Target as standalone.";
+    setStatus(message);
+    return { ok: true, message };
+  }
+
+  async function updateStoryTargetReview(
+    target: StoryEnrichmentTarget,
+    action: "mark_reviewed" | "mark_needs_update" | "reject_story",
+  ): Promise<{ ok: boolean; message: string }> {
+    if (target.targetType === "legacy_project") {
+      return { ok: false, message: "Legacy project cards use the project review flow." };
+    }
+    const response = await fetchJson(`/api/story-targets/${target.targetId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, targetType: target.targetType }),
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string }
+      | null;
+    if (!response.ok) {
+      const message = payload?.error ?? "Could not update story review state.";
+      setError(message);
+      return { ok: false, message };
+    }
+    await refreshLibraryAfterMutation();
+    const message =
+      action === "mark_reviewed"
+        ? "Story target approved for Library."
+        : action === "reject_story"
+          ? "Story target rejected."
+          : "Story target returned to Work Queue.";
     setStatus(message);
     return { ok: true, message };
   }
@@ -2033,7 +2092,7 @@ export function ProfileEvidenceWorkspace({
 
   async function mergeEvidenceCandidate(candidate: DedupeCandidate) {
     const confirmed = window.confirm(
-      "Merge this possible overlap into the kept item? Only do this when both items describe the same claim. Resume claims linked to either item may need another check.",
+      "Merge this possible overlap into the kept item? Only do this when both items describe the same Evidence Claim. Generated resume text linked to either item may need another check.",
     );
     if (!confirmed) return;
     const response = await fetchJson("/api/evidence/dedupe", {
@@ -2074,7 +2133,7 @@ export function ProfileEvidenceWorkspace({
       return;
     }
     setResult(null);
-    setStatus("Marked this evidence overlap as separate claims.");
+    setStatus("Marked this evidence overlap as separate Evidence Claims.");
     await refreshLibraryAfterMutation();
   }
 
@@ -2093,18 +2152,18 @@ export function ProfileEvidenceWorkspace({
       const payload = (await response.json().catch(() => null)) as
         | { error?: string }
         | null;
-      const message = payload?.error ?? "Failed to keep story targets separate.";
+      const message = payload?.error ?? "Failed to keep Story Targets separate.";
       setError(message);
       throw new Error(message);
     }
     setResult(null);
-    setStatus("Marked this story overlap as separate targets.");
+    setStatus("Marked this Story Target overlap as separate targets.");
     await refreshLibraryAfterMutation();
   }
 
   async function mergeStoryCandidate(candidate: StoryDedupeCandidate) {
     const confirmed = window.confirm(
-      "Merge these story targets into the kept story? Linked evidence will move to the kept story, and duplicate stories will leave the active list.",
+      "Merge these Story Targets into the kept Story Target? Linked Evidence Claims will move to the kept item, and duplicates will leave the active list.",
     );
     if (!confirmed) return;
     const response = await fetchJson("/api/story-targets/dedupe", {
@@ -2121,18 +2180,18 @@ export function ProfileEvidenceWorkspace({
       const payload = (await response.json().catch(() => null)) as
         | { error?: string }
         | null;
-      const message = payload?.error ?? "Failed to merge story targets.";
+      const message = payload?.error ?? "Failed to merge Story Targets.";
       setError(message);
       throw new Error(message);
     }
     setResult(null);
-    setStatus("Merged duplicate stories into the kept story.");
+    setStatus("Merged duplicate Story Targets into the kept item.");
     await refreshLibraryAfterMutation();
   }
 
   async function mergeStoryTargetsManually(primaryStoryId: string, duplicateStoryId: string) {
     const confirmed = window.confirm(
-      "Merge the selected story into this story? Linked evidence will move to this story, and the duplicate will leave the active list.",
+      "Merge the selected Story Target into this one? Linked Evidence Claims will move to the kept item, and the duplicate will leave the active list.",
     );
     if (!confirmed) return { ok: false, message: "Merge cancelled." };
     const response = await fetchJson("/api/story-targets/dedupe", {
@@ -2149,14 +2208,14 @@ export function ProfileEvidenceWorkspace({
       | { error?: string }
       | null;
     if (!response.ok) {
-      const message = payload?.error ?? "Failed to merge stories.";
+      const message = payload?.error ?? "Failed to merge Story Targets.";
       setError(message);
       return { ok: false, message };
     }
     setResult(null);
-    setStatus("Merged story and moved linked evidence.");
+    setStatus("Merged Story Target and moved linked Evidence Claims.");
     await refreshLibraryAfterMutation();
-    return { ok: true, message: "Merged story and moved linked evidence." };
+    return { ok: true, message: "Merged Story Target and moved linked Evidence Claims." };
   }
 
   async function updateProject(
@@ -2223,7 +2282,7 @@ export function ProfileEvidenceWorkspace({
           type="button"
           onClick={() => setActiveSection("review")}
         >
-          Review Material
+          Library
         </button>
         <button
           data-active={activeSection === "intake"}
@@ -2452,7 +2511,7 @@ export function ProfileEvidenceWorkspace({
               />
             ) : (
               <section className="section-block section-block--builder source-active-form">
-                <h3>Work Story Builder</h3>
+                <h3>Story Target Builder</h3>
                 <p className="panel__note">
                   {entryGuidance.enrichmentHint}
                 </p>
@@ -2465,8 +2524,8 @@ export function ProfileEvidenceWorkspace({
                     <span>Target-aware enrichment</span>
                     <strong>{selectedStoryTarget.targetTitle}</strong>
                     <p>
-                      Guided answers will be saved as source material and linked back to this{" "}
-                      {selectedStoryTarget.targetType.replace(/_/g, " ")} when extracted evidence is safe to associate.
+                      Guided answers will be saved as Source Material and linked back to this{" "}
+                      {formatStoryTargetTypeLabel(selectedStoryTarget.targetType)} when extracted Evidence Claims are safe to associate.
                     </p>
                     {selectedStoryTarget.missingFields?.length ? (
                       <small>Missing: {selectedStoryTarget.missingFields.join(", ")}</small>
@@ -2475,7 +2534,7 @@ export function ProfileEvidenceWorkspace({
                 ) : null}
                 <div className="source-controls">
                   <label className="source-field">
-                    <span>Work story title</span>
+                    <span>Story Target title</span>
                     <input
                       className="source-input"
                       type="text"
@@ -2526,7 +2585,7 @@ export function ProfileEvidenceWorkspace({
                   />
                 ) : null}
                 <label className="source-field source-field--textarea">
-                  <span>{projectSourceMode === "guided" ? "Generated source preview" : "Work story material"}</span>
+                  <span>{projectSourceMode === "guided" ? "Generated Source Material preview" : "Story Target material"}</span>
                   <small>
                     {projectSourceMode === "guided"
                       ? guidedPreviewState === "stale"
@@ -2566,8 +2625,8 @@ export function ProfileEvidenceWorkspace({
                     {isProjectEnriching
                       ? "Adding..."
                       : selectedStoryTarget
-                        ? "Strengthen selected story"
-                        : "Add material to library"}
+                        ? "Strengthen selected Story Target"
+                        : "Add material to Evidence Library"}
                   </button>
                   <span className="status">
                     {projectSourceMode === "guided" && !projectNoteIsReady
@@ -2579,7 +2638,7 @@ export function ProfileEvidenceWorkspace({
                 {isProjectEnriching ? (
                   <ProgressNotice
                     elapsedSeconds={projectElapsedSeconds}
-                    label="Adding work story material"
+                    label="Adding Story Target material"
                     mode="project"
                   />
                 ) : null}
@@ -2590,7 +2649,7 @@ export function ProfileEvidenceWorkspace({
               <div>
                 <span>Story context comes next</span>
                 <p>
-                  After adding this material, Review Material will show whether claims need approval or stories need more context.
+                  After adding this material, the Evidence Library will show whether Evidence Claims need approval or Story Targets need more context.
                 </p>
               </div>
               <button type="button" onClick={() => selectEntryIntent("scratch")}>
@@ -2617,9 +2676,9 @@ export function ProfileEvidenceWorkspace({
         <div className="panel material-review-panel">
           <div className="panel__header">
             <div>
-              <h2 className="panel__title">Review Material</h2>
+              <h2 className="panel__title">Evidence Library</h2>
               <p className="panel__note">
-                See what is ready, what needs answers, and what blocks resume export.
+                Browse reusable career assets and resolve the Work Queue before generating resumes.
               </p>
             </div>
             <button
@@ -2679,28 +2738,28 @@ export function ProfileEvidenceWorkspace({
                   type="button"
                   onClick={() => openLibraryAssetView("work_experiences")}
                 >
-                  Work Experience ({workExperiences.length})
+                  Work Experience ({iaCounts.library.workExperiences})
                 </button>
                 <button
                   data-active={libraryView === "work_initiatives"}
                   type="button"
                   onClick={() => openLibraryAssetView("work_initiatives")}
                 >
-                  Work Initiatives ({initiatives.length + portfolioProjects.length})
+                  Story Targets ({iaCounts.library.storyTargets})
                 </button>
                 <button
                   data-active={libraryView === "evidence_claims"}
                   type="button"
                   onClick={() => openLibraryAssetView("evidence_claims")}
                 >
-                  Evidence Claims ({allEvidenceItems.length})
+                  Evidence Claims ({iaCounts.library.evidenceClaims})
                 </button>
                 <button
                   data-active={libraryView === "star_stories"}
                   type="button"
                   onClick={() => openLibraryAssetView("star_stories")}
                 >
-                  STAR Stories ({starStories.length})
+                  Interview Stories ({iaCounts.library.interviewStories})
                 </button>
               </div>
               {libraryView === "work_experiences" ? (
@@ -2709,20 +2768,20 @@ export function ProfileEvidenceWorkspace({
                   initiatives={initiatives}
                   onRefresh={() => refreshLibraryAfterMutation()}
                   pendingReviewCount={roleReviewItems.length}
-                  workExperiences={reviewedWorkExperiences}
+                  workExperiences={canonicalWorkExperiences}
                 />
               ) : null}
               {libraryView === "work_initiatives" ? (
                 <WorkInitiativeList
                   evidenceItems={evidenceItems}
-                  initiatives={initiatives}
+                  initiatives={canonicalInitiatives}
                   onMergeStory={mergeStoryTargetsManually}
                   onAssignStory={updateStoryAssignment}
                   onEnrichStory={startProjectEnrichment}
                   onOpenEvidenceClaims={openEvidenceClaimsForStory}
                   onReviewClaims={reviewClaimsForStory}
                   onReviewStarStory={reviewStarStoryForStory}
-                  portfolioProjects={portfolioProjects}
+                  portfolioProjects={canonicalPortfolioProjects}
                   workExperiences={workExperiences}
                 />
               ) : null}
@@ -2730,7 +2789,7 @@ export function ProfileEvidenceWorkspace({
                 <EvidenceClaimsLibraryView
                   filters={libraryFilters}
                   filterOptions={evidenceClaimFilterOptions}
-                  items={allEvidenceItems}
+                  items={filteredEvidenceItems}
                   linkTargets={linkTargets}
                   onChangeFilters={setLibraryFilters}
                   onUpdate={updateEvidence}
@@ -2742,7 +2801,7 @@ export function ProfileEvidenceWorkspace({
                   focus={starStoryFocus}
                   initiatives={initiatives}
                   onImproveStory={startProjectEnrichment}
-                  stories={starStories}
+                  stories={visibleStarStories}
                   onRefresh={() => void loadStarStories()}
                   workExperiences={workExperiences}
                 />
@@ -2758,14 +2817,21 @@ export function ProfileEvidenceWorkspace({
               type="button"
               onClick={() => openWorkQueueView("imported")}
             >
-              Import Review ({formatQueueCount(importedMaterialTasks.length, roleFilteredImportedTasks.length, workQueueRoleFilter)})
+              Import Review ({formatQueueCount(iaCounts.workQueue.importReview, roleFilteredImportedTasks.length, workQueueRoleFilter)})
             </button>
             <button
               data-active={workQueueView === "roles"}
               type="button"
               onClick={() => openWorkQueueView("roles")}
             >
-              Review Roles ({formatQueueCount(roleReviewItems.length, roleFilteredRoleReviewItems.length, workQueueRoleFilter)})
+              Review Work Experience ({formatQueueCount(iaCounts.workQueue.reviewWorkExperience, roleFilteredRoleReviewItems.length, workQueueRoleFilter)})
+            </button>
+            <button
+              data-active={workQueueView === "stories"}
+              type="button"
+              onClick={() => openWorkQueueView("stories")}
+            >
+              Build Story Targets ({formatQueueCount(iaCounts.workQueue.buildStoryTargets, filteredStoryTargetQueueCount, workQueueRoleFilter)})
             </button>
             <button
               data-active={workQueueView === "unlinked"}
@@ -2775,14 +2841,14 @@ export function ProfileEvidenceWorkspace({
                 openWorkQueueView("unlinked");
               }}
             >
-              {evidenceFocus ? "Focused" : "Link Claims"} ({formatQueueCount(focusedEvidenceItems.length, evidenceFocus ? roleFilteredFocusedEvidenceItems.length : roleFilteredUnlinkedEvidenceItems.length, workQueueRoleFilter)})
+              {evidenceFocus ? "Focused Evidence" : "Link Evidence"} ({formatQueueCount(evidenceFocus ? focusedEvidenceItems.length : iaCounts.workQueue.linkEvidence, evidenceFocus ? roleFilteredFocusedEvidenceItems.length : roleFilteredUnlinkedEvidenceItems.length, workQueueRoleFilter)})
             </button>
             <button
               data-active={workQueueView === "enrichment"}
               type="button"
               onClick={() => openWorkQueueView("enrichment")}
             >
-              Add Detail ({formatQueueCount(answerEnrichmentTasks.length, roleFilteredAnswerTasks.length, workQueueRoleFilter)})
+              Strengthen Evidence ({formatQueueCount(iaCounts.workQueue.strengthenEvidence, roleFilteredAnswerTasks.length, workQueueRoleFilter)})
             </button>
             <button
               data-active={workQueueView === "claims"}
@@ -2792,14 +2858,14 @@ export function ProfileEvidenceWorkspace({
                 openWorkQueueView("claims");
               }}
             >
-              Approve Claims ({formatQueueCount(claimReviewEvidenceItems.length, roleFilteredClaimReviewItems.length, workQueueRoleFilter)})
+              Approve Evidence ({formatQueueCount(iaCounts.workQueue.approveEvidence, roleFilteredClaimReviewItems.length, workQueueRoleFilter)})
             </button>
             <button
               data-active={workQueueView === "cleanup"}
               type="button"
               onClick={() => openWorkQueueView("cleanup")}
             >
-              Cleanup ({storyDedupeCandidates.length + dedupeCandidates.length})
+              Cleanup ({iaCounts.workQueue.cleanup})
             </button>
           </div>
           <WorkQueueRoleFilter
@@ -2854,41 +2920,51 @@ export function ProfileEvidenceWorkspace({
               roles={roleFilteredRoleReviewItems}
             />
           ) : null}
+          {workQueueView === "stories" ? (
+            <StarStoryQueue
+              onImproveStory={startProjectEnrichment}
+              onRefresh={() => void loadStarStories()}
+              onReviewStory={updateStoryTargetReview}
+              portfolioProjects={roleFilteredQueuedPortfolioProjects}
+              storyTargets={roleFilteredQueuedInitiatives}
+              workExperiences={workExperiences}
+            />
+          ) : null}
           {workQueueView === "claims" ? (
             <>
             {evidenceFocus ? (
               <section className="focused-claims-banner">
                 <div>
-                  <span>Story claims focus</span>
+                  <span>Story Target evidence</span>
                   <strong>{evidenceFocus.title}</strong>
-                  <p>Review claims linked to this story target, then approve, edit, or mark public-safe as needed.</p>
+                  <p>Review linked Evidence Claims, then approve, edit, or add public-safe wording as needed.</p>
                 </div>
                 <button
                   className="secondary-button"
                   type="button"
                   onClick={() => setEvidenceFocus(null)}
                 >
-                  Show all claims
+                  Show all Evidence Claims
                 </button>
               </section>
             ) : null}
             <EvidenceList
               description={
                 evidenceFocus
-                  ? "These claims are already linked to the selected story target. Review truth, sensitivity, public-safe wording, and resume usage."
-                  : "Approve evidence, review safe wording, and choose whether it can support generated resumes."
+                  ? "These Evidence Claims are already linked to the selected Story Target. Review truth, sensitivity, public-safe wording, and resume usage."
+                  : "Approve Evidence Claims, review safe wording, and choose whether they can support generated resumes."
               }
               emptyMessage={
                 evidenceFocus
-                  ? "No claims are linked to this story target yet. Use Enrich story to add source context."
-                  : "All current evidence claims are approved and resume-ready."
+                  ? "No Evidence Claims are linked to this Story Target yet. Use Strengthen Story Target to add source context."
+                  : "All current Evidence Claims are approved and resume-ready."
               }
               items={evidenceFocus ? roleFilteredFocusedEvidenceItems : roleFilteredClaimReviewItems}
               mode="review"
               onUpdate={updateEvidence}
               projects={projectCards}
               linkTargets={linkTargets}
-              title={evidenceFocus ? "Claims for " + evidenceFocus.title : "Evidence Review"}
+              title={evidenceFocus ? "Evidence Claims for " + evidenceFocus.title : "Approve Evidence"}
             />
             </>
           ) : null}
@@ -2897,36 +2973,36 @@ export function ProfileEvidenceWorkspace({
             {evidenceFocus ? (
               <section className="focused-claims-banner">
                 <div>
-                  <span>Story claims focus</span>
+                  <span>Story Target evidence</span>
                   <strong>{evidenceFocus.title}</strong>
-                  <p>Review claims linked to this story target, then approve, edit, or mark public-safe as needed.</p>
+                  <p>Review linked Evidence Claims, then approve, edit, or add public-safe wording as needed.</p>
                 </div>
                 <button
                   className="secondary-button"
                   type="button"
                   onClick={() => setEvidenceFocus(null)}
                 >
-                  Show needs-target claims
+                  Show unlinked Evidence Claims
                 </button>
               </section>
             ) : null}
             <EvidenceList
               description={
                 evidenceFocus
-                  ? "These claims are already linked to the selected story target. Review truth, sensitivity, public-safe wording, and resume usage."
-                  : "These evidence claims are not attached to a work experience, initiative, or portfolio project yet. Link them to a story target or keep them as standalone profile facts."
+                  ? "These Evidence Claims are already linked to the selected Story Target. Review truth, sensitivity, public-safe wording, and resume usage."
+                  : "These Evidence Claims are not attached to a Work Experience, Work Initiative, or Portfolio Project yet. Link them to a Story Target or keep them as standalone profile facts."
               }
               emptyMessage={
                 evidenceFocus
-                  ? "No claims are linked to this story target yet. Use Enrich story to add source context."
-                  : "All current evidence is attached to story targets."
+                  ? "No Evidence Claims are linked to this Story Target yet. Use Strengthen Story Target to add source context."
+                  : "All current Evidence Claims are attached to Story Targets."
               }
               items={evidenceFocus ? roleFilteredFocusedEvidenceItems : roleFilteredUnlinkedEvidenceItems}
               mode="review"
               onUpdate={updateEvidence}
               projects={projectCards}
               linkTargets={linkTargets}
-              title={evidenceFocus ? `Claims for ${evidenceFocus.title}` : "Needs Target Claims"}
+              title={evidenceFocus ? `Evidence Claims for ${evidenceFocus.title}` : "Evidence Claims to Link"}
             />
             </>
           ) : null}
@@ -3046,8 +3122,8 @@ function getFileProcessingStages(
       },
       {
         label: "Prepare draft",
-        summary: "Load work-story text for library extraction.",
-        detail: "Loading the parsed material into the Work Story Builder for review before extraction.",
+        summary: "Load Story Target text for library extraction.",
+        detail: "Loading the parsed material into the Story Target Builder for review before extraction.",
       },
     ];
   }
@@ -3134,13 +3210,13 @@ function getProgressStages(mode: "evidence" | "project") {
       },
       {
         label: "Extract project evidence",
-        summary: "Identify claims, impact, tools, and scope.",
-        detail: "Finding grounded project claims, impact signals, and missing proof points.",
+        summary: "Identify Evidence Claims, impact, tools, and scope.",
+        detail: "Finding grounded Evidence Claims, impact signals, and missing proof points.",
       },
       {
-        label: "Build project card",
-        summary: "Create a story container for resume/interview use.",
-        detail: "Organizing the project into a reusable card and linking supporting evidence.",
+        label: "Build Story Target",
+        summary: "Create a Story Target for resume/interview use.",
+        detail: "Organizing the work into a reusable Story Target and linking supporting Evidence Claims.",
       },
       {
         label: "Save and refresh",
@@ -3157,8 +3233,8 @@ function getProgressStages(mode: "evidence" | "project") {
     },
     {
       label: "Find useful details",
-      summary: "Find profile facts, evidence claims, and project drafts.",
-      detail: "Finding profile facts, reusable claims, and project drafts.",
+        summary: "Find profile facts, Evidence Claims, and Story Target drafts.",
+        detail: "Finding profile facts, reusable Evidence Claims, and Story Target drafts.",
     },
     {
       label: "Structure library items",
@@ -3195,11 +3271,11 @@ function ReviewHandoffNotice({
       <div>
         <span>New material ready for review</span>
         <p>
-          {summary.sourceTitle} created {summary.evidenceCount} evidence claim
+          {summary.sourceTitle} created {summary.evidenceCount} Evidence Claim
           {summary.evidenceCount === 1 ? "" : "s"}, {summary.workExperienceCount} work
           experience{summary.workExperienceCount === 1 ? "" : "s"}, and{" "}
-          {summary.storyCount} story target{summary.storyCount === 1 ? "" : "s"}.
-          Review the material below, then enrich thin stories with more {sourceType}
+          {summary.storyCount} Story Target{summary.storyCount === 1 ? "" : "s"}.
+          Review the material below, then strengthen thin Story Targets with more {sourceType}
           context if needed.
         </p>
       </div>
@@ -3237,7 +3313,7 @@ function OnboardingPaths({
       title: "Work notes or guided answers",
       body:
         "Add project summaries, performance notes, or guided answers to strengthen work stories.",
-      steps: "Work context -> story strength -> resume-ready evidence",
+      steps: "Work context -> Story Target -> resume-ready Evidence Claims",
     },
     {
       ariaLabel: "JD gap evidence path",
@@ -3249,7 +3325,7 @@ function OnboardingPaths({
     },
   ];
   return (
-    <section className="onboarding-paths" aria-label="Material Library paths" role="tablist">
+    <section className="onboarding-paths" aria-label="Evidence Library paths" role="tablist">
       {paths.map((path) => (
         <button
           aria-label={path.ariaLabel}
@@ -3306,7 +3382,7 @@ function MaterialSelectionSummary({
         : "Create library items before answering review-generated enrichment prompts."
       : activeIntent === "jd"
         ? "Use this only for evidence-gap material from a JD analysis."
-        : "This source will become reusable story and evidence material.";
+        : "This source will become reusable Story Target and Evidence Claim material.";
   return (
     <section className="material-selection-summary" aria-label="Selected material source">
       <article>
@@ -3620,10 +3696,10 @@ function GuidedMaterialBuilder({
     <section className="guided-material-builder">
       <div className="guided-material-builder__top">
         <div>
-          <span>Guided Material Builder</span>
+          <span>Guided Story Target Builder</span>
           <p>
-            Answer what you know. The preview becomes source material, then JobDesk
-            creates draft evidence for review.
+            Answer what you know. The preview becomes Source Material, then JobDesk
+            creates draft Evidence Claims for review.
           </p>
         </div>
         <div className="guided-sync-status" data-state={syncState} aria-live="polite">
@@ -3687,25 +3763,25 @@ function LibraryOverviewSummary({
   const portfolioCount =
     library?.portfolioProjects.length ?? extraction?.portfolio_projects.length ?? 0;
   return (
-    <section className="library-overview" aria-label="Material Library readiness">
+    <section className="library-overview" aria-label="Evidence Library readiness">
       <div className="library-overview__top">
         <div>
           <span>Material health</span>
           <strong>{profileName}</strong>
         </div>
         <p>
-          {evidenceCount} evidence · {roleCount} roles · {initiativeCount} initiatives ·{" "}
-          {portfolioCount} portfolio projects
+          {evidenceCount} Evidence Claims · {roleCount} Work Experiences · {initiativeCount} Work Initiatives ·{" "}
+          {portfolioCount} Portfolio Projects
         </p>
       </div>
       <div className="library-readiness">
         <article>
-          <span>Thin stories</span>
+          <span>Story Targets to build</span>
           <strong>{summary.projectsNeedingContext}</strong>
           <p>{summary.storyReadyProjects} ready</p>
         </article>
         <article>
-          <span>Claims to review</span>
+          <span>Evidence Claims to approve</span>
           <strong>{summary.evidenceNeedingReview}</strong>
           <p>{summary.resumeReadyEvidence} resume-ready</p>
         </article>
@@ -3755,32 +3831,32 @@ function EvidenceClaimsLibraryView({
       <div className="section-block__top">
         <div>
           <h3>Evidence Claims</h3>
-          <p>Approved reusable claims. Items that still need review live in Work Queue.</p>
+          <p>Source-backed facts for resumes, cover letters, and interviews. Approval happens in Work Queue.</p>
         </div>
-        <span>{items.length} claims</span>
+        <span>{items.length} Evidence Claims</span>
       </div>
       <section className="evidence-library-toolbar evidence-library-toolbar--local" aria-label="Evidence claim filters">
         <label className="evidence-library-toolbar__search">
-          <span>Search claims</span>
+          <span>Search Evidence Claims</span>
           <input
             value={filters.query}
             onChange={(event) => update({ query: event.target.value })}
-            placeholder="Search claim text, source quote, role, or story..."
+            placeholder="Search claim text, source quote, Work Experience, or Story Target..."
           />
         </label>
         <div className="evidence-library-toolbar__filters">
           <ThemeSelect
-            label="Role"
+            label="Work Experience"
             value={filters.role}
-            options={[{ label: "All roles", value: "all" }, ...filterOptions.roles]}
+            options={[{ label: "All work experiences", value: "all" }, ...filterOptions.roles]}
             onChange={(role) => update({ role, story: "all" })}
           />
           {filters.role !== "all" ? (
             <ThemeSelect
-              label="Story"
+              label="Story Target"
               value={filters.story}
               options={[
-                { label: storyOptions.length > 0 ? "All stories under role" : "No stories under role", value: "all" },
+                { label: storyOptions.length > 0 ? "All story targets under this work experience" : "No story targets under this work experience", value: "all" },
                 ...storyOptions,
               ]}
               onChange={(story) => update({ story })}
@@ -3930,7 +4006,6 @@ function EnrichmentTaskQueue({
     (task) => !isSourceSectionReviewTask(task),
   ).length;
   const sourceSectionTaskCount = actionableTasks.length - questionTaskCount;
-  const convertedCount = tasks.filter((task) => task.status === "converted").length;
   const [pendingTasks, setPendingTasks] = useState<Record<string, EnrichmentPendingAction>>({});
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<Record<string, { ok: boolean; text: string }>>({});
@@ -4000,18 +4075,17 @@ function EnrichmentTaskQueue({
     <section className="section-block enrichment-queue">
       <div className="section-block__top">
         <div>
-          <h3>{queueVariant === "imported" ? "Imported Material" : "Improve Evidence"}</h3>
+          <h3>{queueVariant === "imported" ? "Import Review" : "Strengthen Evidence"}</h3>
             <p>
               {queueVariant === "imported"
-                ? "Review imported sections, then decide whether they should become roles, stories, or evidence."
-                : "Answer these questions to strengthen your work stories and resume proof."}
+                ? "Review imported sections, then decide whether they should become Work Experiences, Story Targets, or Evidence Claims."
+                : "Answer questions that strengthen Evidence Claims and Story Targets."}
             </p>
         </div>
         <span>
           {queueVariant === "imported"
-            ? `${sourceSectionTaskCount} imported sections`
+            ? `${sourceSectionTaskCount} import notes`
             : `${questionTaskCount} questions`}
-          {convertedCount > 0 ? ` · ${convertedCount} converted` : ""}
         </span>
       </div>
       {queueStatus === "skipped" ? (
@@ -4712,7 +4786,7 @@ function SourceSectionReviewPane({
         : onReviewImportedMaterial;
   async function saveRoleField() {
     if (!selectedRoleId) {
-      setRoleEditStatus("Choose the matching role first.");
+      setRoleEditStatus("Choose the matching Work Experience first.");
       return;
     }
     if (roleFieldValue.trim().length < 2) {
@@ -4720,7 +4794,7 @@ function SourceSectionReviewPane({
       return;
     }
     setIsSavingRoleField(true);
-    setRoleEditStatus("Saving role field...");
+    setRoleEditStatus("Saving Work Experience field...");
     try {
       const response = await fetchJson(`/api/work-experiences/${selectedRoleId}`, {
         body: JSON.stringify({
@@ -4738,14 +4812,14 @@ function SourceSectionReviewPane({
         setRoleEditStatus(
           payload?.error
             ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
-            : "Role field update failed.",
+            : "Work Experience field update failed.",
         );
         return;
       }
-      setRoleEditStatus("Role field saved.");
+      setRoleEditStatus("Work Experience field saved.");
       await onRoleFieldUpdated();
     } catch (error) {
-      setRoleEditStatus(error instanceof Error ? error.message : "Role field update failed.");
+      setRoleEditStatus(error instanceof Error ? error.message : "Work Experience field update failed.");
     } finally {
       setIsSavingRoleField(false);
     }
@@ -4793,14 +4867,14 @@ function SourceSectionReviewPane({
         {showRoleFieldEditor ? (
           <div className="source-section-review__customize">
             <label className="source-field">
-              <span>Matching role</span>
+              <span>Matching Work Experience</span>
               <select
                 className="jd-input jd-input--compact"
                 disabled={isPending || isSavingRoleField}
                 value={selectedRoleId}
                 onChange={(event) => setSelectedRoleId(event.target.value)}
               >
-                <option value="">Choose role</option>
+                <option value="">Choose Work Experience</option>
                 {workExperiences.map((experience) => (
                   <option key={experience.id} value={experience.id}>
                     {experience.employer} · {experience.role_title}
@@ -4981,15 +5055,15 @@ function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: strin
     };
   }
   if (expectedAction === "edit_role_field") {
-    const field = task.target_field ? formatImportedNoteTargetField(task.target_field) : "role field";
+    const field = task.target_field ? formatImportedNoteTargetField(task.target_field) : "Work Experience field";
     return {
-      description: `This note points to a missing ${field} on a work experience. Edit the role field directly.`,
-      eyebrow: "Role field",
+      description: `This note points to a missing ${field} on a Work Experience. Edit the Work Experience field directly.`,
+      eyebrow: "Work Experience field",
       heading: `Review missing ${field}.`,
       primaryAction: "edit_role_field" as const,
-      primaryLabel: `Edit role ${field}`,
-      recommendedAction: `Open the extracted roles and edit ${field} on the matching role.`,
-      title: `Missing role ${field}`,
+      primaryLabel: `Edit ${field}`,
+      recommendedAction: `Open the extracted Work Experiences and edit ${field} on the matching item.`,
+      title: `Missing ${field}`,
     };
   }
   if (expectedAction === "rerun_extraction" || expectedAction === "review_import") {
@@ -4997,14 +5071,14 @@ function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: strin
     return {
       description: isRerun
         ? "This note reports an import limit. Mark it for rerun if the source should be processed again."
-        : "This note reports an import limit or source classification. Review extracted roles and initiatives before closing it.",
+        : "This note reports an import limit or source classification. Review extracted Work Experiences and Story Targets before closing it.",
       eyebrow: "Import review",
       heading: isRerun ? "Rerun extraction if needed." : "Review imported material.",
       primaryAction: isRerun ? ("request_rerun" as const) : ("review_import" as const),
       primaryLabel: isRerun ? "Mark for rerun" : "Review imported items",
       recommendedAction: isRerun
         ? "Use rerun when this import was capped or incomplete. Otherwise review or dismiss it."
-        : "Check the extracted roles, initiatives, and source material before marking this reviewed.",
+        : "Check the extracted Work Experiences, Story Targets, and source material before marking this reviewed.",
       title: "Imported material needs review",
     };
   }
@@ -5071,8 +5145,8 @@ function getRoleFieldEditorConfig(
       shortLabel: "start date",
     },
     summary: {
-      label: "Role summary",
-      placeholder: "One sentence about this role's scope or focus",
+      label: "Work Experience summary",
+      placeholder: "One sentence about this Work Experience scope or focus",
       requestKey: "summary",
       shortLabel: "summary",
     },
@@ -5300,7 +5374,7 @@ function buildEnrichmentPatchPreviewItems(patch: Record<string, unknown>) {
   addPatchPreviewItem(items, "Role", getStringPatchValue(patch, "role_patch"), {
     kind: "context",
   });
-  addPatchPreviewItem(items, "Role summary", getStringPatchValue(patch, "summary_patch"), {
+  addPatchPreviewItem(items, "Work Experience summary", getStringPatchValue(patch, "summary_patch"), {
     kind: "context",
   });
   addPatchPreviewItem(items, "Team", getStringPatchValue(patch, "team_patch"), {
@@ -5527,7 +5601,7 @@ function buildTargetObjectReference(
     const experience = sources.workExperiences.find((item) => item.id === targetId);
     if (!experience) return null;
     return {
-      label: `Current role · ${experience.employer}`,
+      label: `Current Work Experience · ${experience.employer}`,
       text: formatWorkExperienceReferenceText(experience),
     };
   }
@@ -5657,7 +5731,7 @@ function EnrichmentTaskTargetPicker({
     <div className="enrichment-task-card__target-grid">
       {mode === "all" || mode === "evidence" ? (
       <label className="source-field enrichment-task-card__destination">
-        <span>Specific claim</span>
+        <span>Evidence Claim</span>
         <select
           className="jd-input jd-input--compact"
           disabled={disabled}
@@ -5670,10 +5744,10 @@ function EnrichmentTaskTargetPicker({
           }}
           value={selectedEvidenceId ? `evidence:${selectedEvidenceId}` : ""}
         >
-          <option value="">Choose a claim</option>
+          <option value="">Choose an Evidence Claim</option>
           {selectedIneligibleEvidence ? (
             <option disabled value={`evidence:${selectedIneligibleEvidence.id}`}>
-              Current unavailable claim · {truncateOptionText(selectedIneligibleEvidence.text)}
+              Current unavailable Evidence Claim · {truncateOptionText(selectedIneligibleEvidence.text)}
             </option>
           ) : null}
           {eligibleEvidenceItems.slice(0, 80).map((item) => (
@@ -6152,7 +6226,7 @@ function formatStatus(meta: Extract<ExtractionResponse, { data: unknown }>["meta
   if (meta.persistence?.status === "saved") {
     const storyCount =
       (meta.persistence.initiativeCount ?? 0) + (meta.persistence.portfolioProjectCount ?? 0);
-    return `${meta.persistence.evidenceCount ?? 0} evidence items · ${storyCount} story targets added`;
+    return `${meta.persistence.evidenceCount ?? 0} Evidence Claims · ${storyCount} Story Targets added`;
   }
   if (meta.persistence?.reason === "missing_database_url") {
     return "Draft created · save storage is not configured";
@@ -6206,23 +6280,23 @@ function formatEnrichmentTaskType(type: string) {
 function formatEnrichmentTaskScope(scope: EnrichmentTaskItem["target_scope"]) {
   const labels: Record<EnrichmentTaskItem["target_scope"], string> = {
     assign_later: "Profile/context question",
-    evidence_detail: "Evidence question",
+    evidence_detail: "Evidence detail",
     profile_context: "Profile question",
     profile_fact: "Profile fact",
-    role_context: "Role question",
+    role_context: "Work Experience context",
     source_material: "Imported material",
-    story_context: "Story question",
+    story_context: "Story Target context",
   };
   return labels[scope];
 }
 
 function formatEnrichmentSourceType(type: string) {
   const labels: Record<string, string> = {
-    evidence: "evidence card",
+    evidence: "Evidence Claim",
     extraction_note: "imported note",
     jd_gap: "JD gap",
     resume_review: "resume review",
-    story_target: "story target",
+    story_target: "Story Target",
     user_input: "user input",
   };
   return labels[type] ?? type;
@@ -6243,26 +6317,26 @@ function formatEnrichmentTargetReason(task: EnrichmentTaskItem) {
 
 function formatEnrichmentExpectedOutcome(task: EnrichmentTaskItem) {
   if (isSourceSectionReviewTask(task)) {
-    return "be reviewed as imported material before it becomes specific evidence or story updates.";
+    return "be reviewed as Source Material before it becomes specific Evidence Claims or Story Target updates.";
   }
   if (task.target_scope === "assign_later") {
-    return "be saved as context first, then reviewed before it becomes reusable evidence.";
+    return "be saved as context first, then reviewed before it becomes reusable Evidence Claims.";
   }
   if (task.target_scope === "evidence_detail") {
-    return "be used to create or strengthen material for this specific claim.";
+    return "be used to create or strengthen material for this specific Evidence Claim.";
   }
   if (task.target_scope === "story_context") {
-    return "be used to create or strengthen material under this project/story.";
+    return "be used to create or strengthen material under this Story Target.";
   }
   if (task.target_scope === "role_context") {
-    return "be used to clarify role-level context before it supports claims.";
+    return "be used to clarify Work Experience context before it supports claims.";
   }
-  return "be used as source material for future evidence review.";
+  return "be used as Source Material for future Evidence Claim review.";
 }
 
 function formatEnrichmentStatus(status: EnrichmentTaskItem["status"]) {
   if (status === "answered") return "answer saved";
-  if (status === "converted") return "draft saved";
+  if (status === "converted") return "saved";
   if (status === "dismissed") return "dismissed";
   return "open";
 }
@@ -6272,10 +6346,10 @@ function formatEnrichmentTaskStatus(task: EnrichmentTaskItem) {
     if (task.resolution_kind === "profile_answer_saved") return "profile answer saved";
     if (task.resolution_kind === "acknowledged") return "confirmed";
     if (task.resolution_kind === "profile_fact_updated") return "profile fact updated";
-    if (task.resolution_kind === "role_field_updated") return "role field updated";
+    if (task.resolution_kind === "role_field_updated") return "work experience updated";
     if (task.resolution_kind === "import_reviewed") return "import reviewed";
     if (task.resolution_kind === "rerun_requested") return "rerun requested";
-    if (task.resolution_kind === "converted_to_enrichment_question") return "converted to question";
+    if (task.resolution_kind === "converted_to_enrichment_question") return "question created";
   }
   return formatEnrichmentStatus(task.status);
 }
@@ -6284,14 +6358,14 @@ function formatEnrichmentProposalType(
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
 ) {
   const labels: Record<EnrichmentTaskItem["proposals"][number]["proposal_type"], string> = {
-    create_evidence: "Create new draft evidence",
-    update_evidence: "Update evidence",
-    create_initiative: "Create story",
-    update_initiative: "Update story",
-    update_work_experience: "Update role",
+    create_evidence: "Create new draft Evidence Claim",
+    update_evidence: "Update Evidence Claim",
+    create_initiative: "Create Story Target",
+    update_initiative: "Update Story Target",
+    update_work_experience: "Update Work Experience",
     clarify_assignment: "Save context",
-    link_evidence_to_story: "Link evidence to story",
-    link_story_to_role: "Clarify role link",
+    link_evidence_to_story: "Link Evidence Claim to Story Target",
+    link_story_to_role: "Clarify Work Experience link",
   };
   return labels[type];
 }
@@ -6330,22 +6404,22 @@ function proposalTypePreviewForTask(
 function formatEnrichmentTaskWorkspaceTitle(
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
 ) {
-  if (type === "create_evidence") return "Prepare a draft evidence update";
-  if (type === "update_evidence") return "Prepare an evidence update";
-  if (type === "update_initiative" || type === "create_initiative") return "Prepare a story update";
-  if (type === "update_work_experience") return "Prepare a role update";
+  if (type === "create_evidence") return "Prepare a draft Evidence Claim update";
+  if (type === "update_evidence") return "Prepare an Evidence Claim update";
+  if (type === "update_initiative" || type === "create_initiative") return "Prepare a Story Target update";
+  if (type === "update_work_experience") return "Prepare a Work Experience update";
   return "Save profile context";
 }
 
 function formatEnrichmentDraftLabel(
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
 ) {
-  if (type === "create_evidence") return "New draft evidence";
-  if (type === "update_evidence") return "Updated evidence draft";
+  if (type === "create_evidence") return "New draft Evidence Claim";
+  if (type === "update_evidence") return "Updated Evidence Claim draft";
   if (type === "update_initiative" || type === "create_initiative") {
-    return "Suggested story update";
+    return "Suggested Story Target update";
   }
-  if (type === "update_work_experience") return "Suggested role update";
+  if (type === "update_work_experience") return "Suggested Work Experience update";
   return "Profile context";
 }
 
@@ -6353,16 +6427,16 @@ function formatEnrichmentProposalNextStep(
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
 ) {
   if (type === "create_evidence") {
-    return "Accepting creates a new draft evidence card. Resume use still requires a separate review and approval.";
+    return "Accepting creates a new draft Evidence Claim. Resume use still requires a separate Evidence Claim review and approval.";
   }
   if (type === "update_evidence") {
-    return "Accepting updates the existing evidence draft. Resume use still requires a separate review and approval.";
+    return "Accepting updates the existing Evidence Claim draft. Resume use still requires a separate Evidence Claim review and approval.";
   }
   if (type === "update_initiative" || type === "create_initiative") {
-    return "Accepting applies this as story context. It will not become resume evidence until linked to a concrete claim.";
+    return "Accepting applies this as Story Target context. It will not become resume evidence until linked to a concrete Evidence Claim.";
   }
   if (type === "update_work_experience") {
-    return "Accepting applies this as role context. It will not become resume evidence by itself.";
+    return "Accepting applies this as Work Experience context. It will not become resume evidence by itself.";
   }
   return "Accepting saves this as profile context. Choose a target later before creating evidence.";
 }
@@ -6372,22 +6446,22 @@ function formatEnrichmentPreProposalNextStep(
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
 ) {
   if (isProfileContextTask(task)) {
-    return "Save this answer as profile direction. It will not become evidence or a resume claim.";
+    return "Save this answer as profile direction. It will not become an Evidence Claim or a resume claim.";
   }
   if (isAssignLaterRoutingTask(task)) {
     return "Choose a target first. This answer cannot become reusable material until JobDesk knows where it belongs.";
   }
   if (type === "create_evidence") {
-    return "Generate a suggested draft evidence update from your answer. Nothing changes until you review and accept it.";
+    return "Generate a suggested draft Evidence Claim update from your answer. Nothing changes until you review and accept it.";
   }
   if (type === "update_evidence") {
-    return "Generate a suggested evidence change from your answer. Nothing changes until you review and accept it.";
+    return "Generate a suggested Evidence Claim change from your answer. Nothing changes until you review and accept it.";
   }
   if (type === "update_initiative" || type === "create_initiative") {
-    return "Generate a suggested story change from your answer. Nothing changes until you review and accept it.";
+    return "Generate a suggested Story Target change from your answer. Nothing changes until you review and accept it.";
   }
   if (type === "update_work_experience") {
-    return "Generate a suggested role change from your answer. Nothing changes until you review and accept it.";
+    return "Generate a suggested Work Experience change from your answer. Nothing changes until you review and accept it.";
   }
   return "Generate a suggested update from your answer. Nothing changes until you review and accept it.";
 }
@@ -6414,11 +6488,11 @@ function formatEnrichmentAnswerWorkspaceHelp(
 ) {
   if (isProfileContextTask(task)) {
     return answerSaved
-      ? "Saved as profile direction. It will not create evidence or change a resume by itself."
+      ? "Saved as profile direction. It will not create Evidence Claims or change a resume by itself."
       : "Answer with preference or positioning context. Saving completes this task.";
   }
   if (isAssignLaterRoutingTask(task)) {
-    return "Choose a target before JobDesk turns this answer into reusable evidence, story context, or role context.";
+    return "Choose a target before JobDesk turns this answer into reusable Evidence Claims, Story Target context, or Work Experience context.";
   }
   if (answerSaved) {
     return "Generate a suggested update from this answer. Nothing changes until you review and accept it.";
@@ -6427,15 +6501,15 @@ function formatEnrichmentAnswerWorkspaceHelp(
     return "Answer with concrete facts, metrics, scope, or source wording. JobDesk will generate a suggested update for review.";
   }
   if (type === "update_evidence") {
-    return "Answer with the missing detail or correction. JobDesk will generate a suggested evidence change before anything is saved.";
+    return "Answer with the missing detail or correction. JobDesk will generate a suggested Evidence Claim change before anything is saved.";
   }
   if (type === "update_initiative" || type === "create_initiative") {
-    return "Add project context such as scope, actions, tools, results, or missing metrics. JobDesk will preview the story change first.";
+    return "Add Story Target context such as scope, actions, tools, results, or missing metrics. JobDesk will preview the Story Target change first.";
   }
   if (type === "update_work_experience") {
-    return "Add role-level context such as team, scope, timeframe, or ownership. JobDesk will preview the role change first.";
+    return "Add Work Experience context such as team, scope, timeframe, or ownership. JobDesk will preview the change first.";
   }
-  return "Answer with your preference or context. This will be saved first, not turned into resume evidence.";
+  return "Answer with your preference or context. This will be saved first, not turned into resume Evidence Claims.";
 }
 
 function formatEnrichmentConversationPlaceholder(
@@ -6443,19 +6517,19 @@ function formatEnrichmentConversationPlaceholder(
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
 ) {
   if (isProfileContextTask(task)) {
-    return "Answer with your preference, direction, or emphasis. This will guide your profile, not create evidence.";
+    return "Answer with your preference, direction, or emphasis. This will guide your profile, not create Evidence Claims.";
   }
   if (isAssignLaterRoutingTask(task)) {
-    return "Choose where this belongs before writing a reusable evidence or story update.";
+    return "Choose where this belongs before writing a reusable Evidence Claim or Story Target update.";
   }
   if (type === "create_evidence" || type === "update_evidence") {
     return "Add facts or instructions, e.g. make this focus on backend ownership and remove dashboard wording.";
   }
   if (type === "update_initiative" || type === "create_initiative") {
-    return "Add story context or instructions, e.g. connect this to the onboarding analytics project and focus on metric definition.";
+    return "Add Story Target context or instructions, e.g. connect this to the onboarding analytics project and focus on metric definition.";
   }
   if (type === "update_work_experience") {
-    return "Add role-level context or instructions, e.g. clarify team scope, timeframe, or ownership.";
+    return "Add Work Experience context or instructions, e.g. clarify team scope, timeframe, or ownership.";
   }
   return "Tell JobDesk where this answer belongs, or ask it to make the next step more specific.";
 }
@@ -6464,13 +6538,13 @@ function formatEnrichmentRevisionPlaceholder(
   type: EnrichmentTaskItem["proposals"][number]["proposal_type"],
 ) {
   if (type === "create_evidence" || type === "update_evidence") {
-    return "Tell JobDesk what to change in this evidence suggestion.";
+    return "Tell JobDesk what to change in this Evidence Claim suggestion.";
   }
   if (type === "update_initiative" || type === "create_initiative") {
-    return "Tell JobDesk what to change in this story suggestion.";
+    return "Tell JobDesk what to change in this Story Target suggestion.";
   }
   if (type === "update_work_experience") {
-    return "Tell JobDesk what to change in this role suggestion.";
+    return "Tell JobDesk what to change in this Work Experience suggestion.";
   }
   return "Tell JobDesk how to refine this context.";
 }
@@ -6643,21 +6717,21 @@ function formatEnrichmentTaskAnchor(
 ) {
   if (task.evidence_item_id) {
     const item = evidenceItems.find((candidate) => candidate.id === task.evidence_item_id);
-    return item ? `Evidence · ${truncateOptionText(item.text, 72)}` : "Evidence item";
+    return item ? `Evidence Claim · ${truncateOptionText(item.text, 72)}` : "Evidence Claim";
   }
   if (task.initiative_id) {
     const item = linkTargets.initiatives.find((candidate) => candidate.id === task.initiative_id);
     return item
-      ? `Initiative · ${item.external_safe_title ?? item.internal_title}`
-      : "Initiative";
+      ? `Story Target · ${item.external_safe_title ?? item.internal_title}`
+      : "Story Target";
   }
   if (task.portfolio_project_id) {
     const item = linkTargets.portfolioProjects.find((candidate) => candidate.id === task.portfolio_project_id);
-    return item ? `Portfolio · ${item.external_safe_title ?? item.title}` : "Portfolio project";
+    return item ? `Portfolio Project · ${item.external_safe_title ?? item.title}` : "Portfolio Project";
   }
   if (task.work_experience_id) {
     const item = linkTargets.workExperiences.find((candidate) => candidate.id === task.work_experience_id);
-    return item ? `Role · ${item.employer} · ${item.role_title}` : "Work experience";
+    return item ? `Work Experience · ${item.employer} · ${item.role_title}` : "Work Experience";
   }
   return "Not linked yet";
 }
@@ -6686,19 +6760,19 @@ function formatEnrichmentTargetPayload(
 ) {
   if (target.target_kind === "initiative") {
     const item = linkTargets.initiatives.find((candidate) => candidate.id === target.target_id);
-    return item ? `Project/story · ${item.external_safe_title ?? item.internal_title}` : "Project/story";
+    return item ? `Story Target · ${item.external_safe_title ?? item.internal_title}` : "Story Target";
   }
   if (target.target_kind === "portfolio_project") {
     const item = linkTargets.portfolioProjects.find((candidate) => candidate.id === target.target_id);
-    return item ? `Portfolio story · ${item.external_safe_title ?? item.title}` : "Portfolio story";
+    return item ? `Portfolio Project · ${item.external_safe_title ?? item.title}` : "Portfolio Project";
   }
   if (target.target_kind === "work_experience") {
     const item = linkTargets.workExperiences.find((candidate) => candidate.id === target.target_id);
-    return item ? `Role · ${item.employer} · ${item.role_title}` : "Role";
+    return item ? `Work Experience · ${item.employer} · ${item.role_title}` : "Work Experience";
   }
   if (target.target_kind === "evidence") {
     const item = linkTargets.evidenceItems?.find((candidate) => candidate.id === target.target_id);
-    return item ? `Claim · ${truncateOptionText(item.text, 72)}` : "Specific claim";
+    return item ? `Evidence Claim · ${truncateOptionText(item.text, 72)}` : "Evidence Claim";
   }
   return "";
 }
@@ -6731,7 +6805,7 @@ function groupEnrichmentTasks(tasks: EnrichmentTaskItem[]) {
   if (sourceSectionTasks.length > 0) {
     groups.unshift({
       key: "source_section_review",
-      label: "Imported Material to Review",
+      label: "Import Review",
       tasks: sourceSectionTasks,
     });
   }
@@ -6831,11 +6905,11 @@ function summarizeLibraryReadiness({
   let nextActionTitle = "Add source material";
   let nextActionDetail = "Upload a resume or paste project notes to start the library.";
   if (evidenceItems.length > 0 && evidenceNeedingReview > 0) {
-    nextActionTitle = "Review evidence claims";
-    nextActionDetail = "Approve supported claims for resume use before tailoring.";
+    nextActionTitle = "Approve Evidence Claims";
+    nextActionDetail = "Approve supported Evidence Claims for resume use before tailoring.";
   } else if (storyTargets.length > 0 && projectsNeedingContext > 0) {
-    nextActionTitle = "Enrich story context";
-    nextActionDetail = "Add docs, review notes, metrics, or guided answers for thin initiatives/projects.";
+    nextActionTitle = "Build Story Targets";
+    nextActionDetail = "Add docs, review notes, metrics, or guided answers for thin Work Initiatives and Portfolio Projects.";
   } else if (workExperiences.length > 0 && storyTargets.length === 0) {
     nextActionTitle = "Extract initiatives";
     nextActionDetail = "Work experiences exist, but need initiative/story cards before resume generation.";
@@ -6909,6 +6983,35 @@ function formatStoryMissingAction(field: string) {
   if (field === "ownership / role") return "Add ownership";
   if (field === "public-safe wording") return "Add public-safe wording";
   return `Add ${field}`;
+}
+
+function formatStoryMissingMaterial(field: string) {
+  const labels: Record<string, string> = {
+    actions: "what you personally did",
+    context: "business or project background",
+    metrics: "measurable scale, before/after number, or impact signal",
+    "ownership / role": "your responsibility and decision scope",
+    problem: "the problem or goal this work addressed",
+    "public-safe wording": "external-safe wording without private names or internal details",
+    results: "outcome, launch result, efficiency gain, quality change, or user/business impact",
+  };
+  return labels[field] ?? field;
+}
+
+function getWorkExperienceSortTime(experience: WorkExperienceItem) {
+  const rawDate = (experience.end_date ?? "").trim() || (experience.start_date ?? "").trim();
+  if (!rawDate || /present|current|now/i.test(rawDate)) return Number.POSITIVE_INFINITY;
+  const normalized = rawDate.length === 4 ? `${rawDate}-12-31` : rawDate;
+  const parsed = Date.parse(normalized);
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
+
+function sortWorkExperiencesReverseChronological(workExperiences: WorkExperienceItem[]) {
+  return [...workExperiences].sort((a, b) => {
+    const dateDelta = getWorkExperienceSortTime(b) - getWorkExperienceSortTime(a);
+    if (dateDelta !== 0) return dateDelta;
+    return `${a.employer} ${a.role_title}`.localeCompare(`${b.employer} ${b.role_title}`);
+  });
 }
 
 function isStoryEnrichmentTarget(
@@ -7012,6 +7115,13 @@ function filterWorkExperiencesByRole(items: WorkExperienceItem[], roleFilter: st
   const [kind, id] = roleFilter.split(":");
   if (kind !== "work_experience" || !id) return [];
   return items.filter((item) => item.id === id);
+}
+
+function filterStoryTargetsByRole(items: InitiativeItem[], roleFilter: string) {
+  if (roleFilter === "all") return items;
+  const [kind, id] = roleFilter.split(":");
+  if (kind !== "work_experience" || !id) return [];
+  return items.filter((item) => item.work_experience_id === id);
 }
 
 function buildWorkQueueRoleFilterOptions({
@@ -7243,16 +7353,6 @@ function isResumeReadyEvidence(item: EvidenceCardItem) {
     !item.needs_user_confirmation &&
     (item.allowed_usage ?? []).includes("resume") &&
     hasExternalSafeDisclosure(item)
-  );
-}
-
-function isReusableReadyEvidence(item: EvidenceCardItem) {
-  const reusableUsages = new Set(["resume", "interview", "cover_letter"]);
-  return (
-    item.status === "approved" &&
-    !item.needs_user_confirmation &&
-    hasExternalSafeDisclosure(item) &&
-    (item.allowed_usage ?? []).some((usage) => reusableUsages.has(usage))
   );
 }
 
@@ -7663,7 +7763,7 @@ function StoryOverlapPanel({
       await onKeepSeparate(candidate);
       setMessageById((messages) => ({
         ...messages,
-        [key]: "Kept as separate story targets.",
+      [key]: "Kept as separate Story Targets.",
       }));
     } catch (caught) {
       setMessageById((messages) => ({
@@ -7679,13 +7779,13 @@ function StoryOverlapPanel({
     setPendingId(key);
     setMessageById((messages) => ({
       ...messages,
-      [key]: "Merging story targets...",
+      [key]: "Merging Story Targets...",
     }));
     try {
       await onMerge(candidate);
       setMessageById((messages) => ({
         ...messages,
-        [key]: "Merged into the kept story.",
+        [key]: "Merged into the kept Story Target.",
       }));
     } catch (caught) {
       setMessageById((messages) => ({
@@ -7705,7 +7805,7 @@ function StoryOverlapPanel({
           <article className="requirement overlap-card" key={key}>
             <div className="requirement__top">
               <div>
-                <p className="requirement__text">Possible duplicate story target</p>
+                <p className="requirement__text">Possible duplicate Story Target</p>
                 <p className="requirement__quote">
                   {formatStoryOverlapTitle(candidate)} · {candidate.duplicateCount} duplicate
                   target{candidate.duplicateCount === 1 ? "" : "s"} ·{" "}
@@ -7805,7 +7905,7 @@ function EvidenceOverlapPanel({
       await onKeepSeparate(candidate);
       setMessageById((messages) => ({
         ...messages,
-        [key]: "Kept as separate evidence claims.",
+        [key]: "Kept as separate Evidence Claims.",
       }));
       setReviewingId(null);
     } catch (caught) {
@@ -7860,8 +7960,8 @@ function EvidenceOverlapPanel({
               <div className="merge-review">
                 <p className="requirement__text">Merge confirmation</p>
                 <p className="requirement__quote">
-                  Keep the first evidence claim, merge safe metadata into it, reject
-                  the duplicate claim, and flag related resume claims for another check.
+                  Keep the first Evidence Claim, merge safe metadata into it, reject
+                  the duplicate claim, and flag related generated resume text for another check.
                 </p>
                 <div className="merge-review__facts">
                   <span>Kept status: {candidate.primary.status}</span>
@@ -8001,15 +8101,15 @@ function StarStoryPanel({
         </label>
         <div className="evidence-library-toolbar__filters">
           <ThemeSelect
-            label="Role"
+            label="Work Experience"
             value={roleFilter}
             options={[
-              { label: "All roles", value: "all" },
+              { label: "All work experiences", value: "all" },
               ...workExperiences.map((experience) => ({
                 label: `${experience.employer} · ${experience.role_title}`,
                 value: experience.id ?? "",
               })).filter((option) => option.value),
-              { label: "Standalone / portfolio stories", value: "standalone" },
+              { label: "Portfolio Projects", value: "standalone" },
             ]}
             onChange={setRoleFilter}
           />
@@ -8159,8 +8259,191 @@ function StarStoryPanel({
   );
 }
 
+function StarStoryQueue({
+  onImproveStory,
+  onRefresh,
+  onReviewStory,
+  portfolioProjects,
+  storyTargets,
+  workExperiences,
+}: {
+  onImproveStory: (project: ProjectCardItem) => void;
+  onRefresh: () => void;
+  onReviewStory: (
+    target: StoryEnrichmentTarget,
+    action: "mark_reviewed" | "mark_needs_update" | "reject_story",
+  ) => Promise<{ ok: boolean; message: string }>;
+  portfolioProjects: PortfolioProjectItem[];
+  storyTargets: InitiativeItem[];
+  workExperiences: WorkExperienceItem[];
+}) {
+  const [pendingReviewKey, setPendingReviewKey] = useState<string | null>(null);
+  const [reviewMessages, setReviewMessages] = useState<Record<string, { ok: boolean; text: string }>>(
+    {},
+  );
+  const rawStoryTargets: Array<{
+    kind: string;
+    story: InitiativeItem | PortfolioProjectItem;
+    title: string;
+    type: "initiative" | "portfolio_project";
+  }> = [
+    ...storyTargets.map((story) => ({
+      kind: formatInitiativeRoleChip(story, workExperiences),
+      story,
+      title: story.external_safe_title ?? story.internal_title,
+      type: "initiative" as const,
+    })),
+    ...portfolioProjects.map((story) => ({
+      kind: formatPortfolioProjectType(story.project_type),
+      story,
+      title: story.external_safe_title ?? story.title,
+      type: "portfolio_project" as const,
+    })),
+  ];
+  if (rawStoryTargets.length === 0) {
+    return (
+      <section className="section-block review-queue">
+        <div className="section-block__top">
+          <div>
+            <h3>Build Story Targets</h3>
+            <p>Story Targets appear here while they need context, evidence, assignment, or review.</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={onRefresh}>
+            Refresh stories
+          </button>
+        </div>
+        <p className="requirement__quote">
+          No Story Targets need action right now.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="section-block review-queue">
+      <div className="section-block__top">
+        <div>
+          <h3>Build Story Targets</h3>
+          <p>Add context, ownership, actions, results, metrics, and evidence links to Work Initiatives and Portfolio Projects.</p>
+        </div>
+        <button className="secondary-button" type="button" onClick={onRefresh}>
+          Refresh stories
+        </button>
+      </div>
+      <div className="review-queue__cards">
+        {rawStoryTargets.map(({ kind, story, title, type }) => {
+          const missingFields = getStoryMissingFields(story);
+          const visibleMissingFields = missingFields.slice(0, 5);
+          const target: StoryEnrichmentTarget | null = story.id
+            ? {
+                actions: story.actions,
+                context: story.context,
+                missingFields,
+                problem: story.problem,
+                results: story.results,
+                role: story.role,
+                targetId: story.id,
+                targetTitle: title,
+                targetType: type,
+              }
+            : null;
+          const key = `${type}:${story.id ?? title}`;
+          const isStoryReady = getStoryReadiness(story).state === "story_ready";
+          async function updateReview(action: "mark_reviewed" | "mark_needs_update" | "reject_story") {
+            if (!target) return;
+            setPendingReviewKey(key);
+            setReviewMessages((messages) => ({
+              ...messages,
+              [key]: { ok: true, text: "Updating story..." },
+            }));
+            try {
+              const result = await onReviewStory(target, action);
+              setReviewMessages((messages) => ({
+                ...messages,
+                [key]: { ok: result.ok, text: result.message },
+              }));
+            } finally {
+              setPendingReviewKey(null);
+            }
+          }
+          return (
+            <article className="requirement-card" key={key}>
+              <div className="requirement-card__header">
+                <div>
+                  <span className="requirement-card__eyebrow">Story Target</span>
+                  <strong>{title}</strong>
+                </div>
+                <em data-readiness={getStoryReadiness(story).state}>
+                  {getStoryReadiness(story).label}
+                </em>
+              </div>
+              <div className="merge-review__facts">
+                <span>{kind}</span>
+                <span>{formatStoryTargetStatus(story.status)}</span>
+                <span>{type === "initiative" ? "Work Initiative" : "Portfolio Project"}</span>
+              </div>
+              {visibleMissingFields.length > 0 ? (
+                <div className="interview-story-card__gaps">
+                  <span>Needs material</span>
+                  <p>{visibleMissingFields.map(formatStoryMissingMaterial).join(" · ")}</p>
+                </div>
+              ) : null}
+              <div className="actions actions--compact">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() =>
+                    onImproveStory({
+                      id: story.id,
+                      title,
+                      context: story.context,
+                      problem: story.problem,
+                      role: story.role,
+                      actions: story.actions,
+                      results: story.results,
+                      metrics: story.metrics,
+                      technologies: story.technologies,
+                      stakeholders: story.stakeholders,
+                      public_safe_summary: story.external_safe_summary,
+                      sensitivity_level: story.sensitivity_level,
+                      status: story.status,
+                    })
+                  }
+                >
+                  Add context
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={!target || !isStoryReady || pendingReviewKey === key}
+                  type="button"
+                  onClick={() => void updateReview("mark_reviewed")}
+                >
+                  Mark ready
+                </button>
+                <button
+                  className="secondary-button secondary-button--quiet"
+                  disabled={!target || pendingReviewKey === key}
+                  type="button"
+                  onClick={() => void updateReview("reject_story")}
+                >
+                  Reject
+                </button>
+              </div>
+              {reviewMessages[key] ? (
+                <p className={reviewMessages[key].ok ? "status" : "error"}>
+                  {reviewMessages[key].text}
+                </p>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function EvidenceList({
-  description = "Review claims before using them in resumes or interviews.",
+  description = "Review Evidence Claims before using them in resumes or interviews.",
   emptyMessage = "No evidence has been created yet.",
   items,
   linkTargets,
@@ -8187,7 +8470,7 @@ function EvidenceList({
   const [cardMessages, setCardMessages] = useState<Record<string, { ok: boolean; text: string }>>(
     {},
   );
-  const visibleSourceItems = mode === "library" ? items.filter(isReusableReadyEvidence) : items;
+  const visibleSourceItems = items;
   const counts = {
     all: visibleSourceItems.length,
     resume_ready: visibleSourceItems.filter(isResumeReadyEvidence).length,
@@ -8247,14 +8530,14 @@ function EvidenceList({
         </div>
         <span>
           {mode === "library"
-            ? `${counts.resume_ready} resume-ready · ${counts.all} reusable`
+            ? `${counts.resume_ready} resume-ready · ${counts.all} Evidence Claims`
             : `${counts.needs_review} need review · ${counts.resume_ready} resume-ready · ${counts.all} total`}
         </span>
       </div>
       {visibleSourceItems.length === 0 ? (
         <p className="requirement__quote">
           {mode === "library"
-            ? "No reusable evidence matches this view. Review pending claims in Work Queue."
+            ? "No Evidence Claims match this view."
             : "No evidence is waiting for review."}
         </p>
       ) : null}
@@ -8781,11 +9064,11 @@ function WorkExperienceList({
             <h3>Work Experience</h3>
             <p>
               {pendingReviewCount > 0
-                ? "Role records are waiting in Work Queue > Review Roles before they appear here."
-                : "Import a resume or source document to create role-level work experience records."}
+                ? "Work experiences are visible here. Review tasks remain in Work Queue."
+                : "Import a resume or source document to create work experience records."}
             </p>
           </div>
-          <span>{pendingReviewCount > 0 ? `${pendingReviewCount} pending review` : "0 roles"}</span>
+          <span>{pendingReviewCount > 0 ? `${pendingReviewCount} need review` : "0 work experiences"}</span>
         </div>
       </section>
     );
@@ -8797,15 +9080,15 @@ function WorkExperienceList({
         <div>
           <h3>Work Experience</h3>
           <p>
-            Role-level containers for employer, title, team, dates, location, and high-level scope.
+            Work Experience containers for employer, title, team, dates, location, and high-level scope.
             Detailed projects live in Work Initiatives.
           </p>
         </div>
-        <span>{visibleWorkExperiences.length} roles</span>
+        <span>{visibleWorkExperiences.length} work experiences</span>
       </div>
       <section className="evidence-library-toolbar evidence-library-toolbar--local" aria-label="Work experience filters">
         <label className="evidence-library-toolbar__search">
-          <span>Search roles</span>
+          <span>Search work experiences</span>
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -8878,11 +9161,11 @@ function WorkExperienceRow({
 
   async function saveRoleDetails() {
     if (!experience.id) {
-      setMessage({ ok: false, text: "This role has not been saved yet." });
+      setMessage({ ok: false, text: "This work experience has not been saved yet." });
       return;
     }
     setIsSaving(true);
-    setMessage({ ok: true, text: "Saving role details..." });
+    setMessage({ ok: true, text: "Saving work experience details..." });
     try {
       const response = await fetchJson(`/api/work-experiences/${experience.id}`, {
         body: JSON.stringify({
@@ -8898,14 +9181,14 @@ function WorkExperienceRow({
       });
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
       if (!response.ok) {
-        setMessage({ ok: false, text: payload?.error ?? "Could not save role details." });
+        setMessage({ ok: false, text: payload?.error ?? "Could not save work experience details." });
         return;
       }
       await onRefresh();
-      setMessage({ ok: true, text: "Role details saved." });
+      setMessage({ ok: true, text: "Work Experience details saved." });
       setIsEditing(false);
     } catch (error) {
-      setMessage({ ok: false, text: error instanceof Error ? error.message : "Could not save role details." });
+      setMessage({ ok: false, text: error instanceof Error ? error.message : "Could not save work experience details." });
     } finally {
       setIsSaving(false);
     }
@@ -8913,14 +9196,14 @@ function WorkExperienceRow({
 
   async function updateRoleReview(action: "mark_reviewed" | "mark_needs_update" | "reject_role") {
     if (!experience.id) {
-      setMessage({ ok: false, text: "This role has not been saved yet." });
+      setMessage({ ok: false, text: "This work experience has not been saved yet." });
       return;
     }
     const loadingCopy = action === "mark_reviewed"
-      ? "Marking role reviewed..."
+      ? "Marking work experience reviewed..."
       : action === "reject_role"
-        ? "Rejecting role..."
-        : "Marking role as needing updates...";
+        ? "Rejecting work experience..."
+        : "Marking work experience as needing updates...";
     setIsSaving(true);
     setMessage({ ok: true, text: loadingCopy });
     try {
@@ -8938,13 +9221,13 @@ function WorkExperienceRow({
       setMessage({
         ok: true,
         text: action === "mark_reviewed"
-          ? "Role marked reviewed."
+          ? "Work Experience marked reviewed."
           : action === "reject_role"
-            ? "Role rejected. Linked initiatives and claims are preserved for reassignment."
-            : "Role marked as needing updates.",
+            ? "Work Experience rejected. Linked Story Targets and Evidence Claims are preserved for reassignment."
+            : "Work Experience marked as needing updates.",
       });
     } catch (error) {
-      setMessage({ ok: false, text: error instanceof Error ? error.message : "Could not update role review state." });
+      setMessage({ ok: false, text: error instanceof Error ? error.message : "Could not update work experience review state." });
     } finally {
       setIsSaving(false);
     }
@@ -8958,17 +9241,17 @@ function WorkExperienceRow({
   return (
     <article className="story-group-row work-experience-row">
       <div className="story-group-row__summary">
-        <span>{reviewMode ? "Role review" : "Work experience"}</span>
+        <span>{reviewMode ? "Work Experience review" : "Work Experience"}</span>
         <div>
           <strong>{experience.employer} · {experience.role_title}</strong>
           <p>
             {[experience.team, experience.location, experience.start_date, experience.end_date]
               .filter(Boolean)
-              .join(" · ") || "Role details need review"}
+              .join(" · ") || "Work Experience details need review"}
           </p>
         </div>
         <em>{formatWorkExperienceStatus(experience.status)}</em>
-        <small>{initiatives.length} initiatives · {directEvidence.length} direct claims</small>
+        <small>{initiatives.length} Story Targets · {directEvidence.length} direct Evidence Claims</small>
       </div>
       {reviewMode ? (
         <div className="work-experience-row__checklist">
@@ -8983,7 +9266,7 @@ function WorkExperienceRow({
         <p className="story-group-row__note">{experience.summary}</p>
       ) : null}
       <div className="work-experience-row__links">
-        <span>Linked initiatives</span>
+        <span>Linked story targets</span>
         <div>
           {initiatives.length > 0 ? (
             initiatives.map((initiative) => (
@@ -8992,7 +9275,7 @@ function WorkExperienceRow({
               </small>
             ))
           ) : (
-            <small>No initiatives linked yet</small>
+            <small>No story targets linked yet</small>
           )}
         </div>
         <button
@@ -9003,7 +9286,7 @@ function WorkExperienceRow({
             setMessage(null);
           }}
         >
-          {isEditing ? "Cancel edit" : "Edit role details"}
+          {isEditing ? "Cancel edit" : "Edit details"}
         </button>
       </div>
       {reviewMode ? (
@@ -9022,7 +9305,7 @@ function WorkExperienceRow({
             type="button"
             onClick={() => void updateRoleReview("mark_needs_update")}
           >
-            Needs update
+            Mark needs update
           </button>
           <button
             className="secondary-button secondary-button--danger"
@@ -9030,7 +9313,7 @@ function WorkExperienceRow({
             type="button"
             onClick={() => void updateRoleReview("reject_role")}
           >
-            Reject role
+            Reject
           </button>
         </div>
       ) : null}
@@ -9069,7 +9352,7 @@ function WorkExperienceRow({
             />
           </label>
           <label className="work-experience-row__summary-field">
-            <span>High-level role summary</span>
+            <span>High-level summary</span>
             <textarea
               value={draft.summary}
               onChange={(event) => setDraft((current) => ({ ...current, summary: event.target.value }))}
@@ -9082,7 +9365,7 @@ function WorkExperienceRow({
             type="button"
             onClick={() => void saveRoleDetails()}
           >
-            {isSaving ? "Saving..." : "Save role details"}
+            {isSaving ? "Saving..." : "Save details"}
           </button>
           {message ? (
             <p className={message.ok ? "status" : "error"}>{message.text}</p>
@@ -9110,19 +9393,19 @@ function RoleReviewQueue({
     <section className="section-block role-review-queue">
       <div className="section-block__top">
         <div>
-          <h3>Review Roles</h3>
+          <h3>Review Work Experience</h3>
           <p>
-            Confirm imported work experiences before they become stable containers for initiatives,
-            evidence claims, and resume generation context.
+            Confirm imported Work Experiences before they become stable containers for Story Targets,
+            Evidence Claims, and resume generation context.
           </p>
         </div>
-        <span>{roles.length} role{roles.length === 1 ? "" : "s"} need review</span>
+        <span>{roles.length} work experience{roles.length === 1 ? "" : "s"} need review</span>
       </div>
       {roles.length === 0 ? (
         <div className="empty-state-row">
           <div>
-            <strong>No roles need review{roleFilter === "all" ? "" : " for this filter"}.</strong>
-            <p>Reviewed roles stay in Library. Rejected roles are preserved but hidden from target pickers.</p>
+            <strong>No work experiences need review{roleFilter === "all" ? "" : " for this filter"}.</strong>
+            <p>Reviewed work experiences stay in Library. Rejected work experiences are preserved but hidden from target pickers.</p>
           </div>
         </div>
       ) : (
@@ -9159,11 +9442,11 @@ function WorkQueueRoleFilter({
   if (options.length === 0) return null;
   return (
     <section className="work-queue-filter" aria-label="Work Queue role filter">
-      <span>Filter by role</span>
+      <span>Filter by Work Experience</span>
       <ThemeSelect
-        label="Role"
+        label="Work Experience"
         value={value}
-        options={[{ label: "All roles", value: "all" }, ...options]}
+        options={[{ label: "All work experiences", value: "all" }, ...options]}
         onChange={onChange}
       />
     </section>
@@ -9172,10 +9455,10 @@ function WorkQueueRoleFilter({
 
 function formatWorkExperienceReviewError(error?: string) {
   if (error === "work_experience_review_missing_core_fields") {
-    return "Add employer, role title, and at least one date before marking this role reviewed.";
+    return "Add employer, title, and at least one date before marking this work experience reviewed.";
   }
-  if (error === "work_experience_rejected") return "Rejected roles cannot be edited.";
-  return error ?? "Could not update role review state.";
+  if (error === "work_experience_rejected") return "Rejected work experiences cannot be edited.";
+  return error ?? "Could not update Work Experience review state.";
 }
 
 function WorkInitiativeList({
@@ -9239,9 +9522,9 @@ function WorkInitiativeList({
       <section className="section-block">
         <div className="section-block__top">
           <div>
-            <h3>Work Initiatives</h3>
+            <h3>Story Targets</h3>
             <p>
-              Import a resume or source document to create initiative and portfolio project cards.
+              Import a resume or source document to create Work Initiative and Portfolio Project cards.
             </p>
           </div>
           <span>0 story targets</span>
@@ -9254,20 +9537,19 @@ function WorkInitiativeList({
     <section className="section-block">
       <div className="section-block__top">
         <div>
-          <h3>Work Initiatives</h3>
+          <h3>Story Targets</h3>
           <p>
-            Initiative cards hold detailed actions, results, metrics, technologies, and linked evidence claims.
-            Work Experience stays as the higher-level role container.
+            Projects, achievements, and portfolio work that can become resume bullets or Interview Stories.
           </p>
         </div>
         <span>
-          {filteredInitiatives.length} initiatives · {filteredPortfolioProjects.length} portfolio projects
+          {filteredInitiatives.length} Work Initiatives · {filteredPortfolioProjects.length} Portfolio Projects
         </span>
       </div>
 
-      <section className="evidence-library-toolbar evidence-library-toolbar--local" aria-label="Work initiative filters">
+      <section className="evidence-library-toolbar evidence-library-toolbar--local" aria-label="Story target filters">
         <label className="evidence-library-toolbar__search">
-          <span>Search initiatives</span>
+          <span>Search story targets</span>
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -9276,15 +9558,15 @@ function WorkInitiativeList({
         </label>
         <div className="evidence-library-toolbar__filters">
           <ThemeSelect
-            label="Role"
+            label="Work Experience"
             value={roleFilter}
             options={[
-              { label: "All roles and standalone projects", value: "all" },
+              { label: "All story targets", value: "all" },
               ...workExperiences.map((experience) => ({
                 label: `${experience.employer} · ${experience.role_title}`,
                 value: experience.id ?? "",
               })).filter((option) => option.value),
-              { label: "Standalone / portfolio projects", value: "standalone" },
+              { label: "Portfolio Projects", value: "standalone" },
             ]}
             onChange={setRoleFilter}
           />
@@ -9294,8 +9576,8 @@ function WorkInitiativeList({
       {filteredInitiatives.length === 0 && filteredPortfolioProjects.length === 0 ? (
         <div className="empty-state-row">
           <div>
-            <strong>No initiatives match these filters.</strong>
-            <p>Choose another role, clear search, or add source material for this work experience.</p>
+            <strong>No story targets match these filters.</strong>
+            <p>Choose another Work Experience, clear search, or add source material.</p>
           </div>
         </div>
       ) : null}
@@ -9416,12 +9698,12 @@ function StoryTargetRow({
   const linkedClaimsNeedReview = evidenceItems.some(
     (item) => getEvidenceReadiness(item).state !== "resume_ready",
   );
-  const primaryAction: "Review STAR story" | "Review claims" | "Enrich story" =
+  const primaryAction: "Open interview story" | "Review evidence" | "Strengthen story" =
     readiness.state === "story_ready"
-      ? "Review STAR story"
+      ? "Open interview story"
       : linkedClaimsNeedReview
-        ? "Review claims"
-        : "Enrich story";
+        ? "Review evidence"
+        : "Strengthen story";
   const missingFields = getStoryMissingFields(story);
   const target: StoryEnrichmentTarget | null = story.id
     ? {
@@ -9453,7 +9735,7 @@ function StoryTargetRow({
   async function handleAssignExisting(workExperienceId: string) {
     if (!target || target.targetType !== "initiative") return;
     setIsAssigning(true);
-    setAssignmentMessage({ ok: true, text: "Saving role assignment..." });
+    setAssignmentMessage({ ok: true, text: "Saving Work Experience assignment..." });
     try {
       const result = await onAssignStory(target, {
         action: "assign_work_experience",
@@ -9476,12 +9758,12 @@ function StoryTargetRow({
     if (!employer || !roleTitle) {
       setAssignmentMessage({
         ok: false,
-        text: "Add employer and role title before creating a role.",
+        text: "Add employer and title before creating a Work Experience.",
       });
       return;
     }
     setIsAssigning(true);
-    setAssignmentMessage({ ok: true, text: "Creating role and assigning initiative..." });
+    setAssignmentMessage({ ok: true, text: "Creating Work Experience and assigning Story Target..." });
     try {
       const result = await onAssignStory(target, {
         action: "create_work_experience_and_assign",
@@ -9530,7 +9812,7 @@ function StoryTargetRow({
                   <select
                     className="story-target-row__role-select"
                     disabled={isAssigning}
-                    title="Change role assignment"
+                    title="Change Work Experience assignment"
                     value={currentWorkExperienceId}
                     onChange={(event) => void handleAssignExisting(event.target.value)}
                   >
@@ -9551,7 +9833,7 @@ function StoryTargetRow({
                 <button
                   className="icon-button"
                   disabled={!target}
-                  title="Change role assignment"
+                  title="Change Work Experience assignment"
                   type="button"
                   onClick={() => {
                     setIsEditingAssignment((value) => !value);
@@ -9569,7 +9851,7 @@ function StoryTargetRow({
                 {isEditingAssignment ? (
                   <button
                     className="icon-button"
-                    title="Create a new role"
+                    title="Create a new Work Experience"
                     type="button"
                     onClick={() => setAssignmentMode((mode) => (mode === "new" ? "existing" : "new"))}
                   >
@@ -9584,16 +9866,16 @@ function StoryTargetRow({
           <strong>{title}</strong>
         </div>
         <em data-ready={readiness.state === "story_ready"}>{readiness.label}</em>
-        <small>{evidenceItems.length} claims</small>
+        <small>{evidenceItems.length} Evidence Claims</small>
         <button
           className="story-target-row__action"
           disabled={!target}
           type="button"
           onClick={() => {
             if (!target) return;
-            if (primaryAction === "Review STAR story") {
+            if (primaryAction === "Open interview story") {
               onReviewStarStory(target);
-            } else if (primaryAction === "Review claims") {
+            } else if (primaryAction === "Review evidence") {
               onReviewClaims(target);
             } else {
               onEnrichStory(target);
@@ -9607,7 +9889,7 @@ function StoryTargetRow({
         <button
           className="story-target-row__status-chip"
           disabled={!target || evidenceItems.length === 0}
-          title="Open linked evidence claims"
+          title="Open linked Evidence Claims"
           type="button"
           onClick={() => {
             if (target) onOpenEvidenceClaims(target);
@@ -9623,6 +9905,9 @@ function StoryTargetRow({
         {missingFields.length > 0 ? (
           <span className="story-target-row__missing">
             <strong>Next fixes</strong>
+            <small>
+              Needs: {visibleMissingFields.map(formatStoryMissingMaterial).join(" · ")}
+            </small>
             {visibleMissingFields.map((field) => (
               <button
                 className="story-target-row__fix-chip"
@@ -9642,7 +9927,7 @@ function StoryTargetRow({
         ) : (
           <span className="story-target-row__missing story-target-row__missing--ready">
             <strong>Ready</strong>
-            <small>STAR-ready</small>
+            <small>Interview Story ready</small>
             <small>Resume angle ready</small>
           </span>
         )}
@@ -9654,10 +9939,10 @@ function StoryTargetRow({
         >
           <div className="story-target-row__assignment-summary">
             <strong>
-              Change role
+              Change Work Experience
               <span
                 className="help-hint"
-                title="Role assignment only decides which work experience owns this initiative. It does not approve claims for resume use."
+                title="Work Experience assignment only decides which Work Experience owns this Work Initiative. It does not approve Evidence Claims for resume use."
               >
                 ?
               </span>
@@ -9693,7 +9978,7 @@ function StoryTargetRow({
               />
             </label>
             <label>
-              <span>Role title</span>
+              <span>Title</span>
               <input
                 value={newRoleDraft.roleTitle}
                 onChange={(event) =>
@@ -9723,7 +10008,7 @@ function StoryTargetRow({
               />
             </label>
             <label>
-              <span>Role note</span>
+              <span>Work Experience note</span>
               <input
                 value={newRoleDraft.summary}
                 onChange={(event) =>
@@ -9738,7 +10023,7 @@ function StoryTargetRow({
               type="button"
               onClick={() => void handleCreateRole()}
             >
-              Create role and assign
+              Create Work Experience and assign
             </button>
           </div>
           {assignmentMessage ? (
@@ -9767,7 +10052,7 @@ function StoryTargetRow({
           </article>
           <article>
             <span>My contribution</span>
-            <p>{story.role || "No ownership or role detail yet."}</p>
+            <p>{story.role || "No ownership detail yet."}</p>
           </article>
           <article>
             <span>Public-safe summary</span>
@@ -9866,17 +10151,28 @@ function formatStoryEvidenceStatus(evidenceItems: EvidenceCardItem[]) {
   return "needs review";
 }
 
-function formatWorkExperienceStatus(status: string) {
+function formatStoryTargetStatus(status: string) {
   const normalized = status.toLowerCase();
-  if (normalized === "pending") return "Needs role review";
-  if (normalized === "approved" || normalized === "reviewed") return "Reviewed role";
+  if (normalized === "pending" || normalized === "draft") return "Needs context";
+  if (normalized === "approved" || normalized === "reviewed") return "Ready";
+  if (normalized === "needs_update") return "Needs update";
   if (normalized === "rejected") return "Rejected";
-  return status.replace(/_/g, " ");
+  return formatFilterLabel(status);
 }
 
-function shouldReviewWorkExperience(experience: WorkExperienceItem) {
-  if (experience.status === "rejected") return false;
-  return experience.status !== "approved";
+function formatStoryTargetTypeLabel(type: StoryEnrichmentTargetType) {
+  if (type === "initiative") return "Work Initiative";
+  if (type === "portfolio_project") return "Portfolio Project";
+  return "Story Target";
+}
+
+function formatWorkExperienceStatus(status: string) {
+  const normalized = status.toLowerCase();
+  if (normalized === "pending") return "Needs review";
+  if (normalized === "approved" || normalized === "reviewed") return "Reviewed";
+  if (normalized === "needs_update") return "Needs update";
+  if (normalized === "rejected") return "Rejected";
+  return status.replace(/_/g, " ");
 }
 
 function getWorkExperienceCompleteness(experience: WorkExperienceItem) {
@@ -9890,7 +10186,7 @@ function getWorkExperienceCompleteness(experience: WorkExperienceItem) {
     },
     {
       key: "role_title",
-      label: "Role title",
+      label: "Title",
       complete: Boolean(experience.role_title.trim()),
       required: true,
     },
@@ -9914,7 +10210,7 @@ function getWorkExperienceCompleteness(experience: WorkExperienceItem) {
     },
     {
       key: "summary",
-      label: "Role summary",
+      label: "Work Experience summary",
       complete: Boolean((experience.summary ?? "").trim()),
       required: false,
     },

@@ -2743,6 +2743,52 @@ export async function createWorkExperienceAndAssignInitiative(args: {
   });
 }
 
+export async function updateStoryTargetReview(args: {
+  action: "mark_reviewed" | "mark_needs_update" | "reject_story";
+  targetId: string;
+  targetType: "initiative" | "portfolio_project";
+}) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const table = args.targetType === "initiative" ? initiatives : portfolioProjects;
+  const [current] = await db
+    .select({
+      id: table.id,
+      status: table.status,
+      workspaceId: table.workspaceId,
+    })
+    .from(table)
+    .where(and(eq(table.workspaceId, workspace.id), eq(table.id, args.targetId)))
+    .limit(1);
+  if (!current) return { status: "not_found" as const };
+  if (current.status === "rejected" && args.action !== "reject_story") {
+    return { status: "invalid" as const, reason: "story_target_rejected" as const };
+  }
+
+  const status = args.action === "mark_reviewed"
+    ? "approved"
+    : args.action === "reject_story"
+      ? "rejected"
+      : "pending";
+  const [updated] = await db
+    .update(table)
+    .set({ status, updatedAt: new Date() })
+    .where(and(eq(table.workspaceId, workspace.id), eq(table.id, args.targetId)))
+    .returning({
+      id: table.id,
+      status: table.status,
+      workspaceId: table.workspaceId,
+    });
+
+  return updated
+    ? ({ status: "saved" as const, storyTarget: updated, targetType: args.targetType })
+    : ({ status: "not_found" as const });
+}
+
 export async function updateWorkExperienceFields(args: {
   workExperienceId: string;
   location?: string | null;
