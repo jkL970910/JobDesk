@@ -7257,7 +7257,7 @@ function isReusableReadyEvidence(item: EvidenceCardItem) {
 }
 
 function formatStoryReadinessLabel(readiness: StarStory["readiness"]) {
-  if (readiness === "ready") return "Ready";
+  if (readiness === "ready") return "Ready to use";
   if (readiness === "needs_review") return "Needs review";
   return "Needs context";
 }
@@ -8108,7 +8108,20 @@ function StarStoryPanel({
                   <p>{story.gaps.slice(0, 3).join(" · ")}</p>
                 </div>
               ) : null}
-              {story.story_target_type === "legacy_project" ? (
+              {story.readiness === "ready" ? (
+                <div className="actions actions--compact">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled
+                  >
+                    Use in interview prep
+                  </button>
+                  <button className="secondary-button" type="button" disabled>
+                    View evidence
+                  </button>
+                </div>
+              ) : (
                 <div className="actions actions--compact">
                   <button
                     className="secondary-button"
@@ -8135,15 +8148,6 @@ function StarStoryPanel({
                     }
                   >
                     Improve story
-                  </button>
-                </div>
-              ) : (
-                <div className="actions actions--compact">
-                  <button className="secondary-button" type="button" disabled>
-                    Use in interview prep
-                  </button>
-                  <button className="secondary-button" type="button" disabled>
-                    View evidence
                   </button>
                 </div>
               )}
