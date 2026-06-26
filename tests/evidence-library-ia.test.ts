@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildEvidenceLibraryIaCounts,
+  canMarkStoryTargetReady,
+  collectQueuedStoryTargetWorkExperienceIds,
+  filterCanonicalLibraryAssets,
   isCanonicalLibraryAsset,
   shouldApproveEvidenceClaim,
   shouldBuildStoryTarget,
@@ -114,6 +117,36 @@ describe("Evidence Library IA semantics", () => {
     expect(isCanonicalLibraryAsset({ status: "pending" })).toBe(true);
     expect(isCanonicalLibraryAsset({ status: "rejected" })).toBe(false);
   });
+
+  it("filters rejected child assets before Library rows calculate linked children", () => {
+    const visibleClaims = filterCanonicalLibraryAssets([
+      evidenceClaim({ status: "approved", related_initiative_id: "story-1" }),
+      evidenceClaim({ status: "rejected", related_initiative_id: "story-1" }),
+    ]);
+    const visibleStoryTargets = filterCanonicalLibraryAssets([
+      storyTarget({ status: "pending", complete: false, work_experience_id: "work-1" }),
+      storyTarget({ status: "rejected", complete: false, work_experience_id: "work-1" }),
+    ]);
+
+    expect(visibleClaims).toHaveLength(1);
+    expect(visibleStoryTargets).toHaveLength(1);
+  });
+
+  it("collects Work Queue role filters from queued Story Targets", () => {
+    const roleIds = collectQueuedStoryTargetWorkExperienceIds([
+      storyTarget({ status: "pending", complete: false, work_experience_id: "work-1" }),
+      storyTarget({ status: "approved", complete: true, work_experience_id: "work-2" }),
+      storyTarget({ status: "rejected", complete: false, work_experience_id: "work-3" }),
+    ]);
+
+    expect([...roleIds]).toEqual(["work-1"]);
+  });
+
+  it("does not allow thin Story Targets to be marked ready", () => {
+    expect(canMarkStoryTargetReady(storyTarget({ status: "pending", complete: false }))).toBe(false);
+    expect(canMarkStoryTargetReady(storyTarget({ status: "pending", complete: true }))).toBe(true);
+    expect(canMarkStoryTargetReady(storyTarget({ status: "rejected", complete: true }))).toBe(false);
+  });
 });
 
 function evidenceClaim(
@@ -132,9 +165,11 @@ function evidenceClaim(
 function storyTarget({
   complete,
   status,
+  work_experience_id = null,
 }: {
   complete: boolean;
   status: string;
+  work_experience_id?: string | null;
 }): Parameters<typeof shouldBuildStoryTarget>[0] {
   return complete
     ? {
@@ -146,6 +181,7 @@ function storyTarget({
         results: ["Reduced reporting effort"],
         role: "Owner",
         status,
+        work_experience_id,
       }
     : {
         actions: [],
@@ -156,5 +192,6 @@ function storyTarget({
         results: [],
         role: null,
         status,
+        work_experience_id,
       };
 }

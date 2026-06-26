@@ -40,6 +40,7 @@ import {
   updateEvidenceItem,
   updateProfileFacts,
   reviewWorkExperience,
+  updateStoryTargetReview,
   updateWorkExperienceFields,
 } from "../src/server/profile-evidence-repository";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
@@ -1913,6 +1914,56 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       target_eligibility: {
         eligible: false,
       },
+    });
+  });
+
+  it("rejects Story Target review when required story material is missing", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const unique = crypto.randomUUID();
+    const [thinStory, readyStory] = await db
+      .insert(initiatives)
+      .values([
+        {
+          workspaceId: workspace.id,
+          internalTitle: `Thin Story Target ${unique}`,
+          actions: [],
+          results: [],
+          metrics: [],
+          status: "pending",
+        },
+        {
+          workspaceId: workspace.id,
+          internalTitle: `Ready Story Target ${unique}`,
+          context: "Owned onboarding analytics reporting.",
+          problem: "Manual reporting slowed activation decisions.",
+          role: "Technical owner",
+          actions: ["Designed reporting model", "Built dashboard pipeline"],
+          results: ["Reduced manual reporting effort"],
+          metrics: [{ value: "6 hours saved weekly" }],
+          status: "pending",
+        },
+      ])
+      .returning({ id: initiatives.id });
+    if (!thinStory || !readyStory) throw new Error("Expected Story Target rows.");
+
+    const invalidReview = await updateStoryTargetReview({
+      action: "mark_reviewed",
+      targetId: thinStory.id,
+      targetType: "initiative",
+    });
+    expect(invalidReview).toMatchObject({
+      status: "invalid",
+      reason: "story_target_not_ready",
+    });
+    const validReview = await updateStoryTargetReview({
+      action: "mark_reviewed",
+      targetId: readyStory.id,
+      targetType: "initiative",
+    });
+    expect(validReview).toMatchObject({
+      status: "saved",
+      targetType: "initiative",
     });
   });
 

@@ -24,6 +24,9 @@ import {
 } from "../lib/guided-material";
 import {
   buildEvidenceLibraryIaCounts,
+  canMarkStoryTargetReady,
+  collectQueuedStoryTargetWorkExperienceIds,
+  filterCanonicalLibraryAssets,
   getStoryTargetReadinessState,
   isCanonicalLibraryAsset,
   isResumeReadyEvidenceClaim,
@@ -1495,7 +1498,7 @@ export function ProfileEvidenceWorkspace({
       ? projectNoteTitle.trim().length > 0 || projectNoteText.trim().length > 0
       : sourceTitle.trim().length > 0 || sourceText.trim().length > 0 || Boolean(selectedResumeSourceId);
   const profile = result?.profile;
-  const rawEvidenceItems = result?.evidence_items ?? library?.evidenceItems ?? [];
+  const rawEvidenceItems = (result?.evidence_items ?? library?.evidenceItems ?? []) as EvidenceCardItem[];
   const enrichmentTaskCountByEvidenceId = new Map<string, number>();
   for (const task of enrichmentTasks) {
     if (!task.evidence_item_id || (task.status !== "open" && task.status !== "answered")) {
@@ -1513,10 +1516,10 @@ export function ProfileEvidenceWorkspace({
       : 0,
   }));
   const workExperiences = sortWorkExperiencesReverseChronological(
-    result?.work_experiences ?? library?.workExperiences ?? [],
+    (result?.work_experiences ?? library?.workExperiences ?? []) as WorkExperienceItem[],
   );
-  const initiatives = result?.initiatives ?? library?.initiatives ?? [];
-  const portfolioProjects = result?.portfolio_projects ?? library?.portfolioProjects ?? [];
+  const initiatives = (result?.initiatives ?? library?.initiatives ?? []) as InitiativeItem[];
+  const portfolioProjects = (result?.portfolio_projects ?? library?.portfolioProjects ?? []) as PortfolioProjectItem[];
   const projectCards = result?.project_cards ?? library?.projectCards ?? [];
   const activeEnrichmentTasks = enrichmentTasks.filter(
     (task) => task.status === "open" || task.status === "answered",
@@ -1532,10 +1535,10 @@ export function ProfileEvidenceWorkspace({
     projects: projectCards,
     workExperiences,
   };
-  const canonicalEvidenceItems = evidenceItems.filter(isCanonicalLibraryAsset);
-  const canonicalWorkExperiences = workExperiences.filter(isCanonicalLibraryAsset);
-  const canonicalInitiatives = initiatives.filter(isCanonicalLibraryAsset);
-  const canonicalPortfolioProjects = portfolioProjects.filter(isCanonicalLibraryAsset);
+  const canonicalEvidenceItems = filterCanonicalLibraryAssets(evidenceItems);
+  const canonicalWorkExperiences = filterCanonicalLibraryAssets(workExperiences);
+  const canonicalInitiatives = filterCanonicalLibraryAssets(initiatives);
+  const canonicalPortfolioProjects = filterCanonicalLibraryAssets(portfolioProjects);
   const linkEvidenceItems = canonicalEvidenceItems.filter(shouldLinkEvidenceClaim);
   const claimReviewEvidenceItems = canonicalEvidenceItems.filter(shouldApproveEvidenceClaim);
   const focusedEvidenceItems = evidenceFocus
@@ -1588,6 +1591,7 @@ export function ProfileEvidenceWorkspace({
     focusedItems: focusedEvidenceItems,
     roleReviewItems,
     unlinkedItems: linkEvidenceItems,
+    queuedStoryTargets: [...queuedInitiatives, ...queuedPortfolioProjects],
     linkTargets,
   });
   const visibleStarStories = starStories;
@@ -2764,8 +2768,8 @@ export function ProfileEvidenceWorkspace({
               </div>
               {libraryView === "work_experiences" ? (
                 <WorkExperienceList
-                  evidenceItems={evidenceItems}
-                  initiatives={initiatives}
+                  evidenceItems={canonicalEvidenceItems}
+                  initiatives={canonicalInitiatives}
                   onRefresh={() => refreshLibraryAfterMutation()}
                   pendingReviewCount={roleReviewItems.length}
                   workExperiences={canonicalWorkExperiences}
@@ -2773,7 +2777,7 @@ export function ProfileEvidenceWorkspace({
               ) : null}
               {libraryView === "work_initiatives" ? (
                 <WorkInitiativeList
-                  evidenceItems={evidenceItems}
+                  evidenceItems={canonicalEvidenceItems}
                   initiatives={canonicalInitiatives}
                   onMergeStory={mergeStoryTargetsManually}
                   onAssignStory={updateStoryAssignment}
@@ -2782,7 +2786,7 @@ export function ProfileEvidenceWorkspace({
                   onReviewClaims={reviewClaimsForStory}
                   onReviewStarStory={reviewStarStoryForStory}
                   portfolioProjects={canonicalPortfolioProjects}
-                  workExperiences={workExperiences}
+                  workExperiences={canonicalWorkExperiences}
                 />
               ) : null}
               {libraryView === "evidence_claims" ? (
@@ -2799,11 +2803,11 @@ export function ProfileEvidenceWorkspace({
               {libraryView === "star_stories" ? (
                 <StarStoryPanel
                   focus={starStoryFocus}
-                  initiatives={initiatives}
+                  initiatives={canonicalInitiatives}
                   onImproveStory={startProjectEnrichment}
                   stories={visibleStarStories}
                   onRefresh={() => void loadStarStories()}
-                  workExperiences={workExperiences}
+                  workExperiences={canonicalWorkExperiences}
                 />
               ) : null}
             </>
@@ -6936,18 +6940,15 @@ function getProjectReadiness(project: ProjectCardItem) {
 function getStoryReadiness(
   project: ProjectCardItem | InitiativeItem | PortfolioProjectItem,
 ) {
-  const actionCount = project.actions.filter(Boolean).length;
-  const resultCount = project.results.filter(Boolean).length;
-  const hasMetric = (project.metrics ?? []).length > 0;
-  const hasCoreStory = Boolean(project.context || project.problem) && Boolean(project.role);
-  if (hasCoreStory && actionCount > 0 && resultCount > 0 && hasMetric) {
+  const state = getStoryTargetReadinessState(project);
+  if (state === "story_ready") {
     return {
       label: "Story-ready",
       state: "story_ready" as const,
       next: "Ready for STAR stories and stronger resume bullets.",
     };
   }
-  if (hasCoreStory || actionCount > 0 || resultCount > 0) {
+  if (state === "needs_context") {
     return {
       label: "Needs context",
       state: "needs_context" as const,
@@ -7130,6 +7131,7 @@ function buildWorkQueueRoleFilterOptions({
   focusedItems,
   importedTasks,
   linkTargets,
+  queuedStoryTargets,
   roleReviewItems,
   unlinkedItems,
 }: {
@@ -7138,6 +7140,7 @@ function buildWorkQueueRoleFilterOptions({
   focusedItems: EvidenceCardItem[];
   importedTasks: EnrichmentTaskItem[];
   linkTargets: EvidenceLinkTargets;
+  queuedStoryTargets: Array<InitiativeItem | PortfolioProjectItem>;
   roleReviewItems: WorkExperienceItem[];
   unlinkedItems: EvidenceCardItem[];
 }) {
@@ -7151,6 +7154,7 @@ function buildWorkQueueRoleFilterOptions({
   for (const task of [...importedTasks, ...answerTasks]) {
     collectEnrichmentTaskRoleIds(task, linkTargets).forEach((id) => roleIds.add(id));
   }
+  collectQueuedStoryTargetWorkExperienceIds(queuedStoryTargets).forEach((id) => roleIds.add(id));
   return (linkTargets.workExperiences ?? [])
     .filter((experience) => experience.id && roleIds.has(experience.id))
     .map((experience) => ({
@@ -8348,7 +8352,7 @@ function StarStoryQueue({
               }
             : null;
           const key = `${type}:${story.id ?? title}`;
-          const isStoryReady = getStoryReadiness(story).state === "story_ready";
+          const isStoryReady = canMarkStoryTargetReady(story);
           async function updateReview(action: "mark_reviewed" | "mark_needs_update" | "reject_story") {
             if (!target) return;
             setPendingReviewKey(key);

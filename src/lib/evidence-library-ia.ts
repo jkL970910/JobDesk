@@ -20,6 +20,7 @@ export type EvidenceLibraryIaStoryTarget = {
   results: string[];
   role: string | null;
   status: string;
+  work_experience_id?: string | null;
 };
 
 export type EvidenceLibraryIaWorkExperience = {
@@ -52,6 +53,10 @@ export function isCanonicalLibraryAsset<T extends { status?: string }>(asset: T)
   return asset.status !== "rejected";
 }
 
+export function filterCanonicalLibraryAssets<T extends { status?: string }>(assets: T[]) {
+  return assets.filter(isCanonicalLibraryAsset);
+}
+
 export function shouldReviewWorkExperienceAsset(experience: EvidenceLibraryIaWorkExperience) {
   return isCanonicalLibraryAsset(experience) && experience.status !== "approved";
 }
@@ -75,6 +80,25 @@ export function shouldBuildStoryTarget(target: EvidenceLibraryIaStoryTarget) {
     isCanonicalLibraryAsset(target) &&
     (target.status !== "approved" || getStoryTargetReadinessState(target) !== "story_ready")
   );
+}
+
+export function canMarkStoryTargetReady(target: EvidenceLibraryIaStoryTarget) {
+  return (
+    isCanonicalLibraryAsset(target) &&
+    getStoryTargetReadinessState(target) === "story_ready"
+  );
+}
+
+export function collectQueuedStoryTargetWorkExperienceIds(
+  targets: EvidenceLibraryIaStoryTarget[],
+) {
+  const ids = new Set<string>();
+  for (const target of targets) {
+    if (shouldBuildStoryTarget(target) && target.work_experience_id) {
+      ids.add(target.work_experience_id);
+    }
+  }
+  return ids;
 }
 
 export function isResumeReadyEvidenceClaim(item: EvidenceLibraryIaEvidenceClaim) {

@@ -26,6 +26,7 @@ import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extr
 import type { ProfileFactPatchRequest } from "../schemas/profile-facts";
 import { AllowedUsage } from "../schemas/shared";
 import type { FieldTier, SensitivityLevel } from "../schemas/shared";
+import { canMarkStoryTargetReady } from "../lib/evidence-library-ia";
 import {
   retrieveResumeEvidenceForJob,
   type ResumeRetrievalJobContext,
@@ -2757,7 +2758,13 @@ export async function updateStoryTargetReview(args: {
   const table = args.targetType === "initiative" ? initiatives : portfolioProjects;
   const [current] = await db
     .select({
+      actions: table.actions,
+      context: table.context,
       id: table.id,
+      metrics: table.metrics,
+      problem: table.problem,
+      results: table.results,
+      role: table.role,
       status: table.status,
       workspaceId: table.workspaceId,
     })
@@ -2767,6 +2774,9 @@ export async function updateStoryTargetReview(args: {
   if (!current) return { status: "not_found" as const };
   if (current.status === "rejected" && args.action !== "reject_story") {
     return { status: "invalid" as const, reason: "story_target_rejected" as const };
+  }
+  if (args.action === "mark_reviewed" && !canMarkStoryTargetReady(current)) {
+    return { status: "invalid" as const, reason: "story_target_not_ready" as const };
   }
 
   const status = args.action === "mark_reviewed"
