@@ -36,6 +36,8 @@ type View =
   | "growth"
   | "settings";
 
+type MaterialSection = "review" | "intake";
+
 type EvidenceLibrarySummary = {
   profile: {
     displayName: string | null;
@@ -302,7 +304,9 @@ export default function HomePage() {
   const [materialEntryIntent, setMaterialEntryIntent] =
     useState<MaterialEntryIntent>("resume");
   const [materialInitialSection, setMaterialInitialSection] =
-    useState<"review" | "intake">("review");
+    useState<MaterialSection>("review");
+  const [materialActiveSection, setMaterialActiveSection] =
+    useState<MaterialSection>("review");
   const [materialReviewTab, setMaterialReviewTab] =
     useState<MaterialReviewTab>("library");
   const [focusedEvidenceTaskId, setFocusedEvidenceTaskId] = useState<string | null>(null);
@@ -349,6 +353,7 @@ export default function HomePage() {
     }
     setMaterialEntryIntent(intent);
     setMaterialInitialSection("intake");
+    setMaterialActiveSection("intake");
     setMaterialReviewTab("enrichment");
     setAppView("evidence");
   }
@@ -357,6 +362,7 @@ export default function HomePage() {
     setSelectedResumeSourceVersionId(resumeSourceVersionId);
     setMaterialEntryIntent("resume");
     setMaterialInitialSection("intake");
+    setMaterialActiveSection("intake");
     setMaterialReviewTab("enrichment");
     setAppView("evidence");
   }
@@ -364,6 +370,7 @@ export default function HomePage() {
     setProfileGapIntent(null);
     setFocusedEvidenceTaskId(null);
     setMaterialInitialSection("review");
+    setMaterialActiveSection("review");
     setMaterialReviewTab(tab);
     setAppView("evidence");
   }
@@ -371,6 +378,7 @@ export default function HomePage() {
     setProfileGapIntent(null);
     setFocusedEvidenceTaskId(taskId);
     setMaterialInitialSection("review");
+    setMaterialActiveSection("review");
     setMaterialReviewTab("enrichment");
     setAppView("evidence");
   }
@@ -378,6 +386,7 @@ export default function HomePage() {
     setProfileGapIntent(null);
     setFocusedEvidenceTaskId(null);
     setMaterialInitialSection("review");
+    setMaterialActiveSection("review");
     setMaterialReviewTab("library");
     setAppView("evidence");
   }
@@ -385,6 +394,7 @@ export default function HomePage() {
     if (view === "evidence") {
       setProfileGapIntent(null);
       setMaterialInitialSection("review");
+      setMaterialActiveSection("review");
       setMaterialReviewTab("library");
     }
     setAppView(view);
@@ -400,6 +410,7 @@ export default function HomePage() {
     setSelectedResumeSourceVersionId(null);
     setMaterialEntryIntent("scratch");
     setMaterialInitialSection("intake");
+    setMaterialActiveSection("intake");
     setMaterialReviewTab("enrichment");
     setAppView("evidence");
   }
@@ -449,6 +460,32 @@ export default function HomePage() {
               <h1>{activeCopy.title}</h1>
               <p>{activeCopy.subtitle}</p>
             </div>
+            {activeView === "evidence" ? (
+              <div
+                className="workspace-tabs material-workspace__tabs app-content__header-tabs"
+                role="tablist"
+                aria-label="Evidence Library sections"
+              >
+                <button
+                  aria-selected={materialActiveSection === "review"}
+                  data-active={materialActiveSection === "review"}
+                  role="tab"
+                  type="button"
+                  onClick={() => setMaterialActiveSection("review")}
+                >
+                  Library
+                </button>
+                <button
+                  aria-selected={materialActiveSection === "intake"}
+                  data-active={materialActiveSection === "intake"}
+                  role="tab"
+                  type="button"
+                  onClick={() => setMaterialActiveSection("intake")}
+                >
+                  Add Material
+                </button>
+              </div>
+            ) : null}
           </header>
 
           <div className="app-content__body">
@@ -475,12 +512,14 @@ export default function HomePage() {
             ) : null}
             {activeView === "evidence" ? (
               <ProfileEvidenceWorkspace
+                activeSection={materialActiveSection}
                 entryIntent={materialEntryIntent}
                 initialFocusedTaskId={focusedEvidenceTaskId}
                 initialProfileGap={profileGapIntent}
                 initialSection={materialInitialSection}
                 initialResumeSourceVersionId={selectedResumeSourceVersionId}
                 initialReviewTab={materialReviewTab}
+                onActiveSectionChange={setMaterialActiveSection}
               />
             ) : null}
             {activeView === "jobs" ? <JobsWorkspaceView /> : null}

@@ -571,22 +571,34 @@ type StoryAssignmentPatch =
     };
 
 export function ProfileEvidenceWorkspace({
+  activeSection: controlledActiveSection,
   entryIntent = "resume",
   initialFocusedTaskId = null,
   initialProfileGap = null,
   initialSection = "review",
   initialReviewTab = "library",
   initialResumeSourceVersionId = null,
+  onActiveSectionChange,
 }: {
+  activeSection?: "review" | "intake";
   entryIntent?: MaterialEntryIntent;
   initialFocusedTaskId?: string | null;
   initialProfileGap?: ProfileGapIntent | null;
   initialSection?: "review" | "intake";
   initialReviewTab?: MaterialReviewTab;
   initialResumeSourceVersionId?: string | null;
+  onActiveSectionChange?: (section: "review" | "intake") => void;
 }) {
   const { fetchJson } = useAccess();
-  const [activeSection, setActiveSection] = useState<"review" | "intake">(initialSection);
+  const [localActiveSection, setLocalActiveSection] =
+    useState<"review" | "intake">(initialSection);
+  const activeSection = controlledActiveSection ?? localActiveSection;
+  function setActiveSection(section: "review" | "intake") {
+    if (controlledActiveSection === undefined) {
+      setLocalActiveSection(section);
+    }
+    onActiveSectionChange?.(section);
+  }
   const [selectedEntryIntent, setSelectedEntryIntent] =
     useState<MaterialEntryIntent>(entryIntent);
   const [hasChosenMaterialType, setHasChosenMaterialType] = useState(
@@ -2303,27 +2315,6 @@ export function ProfileEvidenceWorkspace({
 
   return (
     <section className="material-workspace">
-      <div
-        className="workspace-tabs material-workspace__tabs"
-        role="tablist"
-        aria-label="Evidence Library sections"
-      >
-        <button
-          data-active={activeSection === "review"}
-          type="button"
-          onClick={() => setActiveSection("review")}
-        >
-          Library
-        </button>
-        <button
-          data-active={activeSection === "intake"}
-          type="button"
-          onClick={() => setActiveSection("intake")}
-        >
-          Add Material
-        </button>
-      </div>
-
       {activeSection === "intake" ? (
         <div className="panel">
           <div className="panel__header">

@@ -774,6 +774,11 @@ strong,
   text-transform: uppercase;
 }
 
+.app-content__header-tabs {
+  flex: 0 0 auto;
+  margin-bottom: 2px;
+}
+
 .reference-card {
   display: none;
 }
@@ -2923,6 +2928,7 @@ strong,
 }
 
 .review-dimension-workbench {
+  align-items: start;
   display: grid;
   gap: 16px;
   grid-template-columns: minmax(300px, 0.72fr) minmax(0, 1.28fr);
@@ -3065,6 +3071,7 @@ strong,
 }
 
 .review-radar-card {
+  align-self: start;
   display: grid;
   gap: 12px;
 }
@@ -3073,8 +3080,8 @@ strong,
   display: block;
   height: auto;
   margin: 0 auto;
-  max-width: 300px;
-  width: 100%;
+  max-width: 420px;
+  width: min(100%, 420px);
 }
 
 .review-radar__grid {
@@ -11353,6 +11360,12 @@ span > .help-hint {
   .workspace-tabs {
     display: grid;
     grid-template-columns: 1fr 1fr;
+  }
+
+  .app-content__header-tabs {
+    justify-self: stretch;
+    margin-bottom: 0;
+    width: 100%;
   }
 
   .file-import input {
