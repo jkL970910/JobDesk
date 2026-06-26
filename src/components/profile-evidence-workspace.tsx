@@ -1100,7 +1100,7 @@ export function ProfileEvidenceWorkspace({
         await loadResumeSources();
         await loadResumeSourceIntoIntake(payload.data.resume.id);
         setFileStatus(
-          `Reviewed ${formatResumeTitle(payload.data.resume.title)}${payload.data.parseWarnings?.length ? ` · ${payload.data.parseWarnings.length} parser note${payload.data.parseWarnings.length === 1 ? "" : "s"}` : ""}`,
+          `Reviewed ${formatResumeTitle(payload.data.resume.title)}${payload.data.parseWarnings?.length ? ` · ${payload.data.parseWarnings.length} source note${payload.data.parseWarnings.length === 1 ? "" : "s"}` : ""}`,
         );
         setFileProcessing(null);
         if (payload.data.parseQuality) {
@@ -1335,7 +1335,7 @@ export function ProfileEvidenceWorkspace({
       });
     }
     setFileStatus(
-      `Imported ${parsedSources.length} project source file${parsedSources.length === 1 ? "" : "s"}${warningCount ? ` · ${warningCount} parser note${warningCount === 1 ? "" : "s"}` : ""}${failures.length ? ` · ${failures.length} failed` : ""}`,
+      `Imported ${parsedSources.length} project source file${parsedSources.length === 1 ? "" : "s"}${warningCount ? ` · ${warningCount} source note${warningCount === 1 ? "" : "s"}` : ""}${failures.length ? ` · ${failures.length} failed` : ""}`,
     );
     setFileProcessing(null);
   }
@@ -1702,7 +1702,7 @@ export function ProfileEvidenceWorkspace({
     setLibraryMode("library");
     if (task.expected_action === "edit_role_field" || task.note_kind === "missing_role_field") {
       setLibraryView("work_experiences");
-      setStatus("Review extracted Work Experiences and edit their fields.");
+      setStatus("Review imported Work Experiences and edit their fields.");
       return;
     }
     if (task.expected_action === "add_profile_fact" || task.expected_action === "edit_profile_fact") {
@@ -1715,7 +1715,7 @@ export function ProfileEvidenceWorkspace({
       return;
     }
     setLibraryView("work_initiatives");
-    setStatus("Review imported Work Initiatives and Source Material extraction.");
+    setStatus("Review imported Story Targets and Source Material.");
   }
 
   function openWorkQueueView(view: EvidenceWorkQueueView) {
@@ -2079,21 +2079,21 @@ export function ProfileEvidenceWorkspace({
       : payload.action === "reject_suggested_target"
         ? "Rejected suggested target."
       : payload.action === "choose_different_target"
-        ? "Choose a different target or workflow."
+        ? "Choose a different target."
       : payload.action === "change_workflow_route"
-        ? "Updated workflow route."
+        ? "Updated target choice."
       : payload.action === "answer"
         ? task && isProfileContextTask(task)
           ? "Saved profile answer."
           : "Saved answer and prepared a suggested update."
         : payload.action === "acknowledge"
-          ? "Confirmed import note."
+          ? "Confirmed review item."
         : payload.action === "mark_import_reviewed"
           ? "Marked imported material reviewed."
         : payload.action === "request_rerun"
-          ? "Marked this import for rerun."
+          ? "Marked this material for another pass."
         : payload.action === "convert_to_enrichment_question"
-          ? "Converted note to an enrichment question."
+          ? "Created an evidence question from this review item."
         : payload.action === "link"
           ? "Updated destination and regenerated a suggested update."
         : payload.action === "accept_proposal"
@@ -2105,8 +2105,8 @@ export function ProfileEvidenceWorkspace({
         : payload.action === "convert"
           ? "Saved draft evidence. Next: review wording, then approve for resume use."
         : payload.action === "dismiss"
-          ? "Dismissed enrichment task."
-          : "Reopened enrichment task.";
+          ? "Dismissed review item."
+          : "Reopened review item.";
     setStatus(message);
     return { ok: true, message };
   }
@@ -2438,13 +2438,13 @@ export function ProfileEvidenceWorkspace({
               ) : null}
               {parseCard ? <SourceParseStatusCard card={parseCard} /> : null}
               <label className="source-field source-field--textarea">
-                <span>{selectedEntryIntent === "jd" ? "JD gap source text" : "Resume extraction copy"}</span>
+                <span>{selectedEntryIntent === "jd" ? "JD gap source text" : "Reviewed resume working copy"}</span>
                 <small>
                   {selectedEntryIntent === "jd"
                     ? "Paste evidence-gap notes from a JD review, or route to Jobs for full JD analysis later."
                     : resumeSourceEditable
-                      ? "Editing this copy affects this extraction only. The original Resume Review version stays unchanged."
-                      : "Locked to the reviewed resume. Edit a copy only when parsing or review text needs correction before extraction."}
+                      ? "Editing this working copy affects Add Material only. The original Resume Review version stays unchanged."
+                      : "Locked to the reviewed resume. Edit a copy only when the source text needs cleanup before creating library items."}
                 </small>
                 <textarea
                   aria-label="Resume or career source text"
@@ -2471,12 +2471,12 @@ export function ProfileEvidenceWorkspace({
                 <div className="source-copy-controls">
                   <div>
                     <strong>
-                      {resumeSourceEditable ? "Extraction copy is editable" : "Using reviewed resume source"}
+                      {resumeSourceEditable ? "Working copy is editable" : "Using reviewed resume source"}
                     </strong>
                     <p>
                       {resumeSourceEditable
                         ? "Create Library Items will use this edited text and keep the reviewed resume intact."
-                        : "Use the reviewed source as-is, or edit a copy if the parsed text needs cleanup before extraction."}
+                        : "Use the reviewed source as-is, or edit a copy if the text needs cleanup before creating library items."}
                     </p>
                   </div>
                   <button
@@ -2486,7 +2486,7 @@ export function ProfileEvidenceWorkspace({
                       if (!resumeSourceEditable) {
                         setResumeSourceEditable(true);
                         updateActiveSourceDraft({ sourceDocumentId: undefined });
-                        setStatus("Editing extraction copy. Original reviewed resume stays unchanged.");
+                        setStatus("Editing working copy. Original reviewed resume stays unchanged.");
                       } else {
                         if (selectedResumeSourceId) {
                           void loadResumeSourceIntoIntake(selectedResumeSourceId);
@@ -2495,7 +2495,7 @@ export function ProfileEvidenceWorkspace({
                       }
                     }}
                   >
-                    {resumeSourceEditable ? "Reset to reviewed source" : "Edit extraction copy"}
+                    {resumeSourceEditable ? "Reset to reviewed source" : "Edit working copy"}
                   </button>
                 </div>
               ) : null}
@@ -2506,7 +2506,7 @@ export function ProfileEvidenceWorkspace({
                   type="button"
                   onClick={runExtraction}
                 >
-                  {isExtracting ? "Processing..." : entryGuidance.primaryActionLabel}
+                    {isExtracting ? "Processing..." : entryGuidance.primaryActionLabel}
                 </button>
                 <span className={error ? "status status--error" : "status"}>
                   {error ?? status}
@@ -2556,7 +2556,7 @@ export function ProfileEvidenceWorkspace({
                     <strong>{selectedStoryTarget.targetTitle}</strong>
                     <p>
                       Guided answers will be saved as Source Material and linked back to this{" "}
-                      {formatStoryTargetTypeLabel(selectedStoryTarget.targetType)} when extracted Evidence Claims are safe to associate.
+                      {formatStoryTargetTypeLabel(selectedStoryTarget.targetType)} when Evidence Claims are safe to associate.
                     </p>
                     {selectedStoryTarget.missingFields?.length ? (
                       <small>Missing: {selectedStoryTarget.missingFields.join(", ")}</small>
@@ -2622,8 +2622,8 @@ export function ProfileEvidenceWorkspace({
                       ? guidedPreviewState === "stale"
                         ? "Guided answers changed after manual edits. Update the preview when you want to replace it with the structured answers."
                         : guidedPreviewState === "edited"
-                          ? "This preview has manual edits and will be sent to extraction as written."
-                          : "Guided answers sync here as the final material sent to extraction. Edit only if you want to adjust the source wording."
+                          ? "This preview has manual edits and will be used as written."
+                          : "Guided answers sync here as the final source material. Edit only if you want to adjust the wording."
                       : projectSourceMode === "upload"
                         ? "Imported files append here. Edit or combine the parsed material before adding it."
                         : "Paste project notes, work summaries, performance review excerpts, or STAR notes here."}
@@ -2709,7 +2709,7 @@ export function ProfileEvidenceWorkspace({
             <div>
               <h2 className="panel__title">Evidence Library</h2>
               <p className="panel__note">
-                Browse reusable career assets and resolve the Work Queue before generating resumes.
+                Turn resumes, work notes, and project details into reusable proof for resumes and interviews.
               </p>
             </div>
             <button
@@ -2717,7 +2717,7 @@ export function ProfileEvidenceWorkspace({
               type="button"
               onClick={openGenericSourceIntake}
             >
-              Add source
+              Add Material
             </button>
           </div>
           {lastIntakeSummary ? (
@@ -2736,7 +2736,7 @@ export function ProfileEvidenceWorkspace({
             evidence={retrievalPreview.evidence}
             onJumpToSourceMaterial={jumpToSourceMaterial}
             sourceMaterial={retrievalPreview.sourceMaterial}
-            title="Retrieval explanation"
+            title="Why these materials appear"
           />
           <div className="library-mode-switcher" role="tablist" aria-label="Evidence Library mode">
             <button
@@ -2760,6 +2760,19 @@ export function ProfileEvidenceWorkspace({
               Work Queue
             </button>
           </div>
+          <section className="library-mode-summary" data-mode={libraryMode}>
+            <span>{libraryMode === "library" ? "Library" : "Work Queue"}</span>
+            <strong>
+              {libraryMode === "library"
+                ? "Canonical career assets stay visible here."
+                : "Open review work lives here."}
+            </strong>
+            <p>
+              {libraryMode === "library"
+                ? "Browse and maintain Work Experiences, Story Targets, Evidence Claims, and Interview Stories. Incomplete assets stay visible; the Work Queue holds the next actions."
+                : "Resolve imported notes, missing context, links, and approvals before material is used in generated resumes or interview prep."}
+            </p>
+          </section>
 
           {libraryMode === "library" ? (
             <>
@@ -4108,16 +4121,16 @@ function EnrichmentTaskQueue({
       <div className="section-block__top">
         <div>
           <h3>{queueVariant === "imported" ? "Import Review" : "Strengthen Evidence"}</h3>
-            <p>
-              {queueVariant === "imported"
-                ? "Review imported sections, then decide whether they should become Work Experiences, Story Targets, or Evidence Claims."
-                : "Answer questions that strengthen Evidence Claims and Story Targets."}
-            </p>
+          <p>
+            {queueVariant === "imported"
+              ? "Confirm what JobDesk found in imported resumes and source material."
+              : "Add missing metrics, scope, ownership, technical detail, or public-safe wording."}
+          </p>
         </div>
         <span>
           {queueVariant === "imported"
-            ? `${sourceSectionTaskCount} import notes`
-            : `${questionTaskCount} questions`}
+            ? `${sourceSectionTaskCount} review items`
+            : `${questionTaskCount} open questions`}
         </span>
       </div>
       {queueStatus === "skipped" ? (
@@ -4150,8 +4163,8 @@ function EnrichmentTaskQueue({
             </strong>
             <p>
               {queueVariant === "imported"
-                ? "Imported section reviews will appear here."
-                : "Add material or rerun Resume Review to surface missing details."}
+                ? "Imported material reviews will appear here."
+                : "Add material or refresh Resume Review to surface missing details."}
             </p>
           </div>
           <button className="secondary-button" type="button" onClick={onReturnToIntake}>
@@ -4201,7 +4214,7 @@ function EnrichmentTaskQueue({
                       </span>
                       <strong>{task.prompt}</strong>
                       <small className="enrichment-task-row__meta">
-                        {formatEnrichmentSourceType(task.source_type)}
+                        Source: {formatEnrichmentSourceType(task.source_type)}
                       </small>
                     </button>
                   )}
@@ -4446,19 +4459,43 @@ function EnrichmentTaskFocusPane({
       <div className="enrichment-focus-pane__top">
         <div>
           <span>
-            Question {taskIndex} of {taskTotal} · {formatEnrichmentTaskScope(task.target_scope)}
+            Work Queue item {taskIndex} of {taskTotal}
           </span>
           <h3>{task.prompt}</h3>
-          <p>From {task.source_label}</p>
+          <p>Source: {task.source_label}</p>
         </div>
         <em data-state={task.status}>{formatEnrichmentTaskStatus(task)}</em>
+      </div>
+      <div className="enrichment-task-card__context enrichment-task-card__context--focus">
+        <div>
+          <span>Question</span>
+          <strong>{formatEnrichmentTaskType(task.task_type)}</strong>
+        </div>
+        <div>
+          <span>Scope</span>
+          <strong>{formatEnrichmentTaskScope(task.target_scope)}</strong>
+        </div>
+        <div>
+          <span>Target</span>
+          <strong>
+            {!hasLibraryAnchor && requiresTargetBeforeAnswer ? "Choose before answering" : linkedLabel}
+          </strong>
+        </div>
+        <div>
+          <span>Why we ask</span>
+          <strong>{formatEnrichmentTargetReason(task)}</strong>
+        </div>
+        <div>
+          <span>After save</span>
+          <strong>{formatEnrichmentExpectedOutcome(task)}</strong>
+        </div>
       </div>
       {!hasLibraryAnchor && requiresTargetBeforeAnswer ? (
         <div className="enrichment-task-card__stage">
           <div className="enrichment-task-card__stage-header">
-            <span>Step 1</span>
-            <strong>Choose where this answer belongs</strong>
-            <p>Link this question before answering.</p>
+            <span>First decision</span>
+            <strong>Choose the target first</strong>
+            <p>Pick the most specific Evidence Claim, Story Target, or Work Experience this answer should strengthen.</p>
           </div>
           <RouteAwareTargetGate
             disabled={isPending}
@@ -4492,22 +4529,22 @@ function EnrichmentTaskFocusPane({
           ) : null}
           <div className="enrichment-task-card__gate">
             <div>
-              <strong>No matching target?</strong>
-              <p>Create new material only if nothing fits.</p>
+              <strong>Nothing fits?</strong>
+              <p>Create new material only when the answer does not belong to an existing asset.</p>
             </div>
             <button
               className="secondary-button secondary-button--quiet"
               type="button"
               onClick={onCreateLibraryItems}
             >
-              Create new material instead
+              Create new material
             </button>
           </div>
         </div>
       ) : (
         <>
           <details className="enrichment-task-card__target-picker">
-            <summary>Task context and target</summary>
+            <summary>Change task target</summary>
             <div className="enrichment-task-card__context">
               <div>
                 <span>Linked to</span>
@@ -4522,7 +4559,7 @@ function EnrichmentTaskFocusPane({
                 <strong>{formatEnrichmentTargetReason(task)}</strong>
               </div>
               <div>
-                <span>Answer will</span>
+                <span>After save</span>
                 <strong>{formatEnrichmentExpectedOutcome(task)}</strong>
               </div>
             </div>
@@ -4542,7 +4579,7 @@ function EnrichmentTaskFocusPane({
               type="button"
               onClick={onChooseDifferentTarget}
             >
-              Change target or workflow
+              Choose a different target
             </button>
           </details>
           {pendingProposal ? (
@@ -4864,7 +4901,7 @@ function SourceSectionReviewPane({
             Review item {taskIndex} of {taskTotal} · Imported material
           </span>
           <h3>{actionModel.title}</h3>
-          <p>From {task.source_label}</p>
+          <p>Source: {task.source_label}</p>
         </div>
         <em data-state={task.status}>{formatEnrichmentTaskStatus(task)}</em>
       </div>
@@ -4969,7 +5006,7 @@ function SourceSectionReviewPane({
             type="button"
             onClick={onDismiss}
           >
-            Dismiss note
+            Dismiss item
           </button>
         </div>
         {customizing ? (
@@ -4988,7 +5025,7 @@ function SourceSectionReviewPane({
               disabled={isPending}
               onClick={onRequestRerun}
             >
-              Mark for rerun
+              Review again
             </button>
             <button
               className="secondary-button secondary-button--quiet"
@@ -4996,7 +5033,7 @@ function SourceSectionReviewPane({
               disabled={isPending}
               onClick={onConvertToQuestion}
             >
-              Convert to evidence question
+              Create evidence question
             </button>
             <button
               className="secondary-button secondary-button--quiet"
@@ -5025,7 +5062,7 @@ function SourceSectionReviewPane({
               type="button"
               onClick={onDismiss}
             >
-              Ignore this imported section
+              Dismiss this review item
             </button>
           </div>
         ) : null}
@@ -5065,13 +5102,13 @@ function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: strin
   const expectedAction = task.expected_action ?? "review_import";
   if (expectedAction === "acknowledge") {
     return {
-      description: "This is an import observation. Confirm it if the imported result is correct.",
-      eyebrow: "Imported note",
-      heading: "Confirm this import note.",
+      description: "This review item came from imported material. Confirm it if the imported result is correct.",
+      eyebrow: "Imported material",
+      heading: "Confirm this review item.",
       primaryAction: "acknowledge" as const,
-      primaryLabel: "Confirm note",
-      recommendedAction: "Confirm if this observation matches the source, or dismiss it if it is not useful.",
-      title: sectionName ? `${sectionName} import note` : "Import note",
+      primaryLabel: "Confirm item",
+      recommendedAction: "Confirm if this item matches the source, or dismiss it if it is not useful.",
+      title: sectionName ? `${sectionName} review item` : "Review item",
     };
   }
   if (expectedAction === "add_profile_fact" || expectedAction === "edit_profile_fact") {
@@ -5102,26 +5139,26 @@ function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: strin
     const isRerun = expectedAction === "rerun_extraction";
     return {
       description: isRerun
-        ? "This note reports an import limit. Mark it for rerun if the source should be processed again."
-        : "This note reports an import limit or source classification. Review extracted Work Experiences and Story Targets before closing it.",
+        ? "This review item reports an import limit. Review this source again if important material may be missing."
+        : "This review item reports an import limit or source classification. Review Work Experiences and Story Targets before closing it.",
       eyebrow: "Import review",
-      heading: isRerun ? "Rerun extraction if needed." : "Review imported material.",
+      heading: isRerun ? "Review this source again if needed." : "Review imported material.",
       primaryAction: isRerun ? ("request_rerun" as const) : ("review_import" as const),
-      primaryLabel: isRerun ? "Mark for rerun" : "Review imported items",
+      primaryLabel: isRerun ? "Review again" : "Review imported items",
       recommendedAction: isRerun
-        ? "Use rerun when this import was capped or incomplete. Otherwise review or dismiss it."
+        ? "Use another pass when this import was capped or incomplete. Otherwise review or dismiss it."
         : "Check the extracted Work Experiences, Story Targets, and source material before marking this reviewed.",
       title: "Imported material needs review",
     };
   }
   return {
-    description: "This imported note needs review before it becomes a specific evidence or profile update.",
-    eyebrow: "Imported note",
-    heading: "Review this note.",
+    description: "This imported item needs review before it becomes a specific evidence or profile update.",
+    eyebrow: "Imported material",
+    heading: "Review this item.",
     primaryAction: "review_import" as const,
     primaryLabel: "Review imported material",
-    recommendedAction: "Review or dismiss this note. Do not answer it as a normal enrichment question.",
-    title: "Imported note",
+    recommendedAction: "Review or dismiss this item. Do not answer it as a normal evidence question.",
+    title: "Review item",
   };
 }
 
@@ -8814,7 +8851,7 @@ function EvidenceCard({
       );
       setSafeSuggestionStatus(
         payload.data.provider === "ai"
-          ? "AI suggested external-safe wording. Review before saving."
+          ? "Suggested external-safe wording. Review before saving."
           : "Suggested wording needs review before saving.",
       );
     } finally {
@@ -10223,7 +10260,7 @@ function formatStorySourceSummary(evidenceItems: EvidenceCardItem[]) {
   const sourcedCount = evidenceItems.filter((item) => item.source_document_id).length;
   return sourcedCount > 0
     ? `${sourcedCount} document${sourcedCount === 1 ? "" : "s"}`
-    : "extracted source";
+    : "reviewed source";
 }
 
 function formatStoryEvidenceStatus(evidenceItems: EvidenceCardItem[]) {
@@ -10656,15 +10693,15 @@ function SourceParseStatusCard({ card }: { card: SourceParseCard }) {
 
 function formatParseWarning(warning: string) {
   const copy: Record<string, string> = {
-    formatting_not_preserved: "Formatting is not preserved; review section breaks before extraction.",
-    low_text_density: "Extracted text is short; the source may be incomplete.",
-    low_text_quality: "Text was extracted, but quality is lower than expected; review the parsed content.",
-    low_word_count: "Extracted word count is low for AI review or extraction.",
+    formatting_not_preserved: "Formatting is not preserved; review section breaks before creating library items.",
+    low_text_density: "Readable text is short; the source may be incomplete.",
+    low_text_quality: "Readable text quality is lower than expected; review the parsed content.",
+    low_word_count: "Readable text is short for a reliable review.",
     possible_header_footer_noise: "Repeated header/footer text may add noise.",
     possible_scanned_pdf: "This PDF appears image-based or does not expose selectable text.",
     pdf_text_content_fallback_used: "A secondary PDF text extractor was used for this file.",
     replacement_characters_detected: "Some unreadable replacement characters were found.",
-    text_extraction_failed: "No reliable text layer could be extracted.",
+    text_extraction_failed: "No reliable text layer could be read.",
   };
   return copy[warning] ?? warning.replace(/_/g, " ");
 }

@@ -227,7 +227,7 @@ export function ResumeReviewWorkspace({
           });
         }
         setStatus(
-          `Reviewed ${formatResumeTitle(payload.data.resume.title)}${payload.data.parseWarnings?.length ? ` · ${payload.data.parseWarnings.length} parser note${payload.data.parseWarnings.length === 1 ? "" : "s"}` : ""}`,
+          `Reviewed ${formatResumeTitle(payload.data.resume.title)}${payload.data.parseWarnings?.length ? ` · ${payload.data.parseWarnings.length} source note${payload.data.parseWarnings.length === 1 ? "" : "s"}` : ""}`,
         );
         await loadResumes(payload.data.resume.id);
         await loadEnrichmentTasks(payload.data.resume);
@@ -289,7 +289,7 @@ export function ResumeReviewWorkspace({
   async function rerunReview(resume: ResumeSourceReviewSummary) {
     if (
       !window.confirm(
-        `Rerun review for ${formatResumeTitle(resume.title)} v${resume.version}? This will create a fresh review and replace the latest summary for this saved resume version. The uploaded resume and extracted Evidence Library items remain intact.`,
+        `Review ${formatResumeTitle(resume.title)} v${resume.version} again? This creates a fresh review and replaces the latest summary for this saved resume version. The uploaded resume and Evidence Library items remain intact.`,
       )
     ) {
       return;
@@ -369,8 +369,8 @@ export function ResumeReviewWorkspace({
             <h2 className="panel__title">Resume Review</h2>
             <p className="panel__note">
               {selectedResume?.latestReview
-                ? "Review the saved result first. Upload only when you want to compare a new resume version."
-                : "Upload, score, and version a general resume before extracting reusable evidence."}
+                ? "Review the saved result first. Upload another version only when the file changed."
+                : "Upload a general resume, review its strengths and gaps, then decide what should become reusable evidence."}
             </p>
           </div>
         </div>
@@ -391,9 +391,9 @@ export function ResumeReviewWorkspace({
           <section className="resume-alternative-path" aria-label="No resume path">
             <div>
               <span>Alternative path</span>
-              <strong>No resume yet? Build Evidence Library directly.</strong>
+              <strong>No resume yet? Add work material directly.</strong>
               <p>
-                Use guided project questions, work notes, or performance summaries to create reusable evidence without uploading a resume first.
+                Use project notes, guided answers, or performance summaries to create reusable evidence without uploading a resume first.
               </p>
             </div>
             <button
@@ -439,7 +439,7 @@ export function ResumeReviewWorkspace({
               <span>Current resume</span>
               <strong>{formatResumeTitle(selectedResume.title)}</strong>
               <p>
-                v{selectedResume.version} · {selectedResume.status} · updated{" "}
+                Version {selectedResume.version} · {formatResumeVersionStatus(selectedResume.status)} · updated{" "}
                 {new Date(selectedResume.updatedAt).toLocaleDateString()}
               </p>
             </div>
@@ -466,14 +466,14 @@ export function ResumeReviewWorkspace({
                   <span>v{resume.version}</span>
                   <strong>{formatResumeTitle(resume.title)}</strong>
                   <small>
-                    {resume.latestReview ? `Score ${resume.latestReview.overallScore}` : "No review"} · {resume.status}
+                    {resume.latestReview ? `Score ${resume.latestReview.overallScore}` : "Review needed"} · {formatResumeVersionStatus(resume.status)}
                   </small>
                 </button>
                 <div className="resume-version-actions">
               <button
                     className="resume-version-action"
                     disabled={Boolean(activeOperation)}
-                    title="Runs another AI review call for this saved resume version."
+                    title="Create a fresh review for this saved resume version."
                     type="button"
                     onClick={() => void rerunReview(resume)}
                   >
@@ -543,7 +543,7 @@ function ResumeReviewSourceControls({
           <span>Resume source</span>
           <strong>{formatResumeTitle(selectedResume.title)}</strong>
           <p>
-            v{selectedResume.version} · {selectedResume.status} · updated{" "}
+            Version {selectedResume.version} · {formatResumeVersionStatus(selectedResume.status)} · updated{" "}
             {new Date(selectedResume.updatedAt).toLocaleDateString()}
           </p>
         </div>
@@ -658,7 +658,7 @@ function ResumeUploadZone({
       <small>
         {compact
           ? "Use this only when the resume file changed. Existing review results stay available above."
-          : "JobDesk will run a general resume review, save a version, then offer evidence extraction."}
+          : "JobDesk saves the version, reviews the source, and keeps evidence creation as a separate step."}
         {isUploading ? ` ${fileNameFromStatus(status)}` : ""}
       </small>
     </label>
@@ -695,12 +695,12 @@ function ResumeReviewProgressNotice({
     {
       label: "Upload and parse",
       summary: "Read the uploaded file and prepare resume text.",
-      detail: "Uploading the resume and extracting readable text.",
+      detail: "Uploading the resume and preparing readable text.",
     },
     {
-      label: "Run AI review",
+      label: "Review resume",
       summary: "Assess structure, impact, readability, ATS, and evidence readiness.",
-      detail: "AI is reviewing resume strength, gaps, ATS readability, and evidence opportunities.",
+      detail: "Reviewing resume strength, gaps, ATS readability, and evidence opportunities.",
     },
     {
       label: "Check completeness",
@@ -750,7 +750,7 @@ function ResumeReviewProgressNotice({
           </li>
         ))}
       </ol>
-      <p>Keep this page open; the score appears only after the review is saved.</p>
+      <p>Keep this page open; the report appears after the review is saved.</p>
     </div>
   );
 }
@@ -763,6 +763,16 @@ function fileNameFromStatus(status: string) {
 
 function formatResumeTitle(title: string) {
   return title.replace(/(\.[A-Za-z0-9]+)(?:\1)+$/i, "$1");
+}
+
+function formatResumeVersionStatus(status: string) {
+  const labels: Record<string, string> = {
+    extracted: "Added to Evidence Library",
+    ready: "Ready",
+    reviewed: "Reviewed",
+    saved: "Saved",
+  };
+  return labels[status] ?? status.replace(/_/g, " ");
 }
 
 function ResumeReviewReportCard({
@@ -859,8 +869,8 @@ function ResumeReviewReportCard({
   const atsIssueCount = atsNotes.length;
   const privacyReviewCount = riskFlags.length;
   const confidenceLabel = metadata
-    ? `${Math.round((metadata.confidence ?? 0) * 100)}% confidence`
-    : "Confidence unavailable";
+    ? `Review depth ${Math.round((metadata.confidence ?? 0) * 100)}%`
+    : "Review depth unavailable";
   const statusLabel = isFallback ? "Quick estimate" : "Review complete";
   const actionCandidates = [
     ...topFixes.map((fix) => ({
@@ -932,13 +942,13 @@ function ResumeReviewReportCard({
       {reviewActions.length ? (
         <section className="review-action-list">
           <div className="review-action-list__header">
-            <p className="panel-kicker">Action List</p>
+            <p className="panel-kicker">Review actions</p>
             <button
               className="secondary-button"
               type="button"
               onClick={activeQuestionCount > 0 ? onOpenEvidenceTasks : onContinueToEvidence}
             >
-              {activeQuestionCount > 0 ? "Open task queue" : "Continue to Evidence"}
+              {activeQuestionCount > 0 ? "Open evidence tasks" : "Add useful material"}
             </button>
           </div>
           <div className="review-action-list__items">
@@ -961,8 +971,8 @@ function ResumeReviewReportCard({
               onClick={() => setShowAllEvidenceTasks((current) => !current)}
             >
               {showAllEvidenceTasks
-                ? "Show fewer tasks"
-                : `Show ${hiddenActionCount} more task${hiddenActionCount === 1 ? "" : "s"}`}
+              ? "Show fewer tasks"
+                : `Show ${hiddenActionCount} more action${hiddenActionCount === 1 ? "" : "s"}`}
             </button>
           ) : null}
         </section>
@@ -1081,8 +1091,8 @@ function ReviewDimensionWorkbench({
       <div className="review-dimension-side">
         <article className="review-score-compact">
           <div className="review-score-compact__identity">
-            <span>Resume Review</span>
-            <strong>{resumeTitle}</strong>
+              <span>Resume Review</span>
+              <strong>{resumeTitle}</strong>
             <p>
               <b>{totalScore}</b>
               <small>Score</small>
@@ -1104,7 +1114,7 @@ function ReviewDimensionWorkbench({
             </span>
             <span>
               <strong>{evidenceTaskCount}</strong>
-              Tasks
+              Evidence
             </span>
             <span>
               <strong>{atsIssueCount}</strong>
@@ -1132,11 +1142,11 @@ function ReviewDimensionWorkbench({
               <p>{selectedDimension.note}</p>
             </div>
             <div>
-              <span>Rewrite logic</span>
+              <span>Draft guidance</span>
               <p>{dimensionRewriteGuidance(selectedDimension)}</p>
             </div>
             <div>
-              <span>Evidence/history to enrich</span>
+              <span>Evidence to add</span>
               {evidencePrompts.length ? (
                 <ul>
                   {evidencePrompts.map((prompt) => (
@@ -1144,12 +1154,12 @@ function ReviewDimensionWorkbench({
                   ))}
                 </ul>
               ) : (
-                <p>Use Add Material only if this dimension needs more specific metrics, project context, or external-safe wording.</p>
+                <p>Add material only if this dimension needs more metrics, project context, or public-safe wording.</p>
               )}
             </div>
           </div>
           <p className="review-dimension-card__hint">
-            Use the main Evidence Library action for this review when you are ready to create or refine reusable material.
+            Use Add Material when you are ready to turn useful resume findings into reusable evidence.
           </p>
         </article>
         {fairnessNote ? (
@@ -1578,7 +1588,7 @@ function reviewActionLabel(
   activeOperation: string | null,
 ) {
   if (activeOperation === `rerun:${resume.id}`) return "Retrying...";
-  return isFallbackResume(resume) ? "Retry AI review" : "Rerun review";
+  return isFallbackResume(resume) ? "Review again" : "Refresh review";
 }
 
 function buildReviewDimensions(
@@ -1936,7 +1946,7 @@ function formatParseWarning(warning: string) {
     possible_scanned_pdf: "This PDF appears image-based or does not expose selectable text.",
     pdf_text_content_fallback_used: "A secondary PDF text extractor was used for this file.",
     replacement_characters_detected: "Some unreadable replacement characters were found.",
-    text_extraction_failed: "No reliable text layer could be extracted.",
+    text_extraction_failed: "No reliable text layer could be read.",
   };
   return copy[warning] ?? warning.replace(/_/g, " ");
 }

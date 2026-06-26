@@ -650,7 +650,7 @@ function DashboardView({
         resumeReadyClaims > 0
           ? `${resumeReadyClaims} claim${resumeReadyClaims === 1 ? "" : "s"} approved for resume use. ${claimsNeedingReview} still need review.`
           : hasExtractedMaterial
-            ? `${claimsNeedingReview} extracted claim${claimsNeedingReview === 1 ? "" : "s"} need truth review and safe wording.`
+            ? `${claimsNeedingReview} claim${claimsNeedingReview === 1 ? "" : "s"} need truth review and safe wording.`
             : "Import notes, guided answers, or resume text into reusable proof.",
       id: "evidence",
       label: "Evidence library",
@@ -691,7 +691,7 @@ function DashboardView({
       ? [
           {
             action: "Review claims",
-            detail: `${claimsNeedingReview} extracted claim${claimsNeedingReview === 1 ? "" : "s"} need approval and external-safe wording.`,
+            detail: `${claimsNeedingReview} claim${claimsNeedingReview === 1 ? "" : "s"} need approval and public-safe wording.`,
             label: "Review evidence claims",
             target: () => onOpenEvidenceReview("claims"),
           },
@@ -848,9 +848,9 @@ function DashboardView({
     },
     {
       action: () => onNavigate("applications"),
-      label: "Follow-up",
-      value: applicationStages.find((stage) => stage.label === "Follow-up")?.value ?? 0,
-      tone: (applicationStages.find((stage) => stage.label === "Follow-up")?.value ?? 0) > 0 ? "warning" : "ready",
+      label: "Interviews",
+      value: interviewJobs,
+      tone: interviewJobs > 0 ? "warning" : "ready",
     },
   ];
   const librarySnapshotItems = [
@@ -879,11 +879,49 @@ function DashboardView({
 
   return (
     <MotionPanel className="dashboard-grid dashboard-figma-shell">
+      <section className="dashboard-flow-strip" aria-label="Resume preparation flow">
+        {[
+          {
+            id: "review",
+            label: "1. Review resume",
+            state: latestResume?.latestReview ? "complete" : latestResume ? "active" : "blocked",
+            target: () => onNavigateResume("intake_review"),
+          },
+          {
+            id: "material",
+            label: "2. Add material",
+            state: hasExtractedMaterial ? "complete" : latestResume?.latestReview ? "active" : "blocked",
+            target: () => onStartMaterialPath(latestResume?.latestReview ? "resume" : "scratch"),
+          },
+          {
+            id: "evidence",
+            label: "3. Build evidence",
+            state: resumeReadyClaims > 0 ? "complete" : hasExtractedMaterial ? "active" : "blocked",
+            target: resumeReadyClaims > 0 ? onOpenEvidenceLibrary : () => onOpenEvidenceReview("claims"),
+          },
+          {
+            id: "resume",
+            label: "4. Generate resume",
+            state: resumeReadyClaims > 0 ? "active" : "blocked",
+            target: () => onNavigateResume("build_export"),
+          },
+        ].map((step) => (
+          <button
+            data-state={step.state}
+            disabled={dashboardLoadState === "loading"}
+            key={step.id}
+            type="button"
+            onClick={step.target}
+          >
+            <span>{step.label}</span>
+          </button>
+        ))}
+      </section>
       <section className="overview-lanes overview-lanes--figma" aria-label="Business overview">
         <div className="dashboard-main-lane">
           <section className="next-actions-panel" aria-label="Next actions">
             <div className="dashboard-section-heading">
-              <p className="panel-kicker">Next Actions</p>
+              <p className="panel-kicker">Next best action</p>
               <span>{nextActionRows.length} priority</span>
             </div>
             <div className="next-actions-list">
@@ -904,7 +942,7 @@ function DashboardView({
 
           <section className="resume-health-panel" aria-label="Resume health">
             <div className="dashboard-section-heading">
-              <p className="panel-kicker">Resume Health</p>
+              <p className="panel-kicker">Resume preparation</p>
               <span>
                 <CountUpMetric value={resumeReadyClaims} /> ready
               </span>
@@ -955,7 +993,7 @@ function DashboardView({
 
           <section className="library-snapshot-panel" aria-label="Evidence Library snapshot">
             <div className="dashboard-section-heading">
-              <p className="panel-kicker">Library Snapshot</p>
+              <p className="panel-kicker">Evidence snapshot</p>
               <span>{library?.evidenceItems.length ?? 0} facts</span>
             </div>
             <div className="library-snapshot-grid">
@@ -1061,19 +1099,19 @@ function DashboardView({
               action: "Build library",
               body: "Start from notes, projects, guided answers, or a resume.",
               target: () => onStartMaterialPath("scratch"),
-              title: "Build My Evidence Library",
+              title: "Build Evidence Library",
             },
             {
               action: "Create or update",
               body: "Build, refresh, review, and export resumes.",
               target: () => onNavigateResume("build_export"),
-              title: "Create or Update My Resume",
+              title: "Create or Update Resume",
             },
             {
               action: "Apply to job",
               body: "Analyze a JD, tailor a resume, and track the application.",
               target: () => onNavigate("jobs"),
-              title: "Apply to a Target Job",
+              title: "Apply to Target Job",
             },
           ].map((path) => (
             <article data-phase={path.title === "Apply to a Target Job" && resumeReadyClaims === 0 ? "secondary" : "primary"} key={path.title}>
@@ -1306,7 +1344,7 @@ function formatResumePrepState(state: ResumePrepWorkflowState) {
   const copy = {
     claims_review_pending: "Claims review pending",
     evidence_enriched: "Evidence enriched",
-    evidence_extracted: "Evidence extracted",
+    evidence_extracted: "Evidence drafted",
     no_resume: "No resume uploaded",
     profile_ready: "Profile ready",
     resume_reviewed: "Resume reviewed",
@@ -1487,7 +1525,7 @@ function ProfileReferenceView({
   const displayedStoryCount = storyTargets;
   const profileDisplayName =
     library?.profile?.displayName ??
-    (hasExtractedMaterial ? "Profile facts not promoted yet" : "Profile extraction pending");
+    (hasExtractedMaterial ? "Profile facts not confirmed yet" : "Profile facts pending");
   const extractionStatus = formatResumePrepState(resumePrepState);
   const latestMainResume = mainResumes[0] ?? null;
   const latestPositioningReport = positioningReports[0] ?? null;
@@ -1526,7 +1564,7 @@ function ProfileReferenceView({
       kind: "location",
       label: "Location",
       missing: !profileFacts.location,
-      value: profileFacts.location || "No location extracted",
+      value: profileFacts.location || "No location saved",
     },
     {
       detail:
@@ -1537,7 +1575,7 @@ function ProfileReferenceView({
       kind: "roles",
       label: "Roles",
       missing: displayedRoleCount === 0,
-      value: primaryRoleFact || "No role extracted",
+      value: primaryRoleFact || "No role saved",
     },
     {
       detail:
@@ -1546,7 +1584,7 @@ function ProfileReferenceView({
       kind: "education",
       label: "Education",
       missing: profileFacts.education.length === 0,
-      value: primaryEducationFact || "No education extracted",
+      value: primaryEducationFact || "No education saved",
     },
     {
       detail:
@@ -1555,7 +1593,7 @@ function ProfileReferenceView({
       kind: "certifications",
       label: "Certifications",
       missing: profileFacts.certifications.length === 0,
-      value: profileFacts.certifications[0] || "No certifications extracted",
+      value: profileFacts.certifications[0] || "No certifications saved",
     },
     {
       detail:
@@ -1564,7 +1602,7 @@ function ProfileReferenceView({
       kind: "skills",
       label: "Skills",
       missing: profileFacts.skills.length === 0,
-      value: profileFacts.skills.slice(0, 3).join(" · ") || "No skills extracted",
+      value: profileFacts.skills.slice(0, 3).join(" · ") || "No skills saved",
     },
   ] satisfies Array<{
     detail: string;
@@ -1593,7 +1631,7 @@ function ProfileReferenceView({
   const identityInitials = getProfileInitials(profileDisplayName);
   const buildExportMetrics = [
     {
-      detail: mainResumeReady ? "Ready for generation." : "Approve evidence first.",
+      detail: mainResumeReady ? "Ready to draft from approved evidence." : "Approve evidence before drafting.",
       label: "Resume-ready evidence",
       value: `${resumeEligibleEvidence}`,
     },
@@ -1966,7 +2004,7 @@ function ProfileReferenceView({
               <article key={label}>
                 <span>{label}</span>
                 <strong>Loading</strong>
-                <p>Checking extracted profile facts.</p>
+                <p>Checking saved profile facts.</p>
               </article>
             ))}
           </div>
@@ -2301,11 +2339,12 @@ function ProfileReferenceView({
 
       {focus === "builder" ? (
         <>
-          <section className="build-export-panel">
+      <section className="build-export-panel">
             <div className="build-export-panel__header">
               <div>
                 <p className="panel-kicker">Build & Export</p>
-                <h3>Turn approved evidence into a resume draft.</h3>
+                <h3>Generate a resume only from approved evidence.</h3>
+                <p>Build a main draft, check every generated claim, then export only after Fact Guard passes.</p>
               </div>
               <span>{latestMainResume ? formatMainResumeUserState(latestMainResume) : "No draft yet"}</span>
             </div>
@@ -2333,7 +2372,7 @@ function ProfileReferenceView({
                   type="button"
                   onClick={() => void generateMainResume({ mode: "main_resume" })}
                 >
-                  {isGeneratingMainResume ? "Generating..." : "Generate"}
+                  {isGeneratingMainResume ? "Generating..." : "Generate main resume"}
                 </button>
               </article>
 
@@ -2341,7 +2380,7 @@ function ProfileReferenceView({
                 <div>
                   <span>Positioning</span>
                   <strong>{latestPositioningReport?.report.directions.length ?? 0} directions</strong>
-                  <p>Find role directions your evidence can support.</p>
+                  <p>Optional: find role directions your approved evidence can support.</p>
                 </div>
                 <button
                   className="secondary-button"
@@ -2349,14 +2388,14 @@ function ProfileReferenceView({
                   type="button"
                   onClick={() => void generatePositioningReport()}
                 >
-                  {isGeneratingPositioning ? "Analyzing..." : "Analyze"}
+                  {isGeneratingPositioning ? "Analyzing..." : "Analyze directions"}
                 </button>
               </article>
 
               <details className="build-export-action build-export-action--details">
                 <summary>
                   <span>Refresh old resume</span>
-                  <strong>{refreshSourceResumeId ? "Ready to refresh" : "Select source"}</strong>
+                  <strong>{refreshSourceResumeId ? "Ready to refresh" : "Select old resume"}</strong>
                 </summary>
                 <div className="resume-refresh-grid">
                   <label>
@@ -2640,7 +2679,7 @@ function ProfileReferenceView({
                     type="button"
                     onClick={() => void exportMainResume(latestMainResume.id, "json")}
                   >
-                    JSON audit
+                    Evidence audit JSON
                   </button>
                 </div>
                 {exportUsesLengthConstraint ? (
@@ -2702,7 +2741,7 @@ function ProfileReferenceView({
                     <p>
                       {latestMainResume.status === "validated"
                         ? "DOCX, Markdown, and printable PDF export are ready."
-                        : "Final exports stay locked until Fact Guard passes. JSON audit stays available."}
+                        : "Final exports stay locked until Fact Guard passes. Evidence audit JSON stays available."}
                     </p>
                   </li>
                 </ul>
@@ -2872,7 +2911,7 @@ function buildCareerSourceSummary({
     {
       detail: profileUpdatedAt
         ? `Updated ${formatDateTime(profileUpdatedAt)}`
-        : "Run extraction from reviewed material.",
+        : "Create library items from reviewed material.",
       label: "Profile facts",
       value: profileUpdatedAt ? "Extracted" : "Pending",
     },
@@ -2954,7 +2993,7 @@ function formatFactGuardSummary(
 function formatLabel(format: "markdown" | "json" | "docx" | "html") {
   if (format === "docx") return "DOCX";
   if (format === "html") return "printable HTML";
-  if (format === "json") return "JSON audit";
+  if (format === "json") return "Evidence audit JSON";
   return "Markdown";
 }
 
@@ -3152,7 +3191,7 @@ function extractSkillFacts(value: unknown): string[] {
 
 function profileSnapshotCopy(state: ResumePrepWorkflowState) {
   if (state === "profile_ready" || state === "evidence_enriched") {
-    return "Read-only profile facts from the latest extracted source. Use Evidence Library to improve coverage.";
+    return "Read-only profile facts from the latest reviewed source. Use Evidence Library to improve coverage.";
   }
   if (state === "resume_uploaded" || state === "resume_reviewed") {
     return "Resume reviewed, profile facts not extracted yet. Create library items when you want JobDesk to remember this source.";
