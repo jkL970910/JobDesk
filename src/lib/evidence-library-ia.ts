@@ -14,6 +14,7 @@ export type EvidenceLibraryIaStoryTarget = {
   actions: string[];
   context: string | null;
   external_safe_summary?: string | null;
+  linked_evidence_claim_count?: number;
   metrics?: Array<unknown>;
   problem: string | null;
   public_safe_summary?: string | null;
@@ -85,7 +86,9 @@ export function shouldBuildStoryTarget(target: EvidenceLibraryIaStoryTarget) {
 export function canMarkStoryTargetReady(target: EvidenceLibraryIaStoryTarget) {
   return (
     isCanonicalLibraryAsset(target) &&
-    getStoryTargetReadinessState(target) === "story_ready"
+    getStoryTargetReadinessState(target) === "story_ready" &&
+    hasStoryTargetPublicSafeSummary(target) &&
+    hasLinkedEvidenceClaim(target)
   );
 }
 
@@ -152,4 +155,15 @@ export function buildEvidenceLibraryIaCounts(input: EvidenceLibraryIaCountsInput
 function hasExternalSafeDisclosure(item: EvidenceLibraryIaEvidenceClaim) {
   if (item.sensitivity_level === "public_safe") return true;
   return Boolean(item.public_safe_summary?.trim());
+}
+
+function hasStoryTargetPublicSafeSummary(target: EvidenceLibraryIaStoryTarget) {
+  return Boolean(
+    target.external_safe_summary?.trim() ||
+      target.public_safe_summary?.trim(),
+  );
+}
+
+function hasLinkedEvidenceClaim(target: EvidenceLibraryIaStoryTarget) {
+  return (target.linked_evidence_claim_count ?? 0) > 0;
 }

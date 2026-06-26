@@ -2760,6 +2760,7 @@ export async function updateStoryTargetReview(args: {
     .select({
       actions: table.actions,
       context: table.context,
+      externalSafeSummary: table.externalSafeSummary,
       id: table.id,
       metrics: table.metrics,
       problem: table.problem,
@@ -2775,7 +2776,22 @@ export async function updateStoryTargetReview(args: {
   if (current.status === "rejected" && args.action !== "reject_story") {
     return { status: "invalid" as const, reason: "story_target_rejected" as const };
   }
-  if (args.action === "mark_reviewed" && !canMarkStoryTargetReady(current)) {
+  const linkedEvidenceClaimCount = args.action === "mark_reviewed"
+    ? await countLinkedCanonicalEvidenceClaims({
+        db,
+        targetId: args.targetId,
+        targetType: args.targetType,
+        workspaceId: workspace.id,
+      })
+    : 0;
+  if (
+    args.action === "mark_reviewed" &&
+    !canMarkStoryTargetReady({
+      ...current,
+      external_safe_summary: current.externalSafeSummary,
+      linked_evidence_claim_count: linkedEvidenceClaimCount,
+    })
+  ) {
     return { status: "invalid" as const, reason: "story_target_not_ready" as const };
   }
 
@@ -2797,6 +2813,28 @@ export async function updateStoryTargetReview(args: {
   return updated
     ? ({ status: "saved" as const, storyTarget: updated, targetType: args.targetType })
     : ({ status: "not_found" as const });
+}
+
+async function countLinkedCanonicalEvidenceClaims(args: {
+  db: Pick<ReturnType<typeof getDb>, "select">;
+  targetId: string;
+  targetType: "initiative" | "portfolio_project";
+  workspaceId: string;
+}) {
+  const rows = await args.db
+    .select({ id: evidenceItems.id })
+    .from(evidenceItems)
+    .where(
+      and(
+        eq(evidenceItems.workspaceId, args.workspaceId),
+        ne(evidenceItems.status, "rejected"),
+        args.targetType === "initiative"
+          ? eq(evidenceItems.relatedInitiativeId, args.targetId)
+          : eq(evidenceItems.relatedPortfolioProjectId, args.targetId),
+      ),
+    )
+    .limit(1);
+  return rows.length;
 }
 
 export async function updateWorkExperienceFields(args: {

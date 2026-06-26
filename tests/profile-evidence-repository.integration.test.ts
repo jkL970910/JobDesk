@@ -1941,6 +1941,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
           actions: ["Designed reporting model", "Built dashboard pipeline"],
           results: ["Reduced manual reporting effort"],
           metrics: [{ value: "6 hours saved weekly" }],
+          externalSafeSummary: "Built onboarding analytics reporting and reduced manual effort.",
           status: "pending",
         },
       ])
@@ -1955,6 +1956,27 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     expect(invalidReview).toMatchObject({
       status: "invalid",
       reason: "story_target_not_ready",
+    });
+    const stillInvalidWithoutEvidence = await updateStoryTargetReview({
+      action: "mark_reviewed",
+      targetId: readyStory.id,
+      targetType: "initiative",
+    });
+    expect(stillInvalidWithoutEvidence).toMatchObject({
+      status: "invalid",
+      reason: "story_target_not_ready",
+    });
+    await db.insert(evidenceItems).values({
+      workspaceId: workspace.id,
+      text: `Ready story evidence ${unique}`,
+      sourceQuote: "Built reporting model and saved six hours weekly.",
+      evidenceType: "extracted",
+      publicSafeSummary: "Built reporting model and saved six hours weekly.",
+      sensitivityLevel: "public_safe",
+      status: "approved",
+      allowedUsage: ["resume", "interview"],
+      needsUserConfirmation: 0,
+      relatedInitiativeId: readyStory.id,
     });
     const validReview = await updateStoryTargetReview({
       action: "mark_reviewed",

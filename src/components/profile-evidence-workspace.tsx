@@ -1539,14 +1539,24 @@ export function ProfileEvidenceWorkspace({
   const canonicalWorkExperiences = filterCanonicalLibraryAssets(workExperiences);
   const canonicalInitiatives = filterCanonicalLibraryAssets(initiatives);
   const canonicalPortfolioProjects = filterCanonicalLibraryAssets(portfolioProjects);
+  const proofBackedInitiatives = annotateStoryTargetsWithEvidenceClaimCounts(
+    canonicalInitiatives,
+    canonicalEvidenceItems,
+    "initiative",
+  );
+  const proofBackedPortfolioProjects = annotateStoryTargetsWithEvidenceClaimCounts(
+    canonicalPortfolioProjects,
+    canonicalEvidenceItems,
+    "portfolio_project",
+  );
   const linkEvidenceItems = canonicalEvidenceItems.filter(shouldLinkEvidenceClaim);
   const claimReviewEvidenceItems = canonicalEvidenceItems.filter(shouldApproveEvidenceClaim);
   const focusedEvidenceItems = evidenceFocus
     ? canonicalEvidenceItems.filter((item) => evidenceMatchesFocus(item, evidenceFocus))
     : linkEvidenceItems;
   const roleReviewItems = canonicalWorkExperiences.filter(shouldReviewWorkExperienceAsset);
-  const queuedInitiatives = canonicalInitiatives.filter(shouldBuildStoryTarget);
-  const queuedPortfolioProjects = canonicalPortfolioProjects.filter(shouldBuildStoryTarget);
+  const queuedInitiatives = proofBackedInitiatives.filter(shouldBuildStoryTarget);
+  const queuedPortfolioProjects = proofBackedPortfolioProjects.filter(shouldBuildStoryTarget);
   const roleFilteredImportedTasks = filterEnrichmentTasksByRole(
     importedMaterialTasks,
     workQueueRoleFilter,
@@ -1600,7 +1610,14 @@ export function ProfileEvidenceWorkspace({
     evidenceClaims: evidenceItems,
     importReviewTasks: importedMaterialTasks,
     interviewStories: starStories,
-    storyTargets: [...initiatives, ...portfolioProjects],
+    storyTargets: [
+      ...annotateStoryTargetsWithEvidenceClaimCounts(initiatives, canonicalEvidenceItems, "initiative"),
+      ...annotateStoryTargetsWithEvidenceClaimCounts(
+        portfolioProjects,
+        canonicalEvidenceItems,
+        "portfolio_project",
+      ),
+    ],
     strengthenEvidenceTasks: answerEnrichmentTasks,
     workExperiences,
   });
@@ -2020,7 +2037,7 @@ export function ProfileEvidenceWorkspace({
       | { error?: string }
       | null;
     if (!response.ok) {
-      const message = payload?.error ?? "Could not update story review state.";
+      const message = formatStoryTargetReviewError(payload?.error);
       setError(message);
       return { ok: false, message };
     }
@@ -2092,6 +2109,16 @@ export function ProfileEvidenceWorkspace({
           : "Reopened enrichment task.";
     setStatus(message);
     return { ok: true, message };
+  }
+
+  function formatStoryTargetReviewError(reason?: string) {
+    if (reason === "story_target_not_ready") {
+      return "This Story Target still needs public-safe wording and at least one linked Evidence Claim before it can be marked ready.";
+    }
+    if (reason === "story_target_rejected") {
+      return "Rejected Story Targets cannot be marked ready. Return it to the Work Queue first if you want to keep working on it.";
+    }
+    return "Could not update Story Target review state.";
   }
 
   async function mergeEvidenceCandidate(candidate: DedupeCandidate) {
@@ -2926,6 +2953,7 @@ export function ProfileEvidenceWorkspace({
           ) : null}
           {workQueueView === "stories" ? (
             <StarStoryQueue
+              evidenceItems={canonicalEvidenceItems}
               onImproveStory={startProjectEnrichment}
               onRefresh={() => void loadStarStories()}
               onReviewStory={updateStoryTargetReview}
@@ -6980,6 +7008,38 @@ function getStoryMissingFields(
   return missing;
 }
 
+function getLinkedEvidenceClaimCount(
+  storyId: string | undefined,
+  targetType: "initiative" | "portfolio_project",
+  evidenceItems: EvidenceCardItem[],
+) {
+  return getLinkedEvidenceClaimsForStory(storyId, targetType, evidenceItems).length;
+}
+
+function getLinkedEvidenceClaimsForStory(
+  storyId: string | undefined,
+  targetType: "initiative" | "portfolio_project",
+  evidenceItems: EvidenceCardItem[],
+) {
+  if (!storyId) return [];
+  return evidenceItems.filter((item) =>
+    targetType === "initiative"
+      ? item.related_initiative_id === storyId
+      : item.related_portfolio_project_id === storyId,
+  );
+}
+
+function annotateStoryTargetsWithEvidenceClaimCounts<T extends InitiativeItem | PortfolioProjectItem>(
+  storyTargets: T[],
+  evidenceItems: EvidenceCardItem[],
+  targetType: "initiative" | "portfolio_project",
+) {
+  return storyTargets.map((story) => ({
+    ...story,
+    linked_evidence_claim_count: getLinkedEvidenceClaimCount(story.id, targetType, evidenceItems),
+  }));
+}
+
 function formatStoryMissingAction(field: string) {
   if (field === "ownership / role") return "Add ownership";
   if (field === "public-safe wording") return "Add public-safe wording";
@@ -8264,6 +8324,7 @@ function StarStoryPanel({
 }
 
 function StarStoryQueue({
+  evidenceItems,
   onImproveStory,
   onRefresh,
   onReviewStory,
@@ -8271,6 +8332,7 @@ function StarStoryQueue({
   storyTargets,
   workExperiences,
 }: {
+  evidenceItems: EvidenceCardItem[];
   onImproveStory: (project: ProjectCardItem) => void;
   onRefresh: () => void;
   onReviewStory: (
@@ -8352,7 +8414,11 @@ function StarStoryQueue({
               }
             : null;
           const key = `${type}:${story.id ?? title}`;
-          const isStoryReady = canMarkStoryTargetReady(story);
+          const linkedEvidenceClaimCount = getLinkedEvidenceClaimCount(story.id, type, evidenceItems);
+          const isStoryReady = canMarkStoryTargetReady({
+            ...story,
+            linked_evidence_claim_count: linkedEvidenceClaimCount,
+          });
           async function updateReview(action: "mark_reviewed" | "mark_needs_update" | "reject_story") {
             if (!target) return;
             setPendingReviewKey(key);
@@ -9588,11 +9654,15 @@ function WorkInitiativeList({
 
       {filteredInitiatives.length > 0 ? (
         <div className="story-table result-stack--inner">
-          {filteredInitiatives.map((initiative) => (
+          {filteredInitiatives.map((initiative) => {
+            const linkedEvidenceItems = getLinkedEvidenceClaimsForStory(
+              initiative.id,
+              "initiative",
+              evidenceItems,
+            );
+            return (
               <StoryTargetRow
-                evidenceItems={evidenceItems.filter(
-                  (item) => item.related_initiative_id === initiative.id,
-                )}
+                evidenceItems={linkedEvidenceItems}
                 key={initiative.id ?? initiative.internal_title}
                 kind={formatInitiativeRoleChip(initiative, workExperiences)}
                 onAssignStory={onAssignStory}
@@ -9612,31 +9682,37 @@ function WorkInitiativeList({
                 )}
                 mergeOptionEvidenceCounts={evidenceCountByInitiative}
               />
-            ))}
+            );
+          })}
         </div>
       ) : null}
 
       {filteredPortfolioProjects.length > 0 ? (
         <div className="story-table result-stack--inner">
-          {filteredPortfolioProjects.map((project) => (
-            <StoryTargetRow
-              evidenceItems={evidenceItems.filter(
-                (item) => item.related_portfolio_project_id === project.id,
-              )}
-              key={project.id ?? project.title}
-              kind={formatPortfolioProjectType(project.project_type)}
-              onAssignStory={onAssignStory}
-              onEnrichStory={onEnrichStory}
-              onMergeStory={onMergeStory}
-              onOpenEvidenceClaims={onOpenEvidenceClaims}
-              onReviewClaims={onReviewClaims}
-              onReviewStarStory={onReviewStarStory}
-              story={project}
-              title={project.external_safe_title ?? project.title}
-              targetType="portfolio_project"
-              workExperiences={workExperiences}
-            />
-          ))}
+          {filteredPortfolioProjects.map((project) => {
+            const linkedEvidenceItems = getLinkedEvidenceClaimsForStory(
+              project.id,
+              "portfolio_project",
+              evidenceItems,
+            );
+            return (
+              <StoryTargetRow
+                evidenceItems={linkedEvidenceItems}
+                key={project.id ?? project.title}
+                kind={formatPortfolioProjectType(project.project_type)}
+                onAssignStory={onAssignStory}
+                onEnrichStory={onEnrichStory}
+                onMergeStory={onMergeStory}
+                onOpenEvidenceClaims={onOpenEvidenceClaims}
+                onReviewClaims={onReviewClaims}
+                onReviewStarStory={onReviewStarStory}
+                story={project}
+                title={project.external_safe_title ?? project.title}
+                targetType="portfolio_project"
+                workExperiences={workExperiences}
+              />
+            );
+          })}
         </div>
       ) : null}
     </section>
@@ -9697,7 +9773,11 @@ function StoryTargetRow({
     summary: "",
     startDate: "",
   });
-  const readiness = getStoryReadiness(story);
+  const storyWithLinkedEvidenceCount = {
+    ...story,
+    linked_evidence_claim_count: evidenceItems.length,
+  };
+  const readiness = getStoryReadiness(storyWithLinkedEvidenceCount);
   const metrics = story.metrics?.map((metric) => metric.value) ?? [];
   const linkedClaimsNeedReview = evidenceItems.some(
     (item) => getEvidenceReadiness(item).state !== "resume_ready",

@@ -142,10 +142,28 @@ describe("Evidence Library IA semantics", () => {
     expect([...roleIds]).toEqual(["work-1"]);
   });
 
-  it("does not allow thin Story Targets to be marked ready", () => {
+  it("does not allow Story Targets to be marked ready without proof and public-safe wording", () => {
     expect(canMarkStoryTargetReady(storyTarget({ status: "pending", complete: false }))).toBe(false);
-    expect(canMarkStoryTargetReady(storyTarget({ status: "pending", complete: true }))).toBe(true);
-    expect(canMarkStoryTargetReady(storyTarget({ status: "rejected", complete: true }))).toBe(false);
+    expect(
+      canMarkStoryTargetReady(
+        storyTarget({ status: "pending", complete: true, external_safe_summary: null }),
+      ),
+    ).toBe(false);
+    expect(
+      canMarkStoryTargetReady(
+        storyTarget({ status: "pending", complete: true, linked_evidence_claim_count: 0 }),
+      ),
+    ).toBe(false);
+    expect(
+      canMarkStoryTargetReady(
+        storyTarget({ status: "pending", complete: true, linked_evidence_claim_count: 1 }),
+      ),
+    ).toBe(true);
+    expect(
+      canMarkStoryTargetReady(
+        storyTarget({ status: "rejected", complete: true, linked_evidence_claim_count: 1 }),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -164,10 +182,14 @@ function evidenceClaim(
 
 function storyTarget({
   complete,
+  external_safe_summary = "Built onboarding reporting.",
+  linked_evidence_claim_count,
   status,
   work_experience_id = null,
 }: {
   complete: boolean;
+  external_safe_summary?: string | null;
+  linked_evidence_claim_count?: number;
   status: string;
   work_experience_id?: string | null;
 }): Parameters<typeof shouldBuildStoryTarget>[0] {
@@ -175,7 +197,8 @@ function storyTarget({
     ? {
         actions: ["Led implementation"],
         context: "Customer onboarding reporting",
-        external_safe_summary: "Built onboarding reporting.",
+        external_safe_summary,
+        linked_evidence_claim_count,
         metrics: [{ value: "6 hours saved weekly" }],
         problem: "Manual reporting slowed decisions.",
         results: ["Reduced reporting effort"],
@@ -187,6 +210,7 @@ function storyTarget({
         actions: [],
         context: null,
         external_safe_summary: null,
+        linked_evidence_claim_count,
         metrics: [],
         problem: null,
         results: [],
