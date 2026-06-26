@@ -1803,17 +1803,6 @@ export function ProfileEvidenceWorkspace({
     }
   }
 
-  function openGenericSourceIntake() {
-    setActiveProfileGap(null);
-    setResumeSourceEditable(false);
-    setHasChosenMaterialType(false);
-    setSelectedStoryTarget(null);
-    setEvidenceFocus(null);
-    setStarStoryFocus(null);
-    setIsEditingMaterialType(false);
-    setActiveSection("intake");
-  }
-
   function openCreateLibraryItemsForTask(task: EnrichmentTaskItem) {
     clearSharedFileState();
     setHasChosenMaterialType(true);
@@ -2703,13 +2692,6 @@ export function ProfileEvidenceWorkspace({
                 Turn resumes, work notes, and project details into reusable proof for resumes and interviews.
               </p>
             </div>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={openGenericSourceIntake}
-            >
-              Add Material
-            </button>
           </div>
           {lastIntakeSummary ? (
             <ReviewHandoffNotice

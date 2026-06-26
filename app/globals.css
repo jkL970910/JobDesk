@@ -8945,7 +8945,7 @@ span > .help-hint {
 }
 
 .review-switcher--queue {
-  grid-template-columns: repeat(5, minmax(112px, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   margin-bottom: 14px;
 }
 
@@ -8964,6 +8964,11 @@ span > .help-hint {
   text-wrap: nowrap;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.review-switcher--queue button {
+  font-size: clamp(0.68rem, 0.7vw, 0.78rem);
+  padding-inline: 6px;
 }
 
 .review-switcher button:hover,
