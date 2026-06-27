@@ -10643,7 +10643,7 @@ function SourceParseStatusCard({ card }: { card: SourceParseCard }) {
           : card.duplicate
             ? "Duplicate source"
             : card.nextAction === "resume_review"
-              ? "Ready to review"
+              ? "Reviewed resume selected"
               : "Ready to add";
   const nextCopy =
     quality.status === "needs_ocr"
@@ -10651,7 +10651,7 @@ function SourceParseStatusCard({ card }: { card: SourceParseCard }) {
       : quality.status === "failed"
         ? "Paste text manually or upload a DOCX/text-layer PDF."
       : card.nextAction === "resume_review"
-        ? "Continue in Resume Review, then send useful material to Evidence Library."
+        ? "This reviewed resume is ready to create library items from. Continue in Resume Review if you need another review pass."
         : "Review the parsed text, then add it as reusable Evidence Library material.";
   return (
     <article className="source-parse-card" data-status={quality.status}>
@@ -10671,7 +10671,8 @@ function SourceParseStatusCard({ card }: { card: SourceParseCard }) {
       </div>
       {card.duplicate ? (
         <p className="source-parse-card__warning">
-          Duplicate of {card.duplicate.title}. Reuse it or decide whether to re-extract.
+          Duplicate of {card.duplicate.title}. Reuse the reviewed version or decide whether to
+          create library items again from a changed file.
         </p>
       ) : null}
       {quality.warnings.length > 0 ? (

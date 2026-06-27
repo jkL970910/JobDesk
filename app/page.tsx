@@ -1664,7 +1664,7 @@ function ProfileReferenceView({
     }));
   const firstMissingProfileGap = profileGapIntents[0] ?? null;
   const needsLibraryExtraction = Boolean(
-    latestResume?.latestReview && !hasExtractedMaterial,
+    latestResume?.latestReview && latestResume.status !== "extracted",
   );
   const roleCoverage = buildCareerRoleCoverage(library);
   const sourceSummary = buildCareerSourceSummary({
@@ -2165,10 +2165,10 @@ function ProfileReferenceView({
                         type="button"
                         onClick={() => {
                           if (metric.kind === "roles") {
-                            if (needsLibraryExtraction) {
-                              openLatestResumeInEvidenceIntake();
-                            } else {
-                              onNavigateResume("intake_review");
+                    if (needsLibraryExtraction) {
+                      openLatestResumeInEvidenceIntake();
+                    } else {
+                      onNavigateResume("intake_review");
                             }
                             return;
                           }
