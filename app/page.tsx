@@ -1197,9 +1197,9 @@ function determineDashboardNextAction({
   }
   if (state === "resume_reviewed") {
     return {
-      detail: "Turn useful resume details into reusable evidence.",
-      label: "Continue to Evidence",
-      title: "Turn this review into reusable evidence.",
+      detail: "Create library items from the reviewed resume before you strengthen anything else.",
+      label: "Create library items",
+      title: "Create library items from this reviewed resume.",
       resumeTab: "intake_review" as ResumeWorkspaceTab,
       view: "profile" as View,
     };
@@ -1235,6 +1235,12 @@ function getResumePrepWorkflowState({
   storyTargets: number;
   thinStories: number;
 }): ResumePrepWorkflowState {
+  const latestReviewedResumeNeedsExtraction = Boolean(
+    latestResume?.latestReview && latestResume.status !== "extracted",
+  );
+  if (latestReviewedResumeNeedsExtraction) {
+    return "resume_reviewed";
+  }
   const hasExtractedMaterial = hasResumePrepMaterial({
     claimsNeedingReview,
     library,
@@ -1386,7 +1392,7 @@ function formatResumePrepState(state: ResumePrepWorkflowState) {
     evidence_extracted: "Evidence drafted",
     no_resume: "No resume uploaded",
     profile_ready: "Profile ready",
-    resume_reviewed: "Resume reviewed",
+    resume_reviewed: "Resume reviewed · create library items",
     resume_uploaded: "Resume uploaded",
   } satisfies Record<ResumePrepWorkflowState, string>;
   return copy[state];

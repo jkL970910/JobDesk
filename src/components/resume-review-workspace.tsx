@@ -339,6 +339,7 @@ export function ResumeReviewWorkspace({
           retryDisabled={Boolean(activeOperation)}
           retryLabel={reviewActionLabel(selectedResume, activeOperation)}
           resume={selectedResume}
+          resumeIsExtracted={selectedResumeIsExtracted}
           sourceControls={
             <ResumeReviewSourceControls
               activeOperation={activeOperation}
@@ -785,6 +786,7 @@ function ResumeReviewReportCard({
   retryDisabled,
   retryLabel,
   sourceControls,
+  resumeIsExtracted,
 }: {
   enrichmentTasks: EnrichmentTaskSummary[];
   onContinueToEvidence: () => void;
@@ -792,6 +794,7 @@ function ResumeReviewReportCard({
   onOpenEvidenceTask: (taskId: string) => void;
   onRetry: () => void;
   resume: ResumeSourceReviewSummary;
+  resumeIsExtracted: boolean;
   retryDisabled: boolean;
   retryLabel: string;
   sourceControls?: ReactNode;
@@ -872,6 +875,13 @@ function ResumeReviewReportCard({
     ? `Review depth ${Math.round((metadata.confidence ?? 0) * 100)}%`
     : "Review depth unavailable";
   const statusLabel = isFallback ? "Quick estimate" : "Review complete";
+  const primaryCtaLabel = resumeIsExtracted
+    ? activeQuestionCount > 0
+      ? "Review evidence tasks"
+      : "Open Evidence Library"
+    : "Create library items";
+  const primaryCtaAction =
+    resumeIsExtracted && activeQuestionCount > 0 ? onOpenEvidenceTasks : onContinueToEvidence;
   const actionCandidates = [
     ...topFixes.map((fix) => ({
       action:
@@ -892,11 +902,13 @@ function ResumeReviewReportCard({
             }),
     })),
     ...questionStatuses.map((item) => ({
-      action: item.taskId ? "Open task" : "Create item",
+      action: resumeIsExtracted && item.taskId ? "Open task" : "Create item",
       detail: item.question,
       key: `task-${item.question}`,
-      label: formatEnrichmentTaskStatus(item.status),
-      onClick: item.taskId ? () => onOpenEvidenceTask(item.taskId!) : onContinueToEvidence,
+      label: resumeIsExtracted
+        ? formatEnrichmentTaskStatus(item.status)
+        : "Waiting for library material",
+      onClick: resumeIsExtracted && item.taskId ? () => onOpenEvidenceTask(item.taskId!) : onContinueToEvidence,
     })),
   ];
   const reviewActions = showAllEvidenceTasks ? actionCandidates : actionCandidates.slice(0, 6);
@@ -920,16 +932,47 @@ function ResumeReviewReportCard({
           <p>{metadata.tenSecondScan}</p>
         </section>
       ) : null}
+      {!resumeIsExtracted ? (
+        <section className="review-extraction-bridge" aria-live="polite">
+          <div>
+            <span>Next required step</span>
+            <h3>Review complete. Create library material next.</h3>
+            <p>
+              This review scored your resume and found places to strengthen. Before answering
+              those prompts, create Evidence Claims, Work Experiences, and Story Targets from
+              this reviewed resume.
+            </p>
+          </div>
+          <div className="review-extraction-bridge__actions">
+            <button className="primary-button" type="button" onClick={onContinueToEvidence}>
+              Create library items
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setActiveDetailTab("summary")}
+            >
+              View review details
+            </button>
+          </div>
+          <ol aria-label="Resume evidence workflow">
+            <li data-state="complete">Reviewed resume</li>
+            <li data-state="current">Create library items</li>
+            <li>Review claims and stories</li>
+            <li>Strengthen gaps</li>
+          </ol>
+        </section>
+      ) : null}
       <ReviewDimensionWorkbench
         activeQuestionCount={activeQuestionCount}
         atsIssueCount={atsIssueCount}
-        ctaLabel={activeQuestionCount > 0 ? "Open evidence tasks" : "Continue to Evidence"}
+        ctaLabel={primaryCtaLabel}
         dimensions={dimensions}
         fairnessNote={metadata?.fairnessCheck?.note ?? ""}
         fairnessSignals={fairnessSignals}
         confidenceLabel={confidenceLabel}
         missingEvidenceQuestions={missingEvidenceQuestions}
-        onCtaClick={activeQuestionCount > 0 ? onOpenEvidenceTasks : onContinueToEvidence}
+        onCtaClick={primaryCtaAction}
         onSelect={setSelectedDimensionId}
         privacyReviewCount={privacyReviewCount}
         resumeTitle={formatResumeTitle(resume.title)}
@@ -946,11 +989,17 @@ function ResumeReviewReportCard({
             <button
               className="secondary-button"
               type="button"
-              onClick={activeQuestionCount > 0 ? onOpenEvidenceTasks : onContinueToEvidence}
+              onClick={primaryCtaAction}
             >
-              {activeQuestionCount > 0 ? "Open evidence tasks" : "Add useful material"}
+              {primaryCtaLabel}
             </button>
           </div>
+          {!resumeIsExtracted && questionStatuses.length ? (
+            <p className="review-action-list__note">
+              Evidence prompts are waiting for library material. Create library items first,
+              then use Work Queue to strengthen the gaps.
+            </p>
+          ) : null}
           <div className="review-action-list__items">
             {reviewActions.map((item) => (
               <article key={item.key}>
@@ -1159,7 +1208,7 @@ function ReviewDimensionWorkbench({
             </div>
           </div>
           <p className="review-dimension-card__hint">
-            Use Add Material when you are ready to turn useful resume findings into reusable evidence.
+            Create library items from this reviewed resume before using these prompts to strengthen evidence.
           </p>
         </article>
         {fairnessNote ? (

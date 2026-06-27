@@ -2359,6 +2359,24 @@ export function ProfileEvidenceWorkspace({
               }
             />
           )}
+          {!showMaterialTypePicker && selectedEntryIntent === "resume" ? (
+            <section className="resume-extraction-guide" aria-label="Reviewed resume extraction path">
+              <div>
+                <span>Reviewed resume path</span>
+                <strong>Create reusable material before strengthening gaps.</strong>
+                <p>
+                  Resume Review identified weak evidence areas. This step creates the library
+                  material those prompts will strengthen.
+                </p>
+              </div>
+              <ol>
+                <li data-state="complete">Reviewed resume</li>
+                <li data-state="current">Create library items</li>
+                <li>Review claims and stories</li>
+                <li>Strengthen gaps</li>
+              </ol>
+            </section>
+          ) : null}
           {!showMaterialTypePicker && selectedEntryIntent !== "scratch" ? (
             <section className="source-active-form">
               {selectedEntryIntent === "resume" ? (
@@ -3284,6 +3302,10 @@ function ReviewHandoffNotice({
   };
 }) {
   const sourceType = summary.type === "resume" ? "source" : "project source";
+  const nextReviewLabel =
+    summary.evidenceCount > 0
+      ? "Review the created Evidence Claims, Work Experiences, and Story Targets below first."
+      : "Review the created material below first.";
   return (
     <section className="review-handoff" aria-live="polite">
       <div>
@@ -3293,8 +3315,8 @@ function ReviewHandoffNotice({
           {summary.evidenceCount === 1 ? "" : "s"}, {summary.workExperienceCount} work
           experience{summary.workExperienceCount === 1 ? "" : "s"}, and{" "}
           {summary.storyCount} Story Target{summary.storyCount === 1 ? "" : "s"}.
-          Review the material below, then strengthen thin Story Targets with more {sourceType}
-          context if needed.
+          {nextReviewLabel} Then strengthen thin Story Targets with more {sourceType} context if
+          needed.
         </p>
       </div>
       <div className="actions actions--compact">
@@ -6906,13 +6928,13 @@ function getEntryGuidance(intent: MaterialEntryIntent) {
   return {
     enrichmentHint:
       "Add project notes, design docs, performance reviews, or accomplishment drafts to turn thin resume signals into richer project stories and stronger evidence.",
-      fileImportLabel: "Reviewed resume source",
-    primaryActionLabel: "Create library items",
+    fileImportLabel: "Reviewed resume source",
+    primaryActionLabel: "Create library items from this resume",
     primaryHint:
-      "Select a resume that has already been processed in Resume Review. Upload new resumes from Resume Review first.",
-      primaryTitleLabel: "Reviewed resume title",
+      "This creates Core Facts, Work Experiences, Story Targets, and Evidence Claims from the reviewed resume before you answer evidence prompts.",
+    primaryTitleLabel: "Reviewed resume title",
     summary:
-      "Start from an already reviewed resume, then turn it into reusable material for evidence and resume generation.",
+      "Resume Review scored the source. Add Material turns the reviewed resume into reusable library material for evidence and resume generation.",
   };
 }
 
