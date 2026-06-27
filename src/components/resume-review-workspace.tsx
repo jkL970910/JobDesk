@@ -977,6 +977,7 @@ function ResumeReviewReportCard({
         privacyReviewCount={privacyReviewCount}
         resumeTitle={formatResumeTitle(resume.title)}
         selectedDimension={selectedDimension}
+        showPrimaryCta={resumeIsExtracted}
         statusLabel={statusLabel}
         sourceControls={sourceControls}
         topFixCount={topFixes.length}
@@ -986,13 +987,15 @@ function ResumeReviewReportCard({
         <section className="review-action-list">
           <div className="review-action-list__header">
             <p className="panel-kicker">Review actions</p>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={primaryCtaAction}
-            >
-              {primaryCtaLabel}
-            </button>
+            {resumeIsExtracted ? (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={primaryCtaAction}
+              >
+                {primaryCtaLabel}
+              </button>
+            ) : null}
           </div>
           {!resumeIsExtracted && questionStatuses.length ? (
             <p className="review-action-list__note">
@@ -1092,6 +1095,7 @@ function ReviewDimensionWorkbench({
   privacyReviewCount,
   resumeTitle,
   selectedDimension,
+  showPrimaryCta,
   statusLabel,
   sourceControls,
   topFixCount,
@@ -1110,6 +1114,7 @@ function ReviewDimensionWorkbench({
   privacyReviewCount: number;
   resumeTitle: string;
   selectedDimension: ReviewDimension;
+  showPrimaryCta: boolean;
   statusLabel: string;
   sourceControls?: ReactNode;
   topFixCount: number;
@@ -1152,9 +1157,11 @@ function ReviewDimensionWorkbench({
               <span>{confidenceLabel}</span>
               <span>{statusLabel}</span>
             </div>
-            <button className="primary-button" type="button" onClick={onCtaClick}>
-              {ctaLabel}
-            </button>
+            {showPrimaryCta ? (
+              <button className="primary-button" type="button" onClick={onCtaClick}>
+                {ctaLabel}
+              </button>
+            ) : null}
           </div>
           <div className="review-score-compact__stats" aria-label="Review summary">
             <span>
