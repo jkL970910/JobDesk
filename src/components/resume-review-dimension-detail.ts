@@ -1,6 +1,7 @@
 type ReviewDimensionLike = {
   id: string;
   label: string;
+  percent?: number;
 };
 
 export type ReviewDimensionDetail = {
@@ -9,7 +10,11 @@ export type ReviewDimensionDetail = {
     kind: "action" | "risk" | "strength" | "weakness";
     text: string;
   }>;
+  helpedScore: string[];
+  loweredScore: string[];
   nextAction: string;
+  scoreLabel: "Needs work" | "Moderate" | "Strong";
+  wouldRaiseScore: string[];
 };
 
 export function buildDimensionDetail({
@@ -37,11 +42,23 @@ export function buildDimensionDetail({
   const evidencePrompts = missingEvidenceQuestions
     .filter((question) => matchesDimension(question, profile))
     .slice(0, 3);
+  const helpedScore = findings
+    .filter((finding) => finding.kind === "strength")
+    .map((finding) => finding.text)
+    .slice(0, 2);
+  const loweredScore = findings
+    .filter((finding) => finding.kind === "weakness" || finding.kind === "risk")
+    .map((finding) => finding.text)
+    .slice(0, 3);
 
   return {
     evidencePrompts,
     findings,
+    helpedScore: helpedScore.length ? helpedScore : buildFallbackHelpedScore(profile),
+    loweredScore: loweredScore.length ? loweredScore : buildFallbackLoweredScore(profile),
     nextAction: buildNextAction(profile),
+    scoreLabel: buildScoreLabel(dimension.percent),
+    wouldRaiseScore: buildWouldRaiseScore(profile),
   };
 }
 
@@ -172,6 +189,90 @@ function buildNextAction(profile: DimensionProfile) {
     return "Fill missing resume sections before relying on generated resume drafts.";
   }
   return "Use the reviewer note and matched findings to decide what source material to add next.";
+}
+
+function buildFallbackHelpedScore(profile: DimensionProfile) {
+  if (profile.category === "clarity") return ["Resume is generally scan-friendly."];
+  if (profile.category === "project") return ["Project or initiative signals are visible."];
+  if (profile.category === "evidence") return ["Resume contains source signals that can become library items."];
+  if (profile.category === "impact") return ["Some impact or action evidence is visible."];
+  if (profile.category === "privacy") return ["No severe privacy blocker was detected in the quick review."];
+  if (profile.category === "ats") return ["Core resume text appears parseable."];
+  if (profile.category === "structure") return ["Core resume sections are partially present."];
+  return ["Reviewer found usable resume material."];
+}
+
+function buildFallbackLoweredScore(profile: DimensionProfile) {
+  if (profile.category === "clarity") {
+    return [
+      "Target role may not be immediately obvious.",
+      "Strongest evidence is not prioritized in the first scan.",
+    ];
+  }
+  if (profile.category === "project") {
+    return ["Project context, ownership, or measurable result may not be explicit enough."];
+  }
+  if (profile.category === "evidence") {
+    return ["Resume evidence is present, but still needs extraction and review before it is library-ready."];
+  }
+  if (profile.category === "impact") {
+    return ["Some achievements need stronger metrics, scope, or before/after proof."];
+  }
+  if (profile.category === "privacy") {
+    return ["Some bullets may need public-safe wording before reuse."];
+  }
+  if (profile.category === "ats") {
+    return ["Formatting, dates, or headings may need to stay more parser-readable."];
+  }
+  if (profile.category === "structure") {
+    return ["One or more expected sections may be incomplete or hard to scan."];
+  }
+  return ["Reviewer did not return a detailed deduction breakdown for this dimension."];
+}
+
+function buildWouldRaiseScore(profile: DimensionProfile) {
+  if (profile.category === "clarity") {
+    return [
+      "Add a clear target headline.",
+      "Move strongest impact bullets higher.",
+      "Rewrite unclear or internal bullets into recruiter-readable language.",
+    ];
+  }
+  if (profile.category === "project") {
+    return [
+      "Name the strongest projects or initiatives.",
+      "Add ownership, scope, technical decision, and result for each key story.",
+    ];
+  }
+  if (profile.category === "evidence") {
+    return [
+      "Create library items from the resume.",
+      "Review generated claims before marking anything resume-ready.",
+    ];
+  }
+  if (profile.category === "impact") {
+    return [
+      "Add measurable outcomes for the strongest achievements.",
+      "Connect each metric to ownership and business or technical scope.",
+    ];
+  }
+  if (profile.category === "privacy") {
+    return ["Replace internal names or sensitive implementation details with external-safe summaries."];
+  }
+  if (profile.category === "ats") {
+    return ["Keep section labels standard.", "Use clear dates, roles, and bullet structure."];
+  }
+  if (profile.category === "structure") {
+    return ["Fill missing contact, experience, education, or skills sections."];
+  }
+  return ["Add source-backed context for this dimension."];
+}
+
+function buildScoreLabel(percent: number | undefined): ReviewDimensionDetail["scoreLabel"] {
+  if (typeof percent !== "number" || !Number.isFinite(percent)) return "Moderate";
+  if (percent >= 0.8) return "Strong";
+  if (percent >= 0.55) return "Moderate";
+  return "Needs work";
 }
 
 function isPrivacyText(text: string) {

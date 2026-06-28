@@ -255,8 +255,11 @@ describe("ResumeReview", () => {
           maxScore: 100,
           note: "Top evidence is visible.",
           findings: ["Project ownership is clear."],
+          helpedScore: ["Project ownership is clear."],
+          loweredScore: ["Target role is not obvious."],
           evidenceQuestions: ["Which project result has the strongest proof?"],
           nextAction: "Add source-backed project proof.",
+          raiseScore: ["Move strongest project higher."],
         },
       ],
       strengths: ["Clear analytics scope."],
@@ -276,10 +279,13 @@ describe("ResumeReview", () => {
     expect(parsed.score.overall).toBe(82);
     expect(parsed.score.confidence).toBe(0.74);
     expect(parsed.rubric[0]?.findings).toEqual(["Project ownership is clear."]);
+    expect(parsed.rubric[0]?.helpedScore).toEqual(["Project ownership is clear."]);
+    expect(parsed.rubric[0]?.loweredScore).toEqual(["Target role is not obvious."]);
     expect(parsed.rubric[0]?.evidenceQuestions).toEqual([
       "Which project result has the strongest proof?",
     ]);
     expect(parsed.rubric[0]?.nextAction).toBe("Add source-backed project proof.");
+    expect(parsed.rubric[0]?.raiseScore).toEqual(["Move strongest project higher."]);
   });
 
   it("normalizes common provider naming variants", () => {
@@ -297,7 +303,10 @@ describe("ResumeReview", () => {
           max_score: "100",
           rationale: "Strong quantified outcomes.",
           evidence_to_add: ["Which metric can be shared publicly?"],
+          what_helped: ["Quantified result is present."],
+          what_lowered: ["Metric source is not clear."],
           next_action: "Attach the best metric source.",
+          what_would_raise_score: ["Add source-backed metric context."],
         },
       ],
       strengths: ["Strong impact."],
@@ -324,7 +333,10 @@ describe("ResumeReview", () => {
     expect(parsed.rubric[0]?.evidenceQuestions).toEqual([
       "Which metric can be shared publicly?",
     ]);
+    expect(parsed.rubric[0]?.helpedScore).toEqual(["Quantified result is present."]);
+    expect(parsed.rubric[0]?.loweredScore).toEqual(["Metric source is not clear."]);
     expect(parsed.rubric[0]?.nextAction).toBe("Attach the best metric source.");
+    expect(parsed.rubric[0]?.raiseScore).toEqual(["Add source-backed metric context."]);
     expect(parsed.suggested_edits).toEqual(["Move top metric earlier."]);
     expect(parsed.ten_second_scan).toBe("Software engineer with strong cloud scale.");
     expect(parsed.fairness_check.signals_not_penalized).toEqual(["career gap"]);

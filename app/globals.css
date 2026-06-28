@@ -3320,9 +3320,18 @@ strong,
   color: var(--ink);
   display: inline-flex;
   flex: 0 0 auto;
+  flex-direction: column;
   font-size: 1.2rem;
   justify-content: center;
   padding: 10px 12px;
+}
+
+.review-dimension-card__top > strong span {
+  color: var(--ink-muted);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+  text-transform: uppercase;
 }
 
 .review-dimension-card__body {

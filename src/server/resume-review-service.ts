@@ -3,12 +3,15 @@ export type ResumeReviewReport = {
   rubric: Array<{
     evidenceQuestions: string[];
     findings: string[];
+    helpedScore: string[];
     key: string;
     label: string;
+    loweredScore: string[];
     score: number;
     maxScore: number;
     note: string;
     nextAction?: string;
+    raiseScore: string[];
   }>;
   strengths: string[];
   weaknesses: string[];
@@ -54,13 +57,24 @@ export function buildResumeReviewReport(sourceText: string): ResumeReviewReport 
         hasContact ? "Contact or portfolio signal is visible." : "Contact or portfolio signal may be incomplete.",
         hasExperience ? "Work experience is visible." : "Work experience section is missing or hard to parse.",
       ],
+      helpedScore: [
+        ...(hasContact ? ["Contact or portfolio signal is visible."] : []),
+        ...(hasExperience ? ["Work experience section is visible."] : []),
+      ],
       key: "structure",
       label: "Structure",
+      loweredScore: [
+        ...(!hasContact ? ["Contact or portfolio signal may be incomplete."] : []),
+        ...(!hasExperience ? ["Work experience section is missing or hard to parse."] : []),
+        ...(!hasEducation ? ["Education section is missing or hard to parse."] : []),
+        ...(!hasSkills ? ["Skills section is missing or hard to parse."] : []),
+      ],
       score: Math.min(20, scoreBool(hasContact, 4) + scoreBool(hasExperience, 6) + scoreBool(hasEducation, 4) + scoreBool(hasSkills, 4) + scoreBool(wordCount >= 250, 2)),
       maxScore: 20,
       good: "Core resume sections are present.",
       weak: "Resume structure is missing one or more expected sections.",
       nextAction: "Fill missing resume sections before extracting or rewriting evidence.",
+      raiseScore: ["Fill missing contact, experience, education, or skills sections."],
     }),
     scoreSection({
       evidenceQuestions: [
@@ -74,13 +88,25 @@ export function buildResumeReviewReport(sourceText: string): ResumeReviewReport 
           ? "Action-led claims are present."
           : "Some bullets may read as responsibility rather than outcome.",
       ],
+      helpedScore: [
+        ...(metrics.length >= 3 ? ["Several measurable outcomes are visible."] : []),
+        ...(actionVerbMatches.length >= 6 ? ["Action-led claims are present."] : []),
+      ],
       key: "impact",
       label: "Impact evidence",
+      loweredScore: [
+        ...(metrics.length < 3 ? ["Impact claims need more quantified proof."] : []),
+        ...(actionVerbMatches.length < 6 ? ["Some bullets may read as responsibility rather than outcome."] : []),
+      ],
       score: Math.min(25, metrics.length * 3 + Math.min(10, actionVerbMatches.length) + scoreBool(bullets.length >= 4, 4)),
       maxScore: 25,
       good: "Resume includes measurable outcomes and action-oriented claims.",
       weak: "Add more quantified outcomes and action-led bullets.",
       nextAction: "Attach measurable outcomes or source-backed proof before using these claims in a resume draft.",
+      raiseScore: [
+        "Add measurable outcomes for the strongest achievements.",
+        "Connect each metric to ownership and business or technical scope.",
+      ],
     }),
     scoreSection({
       evidenceQuestions: [
@@ -96,13 +122,25 @@ export function buildResumeReviewReport(sourceText: string): ResumeReviewReport 
           ? "Some project outcomes include measurable evidence."
           : "Project stories need clearer context, actions, and results.",
       ],
+      helpedScore: [
+        ...(hasProjects ? ["Project or initiative signals are visible."] : []),
+        ...(metrics.length >= 3 ? ["Some project outcomes include measurable evidence."] : []),
+      ],
       key: "project_depth",
       label: "Project depth",
+      loweredScore: [
+        ...(!hasProjects ? ["Project or initiative signals are thin or missing."] : []),
+        ...(metrics.length < 3 ? ["Project stories need clearer context, actions, and results."] : []),
+      ],
       score: Math.min(20, scoreBool(hasProjects, 8) + Math.min(8, countMatches(lower, ["launched", "built", "designed", "implemented", "migrated", "automated"]) * 2) + scoreBool(metrics.length >= 3, 4)),
       maxScore: 20,
       good: "Project or initiative signals are visible.",
       weak: "Project stories need clearer context, actions, and results.",
       nextAction: "Add source-backed project context: ownership, scope, technical decisions, and measurable results.",
+      raiseScore: [
+        "Name the strongest projects or initiatives.",
+        "Add ownership, scope, technical decision, and result for each key story.",
+      ],
     }),
     scoreSection({
       evidenceQuestions: [
@@ -112,13 +150,27 @@ export function buildResumeReviewReport(sourceText: string): ResumeReviewReport 
         bullets.length >= 4 ? "Bullet structure is visible." : "Resume needs clearer bullet structure.",
         hasWeakPhrases ? "Some wording is vague or responsibility-oriented." : "Wording is reasonably direct.",
       ],
+      helpedScore: [
+        ...(bullets.length >= 4 ? ["Resume is generally scan-friendly."] : []),
+        ...(!hasWeakPhrases ? ["Wording is reasonably direct."] : []),
+      ],
       key: "readability",
       label: "Readability",
+      loweredScore: [
+        "Target role is not immediately obvious.",
+        "Strongest evidence is not prioritized in the first scan.",
+        ...(hasWeakPhrases ? ["Some bullets read as vague responsibility statements."] : []),
+      ],
       score: Math.min(15, scoreBool(wordCount >= 250 && wordCount <= 1200, 5) + scoreBool(bullets.length >= 4, 5) + scoreBool(!hasWeakPhrases, 5)),
       maxScore: 15,
       good: "Resume is reasonably scan-friendly.",
       weak: "Tighten vague wording and use stronger bullet structure.",
       nextAction: "Make the first scan obvious: target role, strongest scope, and highest-impact bullets.",
+      raiseScore: [
+        "Add a clear target headline.",
+        "Move strongest impact bullets higher.",
+        "Rewrite unclear or internal bullets into recruiter-readable language.",
+      ],
     }),
     scoreSection({
       evidenceQuestions: [
@@ -133,13 +185,30 @@ export function buildResumeReviewReport(sourceText: string): ResumeReviewReport 
           ? "Resume contains reusable source signals for the evidence library."
           : "Evidence extraction may create thin cards unless more project detail is added.",
       ],
+      helpedScore: [
+        ...(hasProjects || metrics.length >= 2
+          ? ["Resume contains reusable source signals for the evidence library."]
+          : []),
+        ...(!hasSensitiveSignals ? ["No obvious sensitive wording was detected by the quick review."] : []),
+      ],
       key: "evidence_readiness",
-      label: "Evidence readiness",
+      label: "Resume evidence signals",
+      loweredScore: [
+        ...(hasSensitiveSignals ? ["Some wording may need external-safe rewriting before resume use."] : []),
+        ...(!hasProjects && metrics.length < 2
+          ? ["Evidence extraction may create thin cards unless more project detail is added."]
+          : []),
+        "Resume evidence still needs extraction and review before it is library-ready.",
+      ],
       score: Math.min(20, scoreBool(hasSkills, 4) + scoreBool(hasProjects, 4) + Math.min(6, metrics.length * 2) + Math.min(6, actionVerbMatches.length)),
       maxScore: 20,
       good: "Resume contains reusable source signals for the evidence library.",
       weak: "Evidence extraction will likely create thin cards unless more project detail is added.",
       nextAction: "Create library items, then review generated claims and external-safe wording before resume use.",
+      raiseScore: [
+        "Create library items from the resume.",
+        "Review generated claims before marking anything resume-ready.",
+      ],
     }),
   ];
 
@@ -204,23 +273,29 @@ function countMatches(text: string, terms: string[]) {
 function scoreSection(args: {
   evidenceQuestions: string[];
   findings: string[];
+  helpedScore: string[];
   key: string;
   label: string;
+  loweredScore: string[];
   score: number;
   maxScore: number;
   good: string;
   nextAction: string;
+  raiseScore: string[];
   weak: string;
 }) {
   return {
     evidenceQuestions: uniqueStrings(args.evidenceQuestions),
     findings: uniqueStrings(args.findings),
+    helpedScore: uniqueStrings(args.helpedScore),
     key: args.key,
     label: args.label,
+    loweredScore: uniqueStrings(args.loweredScore),
     score: Math.max(0, Math.min(args.maxScore, args.score)),
     maxScore: args.maxScore,
     note: args.score / args.maxScore >= 0.65 ? args.good : args.weak,
     nextAction: args.nextAction,
+    raiseScore: uniqueStrings(args.raiseScore),
   };
 }
 

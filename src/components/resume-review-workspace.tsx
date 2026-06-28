@@ -38,9 +38,12 @@ type ResumeReviewReport = {
   rubric: Array<{
     evidenceQuestions?: string[];
     findings?: string[];
+    helpedScore?: string[];
     key?: string;
     label?: string;
+    loweredScore?: string[];
     nextAction?: string;
+    raiseScore?: string[];
     score?: number;
     maxScore?: number;
     note?: string;
@@ -1221,6 +1224,7 @@ function ReviewDimensionWorkbench({
             </div>
             <strong>
               {selectedDimension.score}/{selectedDimension.maxScore}
+              <span>{selectedDimensionDetail.scoreLabel}</span>
             </strong>
           </div>
           <div className="review-dimension-card__body">
@@ -1228,9 +1232,33 @@ function ReviewDimensionWorkbench({
               <span>Reviewer note</span>
               <p>{selectedDimension.note}</p>
             </div>
+            <div>
+              <span>What helped the score</span>
+              <ul>
+                {selectedDimensionDetail.helpedScore.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <span>What lowered the score</span>
+              <ul>
+                {selectedDimensionDetail.loweredScore.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <span>What would raise it</span>
+              <ul>
+                {selectedDimensionDetail.wouldRaiseScore.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
             {selectedDimensionDetail.findings.length ? (
-              <div>
-                <span>Review feedback</span>
+              <div className="review-dimension-card__supporting">
+                <span>Supporting reviewer signals</span>
                 <ul>
                   {selectedDimensionDetail.findings.map((finding) => (
                     <li key={`${finding.kind}-${finding.text}`}>{finding.text}</li>
@@ -1722,12 +1750,28 @@ function buildRubricItemDetail(
     kind: "weakness" as const,
     text,
   }));
+  const helpedScore = asStringList(item.helpedScore);
+  const loweredScore = asStringList(item.loweredScore);
   const nextAction = item.nextAction?.trim() ?? "";
-  if (!evidencePrompts.length && !findings.length && !nextAction) return undefined;
+  const wouldRaiseScore = asStringList(item.raiseScore);
+  if (
+    !evidencePrompts.length &&
+    !findings.length &&
+    !helpedScore.length &&
+    !loweredScore.length &&
+    !nextAction &&
+    !wouldRaiseScore.length
+  ) {
+    return undefined;
+  }
   return {
     evidencePrompts,
     findings,
+    helpedScore,
+    loweredScore,
     nextAction,
+    scoreLabel: "Moderate",
+    wouldRaiseScore,
   };
 }
 
@@ -1741,7 +1785,13 @@ function mergeDimensionDetails(
       ? stored.evidencePrompts
       : fallback.evidencePrompts,
     findings: stored.findings.length ? stored.findings : fallback.findings,
+    helpedScore: stored.helpedScore.length ? stored.helpedScore : fallback.helpedScore,
+    loweredScore: stored.loweredScore.length ? stored.loweredScore : fallback.loweredScore,
     nextAction: stored.nextAction || fallback.nextAction,
+    scoreLabel: fallback.scoreLabel,
+    wouldRaiseScore: stored.wouldRaiseScore.length
+      ? stored.wouldRaiseScore
+      : fallback.wouldRaiseScore,
   };
 }
 

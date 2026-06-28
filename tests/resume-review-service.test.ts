@@ -50,4 +50,29 @@ describe("resume review service", () => {
     expect(projectDepth?.evidenceQuestions.join(" ")).not.toContain("safe to share publicly");
     expect(projectDepth?.nextAction).toContain("project context");
   });
+
+  it("explains readability deductions and labels resume evidence signals distinctly", () => {
+    const review = buildResumeReviewReport(
+      [
+        "Jane Doe jane@example.com",
+        "Experience",
+        "- Built onboarding dashboard for product teams.",
+        "- Responsible for analytics.",
+        "- Helped with reporting.",
+        "- Worked on various tools.",
+        "Projects",
+        "- Launched usage taxonomy migration.",
+        "Skills: SQL, Python",
+      ].join("\n"),
+    );
+
+    const readability = review.rubric.find((item) => item.key === "readability");
+    const evidenceSignals = review.rubric.find((item) => item.key === "evidence_readiness");
+
+    expect(readability?.helpedScore.join(" ")).toContain("scan-friendly");
+    expect(readability?.loweredScore.join(" ")).toContain("Target role");
+    expect(readability?.raiseScore).toContain("Add a clear target headline.");
+    expect(evidenceSignals?.label).toBe("Resume evidence signals");
+    expect(evidenceSignals?.loweredScore.join(" ")).toContain("needs extraction and review");
+  });
 });
