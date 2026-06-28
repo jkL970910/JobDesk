@@ -132,6 +132,9 @@ export function ResumeReviewWorkspace({
     selectedResume?.activeReviewRun?.status === "running"
       ? selectedResume.activeReviewRun
       : null;
+  const selectedReviewIsStarting = Boolean(
+    selectedResume && activeOperation === `rerun:${selectedResume.id}` && selectedActiveReviewRun,
+  );
 
   useEffect(() => {
     void loadResumes();
@@ -231,6 +234,9 @@ export function ResumeReviewWorkspace({
       );
     }
     if (run.status !== "running") {
+      if (resumeId) {
+        setActiveOperation((current) => (current === `rerun:${resumeId}` ? null : current));
+      }
       await loadResumes(resumeId);
       if (resumeId) {
         const resume = resumes.find((item) => item.id === resumeId);
@@ -443,8 +449,8 @@ export function ResumeReviewWorkspace({
           onOpenEvidenceTask={onOpenEvidenceTask}
           onRetry={() => void rerunReview(selectedResume)}
           enrichmentTasks={enrichmentTasks}
-          retryDisabled={Boolean(activeOperation || selectedActiveReviewRun)}
-          retryLabel={reviewActionLabel(selectedResume, activeOperation, selectedActiveReviewRun)}
+          retryDisabled={Boolean(selectedReviewIsStarting || selectedActiveReviewRun)}
+          retryLabel={reviewActionLabel(selectedResume, selectedReviewIsStarting, selectedActiveReviewRun)}
           resume={selectedResume}
           reviewRun={selectedActiveReviewRun}
           reviewRunElapsedSeconds={reviewRunElapsedSeconds}
@@ -583,12 +589,12 @@ export function ResumeReviewWorkspace({
                 <div className="resume-version-actions">
                   <button
                     className="resume-version-action"
-                    disabled={Boolean(activeOperation || resume.activeReviewRun)}
+                    disabled={Boolean(isReviewStarting(resume, activeOperation) || resume.activeReviewRun)}
                     title="Create a fresh review for this saved resume version."
                     type="button"
                     onClick={() => void rerunReview(resume)}
                   >
-                    {reviewActionLabel(resume, activeOperation, resume.activeReviewRun)}
+                    {reviewActionLabel(resume, isReviewStarting(resume, activeOperation), resume.activeReviewRun)}
                   </button>
                   <button
                     className="resume-version-action resume-version-action--danger"
@@ -661,11 +667,11 @@ function ResumeReviewSourceControls({
           </p>
         </div>
         <button
-          disabled={Boolean(activeOperation || reviewRun)}
+          disabled={Boolean(isReviewStarting(selectedResume, activeOperation) || reviewRun)}
           type="button"
           onClick={() => void onRerun(selectedResume)}
         >
-          {reviewActionLabel(selectedResume, activeOperation, reviewRun)}
+          {reviewActionLabel(selectedResume, isReviewStarting(selectedResume, activeOperation), reviewRun)}
         </button>
       </div>
       {duplicateResume ? (
@@ -1852,12 +1858,19 @@ function activeDetailHeading(visibleTitles?: string[]) {
   return title;
 }
 
-function reviewActionLabel(
+function isReviewStarting(
   resume: ResumeSourceReviewSummary,
   activeOperation: string | null,
+) {
+  return activeOperation === `rerun:${resume.id}` && resume.activeReviewRun?.status === "running";
+}
+
+function reviewActionLabel(
+  resume: ResumeSourceReviewSummary,
+  reviewIsStarting: boolean,
   reviewRun?: ResumeReviewRunSummary | null,
 ) {
-  if (reviewRun?.status === "running" || activeOperation === `rerun:${resume.id}`) return "Reviewing...";
+  if (reviewRun?.status === "running" || reviewIsStarting) return "Reviewing...";
   return isFallbackResume(resume) ? "Review again" : "Refresh review";
 }
 
