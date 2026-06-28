@@ -208,24 +208,11 @@ export async function startResumeReviewRun(resumeSourceVersionId: string) {
     };
   }
 
-  const now = new Date();
-  const [run] = await db
-    .insert(workflowRuns)
-    .values({
-      workspaceId: workspace.id,
-      workflowType: skillRegistry.resumeReviewGeneral.workflowType,
-      status: "running",
-      ...workflowSkillFields(skillRegistry.resumeReviewGeneral),
-      skillMetadata: {
-        resumeSourceVersionId: resume.id,
-        stage: "queued",
-        trigger: "user_retry",
-      },
-      startedAt: now,
-      finishedAt: null,
-    })
-    .returning();
-  if (!run) throw new Error("Failed to create resume review run.");
+  const run = await createResumeReviewRun(db, {
+    resumeSourceVersionId: resume.id,
+    trigger: "user_retry",
+    workspaceId: workspace.id,
+  });
   return {
     status: "created" as const,
     run: toResumeReviewRunPayload(run),
@@ -380,8 +367,6 @@ export async function createResumeSourceVersion(args: {
     return existing;
   }
 
-  const review = await buildReviewReport(args);
-
   return getDb().transaction(async (tx) => {
     const now = new Date();
     const version = await inferNextResumeVersion(tx, workspace.id);
@@ -403,7 +388,7 @@ export async function createResumeSourceVersion(args: {
         pageCount: args.parseMetadata?.parseQuality.pageCount,
         charCount: args.parseMetadata?.parseQuality.charCount ?? args.sourceText.length,
         wordCount: args.parseMetadata?.parseQuality.wordCount,
-        lifecycleStatus: "reviewed",
+        lifecycleStatus: getInitialResumeSourceLifecycleStatus(args.parseMetadata?.parseQuality.status),
         createdAt: now,
         updatedAt: now,
       })
@@ -432,57 +417,16 @@ export async function createResumeSourceVersion(args: {
       .returning();
     if (!resume) throw new Error("Failed to save resume source version.");
 
-    const workflowRunId = await createResumeReviewWorkflowRun(tx, {
+    const run = await createResumeReviewRun(tx, {
+      resumeSourceVersionId: resume.id,
+      trigger: "initial_upload",
       workspaceId: workspace.id,
-      review,
-      now,
     });
-    const [savedReport] = await tx
-      .insert(resumeReviewReports)
-      .values({
-        workspaceId: workspace.id,
-        resumeSourceVersionId: resume.id,
-        workflowRunId,
-        overallScore: review.report.overallScore,
-        rubricJson: buildReviewRubricPayload(review),
-        strengths: review.report.strengths,
-        weaknesses: review.report.weaknesses,
-        recommendedActions: review.report.recommendedActions,
-        missingEvidenceQuestions: review.report.missingEvidenceQuestions,
-        riskFlags: review.report.riskFlags,
-        status: "ready",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
-    if (savedReport) {
-      await upsertEnrichmentTasks(tx, {
-        workspaceId: workspace.id,
-        now,
-        tasks: buildResumeReviewEnrichmentTasks({
-          resumeTitle: resume.title,
-          resumeSourceVersionId: resume.id,
-          resumeReviewReportId: savedReport.id,
-          missingEvidenceQuestions: review.report.missingEvidenceQuestions,
-        }),
-      });
-    }
-
-    await tx
-      .update(resumeSourceVersions)
-      .set({
-        status: "reviewed",
-        lastReviewedAt: now,
-        updatedAt: now,
-      })
-      .where(and(eq(resumeSourceVersions.workspaceId, workspace.id), eq(resumeSourceVersions.id, resume.id)));
 
     return {
       status: "saved" as const,
-      resume: toResumeSummary(
-        { ...resume, status: "reviewed", lastReviewedAt: now, updatedAt: now },
-        savedReport,
-      ),
+      run: toResumeReviewRunPayload(run),
+      resume: toResumeSummary(resume, undefined, run),
     };
   });
 }
@@ -566,6 +510,13 @@ async function persistResumeReviewResult(args: {
         updatedAt: now,
       })
       .where(and(eq(resumeSourceVersions.workspaceId, args.workspaceId), eq(resumeSourceVersions.id, args.resume.id)));
+    await tx
+      .update(sourceDocuments)
+      .set({
+        lifecycleStatus: "reviewed",
+        updatedAt: now,
+      })
+      .where(and(eq(sourceDocuments.workspaceId, args.workspaceId), eq(sourceDocuments.id, args.resume.sourceDocumentId)));
     return {
       status: "saved" as const,
       resume: toResumeSummary(
@@ -599,19 +550,53 @@ async function findActiveResumeReviewRun(
   return run ?? null;
 }
 
+async function createResumeReviewRun(
+  db: Pick<DbHandle, "insert">,
+  args: {
+    resumeSourceVersionId: string;
+    trigger: "initial_upload" | "user_retry";
+    workspaceId: string;
+  },
+) {
+  const now = new Date();
+  const [run] = await db
+    .insert(workflowRuns)
+    .values({
+      workspaceId: args.workspaceId,
+      workflowType: skillRegistry.resumeReviewGeneral.workflowType,
+      status: "running",
+      ...workflowSkillFields(skillRegistry.resumeReviewGeneral),
+      skillMetadata: {
+        resumeSourceVersionId: args.resumeSourceVersionId,
+        stage: "queued",
+        trigger: args.trigger,
+      },
+      startedAt: now,
+      finishedAt: null,
+    })
+    .returning();
+  if (!run) throw new Error("Failed to create resume review run.");
+  return run;
+}
+
 async function updateResumeReviewRunStage(
-  db: Pick<DbHandle, "update">,
+  db: Pick<DbHandle, "select" | "update">,
   args: {
     run: typeof workflowRuns.$inferSelect;
     stage: ResumeReviewActiveRun["stage"];
     workspaceId: string;
   },
 ) {
+  const [current] = await db
+    .select({ skillMetadata: workflowRuns.skillMetadata })
+    .from(workflowRuns)
+    .where(and(eq(workflowRuns.workspaceId, args.workspaceId), eq(workflowRuns.id, args.run.id)))
+    .limit(1);
   const [updated] = await db
     .update(workflowRuns)
     .set({
       skillMetadata: {
-        ...args.run.skillMetadata,
+        ...(current?.skillMetadata ?? args.run.skillMetadata),
         stage: args.stage,
       },
     })
@@ -621,7 +606,7 @@ async function updateResumeReviewRunStage(
 }
 
 async function finishResumeReviewRun(
-  db: Pick<DbHandle, "update">,
+  db: Pick<DbHandle, "select" | "update">,
   args: {
     errorKind: string | null;
     errorMessage: string | null;
@@ -631,6 +616,11 @@ async function finishResumeReviewRun(
     workspaceId: string;
   },
 ) {
+  const [current] = await db
+    .select({ skillMetadata: workflowRuns.skillMetadata })
+    .from(workflowRuns)
+    .where(and(eq(workflowRuns.workspaceId, args.workspaceId), eq(workflowRuns.id, args.run.id)))
+    .limit(1);
   const [updated] = await db
     .update(workflowRuns)
     .set({
@@ -643,7 +633,7 @@ async function finishResumeReviewRun(
       provider: args.review?.provider ?? args.run.provider,
       retryCount: args.review?.retryCount ?? args.run.retryCount,
       skillMetadata: {
-        ...args.run.skillMetadata,
+        ...(current?.skillMetadata ?? args.run.skillMetadata),
         stage: args.status === "succeeded" ? "completed" : "failed",
       },
       status: args.status,
@@ -667,7 +657,7 @@ async function findResumeByHash(
     .where(
       and(
         eq(resumeSourceVersions.workspaceId, args.workspaceId),
-      eq(resumeSourceVersions.contentHash, args.contentHash),
+        eq(resumeSourceVersions.contentHash, args.contentHash),
       ),
     )
     .limit(1);
@@ -702,6 +692,10 @@ async function findLatestResumeReviewReport(
     .orderBy(desc(resumeReviewReports.updatedAt))
     .limit(1);
   return latestReport;
+}
+
+function getInitialResumeSourceLifecycleStatus(parseStatus?: string) {
+  return parseStatus === "warning" ? "parsed_with_warnings" : "parsed";
 }
 
 async function buildReviewReport(args: {

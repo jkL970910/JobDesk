@@ -1,16 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { POST as uploadPost } from "../app/api/resume-review/route";
 import { PATCH } from "../app/api/resume-review/[resumeSourceVersionId]/route";
 import { POST as rerunPost } from "../app/api/resume-review/[resumeSourceVersionId]/rerun/route";
 import { POST as processPost } from "../app/api/resume-review/runs/[runId]/process/route";
 import { GET as runGet } from "../app/api/resume-review/runs/[runId]/route";
+import { parseResumeSourceFile } from "../src/server/resume-source-parser";
 import {
+  createResumeSourceVersion,
   getResumeReviewRun,
   processResumeReviewRun,
   startResumeReviewRun,
 } from "../src/server/resume-review-repository";
 
+vi.mock("../src/server/resume-source-parser", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/server/resume-source-parser")>();
+  return {
+    ...actual,
+    parseResumeSourceFile: vi.fn(),
+  };
+});
+
 vi.mock("../src/server/resume-review-repository", () => ({
+  createResumeSourceVersion: vi.fn(),
   deleteResumeSourceVersion: vi.fn(),
   getResumeReviewRun: vi.fn(),
   getResumeSourceVersion: vi.fn(),
@@ -18,11 +30,78 @@ vi.mock("../src/server/resume-review-repository", () => ({
   startResumeReviewRun: vi.fn(),
 }));
 
+const mockedCreateResumeSourceVersion = vi.mocked(createResumeSourceVersion);
 const mockedGetRun = vi.mocked(getResumeReviewRun);
+const mockedParseResumeSourceFile = vi.mocked(parseResumeSourceFile);
 const mockedProcessRun = vi.mocked(processResumeReviewRun);
 const mockedStartRun = vi.mocked(startResumeReviewRun);
 
 describe("resume review run routes", () => {
+  it("saves an uploaded resume and returns a durable review run before processing", async () => {
+    mockedParseResumeSourceFile.mockResolvedValueOnce({
+      parseAttempts: [],
+      parseQuality: {
+        charCount: 31,
+        status: "usable",
+        warnings: [],
+        wordCount: 5,
+      },
+      fileSizeBytes: 6,
+      mimeType: "text/plain",
+      originalFilename: "resume.txt",
+      parserName: "jobdesk-source-parser",
+      parserVersion: "document-lifecycle-v1",
+      sourceKind: "text",
+      sourceText: "Jiekun Liu\nBuilt product systems.",
+      sourceTitle: "Jiekun Liu Resume.txt",
+      warnings: [],
+    });
+    mockedCreateResumeSourceVersion.mockResolvedValueOnce({
+      resume: buildResumePayload({
+        activeReviewRun: buildReviewRunPayload({ id: "run-upload" }),
+        status: "uploaded",
+      }),
+      run: buildReviewRunPayload({ id: "run-upload" }),
+      status: "saved",
+    });
+
+    const formData = new FormData();
+    formData.append("file", new File(["resume"], "resume.txt", { type: "text/plain" }));
+    const response = await uploadPost(
+      new Request("http://localhost/api/resume-review", {
+        body: formData,
+        method: "POST",
+      }),
+    );
+
+    expect(mockedCreateResumeSourceVersion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceText: "Jiekun Liu\nBuilt product systems.",
+        sourceTitle: "Jiekun Liu Resume.txt",
+      }),
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        resume: {
+          activeReviewRun: {
+            id: "run-upload",
+            stage: "queued",
+            status: "running",
+          },
+          latestReview: null,
+          status: "uploaded",
+        },
+        run: {
+          id: "run-upload",
+          stage: "queued",
+          status: "running",
+        },
+        status: "saved",
+      },
+    });
+  });
+
   it("starts a durable review run from the retry route", async () => {
     mockedStartRun.mockResolvedValueOnce({
       resume: buildResumePayload({ activeReviewRun: buildReviewRunPayload({ id: "run-retry" }) }),
@@ -187,7 +266,17 @@ type ReviewRunPayload = {
   errorMessage: string | null;
   finishedAt: string | null;
   id: string;
-  stage: "queued" | "reading_source" | "analyzing" | "validating" | "saving" | "completed" | "failed";
+  stage:
+    | "queued"
+    | "reading_source"
+    | "scanning"
+    | "scoring"
+    | "evidence_review"
+    | "analyzing"
+    | "validating"
+    | "saving"
+    | "completed"
+    | "failed";
   startedAt: string;
   status: "running" | "succeeded" | "failed" | "skipped";
 };

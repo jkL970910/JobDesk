@@ -101,6 +101,20 @@ type ResumeParseStatus = {
   parseQuality: ParseQuality;
 };
 
+type ResumeReviewMutationPayload = {
+  data?: {
+    status: "saved" | "created" | "duplicate" | "skipped" | string;
+    resume?: ResumeSourceReviewSummary;
+    existingResume?: ResumeSourceReviewSummary;
+    run?: ResumeReviewRunSummary;
+    parseWarnings?: string[];
+    parseQuality?: ParseQuality;
+    reason?: string;
+  };
+  error?: string;
+  kind?: string;
+};
+
 export function ResumeReviewWorkspace({
   onExtractToEvidence,
   onOpenEvidenceReview,
@@ -262,20 +276,7 @@ export function ResumeReviewWorkspace({
         method: "POST",
         body: formData,
       });
-      const payload = (await response.json().catch(() => null)) as
-        | {
-            data?: {
-              status: "saved" | "duplicate" | "skipped";
-              resume?: ResumeSourceReviewSummary;
-              existingResume?: ResumeSourceReviewSummary;
-              parseWarnings?: string[];
-              parseQuality?: ParseQuality;
-              reason?: string;
-            };
-            error?: string;
-            kind?: string;
-          }
-        | null;
+      const payload = (await response.json().catch(() => null)) as ResumeReviewMutationPayload | null;
       if (!response.ok || !payload?.data) {
         if (payload?.data?.parseQuality) {
           setParseStatus({
@@ -310,11 +311,29 @@ export function ResumeReviewWorkspace({
             parseQuality: payload.data.parseQuality,
           });
         }
-        setStatus(
-          `Reviewed ${formatResumeTitle(payload.data.resume.title)}${payload.data.parseWarnings?.length ? ` · ${payload.data.parseWarnings.length} source note${payload.data.parseWarnings.length === 1 ? "" : "s"}` : ""}`,
-        );
+        setSelectedId(payload.data.resume.id);
+        setStatus(`Reviewing ${formatResumeTitle(payload.data.resume.title)}...`);
+        setIsUploading(false);
         await loadResumes(payload.data.resume.id);
-        await loadEnrichmentTasks(payload.data.resume);
+        if (payload.data.run?.id) {
+          const processed = await processReviewRun({
+            runId: payload.data.run.id,
+            resumeId: payload.data.resume.id,
+            fallbackError: "Could not complete resume review.",
+          });
+          if (processed?.resume) {
+            setStatus(
+              `Reviewed ${formatResumeTitle(processed.resume.title)}${payload.data.parseWarnings?.length ? ` · ${payload.data.parseWarnings.length} source note${payload.data.parseWarnings.length === 1 ? "" : "s"}` : ""}`,
+            );
+            return;
+          }
+          if (processed?.run?.status === "failed") {
+            setStatus(`Saved ${formatResumeTitle(payload.data.resume.title)}. Full review needs another pass.`);
+            return;
+          }
+          return;
+        }
+        setStatus(`Saved ${formatResumeTitle(payload.data.resume.title)}. Start the review again from this version.`);
         return;
       }
       setError(payload.data.reason ?? "Resume review storage is not configured.");
@@ -403,28 +422,17 @@ export function ResumeReviewWorkspace({
       await loadResumes(payload.data.resume.id);
       if (payload.data.run?.id) {
         setStatus(`Reviewing ${formatResumeTitle(payload.data.resume.title)}...`);
-        const processResponse = await fetchJson(`/api/resume-review/runs/${payload.data.run.id}/process`, {
-          method: "POST",
+        const processed = await processReviewRun({
+          runId: payload.data.run.id,
+          resumeId: payload.data.resume.id,
+          fallbackError: "Could not complete resume review.",
         });
-        const processPayload = (await processResponse.json().catch(() => null)) as
-          | {
-              data?: {
-                run?: ResumeReviewRunSummary;
-                status: string;
-                resume?: ResumeSourceReviewSummary;
-              };
-              error?: string;
-            }
-          | null;
-        if (!processResponse.ok) {
-          setError(formatResumeReviewPayloadError(processResponse, processPayload, "Could not complete resume review."));
-          await loadResumes(payload.data.resume.id);
+        if (processed?.resume) {
+          setStatus(`Review refreshed for ${formatResumeTitle(processed.resume.title)}.`);
           return;
         }
-        if (processPayload?.data?.resume) {
-          setStatus(`Review refreshed for ${formatResumeTitle(processPayload.data.resume.title)}.`);
-          await loadResumes(processPayload.data.resume.id);
-          await loadEnrichmentTasks(processPayload.data.resume);
+        if (processed?.run?.status === "failed") {
+          setStatus(`Saved ${formatResumeTitle(payload.data.resume.title)}. Full review needs another pass.`);
           return;
         }
       }
@@ -434,6 +442,37 @@ export function ResumeReviewWorkspace({
     } finally {
       setActiveOperation(null);
     }
+  }
+
+  async function processReviewRun({
+    fallbackError,
+    resumeId,
+    runId,
+  }: {
+    fallbackError: string;
+    resumeId: string;
+    runId: string;
+  }) {
+    const processResponse = await fetchJson(`/api/resume-review/runs/${runId}/process`, {
+      method: "POST",
+    });
+    const processPayload = (await processResponse.json().catch(() => null)) as ResumeReviewMutationPayload | null;
+    if (!processResponse.ok) {
+      setError(formatResumeReviewPayloadError(processResponse, processPayload, fallbackError));
+      await loadResumes(resumeId);
+      return null;
+    }
+    if (processPayload?.data?.resume) {
+      await loadResumes(processPayload.data.resume.id);
+      await loadEnrichmentTasks(processPayload.data.resume);
+      return processPayload.data;
+    }
+    if (processPayload?.data?.run) {
+      await refreshReviewRun(processPayload.data.run.id, resumeId);
+      return processPayload.data;
+    }
+    await loadResumes(resumeId);
+    return null;
   }
 
   return (
@@ -526,6 +565,14 @@ export function ResumeReviewWorkspace({
           <ResumeReviewProgressNotice
             elapsedSeconds={uploadElapsedSeconds}
             fileName={fileNameFromStatus(status)}
+          />
+        ) : null}
+        {!isUploading && selectedResume && !selectedResume.latestReview && selectedActiveReviewRun ? (
+          <ResumeReviewProgressNotice
+            elapsedSeconds={reviewRunElapsedSeconds}
+            fileName={formatResumeTitle(selectedResume.title)}
+            mode="rerun"
+            stage={selectedActiveReviewRun.stage}
           />
         ) : null}
         {duplicateResume ? (
