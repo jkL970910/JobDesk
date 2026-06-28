@@ -4,7 +4,7 @@ import { z } from "zod";
 import {
   deleteResumeSourceVersion,
   getResumeSourceVersion,
-  rerunResumeReview,
+  startResumeReviewRun,
 } from "../../../../src/server/resume-review-repository";
 
 const patchSchema = z.object({
@@ -38,7 +38,7 @@ export async function PATCH(
     );
   }
   const { resumeSourceVersionId } = await context.params;
-  const result = await rerunResumeReview(resumeSourceVersionId);
+  const result = await startResumeReviewRun(resumeSourceVersionId);
   if (result.status === "not_found") {
     return NextResponse.json(
       { error: "Resume source version not found.", kind: "not_found" },

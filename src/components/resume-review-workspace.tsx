@@ -6,6 +6,7 @@ import { useAccess } from "./access-provider";
 import { buildDimensionDetail } from "./resume-review-dimension-detail";
 
 export type ResumeSourceReviewSummary = {
+  activeReviewRun: ResumeReviewRunSummary | null;
   id: string;
   title: string;
   sourceKind: string;
@@ -13,6 +14,16 @@ export type ResumeSourceReviewSummary = {
   status: string;
   updatedAt: string;
   latestReview: ResumeReviewReport | null;
+};
+
+type ResumeReviewRunSummary = {
+  id: string;
+  status: "running" | "succeeded" | "failed" | "skipped";
+  stage: "queued" | "reading_source" | "analyzing" | "validating" | "saving" | "completed" | "failed";
+  startedAt: string;
+  finishedAt: string | null;
+  errorKind: string | null;
+  errorMessage: string | null;
 };
 
 type ReviewMetadata = {
@@ -111,11 +122,16 @@ export function ResumeReviewWorkspace({
   const [duplicateResume, setDuplicateResume] = useState<ResumeSourceReviewSummary | null>(null);
   const [parseStatus, setParseStatus] = useState<ResumeParseStatus | null>(null);
   const [enrichmentTasks, setEnrichmentTasks] = useState<EnrichmentTaskSummary[]>([]);
+  const [reviewRunElapsedSeconds, setReviewRunElapsedSeconds] = useState(0);
   const selectedResume = isUploading
     ? null
     : resumes.find((resume) => resume.id === selectedId) ?? resumes[0] ?? null;
   const selectedReview = selectedResume?.latestReview ?? null;
   const selectedResumeIsExtracted = selectedResume?.status === "extracted";
+  const selectedActiveReviewRun =
+    selectedResume?.activeReviewRun?.status === "running"
+      ? selectedResume.activeReviewRun
+      : null;
 
   useEffect(() => {
     void loadResumes();
@@ -128,6 +144,26 @@ export function ResumeReviewWorkspace({
     }
     void loadEnrichmentTasks(selectedResume);
   }, [selectedResume?.id, selectedResume?.latestReview?.id]);
+
+  useEffect(() => {
+    if (!selectedActiveReviewRun) {
+      setReviewRunElapsedSeconds(0);
+      return;
+    }
+    const startedAt = new Date(selectedActiveReviewRun.startedAt).getTime();
+    const updateElapsed = () => {
+      setReviewRunElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    };
+    updateElapsed();
+    const elapsedTimer = window.setInterval(updateElapsed, 1000);
+    const pollTimer = window.setInterval(() => {
+      void refreshReviewRun(selectedActiveReviewRun.id, selectedResume?.id);
+    }, 2000);
+    return () => {
+      window.clearInterval(elapsedTimer);
+      window.clearInterval(pollTimer);
+    };
+  }, [selectedActiveReviewRun?.id, selectedActiveReviewRun?.startedAt, selectedResume?.id]);
 
   useEffect(() => {
     if (!isUploading) {
@@ -167,6 +203,29 @@ export function ResumeReviewWorkspace({
       data?: { status: string; tasks?: EnrichmentTaskSummary[] };
     };
     setEnrichmentTasks(payload.data?.tasks ?? []);
+  }
+
+  async function refreshReviewRun(runId: string, resumeId?: string) {
+    const response = await fetchJson(`/api/resume-review/runs/${runId}`);
+    if (!response.ok) return null;
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          data?: {
+            run?: ResumeReviewRunSummary;
+            status: string;
+          };
+        }
+      | null;
+    const run = payload?.data?.run;
+    if (!run) return null;
+    if (run.status !== "running") {
+      await loadResumes(resumeId);
+      if (resumeId) {
+        const resume = resumes.find((item) => item.id === resumeId);
+        if (resume) await loadEnrichmentTasks(resume);
+      }
+    }
+    return run;
   }
 
   async function uploadResume(file: File | null) {
@@ -304,7 +363,7 @@ export function ResumeReviewWorkspace({
     setError(null);
     setActiveOperation(`rerun:${resume.id}`);
     setSelectedId(resume.id);
-    setStatus(`Rerunning review for ${formatResumeTitle(resume.title)}...`);
+    setStatus(`Starting full review for ${formatResumeTitle(resume.title)}...`);
     try {
       const response = await fetchJson(`/api/resume-review/${resume.id}/rerun`, {
         method: "POST",
@@ -312,6 +371,7 @@ export function ResumeReviewWorkspace({
       const payload = (await response.json().catch(() => null)) as
         | {
             data?: {
+              run?: ResumeReviewRunSummary;
               status: string;
               resume?: ResumeSourceReviewSummary;
             };
@@ -321,6 +381,34 @@ export function ResumeReviewWorkspace({
       if (!response.ok || !payload?.data?.resume) {
         setError(formatResumeReviewPayloadError(response, payload, "Could not rerun resume review."));
         return;
+      }
+      await loadResumes(payload.data.resume.id);
+      if (payload.data.run?.id) {
+        setStatus(`Reviewing ${formatResumeTitle(payload.data.resume.title)}...`);
+        const processResponse = await fetchJson(`/api/resume-review/runs/${payload.data.run.id}/process`, {
+          method: "POST",
+        });
+        const processPayload = (await processResponse.json().catch(() => null)) as
+          | {
+              data?: {
+                run?: ResumeReviewRunSummary;
+                status: string;
+                resume?: ResumeSourceReviewSummary;
+              };
+              error?: string;
+            }
+          | null;
+        if (!processResponse.ok) {
+          setError(formatResumeReviewPayloadError(processResponse, processPayload, "Could not complete resume review."));
+          await loadResumes(payload.data.resume.id);
+          return;
+        }
+        if (processPayload?.data?.resume) {
+          setStatus(`Review refreshed for ${formatResumeTitle(processPayload.data.resume.title)}.`);
+          await loadResumes(processPayload.data.resume.id);
+          await loadEnrichmentTasks(processPayload.data.resume);
+          return;
+        }
       }
       setStatus(`Review refreshed for ${formatResumeTitle(payload.data.resume.title)}.`);
       await loadResumes(payload.data.resume.id);
@@ -343,9 +431,11 @@ export function ResumeReviewWorkspace({
           onOpenEvidenceTask={onOpenEvidenceTask}
           onRetry={() => void rerunReview(selectedResume)}
           enrichmentTasks={enrichmentTasks}
-          retryDisabled={Boolean(activeOperation)}
-          retryLabel={reviewActionLabel(selectedResume, activeOperation)}
+          retryDisabled={Boolean(activeOperation || selectedActiveReviewRun)}
+          retryLabel={reviewActionLabel(selectedResume, activeOperation, selectedActiveReviewRun)}
           resume={selectedResume}
+          reviewRun={selectedActiveReviewRun}
+          reviewRunElapsedSeconds={reviewRunElapsedSeconds}
           resumeIsExtracted={selectedResumeIsExtracted}
           sourceControls={
             <ResumeReviewSourceControls
@@ -367,6 +457,7 @@ export function ResumeReviewWorkspace({
               resumes={resumes}
               selectedResume={selectedResume}
               status={status}
+              reviewRun={selectedActiveReviewRun}
             />
           }
         />
@@ -478,14 +569,14 @@ export function ResumeReviewWorkspace({
                   </small>
                 </button>
                 <div className="resume-version-actions">
-              <button
+                  <button
                     className="resume-version-action"
-                    disabled={Boolean(activeOperation)}
+                    disabled={Boolean(activeOperation || resume.activeReviewRun)}
                     title="Create a fresh review for this saved resume version."
                     type="button"
                     onClick={() => void rerunReview(resume)}
                   >
-                    {reviewActionLabel(resume, activeOperation)}
+                    {reviewActionLabel(resume, activeOperation, resume.activeReviewRun)}
                   </button>
                   <button
                     className="resume-version-action resume-version-action--danger"
@@ -523,6 +614,7 @@ function ResumeReviewSourceControls({
   onRerun,
   onSelect,
   onUpload,
+  reviewRun,
   resumes,
   selectedResume,
   status,
@@ -540,6 +632,7 @@ function ResumeReviewSourceControls({
   onRerun: (resume: ResumeSourceReviewSummary) => void;
   onSelect: (resumeId: string) => void;
   onUpload: (file: File | null) => void;
+  reviewRun: ResumeReviewRunSummary | null;
   resumes: ResumeSourceReviewSummary[];
   selectedResume: ResumeSourceReviewSummary;
   status: string;
@@ -556,11 +649,11 @@ function ResumeReviewSourceControls({
           </p>
         </div>
         <button
-          disabled={Boolean(activeOperation)}
+          disabled={Boolean(activeOperation || reviewRun)}
           type="button"
           onClick={() => void onRerun(selectedResume)}
         >
-          {reviewActionLabel(selectedResume, activeOperation)}
+          {reviewActionLabel(selectedResume, activeOperation, reviewRun)}
         </button>
       </div>
       {duplicateResume ? (
@@ -694,42 +787,65 @@ function formatResumeReviewPayloadError(
 function ResumeReviewProgressNotice({
   elapsedSeconds,
   fileName,
+  mode = "upload",
+  stage,
 }: {
   elapsedSeconds: number;
   fileName: string;
+  mode?: "rerun" | "upload";
+  stage?: ResumeReviewRunSummary["stage"];
 }) {
-  const progress = Math.min(92, 16 + elapsedSeconds * 2);
+  const progressByStage: Record<ResumeReviewRunSummary["stage"], number> = {
+    analyzing: 48,
+    completed: 100,
+    failed: 100,
+    queued: 14,
+    reading_source: 28,
+    saving: 86,
+    validating: 72,
+  };
   const stages = [
     {
+      key: "reading_source",
       label: "Upload and parse",
-      summary: "Read the uploaded file and prepare resume text.",
-      detail: "Uploading the resume and preparing readable text.",
+      summary: mode === "upload" ? "Read the uploaded file and prepare resume text." : "Read the saved resume source.",
+      detail: mode === "upload" ? "Uploading the resume and preparing readable text." : "Reading the saved resume source.",
     },
     {
+      key: "analyzing",
       label: "Review resume",
       summary: "Assess structure, impact, readability, ATS, and evidence readiness.",
       detail: "Reviewing resume strength, gaps, ATS readability, and evidence opportunities.",
     },
     {
+      key: "validating",
       label: "Check completeness",
       summary: "Make sure the report is complete before saving.",
       detail: "Checking the review for completeness.",
     },
     {
+      key: "saving",
       label: "Save report",
       summary: "Store the reviewed version and refresh the page state.",
       detail: "Saving the report and preparing the Evidence Library handoff.",
     },
   ];
-  const activeIndex = Math.min(
-    elapsedSeconds < 8 ? 0 : elapsedSeconds < 85 ? 1 : elapsedSeconds < 135 ? 2 : 3,
-    stages.length - 1,
-  );
+  const activeIndexFromStage =
+    stage && stage !== "queued" && stage !== "completed" && stage !== "failed"
+      ? stages.findIndex((item) => item.key === stage)
+      : -1;
+  const activeIndex = activeIndexFromStage >= 0
+    ? activeIndexFromStage
+    : Math.min(
+        elapsedSeconds < 8 ? 0 : elapsedSeconds < 85 ? 1 : elapsedSeconds < 135 ? 2 : 3,
+        stages.length - 1,
+      );
   const activeStage = stages[activeIndex]!;
+  const progress = stage ? progressByStage[stage] : Math.min(92, 16 + elapsedSeconds * 2);
   return (
     <div className="progress-notice" role="status" aria-live="polite">
       <div className="progress-notice__top">
-        <strong>Resume review in progress</strong>
+        <strong>{mode === "upload" ? "Resume review in progress" : "Full review in progress"}</strong>
         <span>{elapsedSeconds}s</span>
       </div>
       <div className="progress-bar" aria-hidden="true">
@@ -744,16 +860,16 @@ function ResumeReviewProgressNotice({
         {elapsedSeconds >= 110 ? " This review is taking longer than usual. Keep this page open while JobDesk finishes the report." : ""}
       </p>
       <ol className="progress-stages" aria-label="Resume review stages">
-        {stages.map((stage, index) => (
+        {stages.map((stageItem, index) => (
           <li
             data-active={index === activeIndex}
-            data-complete={index < activeIndex}
-            key={stage.label}
+            data-complete={stage === "completed" || index < activeIndex}
+            key={stageItem.label}
           >
             <span>{index + 1}</span>
             <div>
-              <strong>{stage.label}</strong>
-              <small>{stage.summary}</small>
+              <strong>{stageItem.label}</strong>
+              <small>{stageItem.summary}</small>
             </div>
           </li>
         ))}
@@ -790,6 +906,8 @@ function ResumeReviewReportCard({
   onOpenEvidenceTask,
   onRetry,
   resume,
+  reviewRun,
+  reviewRunElapsedSeconds,
   retryDisabled,
   retryLabel,
   sourceControls,
@@ -801,6 +919,8 @@ function ResumeReviewReportCard({
   onOpenEvidenceTask: (taskId: string) => void;
   onRetry: () => void;
   resume: ResumeSourceReviewSummary;
+  reviewRun: ResumeReviewRunSummary | null;
+  reviewRunElapsedSeconds: number;
   resumeIsExtracted: boolean;
   retryDisabled: boolean;
   retryLabel: string;
@@ -931,6 +1051,14 @@ function ResumeReviewReportCard({
           <button disabled={retryDisabled} type="button" onClick={onRetry}>
             {retryLabel}
           </button>
+          {reviewRun ? (
+            <ResumeReviewProgressNotice
+              elapsedSeconds={reviewRunElapsedSeconds}
+              fileName={formatResumeTitle(resume.title)}
+              mode="rerun"
+              stage={reviewRun.stage}
+            />
+          ) : null}
         </section>
       ) : null}
       {metadata?.tenSecondScan ? (
@@ -1711,8 +1839,9 @@ function activeDetailHeading(visibleTitles?: string[]) {
 function reviewActionLabel(
   resume: ResumeSourceReviewSummary,
   activeOperation: string | null,
+  reviewRun?: ResumeReviewRunSummary | null,
 ) {
-  if (activeOperation === `rerun:${resume.id}`) return "Retrying...";
+  if (reviewRun?.status === "running" || activeOperation === `rerun:${resume.id}`) return "Reviewing...";
   return isFallbackResume(resume) ? "Review again" : "Refresh review";
 }
 
