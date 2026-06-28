@@ -881,9 +881,9 @@ function ResumeReviewProgressNotice({
     },
     {
       key: "scanning",
-      label: "Scan resume",
-      summary: "Assess recruiter first-read signals and ATS scan notes.",
-      detail: "Reviewing first-read clarity, visible strengths, weaknesses, and ATS scan notes.",
+      label: "Review sections",
+      summary: "Assess each resume section before final scoring.",
+      detail: "Reviewing resume sections for strengths, gaps, ATS notes, and evidence signals.",
     },
     {
       key: "scoring",

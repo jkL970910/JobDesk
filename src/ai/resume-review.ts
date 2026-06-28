@@ -12,6 +12,39 @@ import { skillRegistry } from "./skills-registry";
 import type { FetchLike, JobDeskAiUsage, StructuredJsonResult } from "./types";
 import { z } from "zod";
 
+type ResumeReviewSectionKind =
+  | "profile"
+  | "summary"
+  | "work_experience"
+  | "projects"
+  | "education"
+  | "skills"
+  | "uncategorized";
+
+export type ResumeReviewSourceSection = {
+  id: string;
+  kind: ResumeReviewSectionKind;
+  title: string;
+  text: string;
+};
+
+const ResumeReviewDimensionSignal = z.object({
+  dimension: z.string().trim().min(1),
+  helped: z.array(z.string()).default([]),
+  lowered: z.array(z.string()).default([]),
+  raise_score: z.array(z.string()).default([]),
+});
+
+const ResumeReviewSectionAssessment = z.object({
+  strengths: z.array(z.string()).default([]),
+  weaknesses: z.array(z.string()).default([]),
+  evidence_questions: z.array(z.string()).default([]),
+  ats_notes: z.array(z.string()).default([]),
+  risk_flags: z.array(z.string()).default([]),
+  dimension_signals: z.array(ResumeReviewDimensionSignal).default([]),
+  confidence: z.number().min(0).max(1).default(0.6),
+});
+
 const ResumeReviewScan = z.object({
   strengths: z.array(z.string()).default([]),
   weaknesses: z.array(z.string()).default([]),
@@ -46,17 +79,57 @@ export async function reviewResumeWithAi(params: {
     fetchFn: params.fetchFn,
     maxAttempts: 1,
   });
-  const input = JSON.stringify({
-    source_title: params.sourceTitle,
-    resume_text: normalizeResumeReviewText(params.sourceText),
-  });
+  const sourceSections = segmentResumeReviewSource(params.sourceText);
+  const sectionAssessments = [];
   const usage: JobDeskAiUsage = {};
   let retryCount = 0;
 
   await params.onStatus?.("scanning");
+  for (const section of sourceSections) {
+    const assessment = await callResumeReviewStageWithRetry({
+      adapter,
+      input: JSON.stringify({
+        resume_title: params.sourceTitle,
+        section,
+      }),
+      instructions: buildResumeReviewSectionAssessmentInstructions(),
+      maxOutputTokens: 700,
+      schema: ResumeReviewSectionAssessment,
+      task: "general-resume-review-section-assessment",
+    });
+    mergeUsage(usage, assessment.usage);
+    retryCount += assessment.retryCount;
+    sectionAssessments.push({
+      ...section,
+      assessment: assessment.data,
+    });
+  }
+
+  const synthesisInput = JSON.stringify({
+    source_title: params.sourceTitle,
+    resume_manifest: sourceSections.map((section) => ({
+      id: section.id,
+      kind: section.kind,
+      title: section.title,
+      character_count: section.text.length,
+    })),
+    section_assessments: sectionAssessments.map((section) => ({
+      ats_notes: section.assessment.ats_notes,
+      confidence: section.assessment.confidence,
+      dimension_signals: section.assessment.dimension_signals,
+      evidence_questions: section.assessment.evidence_questions,
+      id: section.id,
+      kind: section.kind,
+      risk_flags: section.assessment.risk_flags,
+      strengths: section.assessment.strengths,
+      title: section.title,
+      weaknesses: section.assessment.weaknesses,
+    })),
+  });
+
   const scan = await callResumeReviewStageWithRetry({
     adapter,
-    input,
+    input: synthesisInput,
     instructions: buildResumeReviewScanInstructions(),
     maxOutputTokens: 700,
     schema: ResumeReviewScan,
@@ -68,7 +141,7 @@ export async function reviewResumeWithAi(params: {
   await params.onStatus?.("scoring");
   const rubric = await callResumeReviewStageWithRetry({
     adapter,
-    input,
+    input: synthesisInput,
     instructions: buildResumeReviewRubricInstructions(),
     maxOutputTokens: 1500,
     schema: ResumeReviewRubric,
@@ -80,7 +153,7 @@ export async function reviewResumeWithAi(params: {
   await params.onStatus?.("evidence_review");
   const evidence = await callResumeReviewStageWithRetry({
     adapter,
-    input,
+    input: synthesisInput,
     instructions: buildResumeReviewEvidenceInstructions(),
     maxOutputTokens: 700,
     schema: ResumeReviewEvidence,
@@ -107,9 +180,41 @@ export async function reviewResumeWithAi(params: {
     outputText: JSON.stringify(data),
     retryCount,
     skill: skillRegistry.resumeReviewGeneral,
-    stageCount: 3,
+    stageCount: 4,
     usage,
   };
+}
+
+export function segmentResumeReviewSource(sourceText: string): ResumeReviewSourceSection[] {
+  const normalized = normalizeResumeReviewText(sourceText);
+  if (!normalized) return [];
+  const blocks = splitResumeReviewBlocks(normalized);
+  const sections: ResumeReviewSourceSection[] = [];
+  let current: { heading: string; kind: ResumeReviewSectionKind; lines: string[] } = {
+    heading: "Profile",
+    kind: "profile",
+    lines: [],
+  };
+
+  for (const block of blocks) {
+    const headingKind = classifyResumeReviewHeading(block);
+    if (headingKind) {
+      pushResumeReviewSection(sections, current);
+      current = {
+        heading: block,
+        kind: headingKind,
+        lines: [],
+      };
+      continue;
+    }
+    current.lines.push(block);
+  }
+  pushResumeReviewSection(sections, current);
+
+  return sections.map((section, index) => ({
+    ...section,
+    id: `${section.kind}-${index + 1}`,
+  }));
 }
 
 export function buildResumeReviewInstructions() {
@@ -133,10 +238,24 @@ export function buildResumeReviewInstructions() {
   ]);
 }
 
+export function buildResumeReviewSectionAssessmentInstructions() {
+  return composeSkillPrompt(skillRegistry.resumeReviewGeneral, [
+    "You are JobDesk's HR Screening Reviewer using the skills/hr-screening-review methodology, adapted for a general uploaded resume.",
+    "Section assessment stage: review one resume section only. Do not produce the final overall score and do not rewrite the resume.",
+    "Return section-local findings only. Use the section kind/title to understand context, but do not assume other sections are missing unless this section itself shows the gap.",
+    "Assess strengths, weaknesses, evidence questions, ATS/readability notes, risk flags, dimension signals, and confidence for this section.",
+    "dimension_signals should name dimensions such as readability, impact_evidence, project_depth, ats, structure, or resume_evidence_signals, with helped/lowered/raise_score lists.",
+    "Do not penalize protected or proxy signals. If a fairness concern appears, phrase it as a neutral preparation note in risk_flags only if it affects public wording.",
+    "Return only JSON with keys: strengths, weaknesses, evidence_questions, ats_notes, risk_flags, dimension_signals, confidence.",
+    "Keep findings source-specific and concise. Avoid generic advice that could apply to any resume.",
+  ]);
+}
+
 export function buildResumeReviewScanInstructions() {
   return composeSkillPrompt(skillRegistry.resumeReviewGeneral, [
     "You are JobDesk's HR Screening Reviewer using the skills/hr-screening-review methodology, adapted for a general uploaded resume.",
-    "Stage 1 of 3: recruiter scan only. Review only; do not rewrite the resume.",
+    "Stage 1 of 3: recruiter scan synthesis. Review only; do not rewrite the resume.",
+    "Use only the resume manifest and section assessments supplied by JobDesk. Do not require raw resume text in this stage.",
     "This is a general resume review with no target JD. Do not produce a JD match score.",
     "Use uncertainty-aware language. Never state hiring outcomes as facts.",
     "Walk the resume in reading order and separate content gaps from presentation gaps.",
@@ -150,7 +269,8 @@ export function buildResumeReviewScanInstructions() {
 export function buildResumeReviewRubricInstructions() {
   return composeSkillPrompt(skillRegistry.resumeReviewGeneral, [
     "You are JobDesk's HR Screening Reviewer using the skills/hr-screening-review methodology, adapted for a general uploaded resume.",
-    "Stage 2 of 3: score and dimension rationale. Review only; do not rewrite the resume.",
+    "Stage 2 of 3: score and dimension rationale synthesis. Review only; do not rewrite the resume.",
+    "Use only the resume manifest and section assessments supplied by JobDesk. Do not require raw resume text in this stage.",
     "This is a general resume review with no target JD. Do not produce a JD match score.",
     "Assess baseline resume quality, evidence strength, project depth, ATS readability, clarity, and material-library readiness.",
     "The resume is user-provided source text. Do not validate whether claims are true; flag unsupported, vague, or weakly evidenced claims as questions or deductions.",
@@ -167,7 +287,8 @@ export function buildResumeReviewRubricInstructions() {
 export function buildResumeReviewEvidenceInstructions() {
   return composeSkillPrompt(skillRegistry.resumeReviewGeneral, [
     "You are JobDesk's HR Screening Reviewer using the skills/hr-screening-review methodology, adapted for a general uploaded resume.",
-    "Stage 3 of 3: evidence gaps, risk flags, and fairness check. Review only; do not rewrite the resume.",
+    "Stage 3 of 3: evidence gaps, risk flags, and fairness check synthesis. Review only; do not rewrite the resume.",
+    "Use only the resume manifest and section assessments supplied by JobDesk. Do not require raw resume text in this stage.",
     "This is a general resume review with no target JD. Do not produce a JD match score.",
     "Surface missing evidence questions that would help later Evidence Library extraction: metrics, project context, ownership scope, technologies, and public-safe wording.",
     "Apply the fairness rubric. Do not lower the score or label as weakness based on employment gaps, career changes, caregiving/medical leave, non-traditional education, age-correlated signals, or immigration/location unless the user stated a constraint.",
@@ -250,6 +371,73 @@ function normalizeResumeReviewText(sourceText: string) {
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function splitResumeReviewBlocks(text: string) {
+  return text
+    .split(/\n{2,}/)
+    .flatMap((block) => {
+      const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+      if (lines.length <= 1) return [block.trim()].filter(Boolean);
+      return lines;
+    })
+    .map((block) => block.trim())
+    .filter(Boolean);
+}
+
+function classifyResumeReviewHeading(text: string): ResumeReviewSectionKind | null {
+  const normalized = text.toLowerCase().replace(/[^a-z&/ ]+/g, "").trim();
+  if (!normalized || normalized.length > 56) return null;
+  if (/^(summary|professional summary|profile|objective)$/.test(normalized)) return "summary";
+  if (/^(experience|work experience|professional experience|employment|internships?)$/.test(normalized)) {
+    return "work_experience";
+  }
+  if (/^(projects?|portfolio|portfolio projects?|selected projects?)$/.test(normalized)) return "projects";
+  if (/^(education|academic background)$/.test(normalized)) return "education";
+  if (/^(skills?|technical skills?|technologies|tools|certifications?|certificates?)$/.test(normalized)) return "skills";
+  if (/^(contact|personal information)$/.test(normalized)) return "profile";
+  return null;
+}
+
+function pushResumeReviewSection(
+  sections: ResumeReviewSourceSection[],
+  section: { heading: string; kind: ResumeReviewSectionKind; lines: string[] },
+) {
+  const text = section.lines.join("\n").trim();
+  if (!text) return;
+  for (const chunk of splitResumeReviewSectionByCharacterCap(text, 3200)) {
+    sections.push({
+      id: "",
+      kind: section.kind,
+      text: chunk,
+      title: section.heading,
+    });
+  }
+}
+
+function splitResumeReviewSectionByCharacterCap(text: string, cap: number) {
+  if (text.length <= cap) return [text];
+  const chunks: string[] = [];
+  const lines = text.split("\n");
+  let current: string[] = [];
+  for (const line of lines) {
+    const next = [...current, line].join("\n");
+    if (next.length > cap && current.length > 0) {
+      chunks.push(current.join("\n"));
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length) chunks.push(current.join("\n"));
+  return chunks.flatMap((chunk) => {
+    if (chunk.length <= cap) return [chunk];
+    const pieces: string[] = [];
+    for (let index = 0; index < chunk.length; index += cap) {
+      pieces.push(chunk.slice(index, index + cap));
+    }
+    return pieces;
+  });
 }
 
 function sleep(ms: number) {

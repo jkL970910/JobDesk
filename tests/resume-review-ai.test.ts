@@ -6,6 +6,7 @@ import {
   buildResumeReviewRubricInstructions,
   buildResumeReviewScanInstructions,
   reviewResumeWithAi,
+  segmentResumeReviewSource,
 } from "../src/ai/resume-review";
 
 describe("resume review AI instructions", () => {
@@ -41,19 +42,45 @@ describe("resume review AI instructions", () => {
     const tasks: string[] = [];
     const stages: string[] = [];
     let calls = 0;
+    let sectionCalls = 0;
     const fetchFn = async (_url: string | URL, init?: RequestInit) => {
       calls += 1;
-      if (calls === 1) {
-        tasks.push("scan");
-        return new Promise<Response>((_resolve, reject) => {
-          const error = new Error("aborted");
-          error.name = "AbortError";
-          reject(error);
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        input?: Array<{ content?: string }>;
+        messages?: Array<{ content?: string }>;
+      };
+      const userInput = body.input?.[0]?.content ?? body.messages?.at(-1)?.content ?? "";
+      if (userInput.includes('"section"')) {
+        sectionCalls += 1;
+        tasks.push("section");
+        expect(userInput).toContain('"section"');
+        if (sectionCalls === 1) {
+          return new Promise<Response>((_resolve, reject) => {
+            const error = new Error("aborted");
+            error.name = "AbortError";
+            reject(error);
+          });
+        }
+        return jsonResponse({
+          ats_notes: ["The section is readable."],
+          confidence: 0.78,
+          dimension_signals: [
+            {
+              dimension: "readability",
+              helped: ["Role names are visible."],
+              lowered: ["Target headline could be sharper."],
+              raise_score: ["Add a target headline."],
+            },
+          ],
+          evidence_questions: ["Which metric proves platform impact?"],
+          risk_flags: ["Some claims need stronger source-backed proof."],
+          strengths: ["Recent engineering experience is visible."],
+          weaknesses: ["Highest-impact projects need sharper priority."],
         });
       }
-
-      if (calls === 2) {
+      if (!tasks.includes("scan")) {
         tasks.push("scan");
+        expect(userInput).not.toContain("Built platform workflow used by 3 teams");
         return jsonResponse({
           ats_notes: ["The target role is visible but could be stronger."],
           strengths: ["Recent engineering experience is visible."],
@@ -61,8 +88,9 @@ describe("resume review AI instructions", () => {
           weaknesses: ["Highest-impact projects need sharper priority."],
         });
       }
-      if (calls === 3) {
+      if (!tasks.includes("rubric")) {
         tasks.push("rubric");
+        expect(userInput).not.toContain("Built platform workflow used by 3 teams");
         return jsonResponse({
           score: {
             confidence: 0.78,
@@ -88,6 +116,7 @@ describe("resume review AI instructions", () => {
         });
       }
       tasks.push("evidence");
+      expect(userInput).not.toContain("Built platform workflow used by 3 teams");
       return jsonResponse({
         fairness_check: {
           applied: true,
@@ -113,10 +142,11 @@ describe("resume review AI instructions", () => {
       sourceTitle: "Jane Doe Resume",
     });
 
-    expect(result.stageCount).toBe(3);
+    expect(result.stageCount).toBe(4);
     expect(result.retryCount).toBe(1);
     expect(stages).toEqual(["scanning", "scoring", "evidence_review"]);
-    expect(tasks).toEqual(["scan", "scan", "rubric", "evidence"]);
+    expect(tasks.slice(0, 2)).toEqual(["section", "section"]);
+    expect(tasks.slice(-3)).toEqual(["scan", "rubric", "evidence"]);
     expect(result.data.score.overall).toBe(78);
     expect(result.data.ten_second_scan).toContain("Recruiter sees");
     expect(result.data.missing_evidence_questions).toEqual([
@@ -128,6 +158,37 @@ describe("resume review AI instructions", () => {
     expect(buildResumeReviewScanInstructions()).toContain("Stage 1 of 3");
     expect(buildResumeReviewRubricInstructions()).toContain("Stage 2 of 3");
     expect(buildResumeReviewEvidenceInstructions()).toContain("Stage 3 of 3");
+  });
+
+  it("segments resume review source into bounded review sections", () => {
+    const sections = segmentResumeReviewSource(`
+      Jane Doe
+      jane@example.com
+
+      Summary
+      Software engineer focused on platform systems.
+
+      Experience
+      Amazon
+      Software Engineer Jan 2022 - Present
+      Built station workflow services.
+
+      Projects
+      Portfolio Tracker
+      Built a personal finance dashboard.
+
+      Skills
+      TypeScript, AWS, SQL
+    `);
+
+    expect(sections.map((section) => section.kind)).toEqual([
+      "profile",
+      "summary",
+      "work_experience",
+      "projects",
+      "skills",
+    ]);
+    expect(sections.every((section) => section.text.length <= 3200)).toBe(true);
   });
 });
 
