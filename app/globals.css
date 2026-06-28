@@ -3340,7 +3340,7 @@ strong,
   grid-template-columns: repeat(12, minmax(0, 1fr));
 }
 
-.review-dimension-card__body div {
+.review-dimension-card__body > div {
   background: rgba(255, 255, 255, 0.028);
   border: 1px solid rgba(255, 255, 255, 0.075);
   border-radius: 12px;
@@ -3348,14 +3348,17 @@ strong,
   padding: 10px 12px;
 }
 
-.review-dimension-card__note,
-.review-dimension-card__next-step {
+.review-dimension-card__note {
   grid-column: 1 / -1;
 }
 
 .review-dimension-card__evidence,
 .review-dimension-card__supporting {
   grid-column: span 6;
+}
+
+.review-dimension-card__evidence[data-wide="true"] {
+  grid-column: 1 / -1;
 }
 
 .review-dimension-card__tile--helped {
@@ -3372,14 +3375,21 @@ strong,
 
 .review-dimension-card__next-step {
   align-items: center;
-  background: rgba(79, 140, 255, 0.08);
-  border-color: rgba(79, 140, 255, 0.18);
+  background:
+    linear-gradient(90deg, rgba(79, 140, 255, 0.105), rgba(79, 140, 255, 0.026)),
+    rgba(255, 255, 255, 0.024);
+  border: 1px solid rgba(79, 140, 255, 0.17);
+  border-left: 3px solid rgba(79, 140, 255, 0.62);
+  border-radius: 14px;
   display: grid;
-  gap: 4px;
-  grid-template-columns: minmax(130px, max-content) minmax(0, 1fr);
+  gap: 12px;
+  grid-template-columns: minmax(145px, max-content) minmax(0, 1fr);
+  margin-top: -2px;
+  padding: 11px 13px 11px 12px;
 }
 
-.review-dimension-card__body span {
+.review-dimension-card__body span,
+.review-dimension-card__next-step span {
   color: var(--faint);
   font-size: 0.68rem;
   font-weight: 850;
@@ -3388,7 +3398,8 @@ strong,
 }
 
 .review-dimension-card__body p,
-.review-dimension-card__body li {
+.review-dimension-card__body li,
+.review-dimension-card__next-step p {
   color: var(--ink-soft);
   font-size: 0.9rem;
   line-height: 1.5;
@@ -3400,7 +3411,7 @@ strong,
 }
 
 .review-dimension-card__next-step p {
-  margin-top: 0;
+  margin: 0;
 }
 
 .review-dimension-card__hint {
@@ -10710,14 +10721,14 @@ span > .help-hint {
     grid-template-columns: 1fr;
   }
 
-  .review-dimension-card__body div,
+  .review-dimension-card__body > div,
   .review-dimension-card__evidence,
   .review-dimension-card__supporting {
     grid-column: span 6;
   }
 
   .review-dimension-card__note,
-  .review-dimension-card__next-step {
+  .review-dimension-card__evidence[data-wide="true"] {
     grid-column: 1 / -1;
   }
 
@@ -11453,11 +11464,11 @@ span > .help-hint {
     grid-template-columns: 1fr;
   }
 
-  .review-dimension-card__body div,
+  .review-dimension-card__body > div,
   .review-dimension-card__evidence,
   .review-dimension-card__supporting,
   .review-dimension-card__note,
-  .review-dimension-card__next-step {
+  .review-dimension-card__evidence[data-wide="true"] {
     grid-column: 1 / -1;
   }
 

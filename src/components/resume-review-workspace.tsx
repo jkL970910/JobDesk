@@ -1500,7 +1500,10 @@ function ReviewDimensionWorkbench({
                 </ul>
               </div>
             ) : null}
-            <div className="review-dimension-card__evidence">
+            <div
+              className="review-dimension-card__evidence"
+              data-wide={selectedDimensionDetail.findings.length ? "false" : "true"}
+            >
               <span>Evidence to add</span>
               {evidencePrompts.length ? (
                 <ul>
@@ -1512,10 +1515,10 @@ function ReviewDimensionWorkbench({
                 <p>Add material only if this dimension needs more metrics, project context, or public-safe wording.</p>
               )}
             </div>
-            <div className="review-dimension-card__next-step">
-              <span>Suggested next action</span>
-              <p>{selectedDimensionDetail.nextAction}</p>
-            </div>
+          </div>
+          <div className="review-dimension-card__next-step">
+            <span>Suggested next action</span>
+            <p>{selectedDimensionDetail.nextAction}</p>
           </div>
           <p className="review-dimension-card__hint">
             Create library items from this reviewed resume before using these prompts to strengthen evidence.
