@@ -50,7 +50,7 @@ type ResumeReviewBuildResult = {
 type ResumeReviewActiveRun = {
   id: string;
   status: "running" | "succeeded" | "failed" | "skipped";
-  stage: "queued" | "reading_source" | "analyzing" | "validating" | "saving" | "completed" | "failed";
+  stage: "queued" | "reading_source" | "scanning" | "scoring" | "evidence_review" | "analyzing" | "validating" | "saving" | "completed" | "failed";
   startedAt: string;
   finishedAt: string | null;
   errorKind: string | null;
@@ -294,12 +294,13 @@ export async function processResumeReviewRun(runId: string) {
   });
   let review: ResumeReviewBuildResult;
   try {
-    await updateResumeReviewRunStage(db, {
-      run,
-      stage: "analyzing",
-      workspaceId: workspace.id,
-    });
     review = await buildReviewReport({
+      onStatus: (stage) =>
+        updateResumeReviewRunStage(db, {
+          run,
+          stage,
+          workspaceId: workspace.id,
+        }).then(() => undefined),
       sourceTitle: resume.title,
       sourceText: resume.sourceText,
     });
@@ -704,12 +705,17 @@ async function findLatestResumeReviewReport(
 }
 
 async function buildReviewReport(args: {
+  onStatus?: (stage: "scanning" | "scoring" | "evidence_review") => Promise<void>;
   sourceTitle: string;
   sourceText: string;
 }): Promise<ResumeReviewBuildResult> {
   const config = resolveJobDeskAiConfig();
   try {
-    const result = await reviewResumeWithAi(args);
+    const result = await reviewResumeWithAi({
+      onStatus: args.onStatus,
+      sourceText: args.sourceText,
+      sourceTitle: args.sourceTitle,
+    });
     return fromAiReview({
       review: result.data,
       provider: `openrouter-compatible:${config.transport}`,
@@ -927,6 +933,9 @@ function getResumeReviewRunStage(run: typeof workflowRuns.$inferSelect): ResumeR
   if (
     stage === "queued" ||
     stage === "reading_source" ||
+    stage === "scanning" ||
+    stage === "scoring" ||
+    stage === "evidence_review" ||
     stage === "analyzing" ||
     stage === "validating" ||
     stage === "saving" ||

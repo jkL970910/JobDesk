@@ -19,7 +19,7 @@ export type ResumeSourceReviewSummary = {
 type ResumeReviewRunSummary = {
   id: string;
   status: "running" | "succeeded" | "failed" | "skipped";
-  stage: "queued" | "reading_source" | "analyzing" | "validating" | "saving" | "completed" | "failed";
+  stage: "queued" | "reading_source" | "scanning" | "scoring" | "evidence_review" | "analyzing" | "validating" | "saving" | "completed" | "failed";
   startedAt: string;
   finishedAt: string | null;
   errorKind: string | null;
@@ -814,13 +814,16 @@ function ResumeReviewProgressNotice({
   stage?: ResumeReviewRunSummary["stage"];
 }) {
   const progressByStage: Record<ResumeReviewRunSummary["stage"], number> = {
-    analyzing: 48,
+    analyzing: 45,
     completed: 100,
+    evidence_review: 68,
     failed: 100,
     queued: 14,
     reading_source: 28,
-    saving: 86,
-    validating: 72,
+    saving: 90,
+    scanning: 42,
+    scoring: 56,
+    validating: 80,
   };
   const stages = [
     {
@@ -830,10 +833,22 @@ function ResumeReviewProgressNotice({
       detail: mode === "upload" ? "Uploading the resume and preparing readable text." : "Reading the saved resume source.",
     },
     {
-      key: "analyzing",
-      label: "Review resume",
-      summary: "Assess structure, impact, readability, ATS, and evidence readiness.",
-      detail: "Reviewing resume strength, gaps, ATS readability, and evidence opportunities.",
+      key: "scanning",
+      label: "Scan resume",
+      summary: "Assess recruiter first-read signals and ATS scan notes.",
+      detail: "Reviewing first-read clarity, visible strengths, weaknesses, and ATS scan notes.",
+    },
+    {
+      key: "scoring",
+      label: "Score dimensions",
+      summary: "Score structure, impact, readability, project depth, and evidence signals.",
+      detail: "Scoring resume dimensions with explicit helped/lowered-score rationale.",
+    },
+    {
+      key: "evidence_review",
+      label: "Review evidence gaps",
+      summary: "Identify missing proof, risk flags, and fairness notes.",
+      detail: "Reviewing missing evidence, public-safe wording needs, risk flags, and fairness notes.",
     },
     {
       key: "validating",
@@ -850,12 +865,22 @@ function ResumeReviewProgressNotice({
   ];
   const activeIndexFromStage =
     stage && stage !== "queued" && stage !== "completed" && stage !== "failed"
-      ? stages.findIndex((item) => item.key === stage)
+      ? stages.findIndex((item) => item.key === (stage === "analyzing" ? "scanning" : stage))
       : -1;
   const activeIndex = activeIndexFromStage >= 0
     ? activeIndexFromStage
     : Math.min(
-        elapsedSeconds < 8 ? 0 : elapsedSeconds < 85 ? 1 : elapsedSeconds < 135 ? 2 : 3,
+        elapsedSeconds < 8
+          ? 0
+          : elapsedSeconds < 35
+            ? 1
+            : elapsedSeconds < 75
+              ? 2
+              : elapsedSeconds < 110
+                ? 3
+                : elapsedSeconds < 150
+                  ? 4
+                  : 5,
         stages.length - 1,
       );
   const activeStage = stages[activeIndex]!;

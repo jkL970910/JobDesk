@@ -87,7 +87,7 @@ const ConfidenceValue = z
   }, z.number())
   .transform((value) => Math.max(0, Math.min(1, value)));
 
-const ReviewRubricItem = z.object({
+export const ReviewRubricItem = z.object({
   key: z.string().trim().min(1),
   label: z.string().trim().min(1),
   score: ScoreValue,
@@ -101,7 +101,7 @@ const ReviewRubricItem = z.object({
   raiseScore: TrimmedStringArray,
 });
 
-const ReviewRubricItemInput = z.preprocess((value) => {
+export const ReviewRubricItemInput = z.preprocess((value) => {
   if (!value || typeof value !== "object") return value;
   const record = value as Record<string, unknown>;
   return {
@@ -142,6 +142,18 @@ const ReviewRubricItemInput = z.preprocess((value) => {
   };
 }, ReviewRubricItem);
 
+export const ResumeReviewScore = z.object({
+  overall: ScoreValue,
+  confidence: ConfidenceValue.default(0.6),
+  scope_note: TextValue.default("General resume review without a target JD."),
+});
+
+export const ResumeReviewFairnessCheck = z.object({
+  applied: z.boolean().default(true),
+  note: TextValue.default("No protected or proxy signals were penalized."),
+  signals_not_penalized: TrimmedStringArray,
+});
+
 export const ResumeReview = z.preprocess((value) => {
   if (!value || typeof value !== "object") return value;
   const record = value as Record<string, unknown>;
@@ -174,11 +186,7 @@ export const ResumeReview = z.preprocess((value) => {
     },
   };
 }, z.object({
-  score: z.object({
-    overall: ScoreValue,
-    confidence: ConfidenceValue.default(0.6),
-    scope_note: TextValue.default("General resume review without a target JD."),
-  }),
+  score: ResumeReviewScore,
   rubric: z.array(ReviewRubricItemInput).default([]),
   strengths: TrimmedStringArray,
   weaknesses: TrimmedStringArray,
@@ -187,10 +195,6 @@ export const ResumeReview = z.preprocess((value) => {
   ats_notes: TrimmedStringArray,
   missing_evidence_questions: TrimmedStringArray,
   risk_flags: TrimmedStringArray,
-  fairness_check: z.object({
-    applied: z.boolean().default(true),
-    note: TextValue.default("No protected or proxy signals were penalized."),
-    signals_not_penalized: TrimmedStringArray,
-  }),
+  fairness_check: ResumeReviewFairnessCheck,
 }));
 export type ResumeReview = z.infer<typeof ResumeReview>;
