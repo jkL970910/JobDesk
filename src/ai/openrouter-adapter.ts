@@ -17,15 +17,18 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 export class OpenRouterResponsesAdapter {
   private readonly config: JobDeskAiConfig;
   private readonly fetchFn: FetchLike;
+  private readonly maxAttempts: number;
   private readonly timeoutMs: number;
 
   constructor(options: {
     config: JobDeskAiConfig;
     fetchFn?: FetchLike;
+    maxAttempts?: number;
     timeoutMs?: number;
   }) {
     this.config = options.config;
     this.fetchFn = options.fetchFn ?? fetch;
+    this.maxAttempts = Math.max(1, options.maxAttempts ?? 2);
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
@@ -44,13 +47,13 @@ export class OpenRouterResponsesAdapter {
     }
 
     let lastError: unknown;
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
       try {
         const result = await this.callOnce(request);
         return { ...result, retryCount: attempt - 1, skill: request.skill };
       } catch (error) {
         lastError = error;
-        if (attempt === 2) {
+        if (attempt === this.maxAttempts) {
           if (error instanceof JobDeskAiError) {
             throw new JobDeskAiError(error.message, {
               kind: error.kind,
@@ -198,11 +201,18 @@ function providerErrorMessage(
   responseText: string,
 ) {
   const error = payload.error;
-  const detail =
-    error && typeof error === "object" && "message" in error
-      ? String((error as { message?: unknown }).message)
-      : responseText.trim()
-        ? responseText.trim().slice(0, 500)
-        : "No provider error body.";
+  const detail = extractProviderErrorDetail(error, responseText);
   return `OpenRouter request failed with status ${status}: ${detail}`;
+}
+
+function extractProviderErrorDetail(error: unknown, responseText: string) {
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message?: unknown }).message).slice(0, 220);
+  }
+  const trimmed = responseText.trim();
+  if (!trimmed) return "No provider error body.";
+  if (/<(?:!doctype|html|head|body|title|meta)\b/i.test(trimmed)) {
+    return "The provider returned an HTML error page.";
+  }
+  return trimmed.replace(/\s+/g, " ").slice(0, 220);
 }

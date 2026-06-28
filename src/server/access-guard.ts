@@ -36,6 +36,9 @@ export async function validateRequestAccess(
 ) {
   const pathname = new URL(request.url).pathname;
   if (pathname.startsWith("/api/auth/")) return { ok: true as const };
+  if (pathname === "/api/profile-evidence/extract/runs/process-once") {
+    return { ok: true as const };
+  }
 
   if (isAccessTokenConfigured(env)) {
     const legacyAccess = validateAccessToken(request, env);

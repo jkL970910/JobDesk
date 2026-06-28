@@ -13,5 +13,7 @@ describe("resume review AI instructions", () => {
     expect(instructions).toContain("Do not rewrite the resume");
     expect(instructions).toContain("Scores above 90 require exceptional quantified impact");
     expect(instructions).toContain("do not return 100 overall");
+    expect(instructions).toContain("findings, evidenceQuestions, and nextAction");
+    expect(instructions).toContain("Do not put privacy/public-safe questions under project depth");
   });
 });

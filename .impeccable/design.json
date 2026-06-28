@@ -1,0 +1,287 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-26T00:00:00.000Z",
+  "title": "Design System: JobDesk",
+  "extensions": {
+    "colorMeta": {
+      "deep-workspace-black": {
+        "role": "neutral",
+        "displayName": "Deep Workspace Black",
+        "canonical": "#070a11",
+        "tonalRamp": [
+          "#05070d",
+          "#070a11",
+          "#0c111b",
+          "#111827",
+          "#1a2437",
+          "#5f6b7e",
+          "#c8d2e6",
+          "#f4f7ff"
+        ]
+      },
+      "signal-blue": {
+        "role": "primary",
+        "displayName": "Signal Blue",
+        "canonical": "#4f8cff",
+        "tonalRamp": [
+          "#071733",
+          "#0e2b5f",
+          "#194494",
+          "#2f73ff",
+          "#4f8cff",
+          "#7fb0ff",
+          "#9ec3ff",
+          "#dceaff"
+        ]
+      },
+      "review-amber": {
+        "role": "secondary",
+        "displayName": "Review Amber",
+        "canonical": "#f3c775",
+        "tonalRamp": [
+          "#2c1d06",
+          "#57370b",
+          "#8d5d18",
+          "#be852e",
+          "#f3c775",
+          "#f7d99b",
+          "#fae9c3",
+          "#fff7e6"
+        ]
+      },
+      "verified-green": {
+        "role": "secondary",
+        "displayName": "Verified Green",
+        "canonical": "#7ddfb3",
+        "tonalRamp": [
+          "#072018",
+          "#0d3a2b",
+          "#176144",
+          "#2b966b",
+          "#57c785",
+          "#7ddfb3",
+          "#b7f0d4",
+          "#e4fbef"
+        ]
+      },
+      "risk-red": {
+        "role": "tertiary",
+        "displayName": "Risk Red",
+        "canonical": "#ff7f8d",
+        "tonalRamp": [
+          "#2b070d",
+          "#55111b",
+          "#8c2230",
+          "#c54b5b",
+          "#ff7f8d",
+          "#ffa9b2",
+          "#ffd1d6",
+          "#fff0f2"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page-level dashboard or major workspace headings only."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Panel headings and major workflow sections."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Cards, rows, tabs, and task titles."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Explanatory copy, review details, and longer user-facing descriptions."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Metadata labels, status captions, navigation descriptions, and workflow markers."
+      }
+    },
+    "shadows": [
+      {
+        "name": "app-topbar",
+        "value": "0 20px 70px rgba(0, 0, 0, 0.28)",
+        "purpose": "Sticky navigation depth."
+      },
+      {
+        "name": "panel",
+        "value": "0 16px 44px rgba(0, 0, 0, 0.2)",
+        "purpose": "Major panels only when separation from the background is needed."
+      },
+      {
+        "name": "popover",
+        "value": "0 24px 70px rgba(0, 0, 0, 0.38)",
+        "purpose": "Menus and overlays."
+      },
+      {
+        "name": "focus-glow",
+        "value": "0 0 0 1px rgba(158, 195, 255, 0.22), 0 22px 90px rgba(79, 140, 255, 0.16)",
+        "purpose": "Explicit focus or selected state."
+      }
+    ],
+    "motion": [
+      {
+        "name": "motion-fast",
+        "value": "180ms",
+        "purpose": "Button, border, color, and focus transitions."
+      },
+      {
+        "name": "motion-medium",
+        "value": "420ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Panel entry and queue item reveal."
+      },
+      {
+        "name": "motion-slow",
+        "value": "720ms",
+        "purpose": "Reserved for slow state changes, not default UI choreography."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "mobile",
+        "value": "390px"
+      },
+      {
+        "name": "app-max-width",
+        "value": "1500px"
+      }
+    ],
+    "narrative": {
+      "northStar": "Career Evidence Workspace",
+      "overview": "JobDesk is a focused career workspace for turning raw career material into evidence-backed decisions. The visual system should feel precise, trustworthy, and career-serious: a calm place to inspect source material, review claims, approve public-safe wording, and create application assets without theatrical AI behavior.\n\nThe product uses a dark, restrained working surface with blue as the primary signal color. Its panels, rows, tabs, and workflow states should support concentration and review rather than spectacle. The interface can be information-rich, but it should help the user focus on one decision at a time.\n\nJobDesk explicitly rejects generic AI resume chatbot styling, flashy SaaS landing-page treatment, gamified productivity patterns, and dense engineering-console language. The design should expose workflow state, evidence readiness, and next actions in user-facing terms.",
+      "keyCharacteristics": [
+        "Focused, explicit, review-first controls.",
+        "Dark workspace surfaces with restrained Signal Blue emphasis.",
+        "Translucent panels and 1px borders used for structure, not decoration.",
+        "Compact but readable typography with strong labels and tabular metrics.",
+        "Clear status language for evidence, review, readiness, risk, and verification."
+      ],
+      "rules": [
+        {
+          "name": "The Signal Rarity Rule",
+          "body": "Signal Blue should identify current action, selection, and confidence. Do not let it become decoration across every card.",
+          "section": "colors"
+        },
+        {
+          "name": "The Evidence State Rule",
+          "body": "Review Amber, Verified Green, and Risk Red are semantic colors. Never use them just to add variety.",
+          "section": "colors"
+        },
+        {
+          "name": "The No Chatbot Glow Rule",
+          "body": "Do not add neon, purple, cyan, or gradient-heavy AI styling. JobDesk is an evidence workspace, not a generic AI assistant shell.",
+          "section": "colors"
+        },
+        {
+          "name": "The Product-Scale Rule",
+          "body": "Use compact fixed sizes for working surfaces. Avoid oversized hero typography except on the highest-level dashboard context.",
+          "section": "typography"
+        },
+        {
+          "name": "The User-Language Rule",
+          "body": "Labels should say what the user can act on: Evidence Claim, Work Experience, Story Target, Review, Resume-ready. Do not surface provider, schema, retry, or workflow-run language in normal UI.",
+          "section": "typography"
+        },
+        {
+          "name": "The Flat Review Row Rule",
+          "body": "Rows, evidence cards, and queue items should use borders and tonal fills before shadows. A shadow means elevation or focus, not default decoration.",
+          "section": "elevation"
+        },
+        {
+          "name": "The Popover Depth Rule",
+          "body": "Stronger shadows belong to menus, sticky navigation, and transient overlays where spatial layering helps orientation.",
+          "section": "elevation"
+        }
+      ],
+      "dos": [
+        "Do use `Deep Workspace Black`, translucent panel bases, and 1px lines to create a calm working environment.",
+        "Do reserve `Signal Blue` for primary actions, current selection, focused workflow steps, and active review state.",
+        "Do use `Review Amber`, `Verified Green`, and `Risk Red` only for real semantic states.",
+        "Do keep controls focused, explicit, and review-first: one primary decision per local surface whenever possible.",
+        "Do keep WCAG AA contrast for body text, labels, inputs, buttons, and placeholder text.",
+        "Do keep reduced-motion behavior for every animation and use motion to show state, loading, or focus.",
+        "Do use user-facing career language such as Evidence Claim, Work Experience, Story Target, Resume-ready, and Review."
+      ],
+      "donts": [
+        "Don't make JobDesk feel like a generic AI resume chatbot.",
+        "Don't use flashy SaaS landing-page composition, hero-metric templates, or marketing-style decorative sections inside the app.",
+        "Don't make the product feel like a gamified productivity app. Progress indicators should clarify work, not chase streaks or points.",
+        "Don't make the workspace feel like a dense engineering console. Avoid exposing provider names, retry counts, schema labels, sourceMode, DTO, workflow-run, or debug concepts as primary user-facing language.",
+        "Don't use neon AI glow, purple gradients, cyan-on-dark AI tropes, gradient text, glassmorphism, or decorative bokeh/orbs.",
+        "Don't nest cards inside cards. Use flat bands, rows, tables, and clear dividers for grouped work.",
+        "Don't use side-stripe borders as accent decoration. Use full borders, semantic chips, or clear row state instead."
+      ]
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary action for local workflow decisions.",
+      "html": "<button class=\"ds-btn-primary\">Review evidence</button>",
+      "css": ".ds-btn-primary { background: linear-gradient(135deg, #367dff, #93bdff); color: #071018; border: 0; border-radius: 9px; font-family: Aptos, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; font-size: 0.88rem; font-weight: 880; padding: 10px 14px; min-height: 38px; transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, color 180ms ease, opacity 180ms ease, transform 180ms ease; } .ds-btn-primary:hover { transform: translateY(-1px); } .ds-btn-primary:active { transform: translateY(1px) scale(0.985); } .ds-btn-primary:focus-visible { outline: 3px solid rgba(79, 140, 255, 0.34); outline-offset: 3px; }"
+    },
+    {
+      "name": "Secondary Row Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Compact action inside rows, queues, and panels.",
+      "html": "<button class=\"ds-btn-secondary\">Open review</button>",
+      "css": ".ds-btn-secondary { background: rgba(79, 140, 255, 0.13); color: #9ec3ff; border: 1px solid rgba(79, 140, 255, 0.28); border-radius: 999px; font-family: Aptos, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; font-size: 0.78rem; font-weight: 860; padding: 8px 12px; transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, color 180ms ease, opacity 180ms ease, transform 180ms ease; } .ds-btn-secondary:hover { background: rgba(79, 140, 255, 0.18); transform: translateY(-1px); } .ds-btn-secondary:focus-visible { outline: 3px solid rgba(79, 140, 255, 0.34); outline-offset: 3px; }"
+    },
+    {
+      "name": "Top Navigation Item",
+      "kind": "nav",
+      "refersTo": "card-row",
+      "description": "Primary app-shell navigation item with active state.",
+      "html": "<button class=\"ds-nav-item\" data-active=\"true\"><span>Evidence</span></button>",
+      "css": ".ds-nav-item { align-items: center; background: transparent; border: 1px solid transparent; border-radius: 14px; color: #8b96aa; display: inline-flex; justify-content: center; min-width: 118px; padding: 9px 11px; font-family: Aptos, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; } .ds-nav-item span { color: inherit; font-size: 0.86rem; font-weight: 780; letter-spacing: -0.01em; white-space: nowrap; } .ds-nav-item:hover, .ds-nav-item[data-active='true'] { background: rgba(79, 140, 255, 0.13); border-color: rgba(79, 140, 255, 0.22); color: #f4f7ff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); } .ds-nav-item:focus-visible { outline: 3px solid rgba(79, 140, 255, 0.34); outline-offset: 3px; }"
+    },
+    {
+      "name": "Workspace Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Major workspace panel for task sections and dashboard lanes.",
+      "html": "<section class=\"ds-panel\"><p class=\"ds-panel-kicker\">Evidence Library</p><h2>Review reusable material</h2><p>Check source-backed claims, public-safe wording, and resume readiness.</p></section>",
+      "css": ".ds-panel { background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.018)), rgba(17, 24, 39, 0.78); border: 1px solid rgba(255,255,255,0.09); border-radius: 22px; box-shadow: 0 16px 44px rgba(0,0,0,0.2); color: #f4f7ff; display: grid; gap: 8px; padding: 18px; font-family: Aptos, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; } .ds-panel-kicker { color: #9ec3ff; font-size: 0.78rem; font-weight: 900; letter-spacing: 0.055em; margin: 0; text-transform: uppercase; } .ds-panel h2 { color: #f4f7ff; font-size: clamp(1.35rem, 2.1vw, 1.8rem); font-weight: 880; letter-spacing: -0.035em; line-height: 1.08; margin: 0; } .ds-panel p { color: #8b96aa; font-size: 0.92rem; line-height: 1.55; margin: 0; }"
+    },
+    {
+      "name": "Review Row",
+      "kind": "card",
+      "refersTo": "card-row",
+      "description": "Focused row for one evidence, resume, or queue decision.",
+      "html": "<article class=\"ds-review-row\"><span>Needs review</span><div><strong>Public-safe summary missing</strong><p>Add safe wording before this claim can be used in a resume.</p></div><button>Fix</button></article>",
+      "css": ".ds-review-row { align-items: center; background: rgba(255,255,255,0.018); border: 1px solid rgba(255,255,255,0.075); border-radius: 8px; color: #f4f7ff; display: grid; gap: 12px; grid-template-columns: auto minmax(0,1fr) auto; padding: 12px 14px; font-family: Aptos, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; } .ds-review-row > span { background: rgba(243,199,117,0.12); border: 1px solid rgba(243,199,117,0.24); border-radius: 999px; color: #f3c775; font-size: 0.72rem; font-weight: 850; padding: 6px 8px; white-space: nowrap; } .ds-review-row strong { color: #f4f7ff; display: block; font-size: 0.88rem; font-weight: 780; margin-bottom: 3px; } .ds-review-row p { color: #8b96aa; font-size: 0.78rem; line-height: 1.38; margin: 0; } .ds-review-row button { background: rgba(79,140,255,0.13); border: 1px solid rgba(79,140,255,0.28); border-radius: 6px; color: #9ec3ff; font-size: 0.76rem; font-weight: 860; padding: 7px 10px; } .ds-review-row button:focus-visible { outline: 3px solid rgba(79,140,255,0.34); outline-offset: 3px; }"
+    },
+    {
+      "name": "Input Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Dark inset field for text, search, select, and textarea inputs.",
+      "html": "<label class=\"ds-field\"><span>Search evidence</span><input placeholder=\"Search claims, source quotes, or story targets\" /></label>",
+      "css": ".ds-field { color: #8b96aa; display: grid; font-family: Aptos, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; font-size: 0.74rem; font-weight: 760; gap: 6px; } .ds-field input { background: rgba(8,12,20,0.72); border: 1px solid rgba(255,255,255,0.09); border-radius: 8px; color: #f4f7ff; font: inherit; font-size: 0.84rem; font-weight: 500; min-height: 38px; padding: 8px 10px; } .ds-field input::placeholder { color: #8b96aa; } .ds-field input:focus-visible { outline: 3px solid rgba(79,140,255,0.34); outline-offset: 3px; border-color: rgba(79,140,255,0.42); }"
+    },
+    {
+      "name": "Status Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Semantic status marker for review, ready, risk, and active states.",
+      "html": "<span class=\"ds-chip\" data-state=\"ready\">Resume-ready</span>",
+      "css": ".ds-chip { align-items: center; background: rgba(79,140,255,0.15); border: 1px solid rgba(79,140,255,0.28); border-radius: 999px; color: #9ec3ff; display: inline-flex; font-family: Aptos, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; font-size: 0.72rem; font-weight: 850; line-height: 1; padding: 6px 10px; white-space: nowrap; } .ds-chip[data-state='review'] { background: rgba(243,199,117,0.12); border-color: rgba(243,199,117,0.24); color: #f3c775; } .ds-chip[data-state='ready'] { background: rgba(125,223,179,0.12); border-color: rgba(125,223,179,0.24); color: #7ddfb3; } .ds-chip[data-state='risk'] { background: rgba(255,127,141,0.12); border-color: rgba(255,127,141,0.24); color: #ff7f8d; }"
+    },
+    {
+      "name": "Workflow Stepper",
+      "kind": "custom",
+      "refersTo": "card-row",
+      "description": "Compact numbered workflow state indicator.",
+      "html": "<ol class=\"ds-stepper\"><li data-state=\"complete\"><span>1</span><b>Resume</b><strong>Reviewed</strong></li><li data-state=\"active\"><span>2</span><b>Evidence</b><strong>3 tasks</strong></li><li data-state=\"blocked\"><span>3</span><b>Export</b><strong>Blocked</strong></li></ol>",
+      "css": ".ds-stepper { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); list-style: none; margin: 0; padding: 0; font-family: Aptos, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; } .ds-stepper li { color: #8b96aa; display: grid; gap: 5px; grid-template-columns: auto 1fr; min-width: 0; position: relative; } .ds-stepper span { align-items: center; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.09); border-radius: 999px; color: #c8d2e6; display: inline-flex; font-size: 0.72rem; font-weight: 760; height: 26px; justify-content: center; width: 26px; } .ds-stepper b { color: #c8d2e6; font-size: 0.78rem; font-weight: 760; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-stepper strong { color: #f4f7ff; font-size: 0.78rem; font-weight: 720; grid-column: 2; } .ds-stepper li[data-state='active'] span, .ds-stepper li[data-state='complete'] span { background: rgba(79,140,255,0.15); border-color: rgba(158,195,255,0.36); color: #9ec3ff; } .ds-stepper li[data-state='blocked'] span { background: rgba(243,199,117,0.12); border-color: rgba(243,199,117,0.34); color: #f3c775; }"
+    }
+  ]
+}

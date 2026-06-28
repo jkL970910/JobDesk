@@ -116,12 +116,7 @@ export async function POST(request: Request) {
         skill: skillRegistry.profileEvidenceExtractionProjectNote,
       });
       return NextResponse.json(
-        {
-          error: error.message,
-          kind: error.kind,
-          status: error.status,
-          retryCount: error.retryCount,
-        },
+        providerFailurePayload(error, "AI enrichment timed out. Your source was saved; retry or split the material."),
         { status: error.kind === "missing_api_key" ? 503 : 502 },
       );
     }
@@ -139,6 +134,18 @@ export async function POST(request: Request) {
       { status: 502 },
     );
   }
+}
+
+function providerFailurePayload(error: JobDeskAiError, timeoutMessage: string) {
+  const providerTimedOut = error.status === 524 || error.kind === "timeout";
+  return {
+    error: providerTimedOut ? timeoutMessage : error.message,
+    kind: providerTimedOut ? "provider_timeout" : error.kind,
+    status: error.status,
+    retryCount: error.retryCount,
+    canRetry: providerTimedOut || error.kind === "provider_5xx" || error.kind === "rate_limit",
+    retryAfterSeconds: providerTimedOut ? 10 : undefined,
+  };
 }
 
 function isRecoverableSourceDocumentError(error: unknown) {

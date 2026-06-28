@@ -55,7 +55,48 @@ type ExtractionResponse =
         };
       };
     }
-  | { error: string; kind?: string };
+  | {
+      canRetry?: boolean;
+      error: string;
+      kind?: string;
+      retryAfterSeconds?: number;
+      retryCount?: number;
+      status?: number | null;
+    };
+
+type RetryableExtractionFailure = {
+  message: string;
+  retryAfterSeconds?: number;
+  scope: "resume" | "project";
+};
+
+type ExtractionRunStatus =
+  | "queued"
+  | "parsing"
+  | "segmenting"
+  | "extracting_profile"
+  | "extracting_evidence"
+  | "validating"
+  | "saving"
+  | "completed"
+  | "failed";
+
+type ExtractionRunSummary = {
+  id: string;
+  status: ExtractionRunStatus;
+  result?: {
+    evidenceCount?: number;
+    projectCount?: number;
+    storyCount?: number;
+    workExperienceCount?: number;
+    sourceTitle?: string;
+    type?: "resume" | "project";
+  };
+  failureKind?: string | null;
+  failureMessage?: string | null;
+  canRetry?: boolean;
+  retryAfterSeconds?: number | null;
+};
 
 type DedupeCandidate = {
   primary: {
@@ -654,6 +695,9 @@ export function ProfileEvidenceWorkspace({
   const [enrichmentTaskQueueStatus, setEnrichmentTaskQueueStatus] =
     useState<"ready" | "skipped" | "error">("ready");
   const [error, setError] = useState<string | null>(null);
+  const [retryableFailure, setRetryableFailure] =
+    useState<RetryableExtractionFailure | null>(null);
+  const [activeExtractionRunId, setActiveExtractionRunId] = useState<string | null>(null);
   const [status, setStatus] = useState("Add material to continue.");
   const [retrievalPreview, setRetrievalPreview] = useState<{
     evidence: RetrievalEvidenceExplanation[];
@@ -966,11 +1010,12 @@ export function ProfileEvidenceWorkspace({
 
   function runExtraction() {
     setError(null);
-    setStatus("Turning this material into reusable evidence.");
+    setRetryableFailure(null);
+    setStatus("Starting extraction run.");
     setIsExtracting(true);
     void (async () => {
       try {
-        const response = await fetchJson("/api/profile-evidence/extract", {
+        const response = await fetchJson("/api/profile-evidence/extract/runs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -981,57 +1026,157 @@ export function ProfileEvidenceWorkspace({
             resumeSourceVersionId: selectedResumeSourceId || undefined,
           }),
         });
-        const payload = (await response.json()) as ExtractionResponse;
-        if (!response.ok || "error" in payload) {
-          setError(
-            "error" in payload
-              ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
-              : "Profile evidence extraction failed.",
-          );
+        const payload = (await response.json().catch(() => null)) as
+          | { data?: { run?: ExtractionRunSummary }; error?: string; kind?: string }
+          | null;
+        if (!response.ok || !payload?.data?.run) {
+          setError(formatUserFacingFailure(payload?.error ?? "Could not start extraction run.", payload?.kind));
           return;
         }
-        setStatus(formatStatus(payload.meta));
-        if (payload.meta.persistence?.status === "saved") {
+        setActiveExtractionRunId(payload.data.run.id);
+        setStatus(formatExtractionRunStatus(payload.data.run.status));
+        await triggerExtractionRunProcessing(payload.data.run.id);
+        const completedRun = await pollExtractionRun(payload.data.run.id);
+        if (completedRun.status === "completed") {
           await refreshLibraryAfterMutation();
           await loadResumeSources();
           setResult(null);
           setLastIntakeSummary({
-            evidenceCount: payload.meta.persistence.evidenceCount ?? payload.data.evidence_items.length,
-            projectCount: payload.meta.persistence.projectCount ?? payload.data.project_cards.length,
-            storyCount:
-              (payload.meta.persistence.initiativeCount ?? payload.data.initiatives.length) +
-              (payload.meta.persistence.portfolioProjectCount ??
-                payload.data.portfolio_projects.length),
-            workExperienceCount:
-              payload.meta.persistence.workExperienceCount ?? payload.data.work_experiences.length,
-            sourceTitle: sourceTitle.trim() || "Resume/source",
-            type: "resume",
+            evidenceCount: completedRun.result?.evidenceCount ?? 0,
+            projectCount: completedRun.result?.projectCount ?? 0,
+            storyCount: completedRun.result?.storyCount ?? 0,
+            workExperienceCount: completedRun.result?.workExperienceCount ?? 0,
+            sourceTitle: completedRun.result?.sourceTitle ?? (sourceTitle.trim() || "Resume/source"),
+            type: completedRun.result?.type ?? "resume",
           });
+          setStatus("Library items created from the reviewed resume.");
           setActiveSection("review");
-        } else {
-          setResult(payload.data);
-          await refreshLibraryAfterMutation();
-          await loadResumeSources();
-          setLastIntakeSummary({
-            evidenceCount: payload.data.evidence_items.length,
-            projectCount: payload.data.project_cards.length,
-            storyCount: payload.data.initiatives.length + payload.data.portfolio_projects.length,
-            workExperienceCount: payload.data.work_experiences.length,
-            sourceTitle: sourceTitle.trim() || "Resume/source",
-            type: "resume",
-          });
-          setActiveSection("review");
+          setActiveExtractionRunId(null);
+          return;
         }
+        const message = formatUserFacingFailure(
+          completedRun.failureMessage ?? "AI extraction failed.",
+          completedRun.failureKind ?? undefined,
+        );
+        if (completedRun.canRetry) {
+          setRetryableFailure({
+            message,
+            retryAfterSeconds: completedRun.retryAfterSeconds ?? undefined,
+            scope: "resume",
+          });
+        }
+        setError(message);
       } catch (caught) {
         setError(
           caught instanceof Error
-            ? caught.message
+            ? formatUserFacingFailure(caught.message)
             : "Profile evidence extraction failed.",
         );
       } finally {
         setIsExtracting(false);
       }
     })();
+  }
+
+  function retryExtractionRun() {
+    if (!activeExtractionRunId) {
+      runExtraction();
+      return;
+    }
+    setError(null);
+    setRetryableFailure(null);
+    setStatus("Retrying extraction run.");
+    setIsExtracting(true);
+    void (async () => {
+      try {
+        const response = await fetchJson(`/api/profile-evidence/extract/runs/${activeExtractionRunId}/retry`, {
+          method: "POST",
+        });
+        const payload = (await response.json().catch(() => null)) as
+          | { data?: { run?: ExtractionRunSummary }; error?: string; kind?: string }
+          | null;
+        if (!response.ok || !payload?.data?.run) {
+          setError(formatUserFacingFailure(payload?.error ?? "Could not retry extraction run.", payload?.kind));
+          return;
+        }
+        await triggerExtractionRunProcessing(payload.data.run.id);
+        const completedRun = await pollExtractionRun(payload.data.run.id);
+        if (completedRun.status === "completed") {
+          await refreshLibraryAfterMutation();
+          await loadResumeSources();
+          setLastIntakeSummary({
+            evidenceCount: completedRun.result?.evidenceCount ?? 0,
+            projectCount: completedRun.result?.projectCount ?? 0,
+            storyCount: completedRun.result?.storyCount ?? 0,
+            workExperienceCount: completedRun.result?.workExperienceCount ?? 0,
+            sourceTitle: completedRun.result?.sourceTitle ?? (sourceTitle.trim() || "Resume/source"),
+            type: completedRun.result?.type ?? "resume",
+          });
+          setStatus("Library items created from the reviewed resume.");
+          setActiveExtractionRunId(null);
+          setActiveSection("review");
+          return;
+        }
+        const message = formatUserFacingFailure(
+          completedRun.failureMessage ?? "AI extraction failed.",
+          completedRun.failureKind ?? undefined,
+        );
+        if (completedRun.canRetry) {
+          setRetryableFailure({
+            message,
+            retryAfterSeconds: completedRun.retryAfterSeconds ?? undefined,
+            scope: "resume",
+          });
+        }
+        setError(message);
+      } catch (caught) {
+        setError(caught instanceof Error ? formatUserFacingFailure(caught.message) : "Profile evidence extraction failed.");
+      } finally {
+        setIsExtracting(false);
+      }
+    })();
+  }
+
+  async function pollExtractionRun(runId: string) {
+    const startedAt = Date.now();
+    const maxWaitMs = 4 * 60_000;
+    while (Date.now() - startedAt < maxWaitMs) {
+      await sleep(2500);
+      const response = await fetchJson(`/api/profile-evidence/extract/runs/${runId}`);
+      const payload = (await response.json().catch(() => null)) as
+        | { data?: { run?: ExtractionRunSummary }; error?: string; kind?: string }
+        | null;
+      if (!response.ok || !payload?.data?.run) {
+        throw new Error(payload?.error ?? "Could not check extraction run status.");
+      }
+      const run = payload.data.run;
+      setStatus(formatExtractionRunStatus(run.status));
+      if (run.status === "completed" || run.status === "failed") return run;
+    }
+    return {
+      id: runId,
+      status: "failed" as const,
+      failureKind: "worker_timeout",
+      failureMessage: "Extraction is queued or still running. Keep this source and check again after the worker runs.",
+      canRetry: true,
+      retryAfterSeconds: 10,
+    };
+  }
+
+  async function triggerExtractionRunProcessing(runId: string) {
+    setStatus("Processing library items from this source.");
+    const response = await fetchJson(`/api/profile-evidence/extract/runs/${runId}/process`, {
+      method: "POST",
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { data?: { status?: string }; error?: string; kind?: string }
+      | null;
+    if (response.status === 409) {
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(formatUserFacingFailure(payload?.error ?? "Could not process extraction run.", payload?.kind));
+    }
   }
 
   async function importResumeFile(file: File | null) {
@@ -1354,6 +1499,7 @@ export function ProfileEvidenceWorkspace({
 
   function runProjectEnrichment() {
     setError(null);
+    setRetryableFailure(null);
     if (activeProfileGap) {
       void saveProfileFactFromIntake();
       return;
@@ -1381,9 +1527,16 @@ export function ProfileEvidenceWorkspace({
         });
         const payload = (await response.json()) as ExtractionResponse;
         if (!response.ok || "error" in payload) {
+          if ("error" in payload && payload.canRetry) {
+            setRetryableFailure({
+              message: formatUserFacingFailure(payload.error, payload.kind),
+              retryAfterSeconds: payload.retryAfterSeconds,
+              scope: "project",
+            });
+          }
           setError(
             "error" in payload
-              ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
+              ? formatUserFacingFailure(payload.error, payload.kind)
               : "Project evidence enrichment failed.",
           );
           return;
@@ -1427,7 +1580,7 @@ export function ProfileEvidenceWorkspace({
       } catch (caught) {
         setError(
           caught instanceof Error
-            ? caught.message
+            ? formatUserFacingFailure(caught.message)
             : activeProfileGap
               ? "Profile source save failed."
               : "Project evidence enrichment failed.",
@@ -2511,11 +2664,31 @@ export function ProfileEvidenceWorkspace({
                 </span>
               </div>
               <FormStatePill state={sourceFormState} />
+              {retryableFailure?.scope === "resume" ? (
+                <ExtractionFailureRecovery
+                  failure={retryableFailure}
+                  onRetry={retryExtractionRun}
+                  onSaveSourceOnly={() => {
+                    setError(null);
+                    setActiveExtractionRunId(null);
+                    setRetryableFailure(null);
+                    setStatus("Source kept in Add Material. You can retry extraction or split the material later.");
+                    setActiveSection("review");
+                  }}
+                  onSplitMaterial={() => {
+                    setError(null);
+                    setActiveExtractionRunId(null);
+                    setStatus("Split the resume text into a smaller section, then retry Create library items.");
+                    setRetryableFailure(null);
+                    setResumeSourceEditable(true);
+                  }}
+                />
+              ) : null}
               <p className="source-status">{entryGuidance.primaryHint}</p>
               {isExtracting ? (
                 <ProgressNotice
                   elapsedSeconds={extractElapsedSeconds}
-                  label="Adding material to library"
+                  label="Extraction run processing"
                   mode="evidence"
                 />
               ) : null}
@@ -2664,6 +2837,23 @@ export function ProfileEvidenceWorkspace({
                   </span>
                 </div>
                 <FormStatePill state={projectFormState} />
+                {retryableFailure?.scope === "project" ? (
+                  <ExtractionFailureRecovery
+                    failure={retryableFailure}
+                    onRetry={runProjectEnrichment}
+                    onSaveSourceOnly={() => {
+                      setError(null);
+                      setRetryableFailure(null);
+                      setStatus("Source kept in Add Material. You can retry enrichment or split the material later.");
+                      setActiveSection("review");
+                    }}
+                    onSplitMaterial={() => {
+                      setError(null);
+                      setStatus("Split the source text into a smaller section, then retry Add material.");
+                      setRetryableFailure(null);
+                    }}
+                  />
+                ) : null}
                 {isProjectEnriching ? (
                   <ProgressNotice
                     elapsedSeconds={projectElapsedSeconds}
@@ -3632,6 +3822,43 @@ function ProfileFactSourceForm({
         </span>
       </div>
       <FormStatePill state={projectFormState} />
+    </section>
+  );
+}
+
+function ExtractionFailureRecovery({
+  failure,
+  onRetry,
+  onSaveSourceOnly,
+  onSplitMaterial,
+}: {
+  failure: RetryableExtractionFailure;
+  onRetry: () => void;
+  onSaveSourceOnly: () => void;
+  onSplitMaterial: () => void;
+}) {
+  return (
+    <section className="extraction-failure-recovery" aria-live="polite">
+      <div>
+        <strong>{failure.message}</strong>
+        <p>
+          {failure.retryAfterSeconds
+            ? `Wait about ${failure.retryAfterSeconds} seconds, then retry. `
+            : ""}
+          Large sources can time out; retry, split the material, or keep the source for later.
+        </p>
+      </div>
+      <div>
+        <button className="primary-button" type="button" onClick={onRetry}>
+          Retry extraction
+        </button>
+        <button className="secondary-button" type="button" onClick={onSplitMaterial}>
+          Split material
+        </button>
+        <button className="secondary-button" type="button" onClick={onSaveSourceOnly}>
+          Save source only
+        </button>
+      </div>
     </section>
   );
 }
@@ -6298,6 +6525,25 @@ function formatStatus(meta: Extract<ExtractionResponse, { data: unknown }>["meta
   return "Draft created";
 }
 
+function formatExtractionRunStatus(status: ExtractionRunStatus) {
+  const copy: Record<ExtractionRunStatus, string> = {
+    completed: "Library items created.",
+    extracting_evidence: "Extracting evidence from the source.",
+    extracting_profile: "Extracting profile and work history.",
+    failed: "Extraction failed.",
+    parsing: "Preparing source for extraction.",
+    queued: "Extraction run queued.",
+    saving: "Saving library items.",
+    segmenting: "Reading source sections.",
+    validating: "Validating extracted material.",
+  };
+  return copy[status];
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 async function formatLoadError(response: Response, fallback: string) {
   const payload = (await response.json().catch(() => null)) as
     | { error?: string }
@@ -6874,6 +7120,21 @@ function groupEnrichmentTasks(tasks: EnrichmentTaskItem[]) {
     });
   }
   return groups;
+}
+
+function formatUserFacingFailure(message: string, kind?: string) {
+  if (/<(?:!doctype|html|head|body|title|meta)\b/i.test(message)) {
+    return "AI provider request timed out. Please try again in a moment.";
+  }
+  if (/OpenRouter request failed with status 524/i.test(message)) {
+    return "AI provider request timed out. Please try again in a moment.";
+  }
+  if (/provider_5xx/i.test(kind ?? message)) {
+    return "AI provider is temporarily unavailable. Please try again in a moment.";
+  }
+  const normalized = message.replace(/\s+/g, " ").trim();
+  const suffix = kind && !normalized.includes(kind) ? ` (${kind})` : "";
+  return `${normalized.slice(0, 220)}${suffix}`;
 }
 
 function filterEnrichmentTasks(

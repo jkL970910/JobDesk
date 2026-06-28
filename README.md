@@ -46,6 +46,8 @@ you are ready to persist jobs, evidence, resumes, claims, embeddings, interview 
 Set `JOBDESK_SESSION_SECRET` for deployed account sessions; production account
 auth fails closed when this secret is missing. `JOBDESK_ACCESS_TOKEN` is still
 supported as a legacy bearer-token bypass for personal deployments.
+Set `CRON_SECRET` in the deployment environment if you need the manual/admin
+worker trigger. The admin process endpoint fails closed without it.
 
 ## Commands
 
@@ -61,6 +63,7 @@ npm run smoke:full -- --resume-file /path/to/resume.pdf --base-url http://127.0.
 npm run db:generate
 npm run db:migrate
 npm run db:push # disposable local dev only
+npm run worker:profile-extraction:once
 ```
 
 Open the local app at `http://localhost:3000` after `npm run dev`, or pass a different port such as `npm run dev -- -p 3030`.
@@ -68,3 +71,30 @@ Open the local app at `http://localhost:3000` after `npm run dev`, or pass a dif
 Database changes are persisted as Drizzle SQL migrations under `drizzle/`.
 Use `npm run db:migrate` for any database that may contain user data. Reserve
 `npm run db:push` for disposable local development databases only.
+
+## Profile Extraction Processing
+
+Resume Review -> Evidence Library extraction uses persisted async runs. Local
+development can process one pending run with:
+
+```bash
+npm run worker:profile-extraction:once
+```
+
+In the MVP product flow, processing is initiated by user action. When a user
+clicks Create library items, the app creates an extraction run, triggers
+processing for that specific run, and polls that same run until completion or
+failure. Retry is explicit from the UI and re-triggers only that run.
+
+No automatic scheduler is enabled for production MVP. This avoids Evidence
+Library changes appearing later outside the user's tracked progress state.
+
+For admin QA or manual recovery, call the protected process-once endpoint:
+
+```bash
+curl -X POST "$JOBDESK_BASE_URL/api/profile-evidence/extract/runs/process-once" \
+  -H "Authorization: Bearer $CRON_SECRET"
+```
+
+The endpoint processes at most one queued run per request. Cron or a real queue
+can be reconsidered later if JobDesk needs multi-user background processing.

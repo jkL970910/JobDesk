@@ -100,6 +100,20 @@ export const resumeReviewStatusEnum = pgEnum("resume_review_status", [
   "ready",
   "stale",
 ]);
+export const profileEvidenceExtractionRunStatusEnum = pgEnum(
+  "profile_evidence_extraction_run_status",
+  [
+    "queued",
+    "parsing",
+    "segmenting",
+    "extracting_profile",
+    "extracting_evidence",
+    "validating",
+    "saving",
+    "completed",
+    "failed",
+  ],
+);
 export const enrichmentTaskTypeEnum = pgEnum("enrichment_task_type", [
   "metric",
   "scope",
@@ -970,6 +984,62 @@ export const mainResumeVersions = pgTable(
     ),
     refreshSourceIdx: index("main_resume_versions_refresh_source_idx").on(
       table.refreshSourceResumeId,
+    ),
+  }),
+);
+
+export const profileEvidenceExtractionRuns = pgTable(
+  "profile_evidence_extraction_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sourceDocumentId: uuid("source_document_id").references(() => sourceDocuments.id, {
+      onDelete: "set null",
+    }),
+    resumeSourceVersionId: uuid("resume_source_version_id").references(
+      () => resumeSourceVersions.id,
+      { onDelete: "set null" },
+    ),
+    workflowRunId: uuid("workflow_run_id").references(() => workflowRuns.id, {
+      onDelete: "set null",
+    }),
+    sourceType: varchar("source_type", { length: 40 }).notNull(),
+    sourceTitle: varchar("source_title", { length: 240 }).notNull(),
+    sourceTextSnapshot: text("source_text_snapshot"),
+    sourceSnapshotHash: varchar("source_snapshot_hash", { length: 128 }).notNull(),
+    status: profileEvidenceExtractionRunStatusEnum("status").notNull().default("queued"),
+    resultJson: jsonb("result_json").$type<Record<string, unknown>>().notNull().default({}),
+    failureKind: varchar("failure_kind", { length: 80 }),
+    failureMessage: text("failure_message"),
+    canRetry: integer("can_retry").notNull().default(0),
+    retryAfterSeconds: integer("retry_after_seconds"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    lockedBy: varchar("locked_by", { length: 120 }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    statusUpdatedIdx: index("profile_evidence_extraction_runs_status_updated_idx").on(
+      table.status,
+      table.updatedAt,
+    ),
+    workspaceCreatedIdx: index("profile_evidence_extraction_runs_workspace_created_idx").on(
+      table.workspaceId,
+      table.createdAt,
+    ),
+    sourceHashIdx: index("profile_evidence_extraction_runs_source_hash_idx").on(
+      table.workspaceId,
+      table.sourceSnapshotHash,
     ),
   }),
 );

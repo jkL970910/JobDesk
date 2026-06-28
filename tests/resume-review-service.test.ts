@@ -30,4 +30,24 @@ describe("resume review service", () => {
     expect(thin.missingEvidenceQuestions.length).toBeGreaterThan(0);
     expect(thin.weaknesses.join(" ")).toContain("quantified");
   });
+
+  it("returns dimension-specific feedback and evidence questions", () => {
+    const review = buildResumeReviewReport(
+      [
+        "Jane Doe jane@example.com",
+        "Experience",
+        "- Built onboarding dashboard for product teams.",
+        "Projects",
+        "- Launched usage taxonomy migration.",
+        "Skills: SQL, Python",
+      ].join("\n"),
+    );
+
+    const projectDepth = review.rubric.find((item) => item.key === "project_depth");
+
+    expect(projectDepth?.findings.join(" ")).toContain("Project");
+    expect(projectDepth?.evidenceQuestions.join(" ")).toContain("project");
+    expect(projectDepth?.evidenceQuestions.join(" ")).not.toContain("safe to share publicly");
+    expect(projectDepth?.nextAction).toContain("project context");
+  });
 });

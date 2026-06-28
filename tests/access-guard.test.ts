@@ -82,6 +82,22 @@ describe("access guard", () => {
     ).toEqual({ ok: true });
   });
 
+  it("lets the profile extraction worker route enforce its own CRON_SECRET", async () => {
+    const env = {
+      DATABASE_URL: "postgres://example/test",
+      JOBDESK_ACCESS_TOKEN: "legacy-token",
+      JOBDESK_SESSION_SECRET: "test-session-secret",
+      NODE_ENV: "test",
+    } as NodeJS.ProcessEnv;
+
+    expect(
+      await validateRequestAccess(
+        new Request("http://localhost/api/profile-evidence/extract/runs/process-once"),
+        env,
+      ),
+    ).toEqual({ ok: true });
+  });
+
   it("rejects production account sessions when JOBDESK_SESSION_SECRET is missing", async () => {
     const env = {
       DATABASE_URL: "postgres://example/test",

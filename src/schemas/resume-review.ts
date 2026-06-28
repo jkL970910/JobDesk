@@ -93,6 +93,9 @@ const ReviewRubricItem = z.object({
   score: ScoreValue,
   maxScore: ScoreValue.default(100),
   note: z.string().trim().min(1),
+  findings: TrimmedStringArray,
+  evidenceQuestions: TrimmedStringArray,
+  nextAction: z.string().trim().min(1).optional(),
 });
 
 const ReviewRubricItemInput = z.preprocess((value) => {
@@ -100,8 +103,24 @@ const ReviewRubricItemInput = z.preprocess((value) => {
   const record = value as Record<string, unknown>;
   return {
     ...record,
+    evidenceQuestions:
+      record.evidenceQuestions ??
+      record.evidence_questions ??
+      record.evidence_to_add ??
+      record.evidenceToAdd,
+    findings:
+      record.findings ??
+      record.feedback ??
+      record.issues ??
+      record.observations,
     maxScore: record.maxScore ?? record.max_score ?? record.max,
     note: record.note ?? record.rationale ?? record.reason ?? record.feedback,
+    nextAction:
+      record.nextAction ??
+      record.next_action ??
+      record.draftGuidance ??
+      record.draft_guidance ??
+      record.guidance,
   };
 }, ReviewRubricItem);
 

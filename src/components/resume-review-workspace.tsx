@@ -3,6 +3,7 @@
 import { useEffect, useState, type DragEvent, type ReactNode } from "react";
 
 import { useAccess } from "./access-provider";
+import { buildDimensionDetail } from "./resume-review-dimension-detail";
 
 export type ResumeSourceReviewSummary = {
   id: string;
@@ -35,8 +36,11 @@ type ResumeReviewReport = {
   id: string;
   overallScore: number;
   rubric: Array<{
+    evidenceQuestions?: string[];
+    findings?: string[];
     key?: string;
     label?: string;
+    nextAction?: string;
     score?: number;
     maxScore?: number;
     note?: string;
@@ -975,13 +979,17 @@ function ResumeReviewReportCard({
         onCtaClick={primaryCtaAction}
         onSelect={setSelectedDimensionId}
         privacyReviewCount={privacyReviewCount}
+        recommendedActions={recommendedActions}
         resumeTitle={formatResumeTitle(resume.title)}
+        riskFlags={riskFlags}
         selectedDimension={selectedDimension}
         showPrimaryCta={resumeIsExtracted}
         statusLabel={statusLabel}
         sourceControls={sourceControls}
+        strengths={strengths}
         topFixCount={topFixes.length}
         totalScore={review.overallScore}
+        weaknesses={weaknesses}
       />
       {reviewActions.length ? (
         <section className="review-action-list">
@@ -1061,10 +1069,13 @@ type ReviewDimension = {
   label: string;
   maxScore: number;
   note: string;
+  reviewDetail?: ReviewDimensionDetail;
   percent: number;
   score: number;
   status: "strong" | "watch" | "weak";
 };
+
+type ReviewDimensionDetail = ReturnType<typeof buildDimensionDetail>;
 
 type ReviewFindingGroup = {
   items: ReviewFinding[];
@@ -1093,13 +1104,17 @@ function ReviewDimensionWorkbench({
   onCtaClick,
   onSelect,
   privacyReviewCount,
+  recommendedActions,
   resumeTitle,
+  riskFlags,
   selectedDimension,
   showPrimaryCta,
   statusLabel,
   sourceControls,
+  strengths,
   topFixCount,
   totalScore,
+  weaknesses,
 }: {
   activeQuestionCount: number;
   atsIssueCount: number;
@@ -1112,15 +1127,31 @@ function ReviewDimensionWorkbench({
   onCtaClick: () => void;
   onSelect: (id: string) => void;
   privacyReviewCount: number;
+  recommendedActions: string[];
   resumeTitle: string;
+  riskFlags: string[];
   selectedDimension: ReviewDimension;
   showPrimaryCta: boolean;
   statusLabel: string;
   sourceControls?: ReactNode;
+  strengths: string[];
   topFixCount: number;
   totalScore: number;
+  weaknesses: string[];
 }) {
-  const evidencePrompts = missingEvidenceQuestions.slice(0, 3);
+  const dimensionDetail = buildDimensionDetail({
+    dimension: selectedDimension,
+    missingEvidenceQuestions,
+    recommendedActions,
+    riskFlags,
+    strengths,
+    weaknesses,
+  });
+  const selectedDimensionDetail = mergeDimensionDetails(
+    selectedDimension.reviewDetail,
+    dimensionDetail,
+  );
+  const evidencePrompts = selectedDimensionDetail.evidencePrompts;
   const evidenceTaskCount = activeQuestionCount || missingEvidenceQuestions.length;
   return (
     <section className="review-dimension-workbench">
@@ -1197,10 +1228,16 @@ function ReviewDimensionWorkbench({
               <span>Reviewer note</span>
               <p>{selectedDimension.note}</p>
             </div>
-            <div>
-              <span>Draft guidance</span>
-              <p>{dimensionRewriteGuidance(selectedDimension)}</p>
-            </div>
+            {selectedDimensionDetail.findings.length ? (
+              <div>
+                <span>Review feedback</span>
+                <ul>
+                  {selectedDimensionDetail.findings.map((finding) => (
+                    <li key={`${finding.kind}-${finding.text}`}>{finding.text}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <div>
               <span>Evidence to add</span>
               {evidencePrompts.length ? (
@@ -1212,6 +1249,10 @@ function ReviewDimensionWorkbench({
               ) : (
                 <p>Add material only if this dimension needs more metrics, project context, or public-safe wording.</p>
               )}
+            </div>
+            <div className="review-dimension-card__next-step">
+              <span>Suggested next action</span>
+              <p>{selectedDimensionDetail.nextAction}</p>
             </div>
           </div>
           <p className="review-dimension-card__hint">
@@ -1663,6 +1704,7 @@ function buildReviewDimensions(
         maxScore,
         note: item.note?.trim() || "No detailed note was returned for this dimension.",
         percent,
+        reviewDetail: buildRubricItemDetail(item),
         score,
         status: dimensionStatus(percent),
       };
@@ -1670,6 +1712,37 @@ function buildReviewDimensions(
     .filter((dimension) => dimension.label.toLowerCase() !== "review metadata");
   if (dimensions.length) return dimensions;
   return [fallbackReviewDimension(overallScore)];
+}
+
+function buildRubricItemDetail(
+  item: ResumeReviewReport["rubric"][number],
+): ReviewDimensionDetail | undefined {
+  const evidencePrompts = asStringList(item.evidenceQuestions);
+  const findings = asStringList(item.findings).map((text) => ({
+    kind: "weakness" as const,
+    text,
+  }));
+  const nextAction = item.nextAction?.trim() ?? "";
+  if (!evidencePrompts.length && !findings.length && !nextAction) return undefined;
+  return {
+    evidencePrompts,
+    findings,
+    nextAction,
+  };
+}
+
+function mergeDimensionDetails(
+  stored: ReviewDimensionDetail | undefined,
+  fallback: ReviewDimensionDetail,
+): ReviewDimensionDetail {
+  if (!stored) return fallback;
+  return {
+    evidencePrompts: stored.evidencePrompts.length
+      ? stored.evidencePrompts
+      : fallback.evidencePrompts,
+    findings: stored.findings.length ? stored.findings : fallback.findings,
+    nextAction: stored.nextAction || fallback.nextAction,
+  };
 }
 
 function fallbackReviewDimension(overallScore: number): ReviewDimension {
@@ -1680,6 +1753,7 @@ function fallbackReviewDimension(overallScore: number): ReviewDimension {
     maxScore: 100,
     note: "Overall resume readiness based on the available review output.",
     percent,
+    reviewDetail: undefined,
     score: overallScore,
     status: dimensionStatus(percent),
   };

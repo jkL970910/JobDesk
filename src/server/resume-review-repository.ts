@@ -470,11 +470,14 @@ function fromAiReview(args: {
   const report: ResumeReviewReport = {
     overallScore: args.review.score.overall,
     rubric: args.review.rubric.map((item) => ({
+      evidenceQuestions: item.evidenceQuestions,
+      findings: item.findings,
       key: item.key,
       label: item.label,
       score: item.score,
       maxScore: item.maxScore,
       note: item.note,
+      nextAction: item.nextAction,
     })),
     strengths: args.review.strengths,
     weaknesses: args.review.weaknesses,

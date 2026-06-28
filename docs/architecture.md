@@ -125,6 +125,48 @@ Every workflow run is a persisted record (id, user_id, workspace_id, type, statu
 current_step, input/output payload, error). The UI subscribes to step events for
 progress. Approvals are explicit pause points, not background magic.
 
+### 3.1 Profile Evidence Extraction Runs
+
+Resume-to-Evidence Library extraction uses persisted extraction runs instead of
+blocking the browser on one long AI request.
+
+- `POST /api/profile-evidence/extract/runs` creates a run quickly and returns
+  `runId`.
+- `GET /api/profile-evidence/extract/runs/:runId` is polled by the UI.
+- `POST /api/profile-evidence/extract/runs/:runId/retry` requeues retryable
+  failures without requiring another upload.
+- `POST /api/profile-evidence/extract/runs/:runId/process` is called by the UI
+  after create/retry to process that specific user-triggered run.
+- `npm run worker:profile-extraction:once` processes one queued run.
+- `GET` or `POST /api/profile-evidence/extract/runs/process-once` triggers the
+  manual/admin one-run worker behind `Authorization: Bearer $CRON_SECRET`.
+
+Run states are intentionally fine-grained for future chunking:
+`queued`, `parsing`, `segmenting`, `extracting_profile`,
+`extracting_evidence`, `validating`, `saving`, `completed`, `failed`.
+
+Guardrails:
+
+- Production MVP does not enable automatic cron or fallback scheduling. The UI
+  progress bar is the source of truth for the active extraction attempt, and
+  processing starts only from user action or manual/admin trigger.
+- The UI-triggered process route claims only the requested run in the current
+  workspace. It does not drain unrelated queued runs.
+- The admin process-once route fails closed when `CRON_SECRET` is missing and
+  processes at most one queued run per invocation. Keep it for manual QA or
+  recovery; reconsider cron/queue later only if multi-user background processing
+  becomes necessary.
+- API middleware intentionally lets this route reach its handler even when
+  account auth or the legacy access token is configured; the route-level
+  `CRON_SECRET` bearer check is the admin trigger authentication boundary.
+- Runs have `lockedAt`, `lockedBy`, and `attemptCount` so multiple workers or
+  repeated retries do not persist duplicate library items.
+- Stale locked pre-save states can be reclaimed after the stale-lock window.
+  `saving` is intentionally not reclaimed automatically because it is the
+  canonical persistence boundary.
+- Section-based extraction keeps chunk outputs outside canonical Evidence
+  Library and persists only after validation/consolidation.
+
 ---
 
 ## 4. AI Execution: Agents vs Functions vs Code
