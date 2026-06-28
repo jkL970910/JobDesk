@@ -726,8 +726,8 @@ async function buildReviewReport(args: {
       model: "local-rubric",
       confidence: 0.45,
       scopeNote:
-        "Local fallback review used because the AI resume reviewer was unavailable.",
-      tenSecondScan: "Local fallback review does not produce a recruiter scan.",
+        "Quick estimate saved because the full AI resume review was unavailable.",
+      tenSecondScan: "Run the full AI review again for recruiter-style scan feedback.",
       atsNotes: [],
       fairnessCheck: {
         applied: true,

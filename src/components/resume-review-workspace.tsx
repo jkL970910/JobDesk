@@ -1002,6 +1002,7 @@ function ResumeReviewReportCard({
     ? `Review depth ${Math.round((metadata.confidence ?? 0) * 100)}%`
     : "Review depth unavailable";
   const statusLabel = isFallback ? "Quick estimate" : "Review complete";
+  const tenSecondScan = !isFallback ? metadata?.tenSecondScan : "";
   const primaryCtaLabel = resumeIsExtracted
     ? activeQuestionCount > 0
       ? "Review evidence tasks"
@@ -1045,8 +1046,8 @@ function ResumeReviewReportCard({
       {isFallback ? (
         <section className="review-retry-panel">
           <div>
-            <h3>Full review needs another pass.</h3>
-            <p>The resume is saved. Run the full review again.</p>
+            <h3>Full AI review needs another pass.</h3>
+            <p>A quick estimate is saved. Run the full review again for recruiter-style feedback.</p>
           </div>
           <button disabled={retryDisabled} type="button" onClick={onRetry}>
             {retryLabel}
@@ -1061,10 +1062,10 @@ function ResumeReviewReportCard({
           ) : null}
         </section>
       ) : null}
-      {metadata?.tenSecondScan ? (
+      {tenSecondScan ? (
         <section className="review-scan-card">
           <h3>10-second scan</h3>
-          <p>{metadata.tenSecondScan}</p>
+          <p>{tenSecondScan}</p>
         </section>
       ) : null}
       {!resumeIsExtracted ? (
