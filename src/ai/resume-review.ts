@@ -30,19 +30,22 @@ export type ResumeReviewSourceSection = {
 
 const ResumeReviewDimensionSignal = z.object({
   dimension: z.string().trim().min(1),
-  helped: z.array(z.string()).default([]),
-  lowered: z.array(z.string()).default([]),
-  raise_score: z.array(z.string()).default([]),
+  helped: z.preprocess(coerceStringList, z.array(z.string()).default([])),
+  lowered: z.preprocess(coerceStringList, z.array(z.string()).default([])),
+  raise_score: z.preprocess(coerceStringList, z.array(z.string()).default([])),
 });
 
 const ResumeReviewSectionAssessment = z.object({
-  strengths: z.array(z.string()).default([]),
-  weaknesses: z.array(z.string()).default([]),
-  evidence_questions: z.array(z.string()).default([]),
-  ats_notes: z.array(z.string()).default([]),
-  risk_flags: z.array(z.string()).default([]),
-  dimension_signals: z.array(ResumeReviewDimensionSignal).default([]),
-  confidence: z.number().min(0).max(1).default(0.6),
+  strengths: z.preprocess(coerceStringList, z.array(z.string()).default([])),
+  weaknesses: z.preprocess(coerceStringList, z.array(z.string()).default([])),
+  evidence_questions: z.preprocess(coerceStringList, z.array(z.string()).default([])),
+  ats_notes: z.preprocess(coerceStringList, z.array(z.string()).default([])),
+  risk_flags: z.preprocess(coerceStringList, z.array(z.string()).default([])),
+  dimension_signals: z.preprocess(
+    coerceDimensionSignals,
+    z.array(ResumeReviewDimensionSignal).default([]),
+  ),
+  confidence: z.preprocess(coerceConfidence, z.number().min(0).max(1).default(0.6)),
 });
 
 const ResumeReviewScan = z.object({
@@ -67,6 +70,38 @@ const ResumeReviewEvidence = z.object({
 type StagedResumeReviewResult = StructuredJsonResult<ResumeReview> & {
   stageCount: number;
 };
+
+function coerceStringList(value: unknown) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter(Boolean);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  return value;
+}
+
+function coerceDimensionSignals(value: unknown) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") return [value];
+  return value;
+}
+
+function coerceConfidence(value: unknown) {
+  if (typeof value === "number") return value;
+  if (typeof value !== "string") return value;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return value;
+  const numeric = Number(normalized);
+  if (Number.isFinite(numeric)) return numeric > 1 ? numeric / 100 : numeric;
+  if (["high", "strong"].includes(normalized)) return 0.8;
+  if (["medium", "moderate", "mid"].includes(normalized)) return 0.6;
+  if (["low", "weak"].includes(normalized)) return 0.35;
+  return value;
+}
 
 export async function reviewResumeWithAi(params: {
   onStatus?: (stage: "scanning" | "scoring" | "evidence_review") => Promise<void>;

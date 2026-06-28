@@ -474,7 +474,10 @@ export function ResumeReviewWorkspace({
       return processPayload.data;
     }
     if (processPayload?.data?.run) {
-      await refreshReviewRun(processPayload.data.run.id, resumeId);
+      const run = await refreshReviewRun(processPayload.data.run.id, resumeId);
+      if ((run ?? processPayload.data.run).status === "failed") {
+        setError(formatReviewLimitReason((run ?? processPayload.data.run).errorKind ?? "provider_error"));
+      }
       return processPayload.data;
     }
     await loadResumes(resumeId);
@@ -1152,7 +1155,11 @@ function ResumeReviewReportCard({
         <section className="review-retry-panel">
           <div>
             <h3>Full AI review needs another pass.</h3>
-            <p>A quick estimate is saved. Run the full review again for recruiter-style feedback.</p>
+            <p>
+              {reviewRun?.status === "failed"
+                ? `${formatReviewLimitReason(reviewRun.errorKind ?? "provider_error")} The quick estimate is still saved.`
+                : "A quick estimate is saved. Run the full review again for recruiter-style feedback."}
+            </p>
           </div>
           <button disabled={retryDisabled} type="button" onClick={onRetry}>
             {retryLabel}

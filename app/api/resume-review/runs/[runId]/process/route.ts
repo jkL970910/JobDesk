@@ -14,5 +14,12 @@ export async function POST(
       { status: 404 },
     );
   }
+  if (result.status === "failed" && result.run) {
+    console.warn("[resume-review] process failed", {
+      errorKind: result.run.errorKind,
+      runId: result.run.id,
+      stage: result.run.stage,
+    });
+  }
   return NextResponse.json({ data: result });
 }

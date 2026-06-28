@@ -154,6 +154,95 @@ describe("resume review AI instructions", () => {
     ]);
   });
 
+  it("normalizes section assessment shape drift from provider output", async () => {
+    process.env.JOBDESK_OPENROUTER_API_KEY = "test-key";
+    process.env.JOBDESK_PROVIDER_ENABLED = "true";
+
+    const nonSectionTasks: Array<"scan" | "rubric" | "evidence"> = [];
+    const fetchFn = async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        input?: Array<{ content?: string }>;
+        messages?: Array<{ content?: string }>;
+      };
+      const userInput = body.input?.[0]?.content ?? body.messages?.at(-1)?.content ?? "";
+      if (userInput.includes('"section"')) {
+        return jsonResponse({
+          ats_notes: ["Readable section."],
+          confidence: "medium",
+          dimension_signals: {
+            dimension: "readability",
+            helped: "Role and employer are clear.",
+            lowered: "Impact is not front-loaded.",
+            raise_score: "Move strongest metric higher.",
+          },
+          evidence_questions: "Which metric proves the platform result?",
+          risk_flags: [],
+          strengths: "Recent engineering role is clear.",
+          weaknesses: "Impact evidence needs sharper proof.",
+        });
+      }
+      if (!nonSectionTasks.includes("scan")) {
+        nonSectionTasks.push("scan");
+        return jsonResponse({
+          ats_notes: ["Readable but target headline could be stronger."],
+          strengths: ["Recent engineering role is clear."],
+          ten_second_scan: "Recruiter sees a software engineer, but strongest evidence is not yet prominent.",
+          weaknesses: ["Impact evidence needs sharper proof."],
+        });
+      }
+      if (!nonSectionTasks.includes("rubric")) {
+        nonSectionTasks.push("rubric");
+        return jsonResponse({
+          score: {
+            confidence: 0.66,
+            overall: 74,
+            scope_note: "General resume review without a target JD.",
+          },
+          rubric: [
+            {
+              evidenceQuestions: ["Which metric proves the platform result?"],
+              findings: ["Role and employer are clear."],
+              helpedScore: ["Role and employer are clear."],
+              key: "readability",
+              label: "Readability",
+              loweredScore: ["Impact is not front-loaded."],
+              maxScore: 15,
+              nextAction: "Move strongest metric higher.",
+              note: "Readable, but first-scan impact can improve.",
+              raiseScore: ["Move strongest metric higher."],
+              score: 10,
+            },
+          ],
+          suggested_edits: ["Move strongest metric higher."],
+        });
+      }
+      nonSectionTasks.push("evidence");
+      return jsonResponse({
+        fairness_check: {
+          applied: true,
+          note: "No protected or proxy signals were penalized.",
+          signals_not_penalized: [],
+        },
+        missing_evidence_questions: ["Which metric proves the platform result?"],
+        risk_flags: [],
+      });
+    };
+
+    const result = await reviewResumeWithAi({
+      fetchFn,
+      sourceText: [
+        "Jane Doe",
+        "Experience",
+        "Software Engineer, Example Co",
+        "Built platform workflow.",
+      ].join("\n"),
+      sourceTitle: "Jane Doe Resume",
+    });
+
+    expect(result.data.score.overall).toBe(74);
+    expect(result.data.rubric[0]?.helpedScore).toEqual(["Role and employer are clear."]);
+  });
+
   it("documents the staged prompt boundaries", () => {
     expect(buildResumeReviewScanInstructions()).toContain("Stage 1 of 3");
     expect(buildResumeReviewRubricInstructions()).toContain("Stage 2 of 3");
