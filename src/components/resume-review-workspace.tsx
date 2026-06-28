@@ -1228,11 +1228,11 @@ function ReviewDimensionWorkbench({
             </strong>
           </div>
           <div className="review-dimension-card__body">
-            <div>
+            <div className="review-dimension-card__note">
               <span>Reviewer note</span>
               <p>{selectedDimension.note}</p>
             </div>
-            <div>
+            <div className="review-dimension-card__tile review-dimension-card__tile--helped">
               <span>What helped the score</span>
               <ul>
                 {selectedDimensionDetail.helpedScore.map((item) => (
@@ -1240,7 +1240,7 @@ function ReviewDimensionWorkbench({
                 ))}
               </ul>
             </div>
-            <div>
+            <div className="review-dimension-card__tile review-dimension-card__tile--lowered">
               <span>What lowered the score</span>
               <ul>
                 {selectedDimensionDetail.loweredScore.map((item) => (
@@ -1248,7 +1248,7 @@ function ReviewDimensionWorkbench({
                 ))}
               </ul>
             </div>
-            <div>
+            <div className="review-dimension-card__tile review-dimension-card__tile--raise">
               <span>What would raise it</span>
               <ul>
                 {selectedDimensionDetail.wouldRaiseScore.map((item) => (
@@ -1266,7 +1266,7 @@ function ReviewDimensionWorkbench({
                 </ul>
               </div>
             ) : null}
-            <div>
+            <div className="review-dimension-card__evidence">
               <span>Evidence to add</span>
               {evidencePrompts.length ? (
                 <ul>

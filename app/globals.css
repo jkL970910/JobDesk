@@ -3336,15 +3336,47 @@ strong,
 
 .review-dimension-card__body {
   display: grid;
-  gap: 10px;
+  gap: 12px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
 }
 
 .review-dimension-card__body div {
-  background: transparent;
-  border: 0;
-  border-left: 2px solid rgba(79, 140, 255, 0.28);
-  border-radius: 0;
-  padding: 2px 0 2px 10px;
+  background: rgba(255, 255, 255, 0.028);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 12px;
+  grid-column: span 4;
+  padding: 10px 12px;
+}
+
+.review-dimension-card__note,
+.review-dimension-card__next-step {
+  grid-column: 1 / -1;
+}
+
+.review-dimension-card__evidence,
+.review-dimension-card__supporting {
+  grid-column: span 6;
+}
+
+.review-dimension-card__tile--helped {
+  border-color: rgba(125, 223, 179, 0.18);
+}
+
+.review-dimension-card__tile--lowered {
+  border-color: rgba(243, 199, 117, 0.2);
+}
+
+.review-dimension-card__tile--raise {
+  border-color: rgba(79, 140, 255, 0.2);
+}
+
+.review-dimension-card__next-step {
+  align-items: center;
+  background: rgba(79, 140, 255, 0.08);
+  border-color: rgba(79, 140, 255, 0.18);
+  display: grid;
+  gap: 4px;
+  grid-template-columns: minmax(130px, max-content) minmax(0, 1fr);
 }
 
 .review-dimension-card__body span {
@@ -3365,6 +3397,10 @@ strong,
 .review-dimension-card__body p,
 .review-dimension-card__body ul {
   margin: 6px 0 0;
+}
+
+.review-dimension-card__next-step p {
+  margin-top: 0;
 }
 
 .review-dimension-card__hint {
@@ -10674,6 +10710,17 @@ span > .help-hint {
     grid-template-columns: 1fr;
   }
 
+  .review-dimension-card__body div,
+  .review-dimension-card__evidence,
+  .review-dimension-card__supporting {
+    grid-column: span 6;
+  }
+
+  .review-dimension-card__note,
+  .review-dimension-card__next-step {
+    grid-column: 1 / -1;
+  }
+
   .review-switcher {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -11359,7 +11406,6 @@ span > .help-hint {
   padding: 0;
 }
 
-.review-dimension-card__body div,
 .review-finding-card,
 .final-review-checklist li,
 .claim-review-list div {
@@ -11407,8 +11453,21 @@ span > .help-hint {
     grid-template-columns: 1fr;
   }
 
-  .resume-review-report__actions {
-    justify-content: stretch;
+  .review-dimension-card__body div,
+  .review-dimension-card__evidence,
+  .review-dimension-card__supporting,
+  .review-dimension-card__note,
+  .review-dimension-card__next-step {
+    grid-column: 1 / -1;
+  }
+
+  .review-dimension-card__next-step {
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+
+	  .resume-review-report__actions {
+	    justify-content: stretch;
   }
 
   .review-action-list__header,
