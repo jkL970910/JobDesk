@@ -218,6 +218,18 @@ export function ResumeReviewWorkspace({
       | null;
     const run = payload?.data?.run;
     if (!run) return null;
+    if (resumeId) {
+      setResumes((current) =>
+        current.map((resume) =>
+          resume.id === resumeId
+            ? {
+                ...resume,
+                activeReviewRun: run.status === "running" ? run : null,
+              }
+            : resume,
+        ),
+      );
+    }
     if (run.status !== "running") {
       await loadResumes(resumeId);
       if (resumeId) {
@@ -841,7 +853,10 @@ function ResumeReviewProgressNotice({
         stages.length - 1,
       );
   const activeStage = stages[activeIndex]!;
-  const progress = stage ? progressByStage[stage] : Math.min(92, 16 + elapsedSeconds * 2);
+  const progressFromActiveStep = Math.max(14, Math.round(((activeIndex + 0.65) / stages.length) * 100));
+  const progress = stage
+    ? Math.max(progressByStage[stage], progressFromActiveStep)
+    : Math.min(92, 16 + elapsedSeconds * 2);
   return (
     <div className="progress-notice" role="status" aria-live="polite">
       <div className="progress-notice__top">
