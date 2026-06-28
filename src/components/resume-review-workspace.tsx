@@ -298,7 +298,13 @@ export function ResumeReviewWorkspace({
           });
         }
         setSelectedId(payload.data.existingResume.id);
-        setStatus("This exact resume has already been reviewed.");
+        setStatus(
+          payload.data.existingResume.activeReviewRun
+            ? "This exact resume is already uploaded and review is in progress."
+            : payload.data.existingResume.latestReview
+              ? "This exact resume has already been reviewed."
+              : "This exact resume is already uploaded and waiting for review.",
+        );
         await loadResumes(payload.data.existingResume.id);
         await loadEnrichmentTasks(payload.data.existingResume);
         return;
@@ -578,14 +584,16 @@ export function ResumeReviewWorkspace({
         {duplicateResume ? (
           <div className="review-handoff">
             <div>
-              <span>Duplicate resume detected</span>
+              <span>{duplicateResume.activeReviewRun ? "Review already in progress" : "Duplicate resume detected"}</span>
               <p>
-                {formatResumeTitle(duplicateResume.title)} already exists as v{duplicateResume.version}. Use the reviewed version, or upload a changed file as a new version.
+                {duplicateResume.activeReviewRun
+                  ? `${formatResumeTitle(duplicateResume.title)} already exists as v${duplicateResume.version}, and JobDesk is still reviewing it.`
+                  : `${formatResumeTitle(duplicateResume.title)} already exists as v${duplicateResume.version}. Use the saved version, or upload a changed file as a new version.`}
               </p>
             </div>
             <div className="actions actions--compact">
               <button type="button" onClick={() => setSelectedId(duplicateResume.id)}>
-                Review existing
+                {duplicateResume.activeReviewRun ? "View progress" : "Review existing"}
               </button>
               <button
                 className="secondary-button"
@@ -723,11 +731,15 @@ function ResumeReviewSourceControls({
       </div>
       {duplicateResume ? (
         <div className="review-source-card__notice">
-          <span>Duplicate detected</span>
-          <p>{formatResumeTitle(duplicateResume.title)} already exists as v{duplicateResume.version}.</p>
+          <span>{duplicateResume.activeReviewRun ? "Review already in progress" : "Duplicate detected"}</span>
+          <p>
+            {duplicateResume.activeReviewRun
+              ? `${formatResumeTitle(duplicateResume.title)} already exists as v${duplicateResume.version}, and the review is still running.`
+              : `${formatResumeTitle(duplicateResume.title)} already exists as v${duplicateResume.version}.`}
+          </p>
           <div>
             <button type="button" onClick={onReviewExistingDuplicate}>
-              Review existing
+              {duplicateResume.activeReviewRun ? "View progress" : "Review existing"}
             </button>
             <button type="button" onClick={onDismissDuplicate}>
               Dismiss

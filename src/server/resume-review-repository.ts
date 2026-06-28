@@ -13,7 +13,7 @@ import { resolveJobDeskAiConfig } from "../ai/config";
 import { JobDeskAiError } from "../ai/errors";
 import { reviewResumeWithAi } from "../ai/resume-review";
 import { skillRegistry } from "../ai/skills-registry";
-import { buildResumeReviewReport, type ResumeReviewReport } from "./resume-review-service";
+import type { ResumeReviewReport } from "./resume-review-service";
 import type { ResumeReview } from "../schemas/resume-review";
 import type {
   JobDeskAiFailureKind,
@@ -30,6 +30,16 @@ import type { ResumeSourceParseResult } from "./resume-source-parser";
 import { deleteRebuildSourceChunksForSource, indexSourceChunks } from "./source-chunk-service";
 
 type DbHandle = ReturnType<typeof getDb>;
+type ResumeReviewAiAdapter = typeof reviewResumeWithAi;
+
+let resumeReviewAiAdapter: ResumeReviewAiAdapter = reviewResumeWithAi;
+
+export function setResumeReviewAiAdapterForTest(adapter: ResumeReviewAiAdapter) {
+  resumeReviewAiAdapter = adapter;
+  return () => {
+    resumeReviewAiAdapter = reviewResumeWithAi;
+  };
+}
 
 type ResumeReviewBuildResult = {
   report: ResumeReviewReport;
@@ -264,6 +274,21 @@ export async function processResumeReviewRun(runId: string) {
   if (run.status !== "running") {
     return { status: "ready" as const, run: toResumeReviewRunPayload(run) };
   }
+  const claimedRun = await claimResumeReviewRunForProcessing(db, {
+    run,
+    workspaceId: workspace.id,
+  });
+  if (!claimedRun) {
+    const [currentRun] = await db
+      .select()
+      .from(workflowRuns)
+      .where(and(eq(workflowRuns.workspaceId, workspace.id), eq(workflowRuns.id, run.id)))
+      .limit(1);
+    return {
+      status: "ready" as const,
+      run: toResumeReviewRunPayload(currentRun ?? run),
+    };
+  }
   const resumeSourceVersionId = getResumeSourceVersionIdFromWorkflowRun(run);
   if (!resumeSourceVersionId) return { status: "not_found" as const };
 
@@ -274,17 +299,12 @@ export async function processResumeReviewRun(runId: string) {
     .limit(1);
   if (!resume) return { status: "not_found" as const };
 
-  await updateResumeReviewRunStage(db, {
-    run,
-    stage: "reading_source",
-    workspaceId: workspace.id,
-  });
   let review: ResumeReviewBuildResult;
   try {
     review = await buildReviewReport({
       onStatus: (stage) =>
         updateResumeReviewRunStage(db, {
-          run,
+          run: claimedRun,
           stage,
           workspaceId: workspace.id,
         }).then(() => undefined),
@@ -300,7 +320,18 @@ export async function processResumeReviewRun(runId: string) {
     const failedRun = await finishResumeReviewRun(db, {
       errorKind: error instanceof JobDeskAiError ? error.kind : "provider_error",
       errorMessage: error instanceof Error ? error.message : "Unknown provider error.",
-      run,
+      run: claimedRun,
+      status: "failed",
+      workspaceId: workspace.id,
+    });
+    return { status: "failed" as const, run: toResumeReviewRunPayload(failedRun) };
+  }
+  if (review.providerFailureKind) {
+    const failedRun = await finishResumeReviewRun(db, {
+      errorKind: review.providerFailureKind,
+      errorMessage: review.providerFailureMessage,
+      review,
+      run: claimedRun,
       status: "failed",
       workspaceId: workspace.id,
     });
@@ -308,7 +339,7 @@ export async function processResumeReviewRun(runId: string) {
   }
 
   await updateResumeReviewRunStage(db, {
-    run,
+    run: claimedRun,
     stage: "saving",
     workspaceId: workspace.id,
   });
@@ -316,15 +347,15 @@ export async function processResumeReviewRun(runId: string) {
     db,
     resume,
     review,
-    workflowRunId: run.id,
+    workflowRunId: claimedRun.id,
     workspaceId: workspace.id,
   });
   const finishedRun = await finishResumeReviewRun(db, {
-    errorKind: review.providerFailureKind,
-    errorMessage: review.providerFailureMessage,
+    errorKind: null,
+    errorMessage: null,
     review,
-    run,
-    status: review.providerFailureKind ? "failed" : "succeeded",
+    run: claimedRun,
+    status: "succeeded",
     workspaceId: workspace.id,
   });
   return {
@@ -579,6 +610,33 @@ async function createResumeReviewRun(
   return run;
 }
 
+async function claimResumeReviewRunForProcessing(
+  db: Pick<DbHandle, "update">,
+  args: {
+    run: typeof workflowRuns.$inferSelect;
+    workspaceId: string;
+  },
+) {
+  const [claimed] = await db
+    .update(workflowRuns)
+    .set({
+      skillMetadata: {
+        ...args.run.skillMetadata,
+        stage: "reading_source",
+      },
+    })
+    .where(
+      and(
+        eq(workflowRuns.workspaceId, args.workspaceId),
+        eq(workflowRuns.id, args.run.id),
+        eq(workflowRuns.status, "running"),
+        sql`${workflowRuns.skillMetadata}->>'stage' = 'queued'`,
+      ),
+    )
+    .returning();
+  return claimed ?? null;
+}
+
 async function updateResumeReviewRunStage(
   db: Pick<DbHandle, "select" | "update">,
   args: {
@@ -666,9 +724,13 @@ async function findResumeByHash(
     resumeSourceVersionId: existing.id,
     workspaceId: args.workspaceId,
   });
+  const activeRun = await findActiveResumeReviewRun(db, {
+    resumeSourceVersionId: existing.id,
+    workspaceId: args.workspaceId,
+  });
   return {
     status: "duplicate" as const,
-    existingResume: toResumeSummary(existing, latestReport),
+    existingResume: toResumeSummary(existing, latestReport, activeRun ?? undefined),
   };
 }
 
@@ -705,7 +767,7 @@ async function buildReviewReport(args: {
 }): Promise<ResumeReviewBuildResult> {
   const config = resolveJobDeskAiConfig();
   try {
-    const result = await reviewResumeWithAi({
+    const result = await resumeReviewAiAdapter({
       onStatus: args.onStatus,
       sourceText: args.sourceText,
       sourceTitle: args.sourceTitle,
@@ -719,29 +781,11 @@ async function buildReviewReport(args: {
       skill: result.skill,
     });
   } catch (error) {
-    const fallback = buildResumeReviewReport(args.sourceText);
-    return {
-      report: fallback,
-      provider: "deterministic-fallback",
-      model: "local-rubric",
-      confidence: 0.45,
-      scopeNote:
-        "Quick estimate saved because the full AI resume review was unavailable.",
-      tenSecondScan: "Run the full AI review again for recruiter-style scan feedback.",
-      atsNotes: [],
-      fairnessCheck: {
-        applied: true,
-        note: "Fallback rubric does not penalize protected or proxy signals.",
-        signals_not_penalized: [],
-      },
-      providerFailureKind:
-        error instanceof JobDeskAiError ? error.kind : "provider_error",
-      providerFailureMessage:
-        error instanceof Error ? error.message : "Unknown provider error.",
-      retryCount: error instanceof JobDeskAiError ? error.retryCount : 0,
-      usage: {},
-      skill: skillRegistry.resumeReviewGeneral,
-    };
+    if (error instanceof JobDeskAiError) throw error;
+    throw new JobDeskAiError("Resume review provider failed.", {
+      kind: "provider_error",
+      cause: error,
+    });
   }
 }
 
@@ -789,41 +833,6 @@ function fromAiReview(args: {
     usage: args.usage,
     skill: args.skill,
   };
-}
-
-async function createResumeReviewWorkflowRun(
-  db: Pick<DbHandle, "insert">,
-  args: {
-    workspaceId: string;
-    review: ResumeReviewBuildResult;
-    now: Date;
-  },
-) {
-  const [workflowRun] = await db
-    .insert(workflowRuns)
-    .values({
-      workspaceId: args.workspaceId,
-      workflowType: args.review.skill.workflowType,
-      status: args.review.providerFailureKind ? "failed" : "succeeded",
-      provider: args.review.provider,
-      model: args.review.model,
-      ...workflowSkillFields(args.review.skill),
-      inputTokens: args.review.usage.inputTokens ?? null,
-      outputTokens: args.review.usage.outputTokens ?? null,
-      totalTokens: args.review.usage.totalTokens ?? null,
-      retryCount: args.review.retryCount,
-      errorKind: args.review.providerFailureKind,
-      errorMessage: args.review.providerFailureMessage
-        ? sanitizeWorkflowError(args.review.providerFailureMessage)
-        : null,
-      startedAt: args.now,
-      finishedAt: args.now,
-    })
-    .returning({ id: workflowRuns.id });
-  if (!workflowRun) {
-    throw new Error("Failed to create resume review workflow run.");
-  }
-  return workflowRun.id;
 }
 
 export async function markResumeSourceExtracted(resumeSourceVersionId: string) {

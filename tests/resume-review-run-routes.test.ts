@@ -102,6 +102,61 @@ describe("resume review run routes", () => {
     });
   });
 
+  it("returns in-progress review state for duplicate uploads", async () => {
+    mockedParseResumeSourceFile.mockResolvedValueOnce({
+      parseAttempts: [],
+      parseQuality: {
+        charCount: 31,
+        status: "usable",
+        warnings: [],
+        wordCount: 5,
+      },
+      fileSizeBytes: 6,
+      mimeType: "text/plain",
+      originalFilename: "resume.txt",
+      parserName: "jobdesk-source-parser",
+      parserVersion: "document-lifecycle-v1",
+      sourceKind: "text",
+      sourceText: "Jiekun Liu\nBuilt product systems.",
+      sourceTitle: "Jiekun Liu Resume.txt",
+      warnings: [],
+    });
+    mockedCreateResumeSourceVersion.mockResolvedValueOnce({
+      existingResume: buildResumePayload({
+        activeReviewRun: buildReviewRunPayload({ id: "run-existing", stage: "scanning" }),
+        latestReview: null,
+        status: "uploaded",
+      }),
+      status: "duplicate",
+    });
+
+    const formData = new FormData();
+    formData.append("file", new File(["resume"], "resume.txt", { type: "text/plain" }));
+    const response = await uploadPost(
+      new Request("http://localhost/api/resume-review", {
+        body: formData,
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        existingResume: {
+          activeReviewRun: {
+            id: "run-existing",
+            stage: "scanning",
+            status: "running",
+          },
+          latestReview: null,
+          status: "uploaded",
+        },
+        status: "duplicate",
+      },
+    });
+  });
+
+
   it("starts a durable review run from the retry route", async () => {
     mockedStartRun.mockResolvedValueOnce({
       resume: buildResumePayload({ activeReviewRun: buildReviewRunPayload({ id: "run-retry" }) }),
