@@ -25,6 +25,33 @@ export type JobDeskAiUsage = {
   totalTokens?: number | null;
 };
 
+export type JobDeskAiDiagnostics = {
+  task?: string;
+  endpoint?: string;
+  transport?: JobDeskAiConfig["transport"];
+  model?: string;
+  reasoningEffort?: JobDeskReasoningEffort;
+  inputChars?: number;
+  instructionsChars?: number;
+  requestBodyChars?: number;
+  maxOutputTokens?: number;
+  timeoutMs?: number;
+  durationMs?: number;
+  responseChars?: number;
+  outputChars?: number;
+  receivedResponse?: boolean;
+  status?: number | null;
+  retryCount?: number;
+  finalAttempt?: number;
+  failurePhase?:
+    | "fetch"
+    | "http"
+    | "empty_output"
+    | "invalid_json"
+    | "contract_invalid"
+    | "provider_error";
+};
+
 export type JobDeskAiSkillBinding = {
   skillId: string;
   skillVersion: string;
@@ -63,6 +90,7 @@ export type StructuredJsonRequest<TSchema extends z.ZodTypeAny> = {
 
 export type StructuredJsonResult<T> = {
   data: T;
+  diagnostics?: JobDeskAiDiagnostics;
   outputText: string;
   usage: JobDeskAiUsage;
   retryCount: number;

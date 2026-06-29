@@ -527,8 +527,18 @@ async function callResumeReviewStageWithRetry<TSchema extends z.ZodTypeAny>(args
       return { ...result, retryCount: result.retryCount + 1 };
     } catch (retryError) {
       if (isRetryableResumeReviewStageFailure(retryError)) {
+        const retryDiagnostics =
+          retryError instanceof JobDeskAiError ? retryError.diagnostics : null;
         throw new JobDeskAiError(`Resume review stage timed out during ${args.task}.`, {
           kind: retryError instanceof JobDeskAiError ? retryError.kind : "timeout",
+          diagnostics: {
+            ...retryDiagnostics,
+            inputChars: retryDiagnostics?.inputChars ?? args.input.length,
+            instructionsChars: retryDiagnostics?.instructionsChars ?? args.instructions.length,
+            maxOutputTokens: retryDiagnostics?.maxOutputTokens ?? args.maxOutputTokens,
+            retryCount: 1,
+            task: args.task,
+          },
           retryCount: 1,
           cause: retryError,
         });

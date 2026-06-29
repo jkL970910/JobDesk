@@ -234,7 +234,58 @@ describe("OpenRouterResponsesAdapter", () => {
         instructions: "Return JSON.",
         input: "{}",
       }),
-    ).rejects.toBeInstanceOf(JobDeskAiError);
+    ).rejects.toMatchObject({
+      diagnostics: expect.objectContaining({
+        failurePhase: "contract_invalid",
+        outputChars: expect.any(Number),
+        receivedResponse: true,
+        task: "jd-analysis",
+      }),
+      kind: "contract_invalid",
+    });
+  });
+
+  it("records timeout diagnostics before receiving provider output", async () => {
+    const adapter = new OpenRouterResponsesAdapter({
+      config: {
+        providerEnabled: true,
+        apiKey: "test-key",
+        endpoint: "https://openrouter.icu/v1/responses",
+        transport: "responses",
+        model: "gpt-5.5",
+        reasoningEffort: "medium",
+        store: false,
+      },
+      fetchFn: async (_url: string | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("aborted", "AbortError"));
+          });
+        }),
+      maxAttempts: 1,
+    });
+
+    await expect(
+      adapter.callStructuredJson({
+        input: "{\"job_id\":\"job-1\"}",
+        instructions: "Return JSON.",
+        maxOutputTokens: 100,
+        schema: JDAnalysis,
+        skill: skillRegistry.jdAnalysis,
+        task: "jd-analysis",
+        timeoutMs: 1,
+      }),
+    ).rejects.toMatchObject({
+      diagnostics: expect.objectContaining({
+        failurePhase: "fetch",
+        inputChars: 18,
+        maxOutputTokens: 100,
+        receivedResponse: false,
+        task: "jd-analysis",
+        timeoutMs: 1,
+      }),
+      kind: "timeout",
+    });
   });
 
   it("can send OpenRouter chat-completions JSON requests", async () => {

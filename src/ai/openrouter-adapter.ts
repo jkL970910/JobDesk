@@ -8,6 +8,7 @@ import {
 import type {
   FetchLike,
   JobDeskAiConfig,
+  JobDeskAiDiagnostics,
   StructuredJsonRequest,
   StructuredJsonResult,
 } from "./types";
@@ -60,16 +61,27 @@ export class OpenRouterResponsesAdapter {
               status: error.status,
               endpoint: error.endpoint,
               retryCount: attempt - 1,
+              diagnostics: {
+                ...error.diagnostics,
+                finalAttempt: attempt,
+                retryCount: attempt - 1,
+              },
               cause: error.cause,
             });
           }
           throw new JobDeskAiError("OpenRouter request failed.", {
-            kind: "provider_error",
-            endpoint: this.config.endpoint,
+          kind: "provider_error",
+          endpoint: this.config.endpoint,
+          retryCount: attempt - 1,
+          diagnostics: buildBaseDiagnostics({
+            config: this.config,
+            failurePhase: "provider_error",
+            request,
             retryCount: attempt - 1,
-            cause: error,
-          });
-        }
+          }),
+          cause: error,
+        });
+      }
       }
     }
 
@@ -77,6 +89,12 @@ export class OpenRouterResponsesAdapter {
       kind: "provider_error",
       endpoint: this.config.endpoint,
       retryCount: 1,
+      diagnostics: buildBaseDiagnostics({
+        config: this.config,
+        failurePhase: "provider_error",
+        request,
+        retryCount: 1,
+      }),
       cause: lastError,
     });
   }
@@ -85,9 +103,18 @@ export class OpenRouterResponsesAdapter {
     request: StructuredJsonRequest<TSchema>,
   ): Promise<StructuredJsonResult<import("zod").z.infer<TSchema>>> {
     const controller = new AbortController();
+    const timeoutMs = request.timeoutMs ?? this.timeoutMs;
+    const startedAt = Date.now();
+    const requestBody = JSON.stringify(this.buildRequestBody(request));
+    const baseDiagnostics = buildBaseDiagnostics({
+      config: this.config,
+      request,
+      requestBodyChars: requestBody.length,
+      timeoutMs,
+    });
     const timeout = setTimeout(
       () => controller.abort(),
-      request.timeoutMs ?? this.timeoutMs,
+      timeoutMs,
     );
     let response: Response;
     try {
@@ -100,22 +127,54 @@ export class OpenRouterResponsesAdapter {
           "X-Title": "JobDesk",
         },
         signal: controller.signal,
-        body: JSON.stringify(this.buildRequestBody(request)),
+        body: requestBody,
       });
     } catch (error) {
+      const diagnostics = {
+        ...baseDiagnostics,
+        durationMs: Date.now() - startedAt,
+        failurePhase: "fetch" as const,
+        receivedResponse: false,
+      };
       if (error instanceof Error && error.name === "AbortError") {
         throw new JobDeskAiError("OpenRouter request timed out.", {
           kind: "timeout",
           endpoint: this.config.endpoint,
+          diagnostics,
           cause: error,
         });
       }
-      throw error;
+      if (error instanceof JobDeskAiError) {
+        throw new JobDeskAiError(error.message, {
+          kind: error.kind,
+          status: error.status,
+          endpoint: error.endpoint ?? this.config.endpoint,
+          retryCount: error.retryCount,
+          diagnostics: {
+            ...diagnostics,
+            ...error.diagnostics,
+          },
+          cause: error.cause,
+        });
+      }
+      throw new JobDeskAiError("OpenRouter request failed before receiving a response.", {
+        kind: "provider_error",
+        endpoint: this.config.endpoint,
+        diagnostics,
+        cause: error,
+      });
     } finally {
       clearTimeout(timeout);
     }
 
     const responseText = await response.text().catch(() => "");
+    const responseDiagnostics = {
+      ...baseDiagnostics,
+      durationMs: Date.now() - startedAt,
+      receivedResponse: true,
+      responseChars: responseText.length,
+      status: response.status,
+    };
     const payload = responseText ? safeJsonParse(responseText) : {};
     if (!response.ok) {
       throw new JobDeskAiError(
@@ -124,6 +183,10 @@ export class OpenRouterResponsesAdapter {
           kind: classifyHttpFailure(response.status),
           status: response.status,
           endpoint: this.config.endpoint,
+          diagnostics: {
+            ...responseDiagnostics,
+            failurePhase: "http",
+          },
         },
       );
     }
@@ -133,17 +196,59 @@ export class OpenRouterResponsesAdapter {
       throw new JobDeskAiError("OpenRouter response did not include output text.", {
         kind: "empty_output",
         endpoint: this.config.endpoint,
+        diagnostics: {
+          ...responseDiagnostics,
+          failurePhase: "empty_output",
+        },
       });
     }
 
-    const json = parseJsonObject(outputText);
-    return {
-      data: validateStructuredOutput(request.schema, json),
-      outputText,
-      usage: extractUsage(payload),
-      retryCount: 0,
-      skill: request.skill,
-    };
+    let json: unknown;
+    try {
+      json = parseJsonObject(outputText);
+    } catch (error) {
+      if (error instanceof JobDeskAiError) {
+        throw new JobDeskAiError(error.message, {
+          kind: error.kind,
+          endpoint: this.config.endpoint,
+          diagnostics: {
+            ...responseDiagnostics,
+            failurePhase: "invalid_json",
+            outputChars: outputText.length,
+          },
+          cause: error.cause,
+        });
+      }
+      throw error;
+    }
+    try {
+      const data = validateStructuredOutput(request.schema, json);
+      return {
+        data,
+        diagnostics: {
+          ...responseDiagnostics,
+          outputChars: outputText.length,
+        },
+        outputText,
+        usage: extractUsage(payload),
+        retryCount: 0,
+        skill: request.skill,
+      };
+    } catch (error) {
+      if (error instanceof JobDeskAiError) {
+        throw new JobDeskAiError(error.message, {
+          kind: error.kind,
+          endpoint: this.config.endpoint,
+          diagnostics: {
+            ...responseDiagnostics,
+            failurePhase: "contract_invalid",
+            outputChars: outputText.length,
+          },
+          cause: error.cause,
+        });
+      }
+      throw error;
+    }
   }
 
   private buildRequestBody<TSchema extends import("zod").z.ZodTypeAny>(
@@ -182,6 +287,30 @@ export class OpenRouterResponsesAdapter {
       store: this.config.store,
     };
   }
+}
+
+function buildBaseDiagnostics<TSchema extends import("zod").z.ZodTypeAny>(args: {
+  config: JobDeskAiConfig;
+  failurePhase?: JobDeskAiDiagnostics["failurePhase"];
+  request: StructuredJsonRequest<TSchema>;
+  requestBodyChars?: number;
+  retryCount?: number;
+  timeoutMs?: number;
+}): JobDeskAiDiagnostics {
+  return {
+    endpoint: args.config.endpoint,
+    failurePhase: args.failurePhase,
+    inputChars: args.request.input.length,
+    instructionsChars: args.request.instructions.length,
+    maxOutputTokens: args.request.maxOutputTokens,
+    model: args.config.model,
+    reasoningEffort: args.config.reasoningEffort,
+    requestBodyChars: args.requestBodyChars,
+    retryCount: args.retryCount,
+    task: args.request.task,
+    timeoutMs: args.timeoutMs,
+    transport: args.config.transport,
+  };
 }
 
 function safeJsonParse(text: string): Record<string, unknown> {

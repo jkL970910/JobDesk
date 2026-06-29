@@ -31,6 +31,7 @@ import { skillRegistry } from "../ai/skills-registry";
 import type { ResumeReviewReport } from "./resume-review-service";
 import type { ResumeReview } from "../schemas/resume-review";
 import type {
+  JobDeskAiDiagnostics,
   JobDeskAiFailureKind,
   JobDeskAiSkillBinding,
   JobDeskAiUsage,
@@ -410,6 +411,7 @@ export async function processResumeReviewRun(runId: string) {
     const failureKind = error instanceof JobDeskAiError ? error.kind : "provider_error";
     const failureMessage = error instanceof Error ? error.message : "Unknown provider error.";
     await failResumeReviewStep(db, {
+      diagnostics: error instanceof JobDeskAiError ? error.diagnostics : null,
       errorKind: failureKind,
       errorMessage: failureMessage,
       step,
@@ -873,6 +875,7 @@ async function processClaimedResumeReviewStep(args: {
     await completeResumeReviewStep(args.db, {
       resultJson: {
         assessment: assessment.data,
+        diagnostics: sanitizeAiDiagnostics(assessment.diagnostics),
         retryCount: assessment.retryCount,
         usage: assessment.usage,
       },
@@ -907,6 +910,7 @@ async function processClaimedResumeReviewStep(args: {
     await completeResumeReviewStep(args.db, {
       resultJson: {
         scan: scan.data,
+        diagnostics: sanitizeAiDiagnostics(scan.diagnostics),
         retryCount: scan.retryCount,
         usage: scan.usage,
       },
@@ -929,6 +933,7 @@ async function processClaimedResumeReviewStep(args: {
     const rubric = await resumeReviewStepAiAdapter.synthesizeRubric({ synthesisInput });
     await completeResumeReviewStep(args.db, {
       resultJson: {
+        diagnostics: sanitizeAiDiagnostics(rubric.diagnostics),
         retryCount: rubric.retryCount,
         rubric: rubric.data,
         usage: rubric.usage,
@@ -953,6 +958,7 @@ async function processClaimedResumeReviewStep(args: {
     await completeResumeReviewStep(args.db, {
       resultJson: {
         evidence: evidence.data,
+        diagnostics: sanitizeAiDiagnostics(evidence.diagnostics),
         retryCount: evidence.retryCount,
         usage: evidence.usage,
       },
@@ -1051,6 +1057,7 @@ async function failResumeReviewStep(
   args: {
     errorKind: string;
     errorMessage: string;
+    diagnostics?: JobDeskAiDiagnostics | null;
     step: typeof resumeReviewRunSteps.$inferSelect;
     workspaceId: string;
   },
@@ -1064,6 +1071,10 @@ async function failResumeReviewStep(
       lockedAt: null,
       lockedBy: null,
       lockExpiresAt: null,
+      resultJson: {
+        ...args.step.resultJson,
+        diagnostics: sanitizeAiDiagnostics(args.diagnostics),
+      },
       status: "failed",
       updatedAt: now,
     })
@@ -1289,6 +1300,40 @@ function addUsageField(
 ) {
   const value = source[key];
   if (typeof value === "number") usage[key] = (usage[key] ?? 0) + value;
+}
+
+function sanitizeAiDiagnostics(diagnostics?: JobDeskAiDiagnostics | null) {
+  if (!diagnostics) return null;
+  return {
+    durationMs: diagnostics.durationMs,
+    endpoint: sanitizeAiEndpoint(diagnostics.endpoint),
+    failurePhase: diagnostics.failurePhase,
+    finalAttempt: diagnostics.finalAttempt,
+    inputChars: diagnostics.inputChars,
+    instructionsChars: diagnostics.instructionsChars,
+    maxOutputTokens: diagnostics.maxOutputTokens,
+    model: diagnostics.model,
+    outputChars: diagnostics.outputChars,
+    reasoningEffort: diagnostics.reasoningEffort,
+    receivedResponse: diagnostics.receivedResponse,
+    requestBodyChars: diagnostics.requestBodyChars,
+    responseChars: diagnostics.responseChars,
+    retryCount: diagnostics.retryCount,
+    status: diagnostics.status,
+    task: diagnostics.task,
+    timeoutMs: diagnostics.timeoutMs,
+    transport: diagnostics.transport,
+  };
+}
+
+function sanitizeAiEndpoint(endpoint?: string) {
+  if (!endpoint) return undefined;
+  try {
+    const url = new URL(endpoint);
+    return `${url.host}${url.pathname}`;
+  } catch {
+    return "configured-provider";
+  }
 }
 
 async function expireStaleResumeReviewRuns(

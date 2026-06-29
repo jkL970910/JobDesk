@@ -1,10 +1,11 @@
-import type { JobDeskAiFailureKind } from "./types";
+import type { JobDeskAiDiagnostics, JobDeskAiFailureKind } from "./types";
 
 export class JobDeskAiError extends Error {
   readonly kind: JobDeskAiFailureKind;
   readonly status: number | null;
   readonly endpoint: string | null;
   readonly retryCount: number;
+  readonly diagnostics: JobDeskAiDiagnostics | null;
 
   constructor(
     message: string,
@@ -13,6 +14,7 @@ export class JobDeskAiError extends Error {
       status?: number | null;
       endpoint?: string | null;
       retryCount?: number;
+      diagnostics?: JobDeskAiDiagnostics | null;
       cause?: unknown;
     },
   ) {
@@ -22,6 +24,7 @@ export class JobDeskAiError extends Error {
     this.status = options.status ?? null;
     this.endpoint = options.endpoint ?? null;
     this.retryCount = options.retryCount ?? 0;
+    this.diagnostics = options.diagnostics ?? null;
     this.cause = options.cause;
   }
 }
@@ -32,4 +35,3 @@ export function classifyHttpFailure(status: number): JobDeskAiFailureKind {
   if (status >= 400) return "provider_4xx";
   return "provider_error";
 }
-

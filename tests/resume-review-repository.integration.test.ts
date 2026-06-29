@@ -236,7 +236,19 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
       ...buildStepAdapter(),
       assessSection: async () => {
         calls += 1;
-        if (calls === 1) throw new JobDeskAiError("OpenRouter request timed out.", { kind: "timeout" });
+        if (calls === 1) {
+          throw new JobDeskAiError("OpenRouter request timed out.", {
+            diagnostics: {
+              failurePhase: "fetch",
+              inputChars: 240,
+              maxOutputTokens: 620,
+              receivedResponse: false,
+              task: "general-resume-review-section-assessment",
+              timeoutMs: 55_000,
+            },
+            kind: "timeout",
+          });
+        }
         return buildSectionAssessmentResult();
       },
     });
@@ -278,6 +290,15 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
     });
     expect(result.second.status).toBe("ready");
     expect(result.steps.filter((step) => step.stepKind === "segment_source")).toHaveLength(1);
+    const failedStep = result.steps.find((step) => step.stepKind === "assess_section");
+    expect(failedStep?.resultJson).toMatchObject({
+      diagnostics: {
+        failurePhase: "fetch",
+        inputChars: 240,
+        receivedResponse: false,
+        task: "general-resume-review-section-assessment",
+      },
+    });
     expect(result.reports).toHaveLength(0);
   });
 });
