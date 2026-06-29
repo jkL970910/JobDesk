@@ -345,6 +345,90 @@ describe("resume review AI instructions", () => {
     expect(result.data.strengths).toContain("Recent engineering role is visible.");
   });
 
+  it("normalizes evidence synthesis object risk flags from provider output", async () => {
+    process.env.JOBDESK_OPENROUTER_API_KEY = "test-key";
+    process.env.JOBDESK_PROVIDER_ENABLED = "true";
+
+    const nonSectionTasks: Array<"scan" | "rubric" | "evidence"> = [];
+    const fetchFn = async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        input?: Array<{ content?: string }>;
+        messages?: Array<{ content?: string }>;
+      };
+      const userInput = body.input?.[0]?.content ?? body.messages?.at(-1)?.content ?? "";
+      if (userInput.includes('"section"')) {
+        return jsonResponse({
+          ats_notes: [],
+          confidence: 0.7,
+          dimension_signals: [],
+          evidence_questions: ["Which metric proves the project impact?"],
+          risk_flags: [],
+          strengths: ["Project work is visible."],
+          weaknesses: ["Evidence needs a metric."],
+        });
+      }
+      if (!nonSectionTasks.includes("scan")) {
+        nonSectionTasks.push("scan");
+        return jsonResponse({
+          ats_notes: [],
+          strengths: ["Project work is visible."],
+          ten_second_scan: "Recruiter sees project work but not impact scale.",
+          weaknesses: ["Evidence needs a metric."],
+        });
+      }
+      if (!nonSectionTasks.includes("rubric")) {
+        nonSectionTasks.push("rubric");
+        return jsonResponse({
+          score: {
+            confidence: 0.7,
+            overall: 72,
+            scope_note: "General resume review without a target JD.",
+          },
+          rubric: [
+            {
+              evidenceQuestions: ["Which metric proves the project impact?"],
+              findings: ["Project work is visible."],
+              helpedScore: ["Project work is visible."],
+              key: "impact_evidence",
+              label: "Impact evidence",
+              loweredScore: ["Evidence needs a metric."],
+              maxScore: 100,
+              nextAction: "Add a measurable outcome.",
+              note: "Impact is plausible but not quantified.",
+              raiseScore: ["Add a metric."],
+              score: 72,
+            },
+          ],
+          suggested_edits: ["Add a measurable outcome."],
+        });
+      }
+      nonSectionTasks.push("evidence");
+      return jsonResponse({
+        fairness_check: {
+          applied: true,
+          note: "Content was reviewed without penalizing protected or proxy signals.",
+          signals_not_penalized: [],
+        },
+        missing_evidence_questions: ["Which metric proves the project impact?"],
+        risk_flags: [
+          { risk: "Some internal wording needs public-safe context." },
+          { section: "Projects", note: "Project impact is not quantified." },
+        ],
+      });
+    };
+
+    const result = await reviewResumeWithAi({
+      fetchFn,
+      sourceText: "Jane Doe\nProjects\nBuilt platform workflow.",
+      sourceTitle: "Jane Doe Resume",
+    });
+
+    expect(result.data.risk_flags).toEqual([
+      "Some internal wording needs public-safe context.",
+      "Project impact is not quantified.",
+    ]);
+  });
+
   it("ignores dimension signal entries without a dimension name", async () => {
     process.env.JOBDESK_OPENROUTER_API_KEY = "test-key";
     process.env.JOBDESK_PROVIDER_ENABLED = "true";

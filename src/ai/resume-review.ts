@@ -68,7 +68,7 @@ const ResumeReviewRubricDimension = z.object({
 
 const ResumeReviewEvidence = z.object({
   missing_evidence_questions: z.array(z.string()).default([]),
-  risk_flags: z.array(z.string()).default([]),
+  risk_flags: z.preprocess(coerceStringList, z.array(z.string()).default([])),
   fairness_check: ResumeReviewFairnessCheck,
 });
 
