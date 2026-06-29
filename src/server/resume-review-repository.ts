@@ -747,6 +747,7 @@ async function resumeFailedResumeReviewRun(
         ...args.run.skillMetadata,
         stage: getResumeReviewRunStageForStepKind(failedStep.stepKind),
       },
+      startedAt: now,
       status: "running",
     })
     .where(and(eq(workflowRuns.workspaceId, args.workspaceId), eq(workflowRuns.id, args.run.id)))

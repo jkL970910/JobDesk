@@ -288,6 +288,11 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
       },
       status: "created",
     });
+    if (result.first.status === "failed" && result.retryStarted.status === "created") {
+      expect(new Date(result.retryStarted.run.startedAt).getTime()).toBeGreaterThanOrEqual(
+        new Date(result.first.run.finishedAt ?? result.first.run.startedAt).getTime(),
+      );
+    }
     expect(result.second.status).toBe("ready");
     expect(result.steps.filter((step) => step.stepKind === "segment_source")).toHaveLength(1);
     const failedStep = result.steps.find((step) => step.stepKind === "assess_section");
