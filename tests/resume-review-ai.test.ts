@@ -243,6 +243,93 @@ describe("resume review AI instructions", () => {
     expect(result.data.rubric[0]?.helpedScore).toEqual(["Role and employer are clear."]);
   });
 
+  it("ignores dimension signal entries without a dimension name", async () => {
+    process.env.JOBDESK_OPENROUTER_API_KEY = "test-key";
+    process.env.JOBDESK_PROVIDER_ENABLED = "true";
+
+    const nonSectionTasks: Array<"scan" | "rubric" | "evidence"> = [];
+    const fetchFn = async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        input?: Array<{ content?: string }>;
+        messages?: Array<{ content?: string }>;
+      };
+      const userInput = body.input?.[0]?.content ?? body.messages?.at(-1)?.content ?? "";
+      if (userInput.includes('"section"')) {
+        return jsonResponse({
+          ats_notes: ["Readable section."],
+          confidence: 0.7,
+          dimension_signals: {
+            helped: ["The role is clear."],
+            lowered: ["The target headline is missing."],
+            raise_score: ["Add a target headline."],
+          },
+          evidence_questions: ["Which metric proves ownership?"],
+          risk_flags: [],
+          strengths: ["The role is clear."],
+          weaknesses: ["The target headline is missing."],
+        });
+      }
+      if (!nonSectionTasks.includes("scan")) {
+        nonSectionTasks.push("scan");
+        return jsonResponse({
+          ats_notes: ["Readable section."],
+          strengths: ["The role is clear."],
+          ten_second_scan: "Recruiter sees a software engineer profile.",
+          weaknesses: ["The target headline is missing."],
+        });
+      }
+      if (!nonSectionTasks.includes("rubric")) {
+        nonSectionTasks.push("rubric");
+        return jsonResponse({
+          score: {
+            confidence: 0.7,
+            overall: 72,
+            scope_note: "General resume review without a target JD.",
+          },
+          rubric: [
+            {
+              evidenceQuestions: ["Which metric proves ownership?"],
+              findings: ["The target headline is missing."],
+              helpedScore: ["The role is clear."],
+              key: "structure",
+              label: "Structure",
+              loweredScore: ["The target headline is missing."],
+              maxScore: 20,
+              nextAction: "Add a target headline.",
+              note: "Core structure is present.",
+              raiseScore: ["Add a target headline."],
+              score: 14,
+            },
+          ],
+          suggested_edits: ["Add a target headline."],
+        });
+      }
+      nonSectionTasks.push("evidence");
+      return jsonResponse({
+        fairness_check: {
+          applied: true,
+          note: "No protected or proxy signals were penalized.",
+          signals_not_penalized: [],
+        },
+        missing_evidence_questions: ["Which metric proves ownership?"],
+        risk_flags: [],
+      });
+    };
+
+    const result = await reviewResumeWithAi({
+      fetchFn,
+      sourceText: [
+        "Jane Doe",
+        "Experience",
+        "Software Engineer, Example Co",
+      ].join("\n"),
+      sourceTitle: "Jane Doe Resume",
+    });
+
+    expect(result.data.score.overall).toBe(72);
+    expect(result.data.missing_evidence_questions).toEqual(["Which metric proves ownership?"]);
+  });
+
   it("documents the staged prompt boundaries", () => {
     expect(buildResumeReviewScanInstructions()).toContain("Stage 1 of 3");
     expect(buildResumeReviewRubricInstructions()).toContain("Stage 2 of 3");

@@ -85,9 +85,17 @@ function coerceStringList(value: unknown) {
 }
 
 function coerceDimensionSignals(value: unknown) {
-  if (Array.isArray(value)) return value;
-  if (value && typeof value === "object") return [value];
-  return value;
+  const signals = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+      ? [value]
+      : value;
+  if (!Array.isArray(signals)) return signals;
+  return signals.filter((item) => {
+    if (!item || typeof item !== "object") return false;
+    const dimension = (item as { dimension?: unknown }).dimension;
+    return typeof dimension === "string" && dimension.trim().length > 0;
+  });
 }
 
 function coerceConfidence(value: unknown) {
