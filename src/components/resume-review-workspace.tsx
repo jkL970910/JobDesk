@@ -1543,6 +1543,7 @@ function ReviewDimensionWorkbench({
             ) : null}
           </article>
         ) : null}
+        {sourceControls}
       </div>
       <div className="review-dimension-side">
         <article className="review-score-compact">
@@ -1665,7 +1666,6 @@ function ReviewDimensionWorkbench({
             Create library items from this reviewed resume before using these prompts to strengthen evidence.
           </p>
         </article>
-        {sourceControls}
       </div>
     </section>
   );

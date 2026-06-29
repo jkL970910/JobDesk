@@ -3593,6 +3593,19 @@ strong,
   padding: 12px;
 }
 
+.review-dimension-left .review-source-card {
+  gap: 8px;
+  padding: 12px;
+}
+
+.review-dimension-left .review-source-card__top {
+  gap: 8px;
+}
+
+.review-dimension-left .review-source-card__details {
+  margin-top: 0;
+}
+
 .review-side-note div,
 .review-source-card__top {
   align-items: flex-start;
