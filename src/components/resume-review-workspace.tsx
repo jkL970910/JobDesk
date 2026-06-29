@@ -1603,7 +1603,7 @@ function ReviewDimensionWorkbench({
             <div className="review-dimension-card__tile review-dimension-card__tile--helped">
               <span>What helped the score</span>
               <ul>
-                {selectedDimensionDetail.helpedScore.map((item) => (
+                {selectedDimensionDetail.helpedScore.slice(0, 2).map((item) => (
                   <li key={item}>{item}</li>
                 ))}
               </ul>
@@ -1611,7 +1611,7 @@ function ReviewDimensionWorkbench({
             <div className="review-dimension-card__tile review-dimension-card__tile--lowered">
               <span>What lowered the score</span>
               <ul>
-                {selectedDimensionDetail.loweredScore.map((item) => (
+                {selectedDimensionDetail.loweredScore.slice(0, 2).map((item) => (
                   <li key={item}>{item}</li>
                 ))}
               </ul>
@@ -1619,26 +1619,33 @@ function ReviewDimensionWorkbench({
             <div className="review-dimension-card__tile review-dimension-card__tile--raise">
               <span>What would raise it</span>
               <ul>
-                {selectedDimensionDetail.wouldRaiseScore.map((item) => (
+                {selectedDimensionDetail.wouldRaiseScore.slice(0, 2).map((item) => (
                   <li key={item}>{item}</li>
                 ))}
               </ul>
             </div>
             {selectedDimensionDetail.findings.length ? (
-              <div className="review-dimension-card__supporting">
-                <span>Supporting reviewer signals</span>
+              <details className="review-dimension-card__supporting">
+                <summary>
+                  <span>Reviewer signals</span>
+                  <strong>{selectedDimensionDetail.findings.length}</strong>
+                </summary>
                 <ul>
                   {selectedDimensionDetail.findings.map((finding) => (
                     <li key={`${finding.kind}-${finding.text}`}>{finding.text}</li>
                   ))}
                 </ul>
-              </div>
+              </details>
             ) : null}
-            <div
+            <details
               className="review-dimension-card__evidence"
               data-wide={selectedDimensionDetail.findings.length ? "false" : "true"}
+              open={!selectedDimensionDetail.findings.length}
             >
-              <span>Evidence to add</span>
+              <summary>
+                <span>Evidence to add</span>
+                <strong>{evidencePrompts.length || 1}</strong>
+              </summary>
               {evidencePrompts.length ? (
                 <ul>
                   {evidencePrompts.map((prompt) => (
@@ -1648,7 +1655,7 @@ function ReviewDimensionWorkbench({
               ) : (
                 <p>Add material only if this dimension needs more metrics, project context, or public-safe wording.</p>
               )}
-            </div>
+            </details>
           </div>
           <div className="review-dimension-card__next-step">
             <span>Suggested next action</span>

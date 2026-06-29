@@ -3374,7 +3374,7 @@ strong,
 
 .review-dimension-card {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .review-dimension-card[data-state="strong"] {
@@ -3426,20 +3426,28 @@ strong,
 
 .review-dimension-card__body {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   grid-template-columns: repeat(12, minmax(0, 1fr));
 }
 
-.review-dimension-card__body > div {
+.review-dimension-card__body > div,
+.review-dimension-card__body > details {
   background: rgba(255, 255, 255, 0.028);
   border: 1px solid rgba(255, 255, 255, 0.075);
   border-radius: 12px;
   grid-column: span 4;
-  padding: 10px 12px;
+  padding: 10px 11px;
 }
 
 .review-dimension-card__note {
   grid-column: 1 / -1;
+}
+
+.review-dimension-card__note p {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .review-dimension-card__evidence,
@@ -3461,6 +3469,55 @@ strong,
 
 .review-dimension-card__tile--raise {
   border-color: rgba(79, 140, 255, 0.2);
+}
+
+.review-dimension-card__tile ul {
+  display: grid;
+  gap: 5px;
+}
+
+.review-dimension-card__tile li {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.review-dimension-card__supporting,
+.review-dimension-card__evidence {
+  align-content: start;
+  min-height: 0;
+}
+
+.review-dimension-card__supporting summary,
+.review-dimension-card__evidence summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  list-style: none;
+}
+
+.review-dimension-card__supporting summary::-webkit-details-marker,
+.review-dimension-card__evidence summary::-webkit-details-marker {
+  display: none;
+}
+
+.review-dimension-card__supporting summary strong,
+.review-dimension-card__evidence summary strong {
+  align-items: center;
+  background: rgba(79, 140, 255, 0.12);
+  border: 1px solid rgba(79, 140, 255, 0.22);
+  border-radius: 999px;
+  color: var(--primary-strong);
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 900;
+  height: 22px;
+  justify-content: center;
+  min-width: 28px;
+  padding: 0 8px;
 }
 
 .review-dimension-card__next-step {
@@ -3498,6 +3555,17 @@ strong,
 .review-dimension-card__body p,
 .review-dimension-card__body ul {
   margin: 6px 0 0;
+}
+
+.review-dimension-card__body details:not([open]) ul,
+.review-dimension-card__body details:not([open]) p {
+  display: none;
+}
+
+.review-dimension-card__body details[open] ul {
+  max-height: 170px;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .review-dimension-card__next-step p {
