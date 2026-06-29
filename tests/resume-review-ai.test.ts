@@ -364,7 +364,84 @@ describe("resume review AI instructions", () => {
       "projects",
       "skills",
     ]);
-    expect(sections.every((section) => section.text.length <= 3200)).toBe(true);
+    expect(sections.every((section) => section.text.length <= 1600)).toBe(true);
+  });
+
+  it("keeps full resume review moving when a section assessment times out", async () => {
+    process.env.JOBDESK_OPENROUTER_API_KEY = "test-key";
+    process.env.JOBDESK_PROVIDER_ENABLED = "true";
+
+    const nonSectionTasks: Array<"scan" | "rubric" | "evidence"> = [];
+    let sectionCalls = 0;
+    const fetchFn = async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        input?: Array<{ content?: string }>;
+        messages?: Array<{ content?: string }>;
+      };
+      const userInput = body.input?.[0]?.content ?? body.messages?.at(-1)?.content ?? "";
+      if (userInput.includes('"section"')) {
+        sectionCalls += 1;
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        throw error;
+      }
+      if (!nonSectionTasks.includes("scan")) {
+        nonSectionTasks.push("scan");
+        expect(userInput).toContain("needs manual review because this section took too long");
+        return jsonResponse({
+          ats_notes: [],
+          strengths: [],
+          ten_second_scan: "Recruiter sees a resume source, but one section needs manual review.",
+          weaknesses: ["One section needs manual review."],
+        });
+      }
+      if (!nonSectionTasks.includes("rubric")) {
+        nonSectionTasks.push("rubric");
+        return jsonResponse({
+          score: {
+            confidence: 0.45,
+            overall: 62,
+            scope_note: "General resume review with one low-confidence section.",
+          },
+          rubric: [
+            {
+              evidenceQuestions: ["Which details should be reviewed manually?"],
+              findings: ["One section needs manual review."],
+              helpedScore: [],
+              key: "structure",
+              label: "Structure",
+              loweredScore: ["One section needs manual review."],
+              maxScore: 20,
+              nextAction: "Review the source section manually.",
+              note: "Review is partial for one section.",
+              raiseScore: ["Review the timed-out section."],
+              score: 10,
+            },
+          ],
+          suggested_edits: ["Review the timed-out section."],
+        });
+      }
+      nonSectionTasks.push("evidence");
+      return jsonResponse({
+        fairness_check: {
+          applied: true,
+          note: "No protected or proxy signals were penalized.",
+          signals_not_penalized: [],
+        },
+        missing_evidence_questions: ["Which details should be reviewed manually?"],
+        risk_flags: ["One section needs manual review."],
+      });
+    };
+
+    const result = await reviewResumeWithAi({
+      fetchFn,
+      sourceText: ["Jane Doe", "Experience", "Built platform workflow."].join("\n"),
+      sourceTitle: "Jane Doe Resume",
+    });
+
+    expect(sectionCalls).toBe(4);
+    expect(result.data.score.overall).toBe(62);
+    expect(result.retryCount).toBe(2);
   });
 });
 

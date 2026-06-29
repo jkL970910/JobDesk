@@ -67,6 +67,8 @@ const ResumeReviewEvidence = z.object({
   fairness_check: ResumeReviewFairnessCheck,
 });
 
+type ResumeReviewSectionAssessmentData = z.infer<typeof ResumeReviewSectionAssessment>;
+
 type StagedResumeReviewResult = StructuredJsonResult<ResumeReview> & {
   stageCount: number;
 };
@@ -129,16 +131,10 @@ export async function reviewResumeWithAi(params: {
 
   await params.onStatus?.("scanning");
   for (const section of sourceSections) {
-    const assessment = await callResumeReviewStageWithRetry({
+    const assessment = await assessResumeReviewSection({
       adapter,
-      input: JSON.stringify({
-        resume_title: params.sourceTitle,
-        section,
-      }),
-      instructions: buildResumeReviewSectionAssessmentInstructions(),
-      maxOutputTokens: 700,
-      schema: ResumeReviewSectionAssessment,
-      task: "general-resume-review-section-assessment",
+      resumeTitle: params.sourceTitle,
+      section,
     });
     mergeUsage(usage, assessment.usage);
     retryCount += assessment.retryCount;
@@ -226,6 +222,59 @@ export async function reviewResumeWithAi(params: {
     stageCount: 4,
     usage,
   };
+}
+
+async function assessResumeReviewSection(args: {
+  adapter: OpenRouterResponsesAdapter;
+  resumeTitle: string;
+  section: ResumeReviewSourceSection;
+}): Promise<StructuredJsonResult<ResumeReviewSectionAssessmentData>> {
+  try {
+    return await callResumeReviewStageWithRetry({
+      adapter: args.adapter,
+      input: JSON.stringify({
+        resume_title: args.resumeTitle,
+        section: args.section,
+      }),
+      instructions: buildResumeReviewSectionAssessmentInstructions(),
+      maxOutputTokens: 620,
+      schema: ResumeReviewSectionAssessment,
+      task: "general-resume-review-section-assessment",
+    });
+  } catch (error) {
+    if (!(error instanceof JobDeskAiError) || error.kind !== "timeout") throw error;
+    const data = buildTimedOutSectionAssessment(args.section);
+    return {
+      data,
+      outputText: JSON.stringify(data),
+      retryCount: error.retryCount,
+      skill: skillRegistry.resumeReviewGeneral,
+      usage: {},
+    };
+  }
+}
+
+function buildTimedOutSectionAssessment(section: ResumeReviewSourceSection): ResumeReviewSectionAssessmentData {
+  const sectionLabel = section.title || formatResumeReviewSectionKind(section.kind);
+  return {
+    ats_notes: [],
+    confidence: 0.25,
+    dimension_signals: [],
+    evidence_questions: [
+      `${sectionLabel} needs manual review because this section took too long to analyze automatically.`,
+    ],
+    risk_flags: [
+      `${sectionLabel} was preserved as source material, but detailed AI feedback for this section was not completed.`,
+    ],
+    strengths: [],
+    weaknesses: [
+      `${sectionLabel} needs manual review before relying on this review for final resume decisions.`,
+    ],
+  };
+}
+
+function formatResumeReviewSectionKind(kind: ResumeReviewSectionKind) {
+  return kind.replace(/_/g, " ");
 }
 
 export function segmentResumeReviewSource(sourceText: string): ResumeReviewSourceSection[] {
@@ -448,7 +497,7 @@ function pushResumeReviewSection(
 ) {
   const text = section.lines.join("\n").trim();
   if (!text) return;
-  for (const chunk of splitResumeReviewSectionByCharacterCap(text, 3200)) {
+  for (const chunk of splitResumeReviewSectionByCharacterCap(text, 1600)) {
     sections.push({
       id: "",
       kind: section.kind,
