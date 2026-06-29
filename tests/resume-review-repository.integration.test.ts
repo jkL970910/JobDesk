@@ -5,7 +5,9 @@ import { JobDeskAiError } from "../src/ai/errors";
 import { loadDotEnv } from "../src/ai/env";
 import {
   deleteResumeSourceVersion,
+  getResumeReviewRun,
   getResumeSourceVersion,
+  getResumeReviewWorkspace,
   processResumeReviewRun,
   rerunResumeReview,
   setResumeReviewAiAdapterForTest,
@@ -181,6 +183,66 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
     });
     expect(calls).toBe(1);
     expect(result.reports).toHaveLength(1);
+  });
+
+  it("expires stale pre-save review runs so polling and retry can recover", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const owner = await registerUser({
+      email: `resume-stale-run-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected owner user.");
+
+    const result = await runWithAuthContext(owner.user.id, async () => {
+      const resumeId = await createResumeSourceFixture(`Stale Run Resume ${suffix}.txt`);
+      const started = await startResumeReviewRun(resumeId);
+      if (started.status !== "created") throw new Error("Expected review run.");
+      const db = getDb();
+      await db
+        .update(workflowRuns)
+        .set({
+          skillMetadata: {
+            resumeSourceVersionId: resumeId,
+            stage: "scanning",
+            trigger: "user_retry",
+          },
+          startedAt: new Date(Date.now() - 16 * 60 * 1000),
+        })
+        .where(and(eq(workflowRuns.id, started.run.id), eq(workflowRuns.workflowType, skillRegistry.resumeReviewGeneral.workflowType)));
+
+      const polled = await getResumeReviewRun(started.run.id);
+      const restarted = await startResumeReviewRun(resumeId);
+      const workspace = await getResumeReviewWorkspace(5);
+      return { polled, restarted, workspace };
+    });
+
+    expect(result.polled).toMatchObject({
+      run: {
+        errorKind: "timeout",
+        stage: "failed",
+        status: "failed",
+      },
+      status: "ready",
+    });
+    expect(result.restarted).toMatchObject({
+      run: {
+        stage: "queued",
+        status: "running",
+      },
+      status: "created",
+    });
+    expect(result.restarted.status === "created" ? result.restarted.run.id : null).not.toBe(
+      result.polled.status === "ready" ? result.polled.run.id : null,
+    );
+    expect(result.workspace.status).toBe("ready");
+    if (result.workspace.status === "ready") {
+      const staleResume = result.workspace.resumes.find(
+        (resume) => resume.id === (result.restarted.status === "created" ? result.restarted.resume.id : ""),
+      );
+      expect(staleResume?.activeReviewRun?.id).toBe(
+        result.restarted.status === "created" ? result.restarted.run.id : undefined,
+      );
+    }
   });
 });
 

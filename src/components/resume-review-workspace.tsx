@@ -1179,7 +1179,7 @@ function ResumeReviewReportCard({
           <p>{tenSecondScan}</p>
         </section>
       ) : null}
-      {!resumeIsExtracted ? (
+      {!resumeIsExtracted && !reviewRun && !isFallback ? (
         <section className="review-extraction-bridge" aria-live="polite">
           <div>
             <span>Next required step</span>

@@ -67,6 +67,19 @@ type ResumeReviewActiveRun = {
   errorMessage: string | null;
 };
 
+const RESUME_REVIEW_STALE_RUN_MS = 15 * 60 * 1000;
+const RESUME_REVIEW_STALE_ERROR_MESSAGE =
+  "Resume review did not finish within the expected window. Start the full review again.";
+const STALE_RESUME_REVIEW_STAGES = new Set<ResumeReviewActiveRun["stage"]>([
+  "queued",
+  "reading_source",
+  "scanning",
+  "scoring",
+  "evidence_review",
+  "analyzing",
+  "validating",
+]);
+
 export async function getResumeReviewWorkspace(limit = 10) {
   if (!hasDatabaseUrl()) {
     return {
@@ -112,8 +125,12 @@ export async function getResumeReviewWorkspace(limit = 10) {
       latestReportByResumeId.set(report.resumeSourceVersionId, report);
     }
   }
+  const currentActiveRuns = await expireStaleResumeReviewRuns(db, {
+    runs: activeRuns,
+    workspaceId: workspace.id,
+  });
   const activeRunByResumeId = new Map<string, typeof workflowRuns.$inferSelect>();
-  for (const run of activeRuns) {
+  for (const run of currentActiveRuns) {
     const resumeSourceVersionId = getResumeSourceVersionIdFromWorkflowRun(run);
     if (resumeSourceVersionId && !activeRunByResumeId.has(resumeSourceVersionId)) {
       activeRunByResumeId.set(resumeSourceVersionId, run);
@@ -250,7 +267,11 @@ export async function getResumeReviewRun(runId: string) {
   if (!run || getResumeSourceVersionIdFromWorkflowRun(run) == null) {
     return { status: "not_found" as const };
   }
-  return { status: "ready" as const, run: toResumeReviewRunPayload(run) };
+  const currentRun = await expireStaleResumeReviewRun(db, {
+    run,
+    workspaceId: workspace.id,
+  });
+  return { status: "ready" as const, run: toResumeReviewRunPayload(currentRun) };
 }
 
 export async function processResumeReviewRun(runId: string) {
@@ -271,11 +292,18 @@ export async function processResumeReviewRun(runId: string) {
     )
     .limit(1);
   if (!run) return { status: "not_found" as const };
+  const currentRun = await expireStaleResumeReviewRun(db, {
+    run,
+    workspaceId: workspace.id,
+  });
+  if (currentRun.status !== "running") {
+    return { status: "ready" as const, run: toResumeReviewRunPayload(currentRun) };
+  }
   if (run.status !== "running") {
     return { status: "ready" as const, run: toResumeReviewRunPayload(run) };
   }
   const claimedRun = await claimResumeReviewRunForProcessing(db, {
-    run,
+    run: currentRun,
     workspaceId: workspace.id,
   });
   if (!claimedRun) {
@@ -289,7 +317,7 @@ export async function processResumeReviewRun(runId: string) {
       run: toResumeReviewRunPayload(currentRun ?? run),
     };
   }
-  const resumeSourceVersionId = getResumeSourceVersionIdFromWorkflowRun(run);
+  const resumeSourceVersionId = getResumeSourceVersionIdFromWorkflowRun(currentRun);
   if (!resumeSourceVersionId) return { status: "not_found" as const };
 
   const [resume] = await db
@@ -559,7 +587,7 @@ async function persistResumeReviewResult(args: {
 }
 
 async function findActiveResumeReviewRun(
-  db: Pick<DbHandle, "select">,
+  db: Pick<DbHandle, "select" | "update">,
   args: {
     resumeSourceVersionId: string;
     workspaceId: string;
@@ -578,7 +606,12 @@ async function findActiveResumeReviewRun(
     )
     .orderBy(desc(workflowRuns.startedAt))
     .limit(1);
-  return run ?? null;
+  if (!run) return null;
+  const currentRun = await expireStaleResumeReviewRun(db, {
+    run,
+    workspaceId: args.workspaceId,
+  });
+  return currentRun.status === "running" ? currentRun : null;
 }
 
 async function createResumeReviewRun(
@@ -635,6 +668,48 @@ async function claimResumeReviewRunForProcessing(
     )
     .returning();
   return claimed ?? null;
+}
+
+async function expireStaleResumeReviewRuns(
+  db: Pick<DbHandle, "select" | "update">,
+  args: {
+    runs: Array<typeof workflowRuns.$inferSelect>;
+    workspaceId: string;
+  },
+) {
+  const activeRuns: Array<typeof workflowRuns.$inferSelect> = [];
+  for (const run of args.runs) {
+    const currentRun = await expireStaleResumeReviewRun(db, {
+      run,
+      workspaceId: args.workspaceId,
+    });
+    if (currentRun.status === "running") activeRuns.push(currentRun);
+  }
+  return activeRuns;
+}
+
+async function expireStaleResumeReviewRun(
+  db: Pick<DbHandle, "select" | "update">,
+  args: {
+    run: typeof workflowRuns.$inferSelect;
+    workspaceId: string;
+  },
+) {
+  if (!isStaleResumeReviewRun(args.run)) return args.run;
+  return finishResumeReviewRun(db, {
+    errorKind: "timeout",
+    errorMessage: RESUME_REVIEW_STALE_ERROR_MESSAGE,
+    run: args.run,
+    status: "failed",
+    workspaceId: args.workspaceId,
+  });
+}
+
+function isStaleResumeReviewRun(run: typeof workflowRuns.$inferSelect, now = Date.now()) {
+  if (run.status !== "running") return false;
+  const stage = getResumeReviewRunStage(run);
+  if (!STALE_RESUME_REVIEW_STAGES.has(stage)) return false;
+  return now - run.startedAt.getTime() > RESUME_REVIEW_STALE_RUN_MS;
 }
 
 async function updateResumeReviewRunStage(
@@ -703,7 +778,7 @@ async function finishResumeReviewRun(
 }
 
 async function findResumeByHash(
-  db: Pick<DbHandle, "select">,
+  db: Pick<DbHandle, "select" | "update">,
   args: {
     workspaceId: string;
     contentHash: string;
