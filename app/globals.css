@@ -3435,9 +3435,10 @@ strong,
 }
 
 .review-side-note {
-  align-items: center;
-  grid-template-columns: minmax(210px, 0.55fr) minmax(0, 1fr);
-  min-height: 78px;
+  align-content: start;
+  gap: 8px;
+  min-height: 0;
+  padding: 12px;
 }
 
 .review-side-note div,
@@ -3482,25 +3483,6 @@ strong,
 .review-side-note ul {
   margin: 0;
   padding-left: 17px;
-}
-
-.review-side-note ul {
-  grid-column: 1 / -1;
-}
-
-.review-dimension-left .review-source-card {
-  padding: 12px;
-}
-
-.review-dimension-left .review-source-card__top {
-  align-items: start;
-  display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.review-dimension-left .review-source-card__top button {
-  justify-self: start;
 }
 
 .review-source-card button,

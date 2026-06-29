@@ -1094,6 +1094,10 @@ function ResumeReviewReportCard({
   const isFallback = metadata?.provider === "deterministic-fallback";
   const atsNotes = asStringList(metadata?.atsNotes);
   const fairnessSignals = asStringList(metadata?.fairnessCheck?.signals_not_penalized);
+  const fairnessDisplay = formatFairnessDisplay({
+    note: metadata?.fairnessCheck?.note,
+    signals: fairnessSignals,
+  });
   const strengths = asStringList(review.strengths);
   const weaknesses = asStringList(review.weaknesses);
   const missingEvidenceQuestions = asStringList(review.missingEvidenceQuestions);
@@ -1260,8 +1264,9 @@ function ResumeReviewReportCard({
         atsIssueCount={atsIssueCount}
         ctaLabel={primaryCtaLabel}
         dimensions={dimensions}
-        fairnessNote={metadata?.fairnessCheck?.note ?? ""}
-        fairnessSignals={fairnessSignals}
+        fairnessDescription={fairnessDisplay.description}
+        fairnessSignals={fairnessDisplay.signals}
+        fairnessTitle={fairnessDisplay.title}
         confidenceLabel={confidenceLabel}
         missingEvidenceQuestions={missingEvidenceQuestions}
         onCtaClick={primaryCtaAction}
@@ -1386,8 +1391,9 @@ function ReviewDimensionWorkbench({
   ctaLabel,
   confidenceLabel,
   dimensions,
-  fairnessNote,
+  fairnessDescription,
   fairnessSignals,
+  fairnessTitle,
   missingEvidenceQuestions,
   onCtaClick,
   onSelect,
@@ -1409,8 +1415,9 @@ function ReviewDimensionWorkbench({
   ctaLabel: string;
   confidenceLabel: string;
   dimensions: ReviewDimension[];
-  fairnessNote: string;
+  fairnessDescription: string;
   fairnessSignals: string[];
+  fairnessTitle: string;
   missingEvidenceQuestions: string[];
   onCtaClick: () => void;
   onSelect: (id: string) => void;
@@ -1462,7 +1469,22 @@ function ReviewDimensionWorkbench({
             ))}
           </div>
         </div>
-        {sourceControls}
+        {fairnessDescription ? (
+          <article className="review-side-note">
+            <div>
+              <span>Fairness check</span>
+              <strong>{fairnessTitle}</strong>
+            </div>
+            <p>{fairnessDescription}</p>
+            {fairnessSignals.length ? (
+              <ul>
+                {fairnessSignals.slice(0, 3).map((signal) => (
+                  <li key={signal}>{signal}</li>
+                ))}
+              </ul>
+            ) : null}
+          </article>
+        ) : null}
       </div>
       <div className="review-dimension-side">
         <article className="review-score-compact">
@@ -1578,22 +1600,7 @@ function ReviewDimensionWorkbench({
             Create library items from this reviewed resume before using these prompts to strengthen evidence.
           </p>
         </article>
-        {fairnessNote ? (
-          <article className="review-side-note">
-            <div>
-              <span>Fairness check</span>
-              <strong>Reviewed neutrally</strong>
-            </div>
-            <p>{fairnessNote}</p>
-            {fairnessSignals.length ? (
-              <ul>
-                {fairnessSignals.slice(0, 3).map((signal) => (
-                  <li key={signal}>{signal}</li>
-                ))}
-              </ul>
-            ) : null}
-          </article>
-        ) : null}
+        {sourceControls}
       </div>
     </section>
   );
@@ -2456,6 +2463,31 @@ function asStringList(value: unknown): string[] {
   }
   if (typeof value === "string" && value.trim()) return [formatReviewListItem(value)];
   return [];
+}
+
+function formatFairnessDisplay(args: { note?: string; signals: string[] }) {
+  const rawNote = args.note?.trim() ?? "";
+  const normalized = rawNote.toLowerCase();
+  const internalFallbackCopy =
+    normalized.includes("fallback rubric") ||
+    normalized.includes("protected or proxy signals") ||
+    normalized.includes("penalize protected");
+  const description = internalFallbackCopy
+    ? "This review focuses on resume clarity, evidence, and presentation. It does not lower the score for personal background signals such as career gaps, education path, location, or other identity-related context."
+    : rawNote;
+  const signals = args.signals
+    .map((signal) =>
+      signal
+        .replace(/\bprotected\b/gi, "personal background")
+        .replace(/\bproxy signals?\b/gi, "indirect personal signals")
+        .trim(),
+    )
+    .filter(Boolean);
+  return {
+    description,
+    signals,
+    title: "Scored on resume content",
+  };
 }
 
 function formatReviewListItem(item: unknown): string {
