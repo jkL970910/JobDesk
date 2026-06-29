@@ -1473,9 +1473,19 @@ function ReviewDimensionWorkbench({
           <article className="review-side-note">
             <div>
               <span>Fairness check</span>
-              <strong>{fairnessTitle}</strong>
+              <strong>
+                {fairnessTitle}
+                <span
+                  aria-label={`Fairness check details: ${fairnessDescription}`}
+                  className="review-side-note__help"
+                  role="button"
+                  tabIndex={0}
+                >
+                  ?
+                  <small>{fairnessDescription}</small>
+                </span>
+              </strong>
             </div>
-            <p>{fairnessDescription}</p>
             {fairnessSignals.length ? (
               <ul>
                 {fairnessSignals.slice(0, 3).map((signal) => (
@@ -2486,7 +2496,7 @@ function formatFairnessDisplay(args: { note?: string; signals: string[] }) {
   return {
     description,
     signals,
-    title: "Scored on resume content",
+    title: "Content-only scoring",
   };
 }
 
