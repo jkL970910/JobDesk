@@ -3,8 +3,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   buildResumeReviewEvidenceInstructions,
   buildResumeReviewInstructions,
+  buildResumeReviewRubricDimensionInstructions,
   buildResumeReviewRubricInstructions,
   buildResumeReviewScanInstructions,
+  consolidateResumeReviewRubricDimensions,
+  RESUME_REVIEW_RUBRIC_DIMENSIONS,
   reviewResumeWithAi,
   resolveResumeReviewStageTimeoutMs,
   segmentResumeReviewSource,
@@ -432,7 +435,35 @@ describe("resume review AI instructions", () => {
   it("documents the staged prompt boundaries", () => {
     expect(buildResumeReviewScanInstructions()).toContain("Stage 1 of 3");
     expect(buildResumeReviewRubricInstructions()).toContain("Stage 2 of 3");
+    expect(buildResumeReviewRubricDimensionInstructions(RESUME_REVIEW_RUBRIC_DIMENSIONS[0]!)).toContain(
+      "score exactly one resume review dimension",
+    );
     expect(buildResumeReviewEvidenceInstructions()).toContain("Stage 3 of 3");
+  });
+
+  it("consolidates persisted rubric dimension outputs with conservative score calibration", () => {
+    const rubric = consolidateResumeReviewRubricDimensions({
+      dimensions: RESUME_REVIEW_RUBRIC_DIMENSIONS.map((dimension, index) => ({
+        rubric_item: {
+          evidenceQuestions: index === 0 ? ["Which metric proves the strongest impact?"] : [],
+          findings: [`${dimension.label} finding`],
+          helpedScore: [`${dimension.label} helped`],
+          key: dimension.key,
+          label: dimension.label,
+          loweredScore: index === 0 ? ["Impact metric is missing."] : [],
+          maxScore: 100,
+          nextAction: `Improve ${dimension.label}`,
+          note: `${dimension.label} note`,
+          raiseScore: index === 0 ? ["Add a metric."] : [],
+          score: 96,
+        },
+        suggested_edits: [`Improve ${dimension.label}`],
+      })),
+    });
+
+    expect(rubric.rubric).toHaveLength(RESUME_REVIEW_RUBRIC_DIMENSIONS.length);
+    expect(rubric.score.overall).toBe(88);
+    expect(rubric.suggested_edits[0]).toContain("Improve");
   });
 
   it("segments resume review source into bounded review sections", () => {

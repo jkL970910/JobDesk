@@ -16,13 +16,17 @@ import {
   assessResumeReviewSectionWithAi,
   buildResumeReviewSynthesisInput,
   composeResumeReviewFromStages,
+  consolidateResumeReviewRubricDimensions,
+  RESUME_REVIEW_RUBRIC_DIMENSIONS,
   reviewResumeWithAi,
   segmentResumeReviewSource,
   synthesizeResumeReviewEvidenceWithAi,
+  synthesizeResumeReviewRubricDimensionWithAi,
   synthesizeResumeReviewRubricWithAi,
   synthesizeResumeReviewScanWithAi,
   type ResumeReviewEvidenceData,
   type ResumeReviewRubricData,
+  type ResumeReviewRubricDimensionData,
   type ResumeReviewScanData,
   type ResumeReviewSectionAssessmentData,
   type ResumeReviewSourceSection,
@@ -51,6 +55,7 @@ type ResumeReviewStepAiAdapter = {
   assessSection: typeof assessResumeReviewSectionWithAi;
   synthesizeEvidence: typeof synthesizeResumeReviewEvidenceWithAi;
   synthesizeRubric: typeof synthesizeResumeReviewRubricWithAi;
+  synthesizeRubricDimension: typeof synthesizeResumeReviewRubricDimensionWithAi;
   synthesizeScan: typeof synthesizeResumeReviewScanWithAi;
 };
 
@@ -59,6 +64,7 @@ let resumeReviewStepAiAdapter: ResumeReviewStepAiAdapter = {
   assessSection: assessResumeReviewSectionWithAi,
   synthesizeEvidence: synthesizeResumeReviewEvidenceWithAi,
   synthesizeRubric: synthesizeResumeReviewRubricWithAi,
+  synthesizeRubricDimension: synthesizeResumeReviewRubricDimensionWithAi,
   synthesizeScan: synthesizeResumeReviewScanWithAi,
 };
 
@@ -79,6 +85,7 @@ export function setResumeReviewStepAiAdapterForTest(adapter: Partial<ResumeRevie
       assessSection: assessResumeReviewSectionWithAi,
       synthesizeEvidence: synthesizeResumeReviewEvidenceWithAi,
       synthesizeRubric: synthesizeResumeReviewRubricWithAi,
+      synthesizeRubricDimension: synthesizeResumeReviewRubricDimensionWithAi,
       synthesizeScan: synthesizeResumeReviewScanWithAi,
     };
   };
@@ -122,6 +129,7 @@ type ResumeReviewStepKind =
   | "assess_section"
   | "synthesize_scan"
   | "synthesize_rubric"
+  | "synthesize_rubric_dimension"
   | "synthesize_evidence"
   | "save_report";
 
@@ -703,7 +711,7 @@ async function hasRetryableResumeReviewStep(
 }
 
 async function resumeFailedResumeReviewRun(
-  db: Pick<DbHandle, "select" | "update">,
+  db: Pick<DbHandle, "insert" | "select" | "update">,
   args: {
     run: typeof workflowRuns.$inferSelect;
     workspaceId: string;
@@ -724,6 +732,17 @@ async function resumeFailedResumeReviewRun(
     .orderBy(resumeReviewRunSteps.sequence)
     .limit(1);
   if (!failedStep) return args.run;
+
+  let resumeStageStepKind = failedStep.stepKind;
+  if (failedStep.stepKind === "synthesize_rubric") {
+    resumeStageStepKind = "synthesize_rubric_dimension";
+    await replaceLegacyFailedRubricStepWithDimensionSteps(db, {
+      failedStep,
+      now,
+      run: args.run,
+      workspaceId: args.workspaceId,
+    });
+  }
 
   await db
     .update(resumeReviewRunSteps)
@@ -752,7 +771,7 @@ async function resumeFailedResumeReviewRun(
       finishedAt: null,
       skillMetadata: {
         ...args.run.skillMetadata,
-        stage: getResumeReviewRunStageForStepKind(failedStep.stepKind),
+        stage: getResumeReviewRunStageForStepKind(resumeStageStepKind),
       },
       startedAt: now,
       status: "running",
@@ -760,6 +779,73 @@ async function resumeFailedResumeReviewRun(
     .where(and(eq(workflowRuns.workspaceId, args.workspaceId), eq(workflowRuns.id, args.run.id)))
     .returning();
   return updatedRun ?? args.run;
+}
+
+async function replaceLegacyFailedRubricStepWithDimensionSteps(
+  db: Pick<DbHandle, "insert" | "update">,
+  args: {
+    failedStep: typeof resumeReviewRunSteps.$inferSelect;
+    now: Date;
+    run: typeof workflowRuns.$inferSelect;
+    workspaceId: string;
+  },
+) {
+  await db
+    .update(resumeReviewRunSteps)
+    .set({
+      failureKind: null,
+      failureMessage: null,
+      lockedAt: null,
+      lockedBy: null,
+      lockExpiresAt: null,
+      status: "completed",
+      resultJson: {
+        migratedToDimensionSteps: true,
+      },
+      updatedAt: args.now,
+    })
+    .where(
+      and(
+        eq(resumeReviewRunSteps.workspaceId, args.workspaceId),
+        eq(resumeReviewRunSteps.id, args.failedStep.id),
+      ),
+    );
+  await db
+    .update(resumeReviewRunSteps)
+    .set({
+      sequence: sql`CASE
+        WHEN ${resumeReviewRunSteps.stepKind} = 'synthesize_evidence' THEN 10200
+        WHEN ${resumeReviewRunSteps.stepKind} = 'save_report' THEN 10300
+        ELSE ${resumeReviewRunSteps.sequence}
+      END`,
+      updatedAt: args.now,
+    })
+    .where(
+      and(
+        eq(resumeReviewRunSteps.workspaceId, args.workspaceId),
+        eq(resumeReviewRunSteps.workflowRunId, args.run.id),
+        sql`${resumeReviewRunSteps.stepKind} IN ('synthesize_evidence', 'save_report')`,
+      ),
+    );
+  await db
+    .insert(resumeReviewRunSteps)
+    .values(
+      RESUME_REVIEW_RUBRIC_DIMENSIONS.map((dimension, index) => ({
+        workspaceId: args.workspaceId,
+        workflowRunId: args.run.id,
+        resumeSourceVersionId: args.failedStep.resumeSourceVersionId,
+        stepKey: `synthesize-rubric-${dimension.key}`,
+        stepKind: "synthesize_rubric_dimension",
+        sequence: 10_100 + index,
+        title: `Score ${dimension.label}`,
+        inputJson: { dimension },
+        resultJson: {},
+        status: "pending" as const,
+        createdAt: args.now,
+        updatedAt: args.now,
+      })),
+    )
+    .onConflictDoNothing();
 }
 
 async function ensureResumeReviewRunSteps(
@@ -953,6 +1039,34 @@ async function processClaimedResumeReviewStep(args: {
         retryCount: rubric.retryCount,
         rubric: rubric.data,
         usage: rubric.usage,
+      },
+      step: args.step,
+      workspaceId: args.workspaceId,
+    });
+    return resumeReviewStepResponse(args.db, {
+      hasMoreWork: true,
+      run: args.run,
+      workspaceId: args.workspaceId,
+    });
+  }
+
+  if (stepKind === "synthesize_rubric_dimension") {
+    await updateResumeReviewRunStage(args.db, {
+      run: args.run,
+      stage: "scoring",
+      workspaceId: args.workspaceId,
+    });
+    const dimension = parseStepInput<(typeof RESUME_REVIEW_RUBRIC_DIMENSIONS)[number]>(args.step.inputJson, "dimension");
+    const rubricDimension = await resumeReviewStepAiAdapter.synthesizeRubricDimension({
+      dimension,
+      synthesisInput,
+    });
+    await completeResumeReviewStep(args.db, {
+      resultJson: {
+        diagnostics: sanitizeAiDiagnostics(rubricDimension.diagnostics),
+        dimension: rubricDimension.data,
+        retryCount: rubricDimension.retryCount,
+        usage: rubricDimension.usage,
       },
       step: args.step,
       workspaceId: args.workspaceId,
@@ -1165,9 +1279,15 @@ async function ensureSynthesisStepsIfSectionsComplete(
   const now = new Date();
   const synthesisSteps = [
     { key: "synthesize-scan", kind: "synthesize_scan", sequence: 10_000, title: "Synthesize recruiter scan" },
-    { key: "synthesize-rubric", kind: "synthesize_rubric", sequence: 10_001, title: "Score review dimensions" },
-    { key: "synthesize-evidence", kind: "synthesize_evidence", sequence: 10_002, title: "Review evidence and fairness" },
-    { key: "save-report", kind: "save_report", sequence: 10_003, title: "Save final review" },
+    ...RESUME_REVIEW_RUBRIC_DIMENSIONS.map((dimension, index) => ({
+      dimension,
+      key: `synthesize-rubric-${dimension.key}`,
+      kind: "synthesize_rubric_dimension",
+      sequence: 10_100 + index,
+      title: `Score ${dimension.label}`,
+    })),
+    { key: "synthesize-evidence", kind: "synthesize_evidence", sequence: 10_200, title: "Review evidence and fairness" },
+    { key: "save-report", kind: "save_report", sequence: 10_300, title: "Save final review" },
   ];
   await db
     .insert(resumeReviewRunSteps)
@@ -1180,7 +1300,7 @@ async function ensureSynthesisStepsIfSectionsComplete(
         stepKind: step.kind,
         sequence: step.sequence,
         title: step.title,
-        inputJson: {},
+        inputJson: "dimension" in step ? { dimension: step.dimension } : {},
         resultJson: {},
         status: "pending" as const,
         createdAt: now,
@@ -1234,7 +1354,7 @@ async function buildReviewFromCompletedSteps(
     .where(and(eq(resumeReviewRunSteps.workspaceId, args.workspaceId), eq(resumeReviewRunSteps.workflowRunId, args.run.id)))
     .orderBy(resumeReviewRunSteps.sequence);
   const scanStep = findCompletedStepResult<ResumeReviewScanData>(steps, "synthesize_scan", "scan");
-  const rubricStep = findCompletedStepResult<ResumeReviewRubricData>(steps, "synthesize_rubric", "rubric");
+  const rubricStep = buildRubricFromCompletedSteps(steps);
   const evidenceStep = findCompletedStepResult<ResumeReviewEvidenceData>(steps, "synthesize_evidence", "evidence");
   const review = composeResumeReviewFromStages({
     evidence: evidenceStep,
@@ -1250,6 +1370,24 @@ async function buildReviewFromCompletedSteps(
     usage: sumStepUsage(steps),
     skill: skillRegistry.resumeReviewGeneral,
   });
+}
+
+function buildRubricFromCompletedSteps(steps: Array<typeof resumeReviewRunSteps.$inferSelect>): ResumeReviewRubricData {
+  const legacyRubric = steps.find(
+    (candidate) => candidate.stepKind === "synthesize_rubric" && candidate.status === "completed" && candidate.resultJson.rubric,
+  );
+  if (legacyRubric) return parseStepInput<ResumeReviewRubricData>(legacyRubric.resultJson, "rubric");
+
+  const dimensionSteps = steps
+    .filter((candidate) => candidate.stepKind === "synthesize_rubric_dimension")
+    .sort((left, right) => left.sequence - right.sequence);
+  if (dimensionSteps.length === 0) throw new Error("Missing completed resume review step: synthesize_rubric");
+  const incomplete = dimensionSteps.find((step) => step.status !== "completed");
+  if (incomplete) throw new Error(`Missing completed resume review step: ${incomplete.stepKey}`);
+  const dimensions = dimensionSteps.map((step) =>
+    parseStepInput<ResumeReviewRubricDimensionData>(step.resultJson, "dimension"),
+  );
+  return consolidateResumeReviewRubricDimensions({ dimensions });
 }
 
 function findCompletedStepResult<T>(
@@ -1411,7 +1549,11 @@ function isStaleResumeReviewRun(run: typeof workflowRuns.$inferSelect, now = Dat
 function getResumeReviewRunStageForStepKind(stepKind: string): ResumeReviewActiveRun["stage"] {
   if (stepKind === "segment_source") return "reading_source";
   if (stepKind === "assess_section") return "scanning";
-  if (stepKind === "synthesize_scan" || stepKind === "synthesize_rubric") return "scoring";
+  if (
+    stepKind === "synthesize_scan" ||
+    stepKind === "synthesize_rubric" ||
+    stepKind === "synthesize_rubric_dimension"
+  ) return "scoring";
   if (stepKind === "synthesize_evidence") return "evidence_review";
   if (stepKind === "save_report") return "validating";
   return "queued";

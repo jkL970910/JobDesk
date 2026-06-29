@@ -61,6 +61,11 @@ const ResumeReviewRubric = z.object({
   suggested_edits: z.array(z.string()).default([]),
 });
 
+const ResumeReviewRubricDimension = z.object({
+  rubric_item: ReviewRubricItemInput,
+  suggested_edits: z.array(z.string()).default([]),
+});
+
 const ResumeReviewEvidence = z.object({
   missing_evidence_questions: z.array(z.string()).default([]),
   risk_flags: z.array(z.string()).default([]),
@@ -70,6 +75,7 @@ const ResumeReviewEvidence = z.object({
 export type ResumeReviewSectionAssessmentData = z.infer<typeof ResumeReviewSectionAssessment>;
 export type ResumeReviewScanData = z.infer<typeof ResumeReviewScan>;
 export type ResumeReviewRubricData = z.infer<typeof ResumeReviewRubric>;
+export type ResumeReviewRubricDimensionData = z.infer<typeof ResumeReviewRubricDimension>;
 export type ResumeReviewEvidenceData = z.infer<typeof ResumeReviewEvidence>;
 
 type StagedResumeReviewResult = StructuredJsonResult<ResumeReview> & {
@@ -305,6 +311,24 @@ export async function synthesizeResumeReviewRubricWithAi(args: {
   });
 }
 
+export async function synthesizeResumeReviewRubricDimensionWithAi(args: {
+  adapter?: OpenRouterResponsesAdapter;
+  dimension: ResumeReviewRubricDimensionSpec;
+  synthesisInput: string;
+}) {
+  return callResumeReviewStageWithRetry({
+    adapter: args.adapter ?? createResumeReviewAiAdapter(),
+    input: JSON.stringify({
+      dimension: args.dimension,
+      review_context: JSON.parse(args.synthesisInput),
+    }),
+    instructions: buildResumeReviewRubricDimensionInstructions(args.dimension),
+    maxOutputTokens: 650,
+    schema: ResumeReviewRubricDimension,
+    task: `general-resume-review-rubric-${args.dimension.key}`,
+  });
+}
+
 export async function synthesizeResumeReviewEvidenceWithAi(args: {
   adapter?: OpenRouterResponsesAdapter;
   synthesisInput: string;
@@ -316,6 +340,68 @@ export async function synthesizeResumeReviewEvidenceWithAi(args: {
     maxOutputTokens: 700,
     schema: ResumeReviewEvidence,
     task: "general-resume-review-evidence",
+  });
+}
+
+export type ResumeReviewRubricDimensionSpec = {
+  key: string;
+  label: string;
+  focus: string;
+};
+
+export const RESUME_REVIEW_RUBRIC_DIMENSIONS: ResumeReviewRubricDimensionSpec[] = [
+  {
+    key: "structure_readability",
+    label: "Structure and readability",
+    focus: "section order, first-scan clarity, target headline clarity, ATS-readable structure, and recruiter scan speed",
+  },
+  {
+    key: "impact_evidence",
+    label: "Impact evidence",
+    focus: "quantified outcomes, ownership scope, business/user impact, concrete evidence, and measurable claims",
+  },
+  {
+    key: "project_depth",
+    label: "Project depth",
+    focus: "depth of projects, implementation specificity, role in delivery, technical decisions, and story completeness",
+  },
+  {
+    key: "resume_evidence_signals",
+    label: "Resume evidence signals",
+    focus: "signals that can be extracted into reusable evidence, missing proof questions, and material-library readiness",
+  },
+  {
+    key: "ats_fairness_context",
+    label: "ATS and fairness context",
+    focus: "ATS keyword/format concerns, neutral fairness handling, public-safe wording risks, and non-penalized protected/proxy signals",
+  },
+];
+
+export function consolidateResumeReviewRubricDimensions(args: {
+  dimensions: ResumeReviewRubricDimensionData[];
+}) {
+  const rubric = args.dimensions.map((dimension) => dimension.rubric_item);
+  const suggestedEdits = [...new Set(args.dimensions.flatMap((dimension) => dimension.suggested_edits))].slice(0, 8);
+  const average =
+    rubric.length > 0
+      ? Math.round(rubric.reduce((sum, item) => sum + item.score, 0) / rubric.length)
+      : 70;
+  const hasMaterialGaps = rubric.some(
+    (item) =>
+      item.loweredScore.length > 0 ||
+      item.evidenceQuestions.length > 0 ||
+      item.raiseScore.length > 0,
+  );
+  const overall = hasMaterialGaps ? Math.min(average, 88) : Math.min(average, 95);
+  const confidence = rubric.length >= RESUME_REVIEW_RUBRIC_DIMENSIONS.length ? 0.78 : 0.62;
+  return ResumeReviewRubric.parse({
+    rubric,
+    score: {
+      confidence,
+      overall,
+      scope_note: "General resume review without a target JD.",
+    },
+    suggested_edits: suggestedEdits,
   });
 }
 
@@ -487,6 +573,24 @@ export function buildResumeReviewRubricInstructions() {
     "Do not put privacy/public-safe questions under project depth unless the project itself contains sensitive wording.",
     "Calibrate strictly: 100 means no meaningful improvement opportunities were found, which should be extremely rare. Scores above 90 require exceptional quantified impact, clear scope, strong readability, and strong evidence depth. Most good resumes should land around 70-88; thin or vague resumes should be lower.",
     "If the resume has any missing metrics, vague responsibilities, unclear project ownership, weak ATS readability, or missing evidence questions, do not return 100 overall and do not give every rubric item full marks.",
+  ]);
+}
+
+export function buildResumeReviewRubricDimensionInstructions(dimension: ResumeReviewRubricDimensionSpec) {
+  return composeSkillPrompt(skillRegistry.resumeReviewGeneral, [
+    "You are JobDesk's HR Screening Reviewer using the skills/hr-screening-review methodology, adapted for a general uploaded resume.",
+    "Rubric dimension stage: score exactly one resume review dimension. Review only; do not rewrite the resume.",
+    "Use only the resume manifest and section assessments supplied by JobDesk. Do not require raw resume text in this stage.",
+    "This is a general resume review with no target JD. Do not produce a JD match score.",
+    `Dimension key: ${dimension.key}.`,
+    `Dimension label: ${dimension.label}.`,
+    `Dimension focus: ${dimension.focus}.`,
+    "Return exactly one rubric_item for this dimension and optional suggested_edits.",
+    "rubric_item must include key, label, score 0-100, maxScore 100, note, findings, helpedScore, loweredScore, evidenceQuestions, nextAction, and raiseScore.",
+    "helpedScore must explain what supported the score; loweredScore must explain deductions; evidenceQuestions must be specific to this dimension.",
+    "Calibrate strictly: scores above 90 require exceptional evidence for this dimension. If gaps/questions remain, do not give full marks.",
+    "Do not put privacy/public-safe questions under project depth unless the project itself contains sensitive wording.",
+    "Return only JSON with keys: rubric_item, suggested_edits.",
   ]);
 }
 

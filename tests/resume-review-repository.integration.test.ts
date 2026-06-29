@@ -314,22 +314,22 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
     let rubricCalls = 0;
     restoreAiAdapter = setResumeReviewStepAiAdapterForTest({
       ...buildStepAdapter(),
-      synthesizeRubric: async () => {
+      synthesizeRubricDimension: async ({ dimension }) => {
         rubricCalls += 1;
         if (rubricCalls === 1) {
           throw new JobDeskAiError("OpenRouter request timed out.", {
             diagnostics: {
               failurePhase: "fetch",
               inputChars: 17_778,
-              maxOutputTokens: 1500,
+              maxOutputTokens: 650,
               receivedResponse: false,
-              task: "general-resume-review-rubric",
+              task: `general-resume-review-rubric-${dimension.key}`,
               timeoutMs: 120_000,
             },
             kind: "timeout",
           });
         }
-        return buildStepAdapter().synthesizeRubric();
+        return buildRubricDimensionResult(dimension);
       },
     });
 
@@ -364,8 +364,8 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
       },
       status: "failed",
     });
-    const failedRubric = result.steps.find((step) => step.stepKind === "synthesize_rubric");
-    expect(failedRubric).toMatchObject({
+    const retriedRubricDimension = result.steps.find((step) => step.stepKind === "synthesize_rubric_dimension");
+    expect(retriedRubricDimension).toMatchObject({
       attemptCount: 2,
       status: "completed",
     });
@@ -380,6 +380,7 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
       hasMoreWork: true,
       status: "ready",
     });
+    expect(result.steps.filter((step) => step.stepKind === "synthesize_rubric_dimension")).toHaveLength(5);
     const saveStep = result.steps.find((step) => step.stepKind === "save_report");
     expect(saveStep).toMatchObject({
       attemptCount: 0,
@@ -473,6 +474,8 @@ function buildStepAdapter() {
       skill: skillRegistry.resumeReviewGeneral,
       usage: {},
     }),
+    synthesizeRubricDimension: async ({ dimension }: { dimension: { key: string; label: string } }) =>
+      buildRubricDimensionResult(dimension),
     synthesizeScan: async () => ({
       data: {
         ats_notes: ["Readable section structure."],
@@ -485,6 +488,31 @@ function buildStepAdapter() {
       skill: skillRegistry.resumeReviewGeneral,
       usage: {},
     }),
+  };
+}
+
+function buildRubricDimensionResult(dimension: { key: string; label: string }) {
+  return {
+    data: {
+      rubric_item: {
+        evidenceQuestions: ["Which metric proves the dashboard impact?"],
+        findings: ["Concrete dashboard work is visible."],
+        helpedScore: ["Specific technical work is present."],
+        key: dimension.key,
+        label: dimension.label,
+        loweredScore: ["Impact metric is not explicit."],
+        maxScore: 100,
+        nextAction: "Add one measurable outcome.",
+        note: "Evidence is present but not fully quantified.",
+        raiseScore: ["Add scope and impact metric."],
+        score: 76,
+      },
+      suggested_edits: ["Add one measurable outcome."],
+    },
+    outputText: "{}",
+    retryCount: 0,
+    skill: skillRegistry.resumeReviewGeneral,
+    usage: {},
   };
 }
 
