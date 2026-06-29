@@ -1233,12 +1233,16 @@ strong,
 
 .app-content[data-view="dashboard"] .app-content__body,
 .app-content[data-view="profile"] .app-content__body {
+  align-content: start;
+  align-items: start;
   gap: 0;
-  min-height: calc(100dvh - var(--app-topbar-space) - 104px);
+  min-height: 0;
   padding-top: 0;
 }
 
 .dashboard-figma-shell {
+  align-content: start;
+  align-items: start;
   gap: 0;
   grid-template-rows: auto auto;
   min-height: 0;
