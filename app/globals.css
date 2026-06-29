@@ -3482,9 +3482,8 @@ strong,
 .review-dimension-card__section {
   border-top: 1px solid rgba(255, 255, 255, 0.075);
   display: grid;
-  gap: 7px;
+  gap: 9px;
   grid-column: 1 / -1;
-  grid-template-columns: minmax(138px, 0.22fr) minmax(0, 1fr);
   padding-top: 14px;
 }
 
@@ -11743,12 +11742,8 @@ span > .help-hint {
     grid-column: 1 / -1;
   }
 
-  .review-dimension-card__section {
-    grid-template-columns: 1fr;
-  }
-
-	  .resume-review-report__actions {
-	    justify-content: stretch;
+  .resume-review-report__actions {
+    justify-content: stretch;
   }
 
   .review-action-list__header,
