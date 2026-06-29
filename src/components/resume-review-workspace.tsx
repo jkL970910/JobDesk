@@ -1594,7 +1594,7 @@ function ReviewDimensionWorkbench({
             </strong>
             <em>{selectedDimensionDetail.scoreLabel}</em>
             <div className="review-dimension-card__rail-action">
-              <span>Next action</span>
+              <span>Review suggestion</span>
               <p>{selectedDimensionDetail.nextAction}</p>
             </div>
           </aside>
