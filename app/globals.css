@@ -3107,7 +3107,7 @@ strong,
 }
 
 .review-dimension-workbench {
-  align-items: start;
+  align-items: stretch;
   display: grid;
   gap: 16px;
   grid-template-columns: minmax(300px, 0.72fr) minmax(0, 1.28fr);
@@ -3133,6 +3133,8 @@ strong,
 .review-dimension-side {
   display: grid;
   gap: 12px;
+  grid-template-rows: auto 1fr;
+  min-height: 100%;
 }
 
 .review-score-compact {
@@ -3376,6 +3378,7 @@ strong,
   display: grid;
   gap: 18px;
   grid-template-columns: minmax(160px, 0.25fr) minmax(0, 1fr);
+  min-height: 100%;
   padding: 18px;
 }
 
@@ -3462,10 +3465,12 @@ strong,
 .review-dimension-card__content {
   display: grid;
   gap: 16px;
+  grid-template-rows: auto 1fr;
   min-width: 0;
 }
 
 .review-dimension-card__body {
+  align-content: start;
   display: grid;
   gap: 14px;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -3530,9 +3535,9 @@ strong,
 .review-dimension-card__evidence summary {
   align-items: center;
   cursor: pointer;
-  display: flex;
+  display: grid;
   gap: 10px;
-  justify-content: space-between;
+  grid-template-columns: minmax(0, 1fr) auto;
   list-style: none;
 }
 
@@ -3555,6 +3560,7 @@ strong,
   justify-content: center;
   min-width: 28px;
   padding: 0 8px;
+  place-self: start end;
 }
 
 .review-dimension-card__body span {
