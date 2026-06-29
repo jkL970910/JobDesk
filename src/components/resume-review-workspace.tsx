@@ -1298,13 +1298,6 @@ function ResumeReviewReportCard({
             <button className="primary-button" type="button" onClick={onContinueToEvidence}>
               Create library items
             </button>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => setActiveDetailTab("summary")}
-            >
-              View review details
-            </button>
           </div>
           <ol aria-label="Resume evidence workflow">
             <li data-state="complete">Reviewed resume</li>
