@@ -243,6 +243,90 @@ describe("resume review AI instructions", () => {
     expect(result.data.rubric[0]?.helpedScore).toEqual(["Role and employer are clear."]);
   });
 
+  it("normalizes scan synthesis object drift from provider output", async () => {
+    process.env.JOBDESK_OPENROUTER_API_KEY = "test-key";
+    process.env.JOBDESK_PROVIDER_ENABLED = "true";
+
+    const nonSectionTasks: Array<"scan" | "rubric" | "evidence"> = [];
+    const fetchFn = async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        input?: Array<{ content?: string }>;
+        messages?: Array<{ content?: string }>;
+      };
+      const userInput = body.input?.[0]?.content ?? body.messages?.at(-1)?.content ?? "";
+      if (userInput.includes('"section"')) {
+        return jsonResponse({
+          ats_notes: [],
+          confidence: 0.7,
+          dimension_signals: [],
+          evidence_questions: [],
+          risk_flags: [],
+          strengths: ["Source section is readable."],
+          weaknesses: [],
+        });
+      }
+      if (!nonSectionTasks.includes("scan")) {
+        nonSectionTasks.push("scan");
+        return jsonResponse({
+          ats_notes: { note: "Readable section labels." },
+          strengths: { summary: "Recent engineering role is visible." },
+          ten_second_scan: {
+            recruiter_view: "Recruiter sees engineering experience, but impact is not front-loaded.",
+          },
+          weaknesses: {
+            first_scan: "Highest-impact evidence is not prominent enough.",
+          },
+        });
+      }
+      if (!nonSectionTasks.includes("rubric")) {
+        nonSectionTasks.push("rubric");
+        return jsonResponse({
+          score: {
+            confidence: 0.7,
+            overall: 74,
+            scope_note: "General resume review without a target JD.",
+          },
+          rubric: [
+            {
+              evidenceQuestions: ["Which metric proves the platform result?"],
+              findings: ["Role is visible."],
+              helpedScore: ["Role is visible."],
+              key: "readability",
+              label: "Readability",
+              loweredScore: ["Impact is not front-loaded."],
+              maxScore: 100,
+              nextAction: "Move strongest metric higher.",
+              note: "Readable, but first-scan impact can improve.",
+              raiseScore: ["Move strongest metric higher."],
+              score: 74,
+            },
+          ],
+          suggested_edits: ["Move strongest metric higher."],
+        });
+      }
+      nonSectionTasks.push("evidence");
+      return jsonResponse({
+        fairness_check: {
+          applied: true,
+          note: "No protected or proxy signals were penalized.",
+          signals_not_penalized: [],
+        },
+        missing_evidence_questions: ["Which metric proves the platform result?"],
+        risk_flags: [],
+      });
+    };
+
+    const result = await reviewResumeWithAi({
+      fetchFn,
+      sourceText: "Jane Doe\nExperience\nBuilt platform workflow used by 3 teams.",
+      sourceTitle: "Jane Doe Resume",
+    });
+
+    expect(result.data.ten_second_scan).toContain("Recruiter sees engineering experience");
+    expect(result.data.weaknesses).toContain("Highest-impact evidence is not prominent enough.");
+    expect(result.data.strengths).toContain("Recent engineering role is visible.");
+  });
+
   it("ignores dimension signal entries without a dimension name", async () => {
     process.env.JOBDESK_OPENROUTER_API_KEY = "test-key";
     process.env.JOBDESK_PROVIDER_ENABLED = "true";

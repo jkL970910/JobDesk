@@ -49,10 +49,10 @@ const ResumeReviewSectionAssessment = z.object({
 });
 
 const ResumeReviewScan = z.object({
-  strengths: z.array(z.string()).default([]),
-  weaknesses: z.array(z.string()).default([]),
-  ten_second_scan: z.string().trim().min(1),
-  ats_notes: z.array(z.string()).default([]),
+  strengths: z.preprocess(coerceStringList, z.array(z.string()).default([])),
+  weaknesses: z.preprocess(coerceStringList, z.array(z.string()).default([])),
+  ten_second_scan: z.preprocess(coerceTextValue, z.string().trim().min(1)),
+  ats_notes: z.preprocess(coerceStringList, z.array(z.string()).default([])),
 });
 
 const ResumeReviewRubric = z.object({
@@ -79,14 +79,41 @@ type StagedResumeReviewResult = StructuredJsonResult<ResumeReview> & {
 function coerceStringList(value: unknown) {
   if (Array.isArray(value)) {
     return value
-      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .map((item) => coerceTextValue(item))
       .filter(Boolean);
   }
   if (typeof value === "string") {
     const trimmed = value.trim();
     return trimmed ? [trimmed] : [];
   }
+  if (value && typeof value === "object") {
+    return Object.values(value)
+      .flatMap((item) => (Array.isArray(item) ? item : [item]))
+      .map((item) => coerceTextValue(item))
+      .filter(Boolean);
+  }
   return value;
+}
+
+function coerceTextValue(value: unknown) {
+  if (typeof value === "string") return value.trim();
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  const preferred =
+    record.summary ??
+    record.text ??
+    record.note ??
+    record.value ??
+    record.recruiter_view ??
+    record.recruiterView ??
+    record.finding ??
+    record.answer;
+  if (typeof preferred === "string" && preferred.trim()) return preferred.trim();
+  const values = Object.values(record)
+    .flatMap((item) => (Array.isArray(item) ? item : [item]))
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .map((item) => item.trim());
+  return values.join(" ").trim();
 }
 
 function coerceDimensionSignals(value: unknown) {
