@@ -1495,6 +1495,7 @@ function ReviewDimensionWorkbench({
     dimensionDetail,
   );
   const evidencePrompts = selectedDimensionDetail.evidencePrompts;
+  const reviewerSignals = selectedDimensionDetail.findings;
   const evidenceTaskCount = activeQuestionCount || missingEvidenceQuestions.length;
   return (
     <section className="review-dimension-workbench">
@@ -1586,18 +1587,20 @@ function ReviewDimensionWorkbench({
           </div>
         </article>
         <article className="review-dimension-card" data-state={selectedDimension.status}>
-          <aside className="review-dimension-card__rail" aria-label={`${selectedDimension.label} score`}>
-            <p className="panel-kicker">Selected dimension</p>
-            <strong>
-              {selectedDimension.score}
-              <span>/{selectedDimension.maxScore}</span>
-            </strong>
-            <em>{selectedDimensionDetail.scoreLabel}</em>
-            <div className="review-dimension-card__rail-action">
-              <span>Review suggestion</span>
+          <div className="review-dimension-card__summary" aria-label={`${selectedDimension.label} score summary`}>
+            <div className="review-dimension-card__score">
+              <span>Selected dimension</span>
+              <strong>
+                {selectedDimension.score}
+                <small>/{selectedDimension.maxScore}</small>
+              </strong>
+              <em>{selectedDimensionDetail.scoreLabel}</em>
+            </div>
+            <div className="review-dimension-card__suggestion">
+              <span>Score guidance</span>
               <p>{selectedDimensionDetail.nextAction}</p>
             </div>
-          </aside>
+          </div>
           <div className="review-dimension-card__content">
             <div className="review-dimension-card__top">
               <div>
@@ -1622,28 +1625,32 @@ function ReviewDimensionWorkbench({
                 <span>What would raise it</span>
                 <p>{selectedDimensionDetail.wouldRaiseScore.join(" ")}</p>
               </section>
-              {selectedDimensionDetail.findings.length ? (
-                <details className="review-dimension-card__supporting">
-                  <summary>
-                    <span>Reviewer signals</span>
-                    <strong>{selectedDimensionDetail.findings.length}</strong>
-                  </summary>
+              <section className="review-dimension-card__supporting">
+                <div className="review-dimension-card__mini-head">
+                  <div>
+                    <span>Why JobDesk judged this</span>
+                    <p>Signals from this review that explain the score. These are not Work Queue tasks.</p>
+                  </div>
+                  <strong>{reviewerSignals.length}</strong>
+                </div>
+                {reviewerSignals.length ? (
                   <ul>
-                    {selectedDimensionDetail.findings.map((finding) => (
+                    {reviewerSignals.map((finding) => (
                       <li key={`${finding.kind}-${finding.text}`}>{finding.text}</li>
                     ))}
                   </ul>
-                </details>
-              ) : null}
-              <details
-                className="review-dimension-card__evidence"
-                data-wide={selectedDimensionDetail.findings.length ? "false" : "true"}
-                open={!selectedDimensionDetail.findings.length}
-              >
-                <summary>
-                  <span>Evidence to add</span>
-                  <strong>{evidencePrompts.length || 1}</strong>
-                </summary>
+                ) : (
+                  <p>No extra reviewer signals were returned for this dimension.</p>
+                )}
+              </section>
+              <section className="review-dimension-card__evidence">
+                <div className="review-dimension-card__mini-head">
+                  <div>
+                    <span>Evidence questions</span>
+                    <p>Questions that can become enrichment work when they appear in the Work Queue.</p>
+                  </div>
+                  <strong>{evidencePrompts.length}</strong>
+                </div>
                 {evidencePrompts.length ? (
                   <ul>
                     {evidencePrompts.map((prompt) => (
@@ -1651,9 +1658,9 @@ function ReviewDimensionWorkbench({
                     ))}
                   </ul>
                 ) : (
-                  <p>Add material only if this dimension needs more metrics, project context, or public-safe wording.</p>
+                  <p>No dimension-specific evidence question was returned. Use the page-level workflow action for the next step.</p>
                 )}
-              </details>
+              </section>
             </div>
           </div>
         </article>
