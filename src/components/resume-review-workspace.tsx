@@ -168,18 +168,42 @@ export function ResumeReviewWorkspace({
       setReviewRunElapsedSeconds(0);
       return;
     }
+    let cancelled = false;
+    let pumpInFlight = false;
     const startedAt = new Date(selectedActiveReviewRun.startedAt).getTime();
     const updateElapsed = () => {
       setReviewRunElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    };
+    const pumpActiveRun = async () => {
+      if (cancelled || pumpInFlight || !selectedResume?.id) return;
+      pumpInFlight = true;
+      try {
+        const result = await processOneReviewStep({
+          fallbackError: "Could not continue resume review.",
+          resumeId: selectedResume.id,
+          runId: selectedActiveReviewRun.id,
+        });
+        if (!cancelled && result?.run?.status !== "running") {
+          await loadResumes(selectedResume.id);
+        }
+      } finally {
+        pumpInFlight = false;
+      }
     };
     updateElapsed();
     const elapsedTimer = window.setInterval(updateElapsed, 1000);
     const pollTimer = window.setInterval(() => {
       void refreshReviewRun(selectedActiveReviewRun.id, selectedResume?.id);
     }, 2000);
+    const pumpTimer = window.setInterval(() => {
+      void pumpActiveRun();
+    }, 2600);
+    void pumpActiveRun();
     return () => {
+      cancelled = true;
       window.clearInterval(elapsedTimer);
       window.clearInterval(pollTimer);
+      window.clearInterval(pumpTimer);
     };
   }, [selectedActiveReviewRun?.id, selectedActiveReviewRun?.startedAt, selectedResume?.id]);
 
@@ -462,33 +486,47 @@ export function ResumeReviewWorkspace({
   }) {
     let latestPayload: ResumeReviewMutationPayload["data"] | null = null;
     for (let stepIndex = 0; stepIndex < 80; stepIndex += 1) {
-      const processResponse = await fetchJson(`/api/resume-review/runs/${runId}/process`, {
-        method: "POST",
-      });
-      const processPayload = (await processResponse.json().catch(() => null)) as ResumeReviewMutationPayload | null;
-      if (!processResponse.ok) {
-        setError(formatResumeReviewPayloadError(processResponse, processPayload, fallbackError));
-        await loadResumes(resumeId);
-        return null;
-      }
-      latestPayload = processPayload?.data ?? null;
+      latestPayload = await processOneReviewStep({ fallbackError, resumeId, runId });
+      if (!latestPayload) return null;
       if (latestPayload?.resume) {
         await loadResumes(latestPayload.resume.id);
         await loadEnrichmentTasks(latestPayload.resume);
         return latestPayload;
       }
-      if (latestPayload?.run) {
-        const run = await refreshReviewRun(latestPayload.run.id, resumeId);
-        if ((run ?? latestPayload.run).status === "failed") {
-          setError(formatReviewLimitReason((run ?? latestPayload.run).errorKind ?? "provider_error"));
-          return latestPayload;
-        }
-      }
+      if (latestPayload.run?.status === "failed") return latestPayload;
       if (!latestPayload?.hasMoreWork) break;
       await wait(1200);
     }
     await loadResumes(resumeId);
     return latestPayload;
+  }
+
+  async function processOneReviewStep({
+    fallbackError,
+    resumeId,
+    runId,
+  }: {
+    fallbackError: string;
+    resumeId: string;
+    runId: string;
+  }) {
+    const processResponse = await fetchJson(`/api/resume-review/runs/${runId}/process`, {
+      method: "POST",
+    });
+    const processPayload = (await processResponse.json().catch(() => null)) as ResumeReviewMutationPayload | null;
+    if (!processResponse.ok) {
+      setError(formatResumeReviewPayloadError(processResponse, processPayload, fallbackError));
+      await loadResumes(resumeId);
+      return null;
+    }
+    const payload = processPayload?.data ?? null;
+    if (payload?.run) {
+      const run = await refreshReviewRun(payload.run.id, resumeId);
+      if ((run ?? payload.run).status === "failed") {
+        setError(formatReviewLimitReason((run ?? payload.run).errorKind ?? "provider_error"));
+      }
+    }
+    return payload;
   }
 
   return (
