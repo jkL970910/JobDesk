@@ -736,7 +736,14 @@ async function resumeFailedResumeReviewRun(
       status: "pending",
       updatedAt: now,
     })
-    .where(and(eq(resumeReviewRunSteps.workspaceId, args.workspaceId), eq(resumeReviewRunSteps.id, failedStep.id)));
+    .where(
+      and(
+        eq(resumeReviewRunSteps.workspaceId, args.workspaceId),
+        eq(resumeReviewRunSteps.workflowRunId, args.run.id),
+        sql`${resumeReviewRunSteps.status} = 'failed'`,
+        sql`${resumeReviewRunSteps.sequence} >= ${failedStep.sequence}`,
+      ),
+    );
   const [updatedRun] = await db
     .update(workflowRuns)
     .set({
@@ -817,6 +824,14 @@ async function claimNextResumeReviewStep(
         AND (
           status = 'pending'
           OR (status = 'processing' AND lock_expires_at < ${now})
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM ${resumeReviewRunSteps} earlier
+          WHERE earlier.workspace_id = ${args.workspaceId}
+            AND earlier.workflow_run_id = ${args.run.id}
+            AND earlier.sequence < ${resumeReviewRunSteps.sequence}
+            AND earlier.status <> 'completed'
         )
       ORDER BY sequence
       FOR UPDATE SKIP LOCKED

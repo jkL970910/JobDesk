@@ -295,14 +295,96 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
     }
     expect(result.second.status).toBe("ready");
     expect(result.steps.filter((step) => step.stepKind === "segment_source")).toHaveLength(1);
-    const failedStep = result.steps.find((step) => step.stepKind === "assess_section");
-    expect(failedStep?.resultJson).toMatchObject({
-      diagnostics: {
-        failurePhase: "fetch",
-        inputChars: 240,
-        receivedResponse: false,
-        task: "general-resume-review-section-assessment",
+    const retriedStep = result.steps.find((step) => step.stepKind === "assess_section");
+    expect(retriedStep).toMatchObject({
+      attemptCount: 2,
+      failureKind: null,
+      status: "completed",
+    });
+    expect(result.reports).toHaveLength(0);
+  });
+
+  it("does not claim save report while synthesis prerequisites are failed or pending", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const owner = await registerUser({
+      email: `resume-synthesis-barrier-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected owner user.");
+    let rubricCalls = 0;
+    restoreAiAdapter = setResumeReviewStepAiAdapterForTest({
+      ...buildStepAdapter(),
+      synthesizeRubric: async () => {
+        rubricCalls += 1;
+        if (rubricCalls === 1) {
+          throw new JobDeskAiError("OpenRouter request timed out.", {
+            diagnostics: {
+              failurePhase: "fetch",
+              inputChars: 17_778,
+              maxOutputTokens: 1500,
+              receivedResponse: false,
+              task: "general-resume-review-rubric",
+              timeoutMs: 120_000,
+            },
+            kind: "timeout",
+          });
+        }
+        return buildStepAdapter().synthesizeRubric();
       },
+    });
+
+    const result = await runWithAuthContext(owner.user.id, async () => {
+      const resumeId = await createResumeSourceFixture(`Synthesis Barrier Resume ${suffix}.txt`);
+      const started = await startResumeReviewRun(resumeId);
+      if (started.status !== "created") throw new Error("Expected review run.");
+      let latest: Awaited<ReturnType<typeof processResumeReviewRun>> | null = null;
+      for (let index = 0; index < 12; index += 1) {
+        latest = await processResumeReviewRun(started.run.id);
+        if (latest.status === "failed") break;
+      }
+      const retryStarted = await startResumeReviewRun(resumeId);
+      const afterRetry = await processResumeReviewRun(started.run.id);
+      const db = getDb();
+      const steps = await db
+        .select()
+        .from(resumeReviewRunSteps)
+        .where(eq(resumeReviewRunSteps.workflowRunId, started.run.id));
+      const reports = await db
+        .select()
+        .from(resumeReviewReports)
+        .where(eq(resumeReviewReports.resumeSourceVersionId, resumeId));
+      return { afterRetry, latest, reports, retryStarted, steps };
+    });
+
+    expect(result.latest).toMatchObject({
+      run: {
+        errorKind: "timeout",
+        stage: "failed",
+        status: "failed",
+      },
+      status: "failed",
+    });
+    const failedRubric = result.steps.find((step) => step.stepKind === "synthesize_rubric");
+    expect(failedRubric).toMatchObject({
+      attemptCount: 2,
+      status: "completed",
+    });
+    expect(result.retryStarted).toMatchObject({
+      run: {
+        stage: "scoring",
+        status: "running",
+      },
+      status: "created",
+    });
+    expect(result.afterRetry).toMatchObject({
+      hasMoreWork: true,
+      status: "ready",
+    });
+    const saveStep = result.steps.find((step) => step.stepKind === "save_report");
+    expect(saveStep).toMatchObject({
+      attemptCount: 0,
+      failureKind: null,
+      status: "pending",
     });
     expect(result.reports).toHaveLength(0);
   });

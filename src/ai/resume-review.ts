@@ -76,6 +76,18 @@ type StagedResumeReviewResult = StructuredJsonResult<ResumeReview> & {
   stageCount: number;
 };
 
+const DEFAULT_RESUME_REVIEW_SECTION_TIMEOUT_MS = 55_000;
+const DEFAULT_RESUME_REVIEW_SYNTHESIS_TIMEOUT_MS = 120_000;
+
+export function resolveResumeReviewStageTimeoutMs(task: string) {
+  const envValue = process.env.JOBDESK_RESUME_REVIEW_STAGE_TIMEOUT_MS;
+  const parsed = envValue ? Number(envValue) : NaN;
+  if (Number.isFinite(parsed) && parsed >= 10_000) return parsed;
+  return task.startsWith("general-resume-review-section-")
+    ? DEFAULT_RESUME_REVIEW_SECTION_TIMEOUT_MS
+    : DEFAULT_RESUME_REVIEW_SYNTHESIS_TIMEOUT_MS;
+}
+
 function coerceStringList(value: unknown) {
   if (Array.isArray(value)) {
     return value
@@ -501,6 +513,7 @@ async function callResumeReviewStageWithRetry<TSchema extends z.ZodTypeAny>(args
   schema: TSchema;
   task: string;
 }): Promise<StructuredJsonResult<z.infer<TSchema>>> {
+  const timeoutMs = resolveResumeReviewStageTimeoutMs(args.task);
   try {
     return await args.adapter.callStructuredJson({
       input: args.input,
@@ -509,7 +522,7 @@ async function callResumeReviewStageWithRetry<TSchema extends z.ZodTypeAny>(args
       schema: args.schema,
       skill: skillRegistry.resumeReviewGeneral,
       task: args.task,
-      timeoutMs: 55_000,
+      timeoutMs,
     });
   } catch (error) {
     if (!isRetryableResumeReviewStageFailure(error)) throw error;
@@ -522,7 +535,7 @@ async function callResumeReviewStageWithRetry<TSchema extends z.ZodTypeAny>(args
         schema: args.schema,
         skill: skillRegistry.resumeReviewGeneral,
         task: args.task,
-        timeoutMs: 55_000,
+        timeoutMs,
       });
       return { ...result, retryCount: result.retryCount + 1 };
     } catch (retryError) {

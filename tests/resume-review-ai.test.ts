@@ -6,6 +6,7 @@ import {
   buildResumeReviewRubricInstructions,
   buildResumeReviewScanInstructions,
   reviewResumeWithAi,
+  resolveResumeReviewStageTimeoutMs,
   segmentResumeReviewSource,
 } from "../src/ai/resume-review";
 
@@ -13,11 +14,13 @@ describe("resume review AI instructions", () => {
   const originalProviderEnv = {
     JOBDESK_OPENROUTER_API_KEY: process.env.JOBDESK_OPENROUTER_API_KEY,
     JOBDESK_PROVIDER_ENABLED: process.env.JOBDESK_PROVIDER_ENABLED,
+    JOBDESK_RESUME_REVIEW_STAGE_TIMEOUT_MS: process.env.JOBDESK_RESUME_REVIEW_STAGE_TIMEOUT_MS,
   };
 
   afterEach(() => {
     process.env.JOBDESK_OPENROUTER_API_KEY = originalProviderEnv.JOBDESK_OPENROUTER_API_KEY;
     process.env.JOBDESK_PROVIDER_ENABLED = originalProviderEnv.JOBDESK_PROVIDER_ENABLED;
+    process.env.JOBDESK_RESUME_REVIEW_STAGE_TIMEOUT_MS = originalProviderEnv.JOBDESK_RESUME_REVIEW_STAGE_TIMEOUT_MS;
   });
 
   it("adapts HR screening review skill to general resumes", () => {
@@ -33,6 +36,18 @@ describe("resume review AI instructions", () => {
     expect(instructions).toContain("helpedScore, loweredScore, evidenceQuestions, nextAction, and raiseScore");
     expect(instructions).toContain("loweredScore must explain deductions");
     expect(instructions).toContain("Do not put privacy/public-safe questions under project depth");
+  });
+
+  it("uses a larger default timeout for synthesis stages without changing section timeout", () => {
+    delete process.env.JOBDESK_RESUME_REVIEW_STAGE_TIMEOUT_MS;
+
+    expect(resolveResumeReviewStageTimeoutMs("general-resume-review-section-assessment")).toBe(55_000);
+    expect(resolveResumeReviewStageTimeoutMs("general-resume-review-rubric")).toBe(120_000);
+    expect(resolveResumeReviewStageTimeoutMs("general-resume-review-evidence")).toBe(120_000);
+
+    process.env.JOBDESK_RESUME_REVIEW_STAGE_TIMEOUT_MS = "90000";
+    expect(resolveResumeReviewStageTimeoutMs("general-resume-review-section-assessment")).toBe(90_000);
+    expect(resolveResumeReviewStageTimeoutMs("general-resume-review-rubric")).toBe(90_000);
   });
 
   it("splits full resume review into staged provider calls and consolidates the result", async () => {
