@@ -3374,7 +3374,9 @@ strong,
 
 .review-dimension-card {
   display: grid;
-  gap: 12px;
+  gap: 18px;
+  grid-template-columns: minmax(160px, 0.25fr) minmax(0, 1fr);
+  padding: 18px;
 }
 
 .review-dimension-card[data-state="strong"] {
@@ -3402,89 +3404,120 @@ strong,
   margin: 6px 0 0;
 }
 
-.review-dimension-card__top > strong {
-  align-items: center;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+.review-dimension-card__rail {
+  align-content: start;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
-  color: var(--ink);
-  display: inline-flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  font-size: 1.2rem;
-  justify-content: center;
-  padding: 10px 12px;
+  display: grid;
+  gap: 11px;
+  padding: 14px;
 }
 
-.review-dimension-card__top > strong span {
+.review-dimension-card__rail > strong {
+  color: var(--ink);
+  font-size: clamp(2.65rem, 4.5vw, 4.2rem);
+  font-weight: 950;
+  letter-spacing: -0.105em;
+  line-height: 0.86;
+}
+
+.review-dimension-card__rail > strong span {
+  color: var(--muted);
+  font-size: 0.95rem;
+  letter-spacing: -0.03em;
+}
+
+.review-dimension-card__rail > em {
+  color: var(--primary-strong);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.review-dimension-card__rail-action {
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 12px;
+}
+
+.review-dimension-card__rail-action span {
   color: var(--ink-muted);
   font-size: 0.62rem;
   letter-spacing: 0.08em;
-  margin-top: 2px;
   text-transform: uppercase;
+}
+
+.review-dimension-card__rail-action p {
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.review-dimension-card__content {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
 }
 
 .review-dimension-card__body {
   display: grid;
-  gap: 10px;
+  gap: 14px;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  max-height: 560px;
+  max-height: 620px;
   overflow: auto;
-  padding-right: 3px;
+  padding-right: 5px;
 }
 
-.review-dimension-card__body > div,
-.review-dimension-card__body > details {
-  background: rgba(255, 255, 255, 0.028);
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 12px;
-  grid-column: span 4;
-  padding: 10px 11px;
+.review-dimension-card__section {
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  display: grid;
+  gap: 7px;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(138px, 0.22fr) minmax(0, 1fr);
+  padding-top: 14px;
 }
 
 .review-dimension-card__note {
+  border-top: 0;
   grid-column: 1 / -1;
+  padding-top: 0;
 }
 
 .review-dimension-card__note p {
-  line-height: 1.45;
+  color: var(--ink);
+  font-size: clamp(0.98rem, 1.05vw, 1.08rem);
+  line-height: 1.55;
 }
 
 .review-dimension-card__evidence,
 .review-dimension-card__supporting {
+  background: rgba(255, 255, 255, 0.024);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 12px;
   grid-column: span 6;
+  padding: 12px 13px;
 }
 
 .review-dimension-card__evidence[data-wide="true"] {
   grid-column: 1 / -1;
 }
 
-.review-dimension-card__tile--helped {
+.review-dimension-card__section--helped {
   border-color: rgba(125, 223, 179, 0.18);
 }
 
-.review-dimension-card__tile--lowered {
+.review-dimension-card__section--lowered {
   border-color: rgba(243, 199, 117, 0.2);
 }
 
-.review-dimension-card__tile--raise {
+.review-dimension-card__section--raise {
   border-color: rgba(79, 140, 255, 0.2);
-}
-
-.review-dimension-card__tile {
-  align-items: start;
-  display: grid;
-  gap: 8px;
-  grid-column: 1 / -1;
-  grid-template-columns: minmax(116px, 0.18fr) minmax(0, 1fr);
-}
-
-.review-dimension-card__tile span {
-  padding-top: 2px;
-}
-
-.review-dimension-card__tile p {
-  margin: 0;
 }
 
 .review-dimension-card__supporting,
@@ -3524,23 +3557,7 @@ strong,
   padding: 0 8px;
 }
 
-.review-dimension-card__next-step {
-  align-items: center;
-  background:
-    linear-gradient(90deg, rgba(79, 140, 255, 0.105), rgba(79, 140, 255, 0.026)),
-    rgba(255, 255, 255, 0.024);
-  border: 1px solid rgba(79, 140, 255, 0.17);
-  border-left: 3px solid rgba(79, 140, 255, 0.62);
-  border-radius: 14px;
-  display: grid;
-  gap: 12px;
-  grid-template-columns: minmax(145px, max-content) minmax(0, 1fr);
-  margin-top: -2px;
-  padding: 11px 13px 11px 12px;
-}
-
-.review-dimension-card__body span,
-.review-dimension-card__next-step span {
+.review-dimension-card__body span {
   color: var(--faint);
   font-size: 0.68rem;
   font-weight: 850;
@@ -3549,16 +3566,15 @@ strong,
 }
 
 .review-dimension-card__body p,
-.review-dimension-card__body li,
-.review-dimension-card__next-step p {
+.review-dimension-card__body li {
   color: var(--ink-soft);
-  font-size: 0.9rem;
-  line-height: 1.5;
+  font-size: 0.94rem;
+  line-height: 1.58;
 }
 
 .review-dimension-card__body p,
 .review-dimension-card__body ul {
-  margin: 6px 0 0;
+  margin: 0;
 }
 
 .review-dimension-card__body details:not([open]) ul,
@@ -3570,10 +3586,6 @@ strong,
   max-height: 170px;
   overflow: auto;
   padding-right: 4px;
-}
-
-.review-dimension-card__next-step p {
-  margin: 0;
 }
 
 .review-dimension-card__hint {
@@ -10976,18 +10988,8 @@ span > .help-hint {
     grid-template-columns: 1fr;
   }
 
-  .review-dimension-card__body > div,
-  .review-dimension-card__body > details,
   .review-dimension-card__evidence,
-  .review-dimension-card__supporting {
-    grid-column: span 6;
-  }
-
-  .review-dimension-card__tile {
-    grid-column: 1 / -1;
-  }
-
-  .review-dimension-card__note,
+  .review-dimension-card__supporting,
   .review-dimension-card__evidence[data-wide="true"] {
     grid-column: 1 / -1;
   }
@@ -11724,21 +11726,18 @@ span > .help-hint {
     grid-template-columns: 1fr;
   }
 
-  .review-dimension-card__body > div,
-  .review-dimension-card__body > details,
+  .review-dimension-card {
+    grid-template-columns: 1fr;
+  }
+
+  .review-dimension-card__section,
   .review-dimension-card__evidence,
   .review-dimension-card__supporting,
-  .review-dimension-card__note,
   .review-dimension-card__evidence[data-wide="true"] {
     grid-column: 1 / -1;
   }
 
-  .review-dimension-card__tile {
-    grid-template-columns: 1fr;
-  }
-
-  .review-dimension-card__next-step {
-    align-items: start;
+  .review-dimension-card__section {
     grid-template-columns: 1fr;
   }
 

@@ -1586,73 +1586,76 @@ function ReviewDimensionWorkbench({
           </div>
         </article>
         <article className="review-dimension-card" data-state={selectedDimension.status}>
-          <div className="review-dimension-card__top">
-            <div>
-              <p className="panel-kicker">Selected dimension</p>
-              <h3>{selectedDimension.label}</h3>
-            </div>
+          <aside className="review-dimension-card__rail" aria-label={`${selectedDimension.label} score`}>
+            <p className="panel-kicker">Selected dimension</p>
             <strong>
-              {selectedDimension.score}/{selectedDimension.maxScore}
-              <span>{selectedDimensionDetail.scoreLabel}</span>
+              {selectedDimension.score}
+              <span>/{selectedDimension.maxScore}</span>
             </strong>
-          </div>
-          <div className="review-dimension-card__body">
-            <div className="review-dimension-card__note">
-              <span>Reviewer note</span>
-              <p>{selectedDimension.note}</p>
+            <em>{selectedDimensionDetail.scoreLabel}</em>
+            <div className="review-dimension-card__rail-action">
+              <span>Next action</span>
+              <p>{selectedDimensionDetail.nextAction}</p>
             </div>
-            <div className="review-dimension-card__tile review-dimension-card__tile--helped">
-              <span>Helped</span>
-              <p>{selectedDimensionDetail.helpedScore.join(" ")}</p>
+          </aside>
+          <div className="review-dimension-card__content">
+            <div className="review-dimension-card__top">
+              <div>
+                <p className="panel-kicker">Score interpretation</p>
+                <h3>{selectedDimension.label}</h3>
+              </div>
             </div>
-            <div className="review-dimension-card__tile review-dimension-card__tile--lowered">
-              <span>Lowered</span>
-              <p>{selectedDimensionDetail.loweredScore.join(" ")}</p>
-            </div>
-            <div className="review-dimension-card__tile review-dimension-card__tile--raise">
-              <span>Would raise it</span>
-              <p>{selectedDimensionDetail.wouldRaiseScore.join(" ")}</p>
-            </div>
-            {selectedDimensionDetail.findings.length ? (
-              <details className="review-dimension-card__supporting">
+            <div className="review-dimension-card__body">
+              <section className="review-dimension-card__section review-dimension-card__note">
+                <span>Reviewer note</span>
+                <p>{selectedDimension.note}</p>
+              </section>
+              <section className="review-dimension-card__section review-dimension-card__section--helped">
+                <span>What helped the score</span>
+                <p>{selectedDimensionDetail.helpedScore.join(" ")}</p>
+              </section>
+              <section className="review-dimension-card__section review-dimension-card__section--lowered">
+                <span>What lowered the score</span>
+                <p>{selectedDimensionDetail.loweredScore.join(" ")}</p>
+              </section>
+              <section className="review-dimension-card__section review-dimension-card__section--raise">
+                <span>What would raise it</span>
+                <p>{selectedDimensionDetail.wouldRaiseScore.join(" ")}</p>
+              </section>
+              {selectedDimensionDetail.findings.length ? (
+                <details className="review-dimension-card__supporting">
+                  <summary>
+                    <span>Reviewer signals</span>
+                    <strong>{selectedDimensionDetail.findings.length}</strong>
+                  </summary>
+                  <ul>
+                    {selectedDimensionDetail.findings.map((finding) => (
+                      <li key={`${finding.kind}-${finding.text}`}>{finding.text}</li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+              <details
+                className="review-dimension-card__evidence"
+                data-wide={selectedDimensionDetail.findings.length ? "false" : "true"}
+                open={!selectedDimensionDetail.findings.length}
+              >
                 <summary>
-                  <span>Reviewer signals</span>
-                  <strong>{selectedDimensionDetail.findings.length}</strong>
+                  <span>Evidence to add</span>
+                  <strong>{evidencePrompts.length || 1}</strong>
                 </summary>
-                <ul>
-                  {selectedDimensionDetail.findings.map((finding) => (
-                    <li key={`${finding.kind}-${finding.text}`}>{finding.text}</li>
-                  ))}
-                </ul>
+                {evidencePrompts.length ? (
+                  <ul>
+                    {evidencePrompts.map((prompt) => (
+                      <li key={prompt}>{prompt}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>Add material only if this dimension needs more metrics, project context, or public-safe wording.</p>
+                )}
               </details>
-            ) : null}
-            <details
-              className="review-dimension-card__evidence"
-              data-wide={selectedDimensionDetail.findings.length ? "false" : "true"}
-              open={!selectedDimensionDetail.findings.length}
-            >
-              <summary>
-                <span>Evidence to add</span>
-                <strong>{evidencePrompts.length || 1}</strong>
-              </summary>
-              {evidencePrompts.length ? (
-                <ul>
-                  {evidencePrompts.map((prompt) => (
-                    <li key={prompt}>{prompt}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p>Add material only if this dimension needs more metrics, project context, or public-safe wording.</p>
-              )}
-            </details>
+            </div>
           </div>
-          <div className="review-dimension-card__next-step">
-            <span>Suggested next action</span>
-            <p>{selectedDimensionDetail.nextAction}</p>
-          </div>
-          <p className="review-dimension-card__hint">
-            Create library items from this reviewed resume before using these prompts to strengthen evidence.
-          </p>
         </article>
       </div>
     </section>
