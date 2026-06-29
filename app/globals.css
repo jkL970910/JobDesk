@@ -4133,6 +4133,17 @@ strong,
   opacity: 0.62;
 }
 
+.review-retry-panel[data-running="true"] {
+  background: transparent;
+  border-color: rgba(79, 140, 255, 0.22);
+  display: block;
+  padding: 0;
+}
+
+.review-retry-panel[data-running="true"] .progress-notice {
+  margin: 0;
+}
+
 .workspace-band {
   padding: 18px 20px;
 }

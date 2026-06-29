@@ -1152,18 +1152,7 @@ function ResumeReviewReportCard({
   return (
     <section className="panel resume-review-report">
       {isFallback ? (
-        <section className="review-retry-panel">
-          <div>
-            <h3>Full AI review needs another pass.</h3>
-            <p>
-              {reviewRun?.status === "failed"
-                ? `${formatReviewLimitReason(reviewRun.errorKind ?? "provider_error")} The quick estimate is still saved.`
-                : "A quick estimate is saved. Run the full review again for recruiter-style feedback."}
-            </p>
-          </div>
-          <button disabled={retryDisabled} type="button" onClick={onRetry}>
-            {retryLabel}
-          </button>
+        <section className="review-retry-panel" data-running={reviewRun?.status === "running"}>
           {reviewRun ? (
             <ResumeReviewProgressNotice
               elapsedSeconds={reviewRunElapsedSeconds}
@@ -1171,7 +1160,17 @@ function ResumeReviewReportCard({
               mode="rerun"
               stage={reviewRun.stage}
             />
-          ) : null}
+          ) : (
+            <>
+              <div>
+                <h3>Full AI review needs another pass.</h3>
+                <p>A quick estimate is saved. Run the full review again for recruiter-style feedback.</p>
+              </div>
+              <button disabled={retryDisabled} type="button" onClick={onRetry}>
+                {retryLabel}
+              </button>
+            </>
+          )}
         </section>
       ) : null}
       {tenSecondScan ? (
