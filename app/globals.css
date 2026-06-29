@@ -3416,16 +3416,16 @@ strong,
 
 .review-dimension-card__rail > strong {
   color: var(--ink);
-  font-size: clamp(2.65rem, 4.5vw, 4.2rem);
+  font-size: 3.25rem;
   font-weight: 950;
-  letter-spacing: -0.105em;
+  letter-spacing: 0;
   line-height: 0.86;
 }
 
 .review-dimension-card__rail > strong span {
   color: var(--muted);
   font-size: 0.95rem;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
 }
 
 .review-dimension-card__rail > em {
