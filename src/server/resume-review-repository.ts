@@ -130,6 +130,7 @@ type ResumeReviewStepKind =
   | "synthesize_scan"
   | "synthesize_rubric"
   | "synthesize_rubric_dimension"
+  | "calibrate_score"
   | "synthesize_evidence"
   | "save_report";
 
@@ -814,8 +815,8 @@ async function replaceLegacyFailedRubricStepWithDimensionSteps(
     .update(resumeReviewRunSteps)
     .set({
       sequence: sql`CASE
-        WHEN ${resumeReviewRunSteps.stepKind} = 'synthesize_evidence' THEN 10200
-        WHEN ${resumeReviewRunSteps.stepKind} = 'save_report' THEN 10300
+        WHEN ${resumeReviewRunSteps.stepKind} = 'synthesize_evidence' THEN 10300
+        WHEN ${resumeReviewRunSteps.stepKind} = 'save_report' THEN 10400
         ELSE ${resumeReviewRunSteps.sequence}
       END`,
       updatedAt: args.now,
@@ -845,6 +846,23 @@ async function replaceLegacyFailedRubricStepWithDimensionSteps(
         updatedAt: args.now,
       })),
     )
+    .onConflictDoNothing();
+  await db
+    .insert(resumeReviewRunSteps)
+    .values({
+      workspaceId: args.workspaceId,
+      workflowRunId: args.run.id,
+      resumeSourceVersionId: args.failedStep.resumeSourceVersionId,
+      stepKey: "calibrate-score",
+      stepKind: "calibrate_score",
+      sequence: 10_200,
+      title: "Calibrate final score",
+      inputJson: {},
+      resultJson: {},
+      status: "pending",
+      createdAt: args.now,
+      updatedAt: args.now,
+    })
     .onConflictDoNothing();
 }
 
@@ -1078,6 +1096,30 @@ async function processClaimedResumeReviewStep(args: {
     });
   }
 
+  if (stepKind === "calibrate_score") {
+    await updateResumeReviewRunStage(args.db, {
+      run: args.run,
+      stage: "scoring",
+      workspaceId: args.workspaceId,
+    });
+    const rubric = await buildRubricFromCompletedDimensionSteps(args.db, {
+      run: args.run,
+      workspaceId: args.workspaceId,
+    });
+    await completeResumeReviewStep(args.db, {
+      resultJson: {
+        rubric,
+      },
+      step: args.step,
+      workspaceId: args.workspaceId,
+    });
+    return resumeReviewStepResponse(args.db, {
+      hasMoreWork: true,
+      run: args.run,
+      workspaceId: args.workspaceId,
+    });
+  }
+
   if (stepKind === "synthesize_evidence") {
     await updateResumeReviewRunStage(args.db, {
       run: args.run,
@@ -1286,8 +1328,9 @@ async function ensureSynthesisStepsIfSectionsComplete(
       sequence: 10_100 + index,
       title: `Score ${dimension.label}`,
     })),
-    { key: "synthesize-evidence", kind: "synthesize_evidence", sequence: 10_200, title: "Review evidence and fairness" },
-    { key: "save-report", kind: "save_report", sequence: 10_300, title: "Save final review" },
+    { key: "calibrate-score", kind: "calibrate_score", sequence: 10_200, title: "Calibrate final score" },
+    { key: "synthesize-evidence", kind: "synthesize_evidence", sequence: 10_300, title: "Review evidence and fairness" },
+    { key: "save-report", kind: "save_report", sequence: 10_400, title: "Save final review" },
   ];
   await db
     .insert(resumeReviewRunSteps)
@@ -1354,7 +1397,10 @@ async function buildReviewFromCompletedSteps(
     .where(and(eq(resumeReviewRunSteps.workspaceId, args.workspaceId), eq(resumeReviewRunSteps.workflowRunId, args.run.id)))
     .orderBy(resumeReviewRunSteps.sequence);
   const scanStep = findCompletedStepResult<ResumeReviewScanData>(steps, "synthesize_scan", "scan");
-  const rubricStep = buildRubricFromCompletedSteps(steps);
+  const rubricStep =
+    steps.some((step) => step.stepKind === "calibrate_score")
+      ? findCompletedStepResult<ResumeReviewRubricData>(steps, "calibrate_score", "rubric")
+      : findCompletedStepResult<ResumeReviewRubricData>(steps, "synthesize_rubric", "rubric");
   const evidenceStep = findCompletedStepResult<ResumeReviewEvidenceData>(steps, "synthesize_evidence", "evidence");
   const review = composeResumeReviewFromStages({
     evidence: evidenceStep,
@@ -1372,16 +1418,26 @@ async function buildReviewFromCompletedSteps(
   });
 }
 
-function buildRubricFromCompletedSteps(steps: Array<typeof resumeReviewRunSteps.$inferSelect>): ResumeReviewRubricData {
-  const legacyRubric = steps.find(
-    (candidate) => candidate.stepKind === "synthesize_rubric" && candidate.status === "completed" && candidate.resultJson.rubric,
-  );
-  if (legacyRubric) return parseStepInput<ResumeReviewRubricData>(legacyRubric.resultJson, "rubric");
-
+async function buildRubricFromCompletedDimensionSteps(
+  db: Pick<DbHandle, "select">,
+  args: {
+    run: typeof workflowRuns.$inferSelect;
+    workspaceId: string;
+  },
+) {
+  const steps = await db
+    .select()
+    .from(resumeReviewRunSteps)
+    .where(and(eq(resumeReviewRunSteps.workspaceId, args.workspaceId), eq(resumeReviewRunSteps.workflowRunId, args.run.id)))
+    .orderBy(resumeReviewRunSteps.sequence);
   const dimensionSteps = steps
     .filter((candidate) => candidate.stepKind === "synthesize_rubric_dimension")
     .sort((left, right) => left.sequence - right.sequence);
   if (dimensionSteps.length === 0) throw new Error("Missing completed resume review step: synthesize_rubric");
+  const missingDimension = RESUME_REVIEW_RUBRIC_DIMENSIONS.find(
+    (dimension) => !dimensionSteps.some((step) => step.stepKey === `synthesize-rubric-${dimension.key}`),
+  );
+  if (missingDimension) throw new Error(`Missing completed resume review step: synthesize-rubric-${missingDimension.key}`);
   const incomplete = dimensionSteps.find((step) => step.status !== "completed");
   if (incomplete) throw new Error(`Missing completed resume review step: ${incomplete.stepKey}`);
   const dimensions = dimensionSteps.map((step) =>
@@ -1552,7 +1608,8 @@ function getResumeReviewRunStageForStepKind(stepKind: string): ResumeReviewActiv
   if (
     stepKind === "synthesize_scan" ||
     stepKind === "synthesize_rubric" ||
-    stepKind === "synthesize_rubric_dimension"
+    stepKind === "synthesize_rubric_dimension" ||
+    stepKind === "calibrate_score"
   ) return "scoring";
   if (stepKind === "synthesize_evidence") return "evidence_review";
   if (stepKind === "save_report") return "validating";

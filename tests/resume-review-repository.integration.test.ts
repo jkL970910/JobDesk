@@ -380,7 +380,13 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
       hasMoreWork: true,
       status: "ready",
     });
-    expect(result.steps.filter((step) => step.stepKind === "synthesize_rubric_dimension")).toHaveLength(5);
+    expect(result.steps.filter((step) => step.stepKind === "synthesize_rubric_dimension")).toHaveLength(6);
+    const calibrateStep = result.steps.find((step) => step.stepKind === "calibrate_score");
+    expect(calibrateStep).toMatchObject({
+      attemptCount: 0,
+      failureKind: null,
+      status: "pending",
+    });
     const saveStep = result.steps.find((step) => step.stepKind === "save_report");
     expect(saveStep).toMatchObject({
       attemptCount: 0,

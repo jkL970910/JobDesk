@@ -351,9 +351,9 @@ export type ResumeReviewRubricDimensionSpec = {
 
 export const RESUME_REVIEW_RUBRIC_DIMENSIONS: ResumeReviewRubricDimensionSpec[] = [
   {
-    key: "structure_readability",
-    label: "Structure and readability",
-    focus: "section order, first-scan clarity, target headline clarity, ATS-readable structure, and recruiter scan speed",
+    key: "readability",
+    label: "Readability",
+    focus: "first-scan clarity, recruiter scan speed, concise wording, and whether the strongest evidence is easy to notice",
   },
   {
     key: "impact_evidence",
@@ -366,14 +366,19 @@ export const RESUME_REVIEW_RUBRIC_DIMENSIONS: ResumeReviewRubricDimensionSpec[] 
     focus: "depth of projects, implementation specificity, role in delivery, technical decisions, and story completeness",
   },
   {
-    key: "resume_evidence_signals",
-    label: "Resume evidence signals",
-    focus: "signals that can be extracted into reusable evidence, missing proof questions, and material-library readiness",
+    key: "ats",
+    label: "ATS readiness",
+    focus: "ATS-readable structure, keyword clarity, section labels, formatting risks, and parser-friendly wording",
   },
   {
-    key: "ats_fairness_context",
-    label: "ATS and fairness context",
-    focus: "ATS keyword/format concerns, neutral fairness handling, public-safe wording risks, and non-penalized protected/proxy signals",
+    key: "structure",
+    label: "Structure",
+    focus: "section order, target headline clarity, role chronology, hierarchy, and whether the resume tells a coherent story",
+  },
+  {
+    key: "evidence_readiness",
+    label: "Evidence readiness",
+    focus: "signals that can be extracted into reusable evidence, missing proof questions, public-safe wording risks, and material-library readiness",
   },
 ];
 
@@ -536,7 +541,7 @@ export function buildResumeReviewSectionAssessmentInstructions() {
     "Section assessment stage: review one resume section only. Do not produce the final overall score and do not rewrite the resume.",
     "Return section-local findings only. Use the section kind/title to understand context, but do not assume other sections are missing unless this section itself shows the gap.",
     "Assess strengths, weaknesses, evidence questions, ATS/readability notes, risk flags, dimension signals, and confidence for this section.",
-    "dimension_signals should name dimensions such as readability, impact_evidence, project_depth, ats, structure, or resume_evidence_signals, with helped/lowered/raise_score lists.",
+    "dimension_signals should name dimensions such as readability, impact_evidence, project_depth, ats, structure, or evidence_readiness, with helped/lowered/raise_score lists.",
     "Do not penalize protected or proxy signals. If a fairness concern appears, phrase it as a neutral preparation note in risk_flags only if it affects public wording.",
     "Return only JSON with keys: strengths, weaknesses, evidence_questions, ats_notes, risk_flags, dimension_signals, confidence.",
     "Keep findings source-specific and concise. Avoid generic advice that could apply to any resume.",
