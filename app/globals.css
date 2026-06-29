@@ -2309,7 +2309,7 @@ strong,
   justify-items: center;
   padding: 24px;
   position: fixed;
-  z-index: 80;
+  z-index: 120;
 }
 
 .resume-review-confirm__card {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type DragEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import { useAccess } from "./access-provider";
 import { buildDimensionDetail } from "./resume-review-dimension-detail";
@@ -739,7 +740,11 @@ function ResumeReviewConfirmDialog({
   onConfirm: () => void;
   resume: ResumeSourceReviewSummary;
 }) {
-  return (
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  const dialog = (
     <div
       aria-labelledby="resume-review-confirm-title"
       aria-modal="true"
@@ -768,6 +773,7 @@ function ResumeReviewConfirmDialog({
       </div>
     </div>
   );
+  return mounted ? createPortal(dialog, document.body) : null;
 }
 
 function ResumeReviewSourceControls({
