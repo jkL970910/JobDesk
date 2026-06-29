@@ -1443,23 +1443,26 @@ function ReviewDimensionWorkbench({
   const evidenceTaskCount = activeQuestionCount || missingEvidenceQuestions.length;
   return (
     <section className="review-dimension-workbench">
-      <div className="review-radar-card" aria-label="Resume review dimension scores">
-        <ReviewRadar dimensions={dimensions} selectedId={selectedDimension.id} />
-        <div className="review-dimension-tabs" role="tablist" aria-label="Review dimensions">
-          {dimensions.map((dimension) => (
-            <button
-              aria-selected={dimension.id === selectedDimension.id}
-              data-active={dimension.id === selectedDimension.id}
-              key={dimension.id}
-              onClick={() => onSelect(dimension.id)}
-              role="tab"
-              type="button"
-            >
-              <span>{dimension.label}</span>
-              <strong>{Math.round(dimension.percent * 100)}%</strong>
-            </button>
-          ))}
+      <div className="review-dimension-left">
+        <div className="review-radar-card" aria-label="Resume review dimension scores">
+          <ReviewRadar dimensions={dimensions} selectedId={selectedDimension.id} />
+          <div className="review-dimension-tabs" role="tablist" aria-label="Review dimensions">
+            {dimensions.map((dimension) => (
+              <button
+                aria-selected={dimension.id === selectedDimension.id}
+                data-active={dimension.id === selectedDimension.id}
+                key={dimension.id}
+                onClick={() => onSelect(dimension.id)}
+                role="tab"
+                type="button"
+              >
+                <span>{dimension.label}</span>
+                <strong>{Math.round(dimension.percent * 100)}%</strong>
+              </button>
+            ))}
+          </div>
         </div>
+        {sourceControls}
       </div>
       <div className="review-dimension-side">
         <article className="review-score-compact">
@@ -1591,7 +1594,6 @@ function ReviewDimensionWorkbench({
             ) : null}
           </article>
         ) : null}
-        {sourceControls}
       </div>
     </section>
   );
