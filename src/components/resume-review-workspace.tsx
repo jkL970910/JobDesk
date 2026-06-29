@@ -138,6 +138,7 @@ export function ResumeReviewWorkspace({
   const [parseStatus, setParseStatus] = useState<ResumeParseStatus | null>(null);
   const [enrichmentTasks, setEnrichmentTasks] = useState<EnrichmentTaskSummary[]>([]);
   const [reviewRunElapsedSeconds, setReviewRunElapsedSeconds] = useState(0);
+  const [pendingRerunResume, setPendingRerunResume] = useState<ResumeSourceReviewSummary | null>(null);
   const selectedResume = isUploading
     ? null
     : resumes.find((resume) => resume.id === selectedId) ?? resumes[0] ?? null;
@@ -420,14 +421,12 @@ export function ResumeReviewWorkspace({
     }
   }
 
+  function requestRerunReview(resume: ResumeSourceReviewSummary) {
+    setPendingRerunResume(resume);
+  }
+
   async function rerunReview(resume: ResumeSourceReviewSummary) {
-    if (
-      !window.confirm(
-        `Review ${formatResumeTitle(resume.title)} v${resume.version} again? This creates a fresh review and replaces the latest summary for this saved resume version. The uploaded resume and Evidence Library items remain intact.`,
-      )
-    ) {
-      return;
-    }
+    setPendingRerunResume(null);
     setError(null);
     setActiveOperation(`rerun:${resume.id}`);
     setSelectedId(resume.id);
@@ -540,7 +539,7 @@ export function ResumeReviewWorkspace({
           }
           onOpenEvidenceTasks={() => onOpenEvidenceReview("enrichment")}
           onOpenEvidenceTask={onOpenEvidenceTask}
-          onRetry={() => void rerunReview(selectedResume)}
+          onRetry={() => requestRerunReview(selectedResume)}
           enrichmentTasks={enrichmentTasks}
           retryDisabled={Boolean(selectedReviewIsStarting || selectedActiveReviewRun)}
           retryLabel={reviewActionLabel(selectedResume, selectedReviewIsStarting, selectedActiveReviewRun)}
@@ -562,7 +561,7 @@ export function ResumeReviewWorkspace({
               onReviewExistingDuplicate={() => {
                 if (duplicateResume) setSelectedId(duplicateResume.id);
               }}
-              onRerun={rerunReview}
+              onRerun={requestRerunReview}
               onSelect={setSelectedId}
               onUpload={uploadResume}
               resumes={resumes}
@@ -695,7 +694,7 @@ export function ResumeReviewWorkspace({
                     disabled={Boolean(isReviewStarting(resume, activeOperation) || resume.activeReviewRun)}
                     title="Create a fresh review for this saved resume version."
                     type="button"
-                    onClick={() => void rerunReview(resume)}
+                    onClick={() => requestRerunReview(resume)}
                   >
                     {reviewActionLabel(resume, isReviewStarting(resume, activeOperation), resume.activeReviewRun)}
                   </button>
@@ -717,7 +716,57 @@ export function ResumeReviewWorkspace({
           </div>
         )}
       </div> : null}
+      {pendingRerunResume ? (
+        <ResumeReviewConfirmDialog
+          active={activeOperation === `rerun:${pendingRerunResume.id}`}
+          resume={pendingRerunResume}
+          onCancel={() => setPendingRerunResume(null)}
+          onConfirm={() => void rerunReview(pendingRerunResume)}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function ResumeReviewConfirmDialog({
+  active,
+  onCancel,
+  onConfirm,
+  resume,
+}: {
+  active: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  resume: ResumeSourceReviewSummary;
+}) {
+  return (
+    <div
+      aria-labelledby="resume-review-confirm-title"
+      aria-modal="true"
+      className="resume-review-confirm"
+      role="dialog"
+    >
+      <div className="resume-review-confirm__card">
+        <span>Refresh review</span>
+        <h3 id="resume-review-confirm-title">Run a fresh review?</h3>
+        <p>
+          JobDesk will create a new review summary for {formatResumeTitle(resume.title)} v{resume.version}.
+          Your uploaded resume and Evidence Library items stay unchanged.
+        </p>
+        <div className="resume-review-confirm__details">
+          <strong>{formatResumeTitle(resume.title)}</strong>
+          <small>Version {resume.version} · {formatResumeVersionStatus(resume.status)}</small>
+        </div>
+        <div className="resume-review-confirm__actions">
+          <button className="secondary-button" disabled={active} type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="primary-button" disabled={active} type="button" onClick={onConfirm}>
+            {active ? "Starting..." : "Run review"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
