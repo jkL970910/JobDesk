@@ -266,6 +266,37 @@ describe("resume review run routes", () => {
     });
   });
 
+  it("returns hasMoreWork while a review run still has pending steps", async () => {
+    mockedProcessRun.mockResolvedValueOnce({
+      hasMoreWork: true,
+      run: buildReviewRunPayload({
+        id: "run-step",
+        stage: "scanning",
+        status: "running",
+      }),
+      status: "ready",
+    });
+
+    const response = await processPost(
+      new Request("http://localhost/api/resume-review/runs/run-step/process", { method: "POST" }),
+      { params: Promise.resolve({ runId: "run-step" }) },
+    );
+
+    expect(mockedProcessRun).toHaveBeenCalledWith("run-step");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        hasMoreWork: true,
+        run: {
+          id: "run-step",
+          stage: "scanning",
+          status: "running",
+        },
+        status: "ready",
+      },
+    });
+  });
+
   it("returns not_found for unavailable review runs", async () => {
     mockedGetRun.mockResolvedValueOnce({ status: "not_found" });
 

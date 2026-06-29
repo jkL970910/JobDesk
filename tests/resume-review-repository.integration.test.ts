@@ -10,12 +10,18 @@ import {
   getResumeReviewWorkspace,
   processResumeReviewRun,
   rerunResumeReview,
-  setResumeReviewAiAdapterForTest,
+  setResumeReviewStepAiAdapterForTest,
   startResumeReviewRun,
 } from "../src/server/resume-review-repository";
 import { registerUser, runWithAuthContext } from "../src/server/auth-service";
 import { getDb } from "../src/db/client";
-import { resumeReviewReports, resumeSourceVersions, sourceDocuments, workflowRuns } from "../src/db/schema";
+import {
+  resumeReviewReports,
+  resumeReviewRunSteps,
+  resumeSourceVersions,
+  sourceDocuments,
+  workflowRuns,
+} from "../src/db/schema";
 import { getCurrentWorkspace } from "../src/server/workspace-repository";
 import { skillRegistry } from "../src/ai/skills-registry";
 
@@ -80,14 +86,17 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
       password: "Password123!",
     });
     if (owner.status !== "created") throw new Error("Expected owner user.");
-    restoreAiAdapter = setResumeReviewAiAdapterForTest(async () => {
-      throw new JobDeskAiError("OpenRouter request timed out.", { kind: "timeout" });
+    restoreAiAdapter = setResumeReviewStepAiAdapterForTest({
+      assessSection: async () => {
+        throw new JobDeskAiError("OpenRouter request timed out.", { kind: "timeout" });
+      },
     });
 
     const result = await runWithAuthContext(owner.user.id, async () => {
       const resumeId = await createResumeSourceFixture(`Provider Fail Resume ${suffix}.txt`);
       const started = await startResumeReviewRun(resumeId);
       if (started.status !== "created") throw new Error("Expected review run.");
+      await processResumeReviewRun(started.run.id);
       const processed = await processResumeReviewRun(started.run.id);
       const db = getDb();
       const [resume] = await db
@@ -117,72 +126,42 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
     });
   });
 
-  it("does not process the same review run twice after it is claimed", async () => {
+  it("does not publish a report while a review run still has pending steps", async () => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const owner = await registerUser({
       email: `resume-double-process-${suffix}@example.com`,
       password: "Password123!",
     });
     if (owner.status !== "created") throw new Error("Expected owner user.");
-    let calls = 0;
-    restoreAiAdapter = setResumeReviewAiAdapterForTest(async () => {
-      calls += 1;
-      return buildAiReviewResult();
-    });
-
+    restoreAiAdapter = setResumeReviewStepAiAdapterForTest(buildStepAdapter());
     const result = await runWithAuthContext(owner.user.id, async () => {
       const resumeId = await createResumeSourceFixture(`Double Process Resume ${suffix}.txt`);
       const started = await startResumeReviewRun(resumeId);
       if (started.status !== "created") throw new Error("Expected review run.");
-      const db = getDb();
-      await db
-        .update(workflowRuns)
-        .set({
-          skillMetadata: {
-            resumeSourceVersionId: resumeId,
-            stage: "scanning",
-            trigger: "user_retry",
-          },
-        })
-        .where(and(eq(workflowRuns.id, started.run.id), eq(workflowRuns.workflowType, skillRegistry.resumeReviewGeneral.workflowType)));
-
-      const skipped = await processResumeReviewRun(started.run.id);
-      await db
-        .update(workflowRuns)
-        .set({
-          skillMetadata: {
-            resumeSourceVersionId: resumeId,
-            stage: "queued",
-            trigger: "user_retry",
-          },
-        })
-        .where(and(eq(workflowRuns.id, started.run.id), eq(workflowRuns.workflowType, skillRegistry.resumeReviewGeneral.workflowType)));
       const processed = await processResumeReviewRun(started.run.id);
       const second = await processResumeReviewRun(started.run.id);
+      const db = getDb();
       const reports = await db
         .select()
         .from(resumeReviewReports)
         .where(eq(resumeReviewReports.resumeSourceVersionId, resumeId));
-      return { processed, reports, second, skipped };
+      const steps = await db
+        .select()
+        .from(resumeReviewRunSteps)
+        .where(eq(resumeReviewRunSteps.workflowRunId, started.run.id));
+      return { processed, reports, second, steps };
     });
 
-    expect(result.skipped).toMatchObject({
-      run: {
-        stage: "scanning",
-        status: "running",
-      },
+    expect(result.processed).toMatchObject({
+      hasMoreWork: true,
       status: "ready",
     });
-    expect(result.processed.status).toBe("saved");
     expect(result.second).toMatchObject({
-      run: {
-        stage: "completed",
-        status: "succeeded",
-      },
+      hasMoreWork: true,
       status: "ready",
     });
-    expect(calls).toBe(1);
-    expect(result.reports).toHaveLength(1);
+    expect(result.reports).toHaveLength(0);
+    expect(result.steps.filter((step) => step.stepKind === "segment_source")).toHaveLength(1);
   });
 
   it("expires stale pre-save review runs so polling and retry can recover", async () => {
@@ -244,6 +223,63 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
       );
     }
   });
+
+  it("retries the failed review step without duplicating completed steps", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const owner = await registerUser({
+      email: `resume-step-retry-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected owner user.");
+    let calls = 0;
+    restoreAiAdapter = setResumeReviewStepAiAdapterForTest({
+      ...buildStepAdapter(),
+      assessSection: async () => {
+        calls += 1;
+        if (calls === 1) throw new JobDeskAiError("OpenRouter request timed out.", { kind: "timeout" });
+        return buildSectionAssessmentResult();
+      },
+    });
+
+    const result = await runWithAuthContext(owner.user.id, async () => {
+      const resumeId = await createResumeSourceFixture(`Step Retry Resume ${suffix}.txt`);
+      const started = await startResumeReviewRun(resumeId);
+      if (started.status !== "created") throw new Error("Expected review run.");
+      await processResumeReviewRun(started.run.id);
+      const first = await processResumeReviewRun(started.run.id);
+      const retryStarted = await startResumeReviewRun(resumeId);
+      const second = await processResumeReviewRun(started.run.id);
+      const db = getDb();
+      const steps = await db
+        .select()
+        .from(resumeReviewRunSteps)
+        .where(eq(resumeReviewRunSteps.workflowRunId, started.run.id));
+      const reports = await db
+        .select()
+        .from(resumeReviewReports)
+        .where(eq(resumeReviewReports.resumeSourceVersionId, resumeId));
+      return { first, reports, retryStarted, second, steps };
+    });
+
+    expect(result.first).toMatchObject({
+      run: {
+        errorKind: "timeout",
+        stage: "failed",
+        status: "failed",
+      },
+      status: "failed",
+    });
+    expect(result.retryStarted).toMatchObject({
+      run: {
+        stage: "scanning",
+        status: "running",
+      },
+      status: "created",
+    });
+    expect(result.second.status).toBe("ready");
+    expect(result.steps.filter((step) => step.stepKind === "segment_source")).toHaveLength(1);
+    expect(result.reports).toHaveLength(0);
+  });
 });
 
 async function createResumeSourceFixture(title: string) {
@@ -282,46 +318,89 @@ async function createResumeSourceFixture(title: string) {
   return resume.id;
 }
 
-function buildAiReviewResult() {
+function buildStepAdapter() {
+  return {
+    assessSection: async () => buildSectionAssessmentResult(),
+    synthesizeEvidence: async () => ({
+      data: {
+        fairness_check: {
+          applied: true,
+          note: "No protected or proxy signals were penalized.",
+          signals_not_penalized: [],
+        },
+        missing_evidence_questions: ["Which metric proves the dashboard impact?"],
+        risk_flags: [],
+      },
+      outputText: "{}",
+      retryCount: 0,
+      skill: skillRegistry.resumeReviewGeneral,
+      usage: {},
+    }),
+    synthesizeRubric: async () => ({
+      data: {
+        rubric: [
+          {
+            evidenceQuestions: ["Which metric proves the dashboard impact?"],
+            findings: ["Concrete dashboard work is visible."],
+            helpedScore: ["Specific technical work is present."],
+            key: "impact_evidence",
+            label: "Impact evidence",
+            loweredScore: ["Impact metric is not explicit."],
+            maxScore: 100,
+            nextAction: "Add one measurable outcome.",
+            note: "Evidence is present but not fully quantified.",
+            raiseScore: ["Add scope and impact metric."],
+            score: 76,
+          },
+        ],
+        score: {
+          confidence: 0.8,
+          overall: 76,
+          scope_note: "General resume review without a target JD.",
+        },
+        suggested_edits: ["Add one measurable outcome."],
+      },
+      outputText: "{}",
+      retryCount: 0,
+      skill: skillRegistry.resumeReviewGeneral,
+      usage: {},
+    }),
+    synthesizeScan: async () => ({
+      data: {
+        ats_notes: ["Readable section structure."],
+        strengths: ["Technical project work is visible."],
+        ten_second_scan: "Reviewer sees dashboard work but not impact scale.",
+        weaknesses: ["Impact scale is not yet clear."],
+      },
+      outputText: "{}",
+      retryCount: 0,
+      skill: skillRegistry.resumeReviewGeneral,
+      usage: {},
+    }),
+  };
+}
+
+function buildSectionAssessmentResult() {
   return {
     data: {
-      ats_notes: ["Readable section structure."],
-      fairness_check: {
-        applied: true,
-        note: "No protected or proxy signals were penalized.",
-        signals_not_penalized: [],
-      },
-      missing_evidence_questions: ["Which metric proves the dashboard impact?"],
-      risk_flags: [],
-      rubric: [
+      ats_notes: [],
+      confidence: 0.8,
+      dimension_signals: [
         {
-          evidenceQuestions: ["Which metric proves the dashboard impact?"],
-          findings: ["Concrete dashboard work is visible."],
-          helpedScore: ["Specific technical work is present."],
-          key: "impact_evidence",
-          label: "Impact evidence",
-          loweredScore: ["Impact metric is not explicit."],
-          maxScore: 100,
-          nextAction: "Add one measurable outcome.",
-          note: "Evidence is present but not fully quantified.",
-          raiseScore: ["Add scope and impact metric."],
-          score: 76,
+          dimension: "impact_evidence",
+          helped: ["Concrete dashboard work is visible."],
+          lowered: ["Impact metric is not explicit."],
+          raise_score: ["Add scope and impact metric."],
         },
       ],
-      score: {
-        confidence: 0.8,
-        overall: 76,
-        scope_note: "General resume review without a target JD.",
-      },
+      evidence_questions: ["Which metric proves the dashboard impact?"],
+      risk_flags: [],
       strengths: ["Technical project work is visible."],
-      suggested_edits: ["Add one measurable outcome."],
-      ten_second_scan: "Reviewer sees dashboard work but not impact scale.",
       weaknesses: ["Impact scale is not yet clear."],
     },
     outputText: "{}",
     retryCount: 0,
     skill: skillRegistry.resumeReviewGeneral,
-    stageCount: 4,
     usage: {},
   };
 }

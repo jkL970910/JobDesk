@@ -12,7 +12,7 @@ import { skillRegistry } from "./skills-registry";
 import type { FetchLike, JobDeskAiUsage, StructuredJsonResult } from "./types";
 import { z } from "zod";
 
-type ResumeReviewSectionKind =
+export type ResumeReviewSectionKind =
   | "profile"
   | "summary"
   | "work_experience"
@@ -67,7 +67,10 @@ const ResumeReviewEvidence = z.object({
   fairness_check: ResumeReviewFairnessCheck,
 });
 
-type ResumeReviewSectionAssessmentData = z.infer<typeof ResumeReviewSectionAssessment>;
+export type ResumeReviewSectionAssessmentData = z.infer<typeof ResumeReviewSectionAssessment>;
+export type ResumeReviewScanData = z.infer<typeof ResumeReviewScan>;
+export type ResumeReviewRubricData = z.infer<typeof ResumeReviewRubric>;
+export type ResumeReviewEvidenceData = z.infer<typeof ResumeReviewEvidence>;
 
 type StagedResumeReviewResult = StructuredJsonResult<ResumeReview> & {
   stageCount: number;
@@ -144,15 +147,83 @@ export async function reviewResumeWithAi(params: {
     });
   }
 
-  const synthesisInput = JSON.stringify({
-    source_title: params.sourceTitle,
-    resume_manifest: sourceSections.map((section) => ({
+  const synthesisInput = buildResumeReviewSynthesisInput({
+    resumeTitle: params.sourceTitle,
+    sections: sectionAssessments,
+  });
+
+  const scan = await synthesizeResumeReviewScanWithAi({
+    adapter,
+    synthesisInput,
+  });
+  mergeUsage(usage, scan.usage);
+  retryCount += scan.retryCount;
+
+  await params.onStatus?.("scoring");
+  const rubric = await synthesizeResumeReviewRubricWithAi({
+    adapter,
+    synthesisInput,
+  });
+  mergeUsage(usage, rubric.usage);
+  retryCount += rubric.retryCount;
+
+  await params.onStatus?.("evidence_review");
+  const evidence = await synthesizeResumeReviewEvidenceWithAi({
+    adapter,
+    synthesisInput,
+  });
+  mergeUsage(usage, evidence.usage);
+  retryCount += evidence.retryCount;
+
+  const data = composeResumeReviewFromStages({
+    evidence: evidence.data,
+    rubric: rubric.data,
+    scan: scan.data,
+  });
+
+  return {
+    data,
+    outputText: JSON.stringify(data),
+    retryCount,
+    skill: skillRegistry.resumeReviewGeneral,
+    stageCount: 4,
+    usage,
+  };
+}
+
+export function createResumeReviewAiAdapter(fetchFn?: FetchLike) {
+  return new OpenRouterResponsesAdapter({
+    config: resolveJobDeskAiConfig(),
+    fetchFn,
+    maxAttempts: 1,
+  });
+}
+
+export async function assessResumeReviewSectionWithAi(args: {
+  adapter?: OpenRouterResponsesAdapter;
+  resumeTitle: string;
+  section: ResumeReviewSourceSection;
+}) {
+  return assessResumeReviewSection({
+    adapter: args.adapter ?? createResumeReviewAiAdapter(),
+    resumeTitle: args.resumeTitle,
+    section: args.section,
+  });
+}
+
+export function buildResumeReviewSynthesisInput(args: {
+  resumeTitle: string;
+  sections: Array<ResumeReviewSourceSection & { assessment: ResumeReviewSectionAssessmentData }>;
+}) {
+  return JSON.stringify({
+    source_title: args.resumeTitle,
+    resume_manifest: args.sections.map((section) => ({
       id: section.id,
       kind: section.kind,
       title: section.title,
       character_count: section.text.length,
     })),
-    section_assessments: sectionAssessments.map((section) => ({
+    section_assessments: args.sections.map((section) => ({
       ats_notes: section.assessment.ats_notes,
       confidence: section.assessment.confidence,
       dimension_signals: section.assessment.dimension_signals,
@@ -165,63 +236,67 @@ export async function reviewResumeWithAi(params: {
       weaknesses: section.assessment.weaknesses,
     })),
   });
+}
 
-  const scan = await callResumeReviewStageWithRetry({
-    adapter,
-    input: synthesisInput,
+export async function synthesizeResumeReviewScanWithAi(args: {
+  adapter?: OpenRouterResponsesAdapter;
+  synthesisInput: string;
+}) {
+  return callResumeReviewStageWithRetry({
+    adapter: args.adapter ?? createResumeReviewAiAdapter(),
+    input: args.synthesisInput,
     instructions: buildResumeReviewScanInstructions(),
     maxOutputTokens: 700,
     schema: ResumeReviewScan,
     task: "general-resume-review-scan",
   });
-  mergeUsage(usage, scan.usage);
-  retryCount += scan.retryCount;
+}
 
-  await params.onStatus?.("scoring");
-  const rubric = await callResumeReviewStageWithRetry({
-    adapter,
-    input: synthesisInput,
+export async function synthesizeResumeReviewRubricWithAi(args: {
+  adapter?: OpenRouterResponsesAdapter;
+  synthesisInput: string;
+}) {
+  return callResumeReviewStageWithRetry({
+    adapter: args.adapter ?? createResumeReviewAiAdapter(),
+    input: args.synthesisInput,
     instructions: buildResumeReviewRubricInstructions(),
     maxOutputTokens: 1500,
     schema: ResumeReviewRubric,
     task: "general-resume-review-rubric",
   });
-  mergeUsage(usage, rubric.usage);
-  retryCount += rubric.retryCount;
+}
 
-  await params.onStatus?.("evidence_review");
-  const evidence = await callResumeReviewStageWithRetry({
-    adapter,
-    input: synthesisInput,
+export async function synthesizeResumeReviewEvidenceWithAi(args: {
+  adapter?: OpenRouterResponsesAdapter;
+  synthesisInput: string;
+}) {
+  return callResumeReviewStageWithRetry({
+    adapter: args.adapter ?? createResumeReviewAiAdapter(),
+    input: args.synthesisInput,
     instructions: buildResumeReviewEvidenceInstructions(),
     maxOutputTokens: 700,
     schema: ResumeReviewEvidence,
     task: "general-resume-review-evidence",
   });
-  mergeUsage(usage, evidence.usage);
-  retryCount += evidence.retryCount;
+}
 
-  const data = ResumeReview.parse({
-    ats_notes: scan.data.ats_notes,
-    fairness_check: evidence.data.fairness_check,
-    missing_evidence_questions: evidence.data.missing_evidence_questions,
-    risk_flags: evidence.data.risk_flags,
-    rubric: rubric.data.rubric,
-    score: rubric.data.score,
-    strengths: scan.data.strengths,
-    suggested_edits: rubric.data.suggested_edits,
-    ten_second_scan: scan.data.ten_second_scan,
-    weaknesses: scan.data.weaknesses,
+export function composeResumeReviewFromStages(args: {
+  evidence: ResumeReviewEvidenceData;
+  rubric: ResumeReviewRubricData;
+  scan: ResumeReviewScanData;
+}) {
+  return ResumeReview.parse({
+    ats_notes: args.scan.ats_notes,
+    fairness_check: args.evidence.fairness_check,
+    missing_evidence_questions: args.evidence.missing_evidence_questions,
+    risk_flags: args.evidence.risk_flags,
+    rubric: args.rubric.rubric,
+    score: args.rubric.score,
+    strengths: args.scan.strengths,
+    suggested_edits: args.rubric.suggested_edits,
+    ten_second_scan: args.scan.ten_second_scan,
+    weaknesses: args.scan.weaknesses,
   });
-
-  return {
-    data,
-    outputText: JSON.stringify(data),
-    retryCount,
-    skill: skillRegistry.resumeReviewGeneral,
-    stageCount: 4,
-    usage,
-  };
 }
 
 async function assessResumeReviewSection(args: {

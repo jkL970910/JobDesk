@@ -20,6 +20,12 @@ export const workflowStatusEnum = pgEnum("workflow_status", [
   "failed",
   "skipped",
 ]);
+export const resumeReviewRunStepStatusEnum = pgEnum("resume_review_run_step_status", [
+  "pending",
+  "processing",
+  "completed",
+  "failed",
+]);
 
 export const requirementTypeEnum = pgEnum("requirement_type", ["hard", "soft"]);
 export const approvalStatusEnum = pgEnum("approval_status", [
@@ -1564,6 +1570,56 @@ export const workflowRuns = pgTable(
     workspaceStartedIdx: index("workflow_runs_workspace_started_idx").on(
       table.workspaceId,
       table.startedAt,
+    ),
+  }),
+);
+
+export const resumeReviewRunSteps = pgTable(
+  "resume_review_run_steps",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    workflowRunId: uuid("workflow_run_id")
+      .notNull()
+      .references(() => workflowRuns.id, { onDelete: "cascade" }),
+    resumeSourceVersionId: uuid("resume_source_version_id")
+      .notNull()
+      .references(() => resumeSourceVersions.id, { onDelete: "cascade" }),
+    stepKey: varchar("step_key", { length: 120 }).notNull(),
+    stepKind: varchar("step_kind", { length: 80 }).notNull(),
+    sequence: integer("sequence").notNull(),
+    title: varchar("title", { length: 240 }).notNull(),
+    inputJson: jsonb("input_json").$type<Record<string, unknown>>().notNull().default({}),
+    resultJson: jsonb("result_json").$type<Record<string, unknown>>().notNull().default({}),
+    status: resumeReviewRunStepStatusEnum("status").notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    lockedBy: varchar("locked_by", { length: 120 }),
+    lockExpiresAt: timestamp("lock_expires_at", { withTimezone: true }),
+    failureKind: varchar("failure_kind", { length: 80 }),
+    failureMessage: text("failure_message"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    runSequenceIdx: index("resume_review_run_steps_run_sequence_idx").on(
+      table.workflowRunId,
+      table.sequence,
+    ),
+    statusUpdatedIdx: index("resume_review_run_steps_status_updated_idx").on(
+      table.status,
+      table.updatedAt,
+    ),
+    workspaceRunStepKeyIdx: uniqueIndex("resume_review_run_steps_workspace_run_step_key_idx").on(
+      table.workspaceId,
+      table.workflowRunId,
+      table.stepKey,
     ),
   }),
 );

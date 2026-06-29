@@ -103,6 +103,7 @@ type ResumeParseStatus = {
 
 type ResumeReviewMutationPayload = {
   data?: {
+    hasMoreWork?: boolean;
     status: "saved" | "created" | "duplicate" | "skipped" | string;
     resume?: ResumeSourceReviewSummary;
     existingResume?: ResumeSourceReviewSummary;
@@ -459,29 +460,35 @@ export function ResumeReviewWorkspace({
     resumeId: string;
     runId: string;
   }) {
-    const processResponse = await fetchJson(`/api/resume-review/runs/${runId}/process`, {
-      method: "POST",
-    });
-    const processPayload = (await processResponse.json().catch(() => null)) as ResumeReviewMutationPayload | null;
-    if (!processResponse.ok) {
-      setError(formatResumeReviewPayloadError(processResponse, processPayload, fallbackError));
-      await loadResumes(resumeId);
-      return null;
-    }
-    if (processPayload?.data?.resume) {
-      await loadResumes(processPayload.data.resume.id);
-      await loadEnrichmentTasks(processPayload.data.resume);
-      return processPayload.data;
-    }
-    if (processPayload?.data?.run) {
-      const run = await refreshReviewRun(processPayload.data.run.id, resumeId);
-      if ((run ?? processPayload.data.run).status === "failed") {
-        setError(formatReviewLimitReason((run ?? processPayload.data.run).errorKind ?? "provider_error"));
+    let latestPayload: ResumeReviewMutationPayload["data"] | null = null;
+    for (let stepIndex = 0; stepIndex < 80; stepIndex += 1) {
+      const processResponse = await fetchJson(`/api/resume-review/runs/${runId}/process`, {
+        method: "POST",
+      });
+      const processPayload = (await processResponse.json().catch(() => null)) as ResumeReviewMutationPayload | null;
+      if (!processResponse.ok) {
+        setError(formatResumeReviewPayloadError(processResponse, processPayload, fallbackError));
+        await loadResumes(resumeId);
+        return null;
       }
-      return processPayload.data;
+      latestPayload = processPayload?.data ?? null;
+      if (latestPayload?.resume) {
+        await loadResumes(latestPayload.resume.id);
+        await loadEnrichmentTasks(latestPayload.resume);
+        return latestPayload;
+      }
+      if (latestPayload?.run) {
+        const run = await refreshReviewRun(latestPayload.run.id, resumeId);
+        if ((run ?? latestPayload.run).status === "failed") {
+          setError(formatReviewLimitReason((run ?? latestPayload.run).errorKind ?? "provider_error"));
+          return latestPayload;
+        }
+      }
+      if (!latestPayload?.hasMoreWork) break;
+      await wait(1200);
     }
     await loadResumes(resumeId);
-    return null;
+    return latestPayload;
   }
 
   return (
@@ -1965,6 +1972,10 @@ function reviewActionLabel(
 ) {
   if (reviewRun?.status === "running" || reviewIsStarting) return "Reviewing...";
   return isFallbackResume(resume) ? "Review again" : "Refresh review";
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function buildReviewDimensions(
