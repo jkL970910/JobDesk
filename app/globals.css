@@ -1240,7 +1240,8 @@ strong,
 
 .dashboard-figma-shell {
   gap: 0;
-  min-height: calc(100dvh - var(--app-topbar-space) - 104px);
+  grid-template-rows: auto auto;
+  min-height: 0;
 }
 
 .dashboard-flow-strip {
