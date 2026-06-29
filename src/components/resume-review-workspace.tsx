@@ -1602,28 +1602,16 @@ function ReviewDimensionWorkbench({
               <p>{selectedDimension.note}</p>
             </div>
             <div className="review-dimension-card__tile review-dimension-card__tile--helped">
-              <span>What helped the score</span>
-              <ul>
-                {selectedDimensionDetail.helpedScore.slice(0, 2).map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
+              <span>Helped</span>
+              <p>{selectedDimensionDetail.helpedScore.join(" ")}</p>
             </div>
             <div className="review-dimension-card__tile review-dimension-card__tile--lowered">
-              <span>What lowered the score</span>
-              <ul>
-                {selectedDimensionDetail.loweredScore.slice(0, 2).map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
+              <span>Lowered</span>
+              <p>{selectedDimensionDetail.loweredScore.join(" ")}</p>
             </div>
             <div className="review-dimension-card__tile review-dimension-card__tile--raise">
-              <span>What would raise it</span>
-              <ul>
-                {selectedDimensionDetail.wouldRaiseScore.slice(0, 2).map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
+              <span>Would raise it</span>
+              <p>{selectedDimensionDetail.wouldRaiseScore.join(" ")}</p>
             </div>
             {selectedDimensionDetail.findings.length ? (
               <details className="review-dimension-card__supporting">

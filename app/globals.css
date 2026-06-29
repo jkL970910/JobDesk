@@ -3428,6 +3428,9 @@ strong,
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(12, minmax(0, 1fr));
+  max-height: 560px;
+  overflow: auto;
+  padding-right: 3px;
 }
 
 .review-dimension-card__body > div,
@@ -3444,10 +3447,7 @@ strong,
 }
 
 .review-dimension-card__note p {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  line-height: 1.45;
 }
 
 .review-dimension-card__evidence,
@@ -3471,16 +3471,20 @@ strong,
   border-color: rgba(79, 140, 255, 0.2);
 }
 
-.review-dimension-card__tile ul {
+.review-dimension-card__tile {
+  align-items: start;
   display: grid;
-  gap: 5px;
+  gap: 8px;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(116px, 0.18fr) minmax(0, 1fr);
 }
 
-.review-dimension-card__tile li {
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+.review-dimension-card__tile span {
+  padding-top: 2px;
+}
+
+.review-dimension-card__tile p {
+  margin: 0;
 }
 
 .review-dimension-card__supporting,
@@ -10973,9 +10977,14 @@ span > .help-hint {
   }
 
   .review-dimension-card__body > div,
+  .review-dimension-card__body > details,
   .review-dimension-card__evidence,
   .review-dimension-card__supporting {
     grid-column: span 6;
+  }
+
+  .review-dimension-card__tile {
+    grid-column: 1 / -1;
   }
 
   .review-dimension-card__note,
@@ -11716,11 +11725,16 @@ span > .help-hint {
   }
 
   .review-dimension-card__body > div,
+  .review-dimension-card__body > details,
   .review-dimension-card__evidence,
   .review-dimension-card__supporting,
   .review-dimension-card__note,
   .review-dimension-card__evidence[data-wide="true"] {
     grid-column: 1 / -1;
+  }
+
+  .review-dimension-card__tile {
+    grid-template-columns: 1fr;
   }
 
   .review-dimension-card__next-step {
