@@ -39,6 +39,18 @@ describe("resume review workspace state", () => {
     expect(selected?.id).toBe("resume-v2");
     expect(selected?.latestReview).toBeNull();
   });
+
+  it("does not fall back to an older reviewed resume while a new upload attempt is focused", () => {
+    const selected = resolveResumeReviewSelectedResume({
+      isUploading: false,
+      pendingUploadResume: null,
+      resumes: [resumeSummary({ id: "resume-v1", latestReview: reviewSummary(), version: 1 })],
+      selectedId: "",
+      suppressFallback: true,
+    });
+
+    expect(selected).toBeNull();
+  });
 });
 
 function resumeSummary(patch: Partial<ResumeSourceReviewSummary>): ResumeSourceReviewSummary {

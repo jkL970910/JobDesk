@@ -44,12 +44,14 @@ export function resolveResumeReviewSelectedResume(args: {
   pendingUploadResume: ResumeSourceReviewSummary | null;
   resumes: ResumeSourceReviewSummary[];
   selectedId: string;
+  suppressFallback?: boolean;
 }) {
   if (args.isUploading) return null;
   if (args.pendingUploadResume) return args.pendingUploadResume;
   if (args.selectedId) {
     return args.resumes.find((resume) => resume.id === args.selectedId) ?? null;
   }
+  if (args.suppressFallback) return null;
   return args.resumes[0] ?? null;
 }
 
@@ -175,6 +177,7 @@ export function ResumeReviewWorkspace({
   const [parseStatus, setParseStatus] = useState<ResumeParseStatus | null>(null);
   const [enrichmentTasks, setEnrichmentTasks] = useState<EnrichmentTaskSummary[]>([]);
   const [reviewRunElapsedSeconds, setReviewRunElapsedSeconds] = useState(0);
+  const [uploadAttemptFocused, setUploadAttemptFocused] = useState(false);
   const [pendingUploadResume, setPendingUploadResume] = useState<ResumeSourceReviewSummary | null>(null);
   const [pendingRerunResume, setPendingRerunResume] = useState<ResumeSourceReviewSummary | null>(null);
   const selectedResume = resolveResumeReviewSelectedResume({
@@ -182,6 +185,7 @@ export function ResumeReviewWorkspace({
     pendingUploadResume,
     resumes,
     selectedId,
+    suppressFallback: uploadAttemptFocused,
   });
   const selectedReview = selectedResume?.latestReview ?? null;
   const selectedResumeIsExtracted = selectedResume?.status === "extracted";
@@ -351,6 +355,7 @@ export function ResumeReviewWorkspace({
     setPendingUploadResume(null);
     setParseStatus(null);
     if (!file) return;
+    setUploadAttemptFocused(true);
     setIsUploading(true);
     setUploadElapsedSeconds(0);
     setSelectedId("");
@@ -376,6 +381,7 @@ export function ResumeReviewWorkspace({
       }
       if (payload.data.status === "duplicate" && payload.data.existingResume) {
         const existingResume = payload.data.existingResume;
+        setUploadAttemptFocused(false);
         setDuplicateResume(existingResume);
         setPendingUploadResume(existingResume.activeReviewRun ? existingResume : null);
         setResumes((current) => upsertResumeReviewSummary(current, existingResume));
@@ -400,6 +406,7 @@ export function ResumeReviewWorkspace({
       }
       if (payload.data.status === "saved" && payload.data.resume) {
         const savedResume = payload.data.resume;
+        setUploadAttemptFocused(false);
         setPendingUploadResume(savedResume);
         setResumes((current) => upsertResumeReviewSummary(current, savedResume));
         if (payload.data.parseQuality) {
@@ -482,6 +489,7 @@ export function ResumeReviewWorkspace({
       }
       setStatus(`Deleted ${formatResumeTitle(resume.title)} v${resume.version}.`);
       setDuplicateResume(null);
+      setUploadAttemptFocused(false);
       await loadResumes();
       setEnrichmentTasks([]);
     } finally {
@@ -491,6 +499,12 @@ export function ResumeReviewWorkspace({
 
   function requestRerunReview(resume: ResumeSourceReviewSummary) {
     setPendingRerunResume(resume);
+  }
+
+  function selectResumeVersion(resumeId: string) {
+    setUploadAttemptFocused(false);
+    setPendingUploadResume(null);
+    setSelectedId(resumeId);
   }
 
   async function rerunReview(resume: ResumeSourceReviewSummary) {
@@ -627,10 +641,10 @@ export function ResumeReviewWorkspace({
               onDragEnd={handleResumeDragEnd}
               onDrop={handleResumeDrop}
               onReviewExistingDuplicate={() => {
-                if (duplicateResume) setSelectedId(duplicateResume.id);
+                if (duplicateResume) selectResumeVersion(duplicateResume.id);
               }}
               onRerun={requestRerunReview}
-              onSelect={setSelectedId}
+              onSelect={selectResumeVersion}
               onUpload={uploadResume}
               resumes={resumes}
               selectedResume={selectedResume}
@@ -707,7 +721,7 @@ export function ResumeReviewWorkspace({
               </p>
             </div>
             <div className="actions actions--compact">
-              <button type="button" onClick={() => setSelectedId(duplicateResume.id)}>
+              <button type="button" onClick={() => selectResumeVersion(duplicateResume.id)}>
                 {duplicateResume.activeReviewRun ? "View progress" : "Review existing"}
               </button>
               <button
@@ -748,7 +762,7 @@ export function ResumeReviewWorkspace({
                 <button
                   className="resume-version-select"
                   type="button"
-                  onClick={() => setSelectedId(resume.id)}
+                  onClick={() => selectResumeVersion(resume.id)}
                 >
                   <span>v{resume.version}</span>
                   <strong>{formatResumeTitle(resume.title)}</strong>
