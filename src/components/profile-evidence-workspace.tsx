@@ -1139,7 +1139,7 @@ export function ProfileEvidenceWorkspace({
 
   async function pollExtractionRun(runId: string) {
     const startedAt = Date.now();
-    const maxWaitMs = 4 * 60_000;
+    const maxWaitMs = 6 * 60_000;
     while (Date.now() - startedAt < maxWaitMs) {
       await sleep(2500);
       const response = await fetchJson(`/api/profile-evidence/extract/runs/${runId}`);
@@ -1157,7 +1157,7 @@ export function ProfileEvidenceWorkspace({
       id: runId,
       status: "failed" as const,
       failureKind: "worker_timeout",
-      failureMessage: "Extraction is queued or still running. Keep this source and check again after the worker runs.",
+      failureMessage: "Extraction is still running or the server stopped before it could finish. Keep this source and retry in a moment.",
       canRetry: true,
       retryAfterSeconds: 10,
     };

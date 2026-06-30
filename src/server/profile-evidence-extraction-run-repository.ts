@@ -21,6 +21,7 @@ export const profileEvidenceExtractionRunStaleClaimableStatuses = [
   "extracting_evidence",
   "validating",
 ] satisfies ExtractionRunStatus[];
+const staleProcessingFailureMs = 10 * 60_000;
 
 export type ExtractionRunPayload = ReturnType<typeof toRunPayload>;
 
@@ -70,6 +71,7 @@ export async function getProfileEvidenceExtractionRun(runId: string) {
   }
   const db = getDb();
   const workspace = await getCurrentWorkspace(db);
+  await expireStaleProfileEvidenceExtractionRun(db, { runId, workspaceId: workspace.id });
   const [run] = await db
     .select()
     .from(profileEvidenceExtractionRuns)
@@ -160,6 +162,37 @@ export async function claimNextProfileEvidenceExtractionRun(workerId: string) {
     )
     .returning();
   return run ? ({ status: "claimed" as const, run: toRunPayload(run) }) : ({ status: "empty" as const });
+}
+
+export async function expireStaleProfileEvidenceExtractionRun(
+  db: Pick<DbHandle, "update">,
+  args: { runId: string; workspaceId: string; now?: Date },
+) {
+  const now = args.now ?? new Date();
+  const staleBefore = new Date(now.getTime() - staleProcessingFailureMs);
+  const [run] = await db
+    .update(profileEvidenceExtractionRuns)
+    .set({
+      canRetry: 1,
+      failedAt: now,
+      failureKind: "worker_timeout",
+      failureMessage: "Extraction processing stopped before it could finish. Retry from Add Material.",
+      lockedAt: null,
+      lockedBy: null,
+      retryAfterSeconds: 10,
+      status: "failed",
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(profileEvidenceExtractionRuns.id, args.runId),
+        eq(profileEvidenceExtractionRuns.workspaceId, args.workspaceId),
+        inArray(profileEvidenceExtractionRuns.status, profileEvidenceExtractionRunStaleClaimableStatuses),
+        sql`${profileEvidenceExtractionRuns.lockedAt} < ${staleBefore}`,
+      ),
+    )
+    .returning();
+  return run ? ({ status: "expired" as const, run: toRunPayload(run) }) : ({ status: "unchanged" as const });
 }
 
 export async function claimProfileEvidenceExtractionRunById(runId: string, workerId: string) {
