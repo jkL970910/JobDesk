@@ -1494,8 +1494,6 @@ function ReviewDimensionWorkbench({
     selectedDimension.reviewDetail,
     dimensionDetail,
   );
-  const evidencePrompts = selectedDimensionDetail.evidencePrompts;
-  const reviewerSignals = selectedDimensionDetail.findings;
   const evidenceTaskCount = activeQuestionCount || missingEvidenceQuestions.length;
   return (
     <section className="review-dimension-workbench">
@@ -1624,42 +1622,6 @@ function ReviewDimensionWorkbench({
               <section className="review-dimension-card__section review-dimension-card__section--raise">
                 <span>What would raise it</span>
                 <p>{selectedDimensionDetail.wouldRaiseScore.join(" ")}</p>
-              </section>
-              <section className="review-dimension-card__supporting">
-                <div className="review-dimension-card__mini-head">
-                  <div>
-                    <span>Score evidence</span>
-                    <p>Review signals behind this score.</p>
-                  </div>
-                  <strong>{reviewerSignals.length}</strong>
-                </div>
-                {reviewerSignals.length ? (
-                  <ul>
-                    {reviewerSignals.map((finding) => (
-                      <li key={`${finding.kind}-${finding.text}`}>{finding.text}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>No extra reviewer signals were returned for this dimension.</p>
-                )}
-              </section>
-              <section className="review-dimension-card__evidence">
-                <div className="review-dimension-card__mini-head">
-                  <div>
-                    <span>Evidence questions</span>
-                    <p>Questions that can become enrichment work when they appear in the Work Queue.</p>
-                  </div>
-                  <strong>{evidencePrompts.length}</strong>
-                </div>
-                {evidencePrompts.length ? (
-                  <ul>
-                    {evidencePrompts.map((prompt) => (
-                      <li key={prompt}>{prompt}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>No dimension-specific evidence question was returned. Use the page-level workflow action for the next step.</p>
-                )}
               </section>
             </div>
           </div>
