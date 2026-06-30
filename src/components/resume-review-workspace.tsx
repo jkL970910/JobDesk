@@ -1628,8 +1628,8 @@ function ReviewDimensionWorkbench({
               <section className="review-dimension-card__supporting">
                 <div className="review-dimension-card__mini-head">
                   <div>
-                    <span>Why JobDesk judged this</span>
-                    <p>Signals from this review that explain the score. These are not Work Queue tasks.</p>
+                    <span>Score evidence</span>
+                    <p>Review signals behind this score.</p>
                   </div>
                   <strong>{reviewerSignals.length}</strong>
                 </div>
