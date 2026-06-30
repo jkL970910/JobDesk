@@ -686,22 +686,36 @@ function buildPolishPreviewMarkdown(args: {
 }) {
   const baseMarkdown = args.markdown.trim();
   const normalized = removeGeneratedPolishFocusSection(baseMarkdown).replace(/\n{3,}/g, "\n\n");
-  const focusLines =
-    args.findings.length > 0
-      ? args.findings.slice(0, 3).map((finding) => `- ${finding.title}: ${finding.proposed_change}`)
-      : ["- Review the generated draft for wording, structure, and positioning before export."];
   const firstBullet = normalized
     .split(/\r?\n/)
     .map((line) => line.trim())
     .find((line) => /^[-*]\s+\S/.test(line))
     ?.replace(/^[-*]\s+/, "")
     .trim();
-  const focusBody = [
-    "## Generated polish focus",
-    ...(firstBullet ? [`Polish is anchored on the current strongest visible claim: ${firstBullet}`] : []),
-    ...focusLines,
-  ].join("\n");
-  return `${focusBody}\n\n${normalized}`;
+  const summaryText = firstBullet
+    ? `Evidence-backed candidate profile led by: ${firstBullet}`
+    : "Evidence-backed candidate profile with generated resume content ready for review.";
+  const lines = normalized.split(/\r?\n/);
+  const summaryStartIndex = lines.findIndex((line) =>
+    /^#{1,3}\s*(summary|profile|professional summary)\b/i.test(line.trim()),
+  );
+  if (summaryStartIndex < 0) {
+    return ["## Summary", summaryText, "", normalized].join("\n");
+  }
+
+  let summaryEndIndex = lines.length;
+  for (let index = summaryStartIndex + 1; index < lines.length; index += 1) {
+    if (/^#{1,3}\s+\S/.test(lines[index]?.trim() ?? "")) {
+      summaryEndIndex = index;
+      break;
+    }
+  }
+  return [
+    ...lines.slice(0, summaryStartIndex + 1),
+    summaryText,
+    "",
+    ...lines.slice(summaryEndIndex),
+  ].join("\n").trim();
 }
 
 function removeGeneratedPolishFocusSection(markdown: string) {

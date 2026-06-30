@@ -101,11 +101,12 @@ describe("generated resume readiness review", () => {
     expect(proposal.source_main_resume_id).toBe("33333333-3333-4333-8333-333333333333");
     expect(proposal.edits.every((edit) => edit.route !== "evidence_gap")).toBe(true);
     expect(proposal.preview_markdown).toContain("Built onboarding dashboards");
-    expect(proposal.preview_markdown).toContain("## Generated polish focus");
+    expect(proposal.preview_markdown).toContain("## Summary");
+    expect(proposal.preview_markdown).not.toContain("## Generated polish focus");
     expect(proposal.preview_markdown).not.toContain("JobDesk polish proposal");
   });
 
-  it("always makes proposal application visible even when a summary already exists", () => {
+  it("applies polish through resume content instead of proposal metadata bullets", () => {
     const review = buildGeneratedResumeReadinessReview({
       baseline: null,
       claims: [
@@ -137,8 +138,12 @@ describe("generated resume readiness review", () => {
     });
 
     expect(proposal.preview_markdown).not.toBe(originalMarkdown);
-    expect(proposal.preview_markdown).toMatch(/^## Generated polish focus/);
+    expect(proposal.preview_markdown).not.toContain("## Generated polish focus");
+    expect(proposal.preview_markdown).not.toContain("- Add a sharper opening summary");
     expect(proposal.preview_markdown).toContain("## Summary");
+    expect(proposal.preview_markdown).toContain(
+      "Evidence-backed candidate profile led by: Built onboarding dashboards for product teams.",
+    );
   });
 });
 
