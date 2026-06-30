@@ -247,6 +247,27 @@ export async function updateProfileEvidenceExtractionRunStatus(args: {
   return run ? toRunPayload(run) : null;
 }
 
+export async function saveProfileEvidenceExtractionRunProgress(args: {
+  runId: string;
+  status: ExtractionRunStatus;
+  workerId: string;
+  result: Record<string, unknown>;
+}) {
+  const db = getDb();
+  const [run] = await db
+    .update(profileEvidenceExtractionRuns)
+    .set({
+      lockedAt: null,
+      lockedBy: null,
+      resultJson: args.result,
+      status: args.status,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(profileEvidenceExtractionRuns.id, args.runId), eq(profileEvidenceExtractionRuns.lockedBy, args.workerId)))
+    .returning();
+  return run ? toRunPayload(run) : null;
+}
+
 export async function completeProfileEvidenceExtractionRun(args: {
   runId: string;
   workerId: string;

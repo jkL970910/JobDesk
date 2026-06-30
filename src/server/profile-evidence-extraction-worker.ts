@@ -1,6 +1,14 @@
 import { resolveJobDeskAiConfig } from "../ai/config";
 import { JobDeskAiError } from "../ai/errors";
-import { extractProfileEvidenceChunked } from "../ai/profile-evidence-chunked-extraction";
+import {
+  buildProfileEvidenceExtractionFromStepRunnerState,
+  extractProfileEvidenceChunked,
+  getProfileEvidenceStepRunnerProgress,
+  initializeProfileEvidenceStepRunnerState,
+  parseProfileEvidenceStepRunnerState,
+  processNextProfileEvidenceStepRunnerSegment,
+  serializeProfileEvidenceStepRunnerState,
+} from "../ai/profile-evidence-chunked-extraction";
 import { skillRegistry } from "../ai/skills-registry";
 import {
   claimProfileEvidenceExtractionRunById,
@@ -9,6 +17,7 @@ import {
   failProfileEvidenceExtractionRun,
   getProfileEvidenceExtractionRunOwner,
   resolveProfileEvidenceExtractionRunSource,
+  saveProfileEvidenceExtractionRunProgress,
   updateProfileEvidenceExtractionRunStatus,
 } from "./profile-evidence-extraction-run-repository";
 import {
@@ -32,11 +41,13 @@ export type ProfileEvidenceExtractionWorkerDependencies = {
   getRunOwner: typeof getProfileEvidenceExtractionRunOwner;
   resolveAiConfig: typeof resolveJobDeskAiConfig;
   resolveRunSource: typeof resolveProfileEvidenceExtractionRunSource;
+  saveRunProgress: typeof saveProfileEvidenceExtractionRunProgress;
   updateRunStatus: typeof updateProfileEvidenceExtractionRunStatus;
   extractChunked: typeof extractProfileEvidenceChunked;
   persistExtraction: typeof persistProfileEvidenceExtraction;
   persistFailure: typeof persistProfileEvidenceFailure;
   markResumeExtracted: typeof markResumeSourceExtracted;
+  processNextSegment: typeof processNextProfileEvidenceStepRunnerSegment;
   scheduleEmbeddingsSync: typeof schedulePersonalEmbeddingsSync;
   runAsUser: typeof runWithAuthContext;
 };
@@ -51,9 +62,11 @@ const productionWorkerDependencies: ProfileEvidenceExtractionWorkerDependencies 
   markResumeExtracted: markResumeSourceExtracted,
   persistExtraction: persistProfileEvidenceExtraction,
   persistFailure: persistProfileEvidenceFailure,
+  processNextSegment: processNextProfileEvidenceStepRunnerSegment,
   resolveAiConfig: resolveJobDeskAiConfig,
   resolveRunSource: resolveProfileEvidenceExtractionRunSource,
   runAsUser: runWithAuthContext,
+  saveRunProgress: saveProfileEvidenceExtractionRunProgress,
   scheduleEmbeddingsSync: schedulePersonalEmbeddingsSync,
   updateRunStatus: updateProfileEvidenceExtractionRunStatus,
 };
@@ -132,27 +145,71 @@ async function runClaimedProfileEvidenceExtraction(args: {
 
   const config = dependencies.resolveAiConfig();
   try {
-    await dependencies.updateRunStatus({
-      runId: claim.run.id,
-      status: "segmenting",
-      workerId,
-    });
-    await dependencies.updateRunStatus({
-      runId: claim.run.id,
-      status: "extracting_profile",
-      workerId,
-    });
-    const result = await dependencies.extractChunked({
-      onStatus: async (status) => {
-        await dependencies.updateRunStatus({
+    const existingState = parseProfileEvidenceStepRunnerState(claim.run.result);
+    if (!existingState) {
+      await dependencies.updateRunStatus({
+        runId: claim.run.id,
+        status: "segmenting",
+        workerId,
+      });
+      await dependencies.updateRunStatus({
+        runId: claim.run.id,
+        status: "extracting_profile",
+        workerId,
+      });
+      const state = initializeProfileEvidenceStepRunnerState({
+        sourceId: claim.run.id,
+        sourceText: source.sourceText,
+      });
+      const progress = getProfileEvidenceStepRunnerProgress(state);
+      if (progress.hasPendingSegments) {
+        const saved = await dependencies.saveRunProgress({
           runId: claim.run.id,
-          status,
+          status: "extracting_evidence",
           workerId,
+          result: {
+            ...serializeProfileEvidenceStepRunnerState(state),
+            progress,
+          },
         });
-      },
-      sourceId: claim.run.id,
-      sourceText: source.sourceText,
-    });
+        return { hasMoreWork: true, run: saved, status: "processing" as const };
+      }
+      const saved = await dependencies.saveRunProgress({
+        runId: claim.run.id,
+        status: "validating",
+        workerId,
+        result: {
+          ...serializeProfileEvidenceStepRunnerState(state),
+          progress,
+        },
+      });
+      return { hasMoreWork: true, run: saved, status: "processing" as const };
+    }
+
+    const existingProgress = getProfileEvidenceStepRunnerProgress(existingState);
+    if (existingProgress.hasPendingSegments) {
+      await dependencies.updateRunStatus({
+        runId: claim.run.id,
+        status: "extracting_evidence",
+        workerId,
+      });
+      const processed = await dependencies.processNextSegment({
+        state: existingState,
+      });
+      const progress = getProfileEvidenceStepRunnerProgress(processed.state);
+      const saved = await dependencies.saveRunProgress({
+        runId: claim.run.id,
+        status: progress.hasPendingSegments ? "extracting_evidence" : "validating",
+        workerId,
+        result: {
+          ...serializeProfileEvidenceStepRunnerState(processed.state),
+          progress,
+        },
+      });
+      return { hasMoreWork: true, run: saved, status: "processing" as const };
+    }
+
+    const result = buildProfileEvidenceExtractionFromStepRunnerState(existingState);
     await dependencies.updateRunStatus({
       runId: claim.run.id,
       status: "validating",

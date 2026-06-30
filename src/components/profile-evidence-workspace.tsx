@@ -85,6 +85,12 @@ type ExtractionRunSummary = {
   id: string;
   status: ExtractionRunStatus;
   result?: {
+    progress?: {
+      completedSegmentCount?: number;
+      currentSegmentTitle?: string | null;
+      segmentCount?: number;
+      totalEvidenceSegmentCount?: number;
+    };
     evidenceCount?: number;
     projectCount?: number;
     storyCount?: number;
@@ -1034,9 +1040,8 @@ export function ProfileEvidenceWorkspace({
           return;
         }
         setActiveExtractionRunId(payload.data.run.id);
-        setStatus(formatExtractionRunStatus(payload.data.run.status));
-        await triggerExtractionRunProcessing(payload.data.run.id);
-        const completedRun = await pollExtractionRun(payload.data.run.id);
+        setStatus(formatExtractionRunStatus(payload.data.run));
+        const completedRun = await processExtractionRunUntilTerminal(payload.data.run.id);
         if (completedRun.status === "completed") {
           await refreshLibraryAfterMutation();
           await loadResumeSources();
@@ -1099,8 +1104,9 @@ export function ProfileEvidenceWorkspace({
           setError(formatUserFacingFailure(payload?.error ?? "Could not retry extraction run.", payload?.kind));
           return;
         }
-        await triggerExtractionRunProcessing(payload.data.run.id);
-        const completedRun = await pollExtractionRun(payload.data.run.id);
+        setActiveExtractionRunId(payload.data.run.id);
+        setStatus(formatExtractionRunStatus(payload.data.run));
+        const completedRun = await processExtractionRunUntilTerminal(payload.data.run.id);
         if (completedRun.status === "completed") {
           await refreshLibraryAfterMutation();
           await loadResumeSources();
@@ -1137,11 +1143,15 @@ export function ProfileEvidenceWorkspace({
     })();
   }
 
-  async function pollExtractionRun(runId: string) {
+  async function processExtractionRunUntilTerminal(runId: string) {
     const startedAt = Date.now();
-    const maxWaitMs = 6 * 60_000;
+    const maxWaitMs = 12 * 60_000;
     while (Date.now() - startedAt < maxWaitMs) {
-      await sleep(2500);
+      const processed = await triggerExtractionRunProcessing(runId);
+      if (processed?.run) {
+        setStatus(formatExtractionRunStatus(processed.run));
+        if (processed.run.status === "completed" || processed.run.status === "failed") return processed.run;
+      }
       const response = await fetchJson(`/api/profile-evidence/extract/runs/${runId}`);
       const payload = (await response.json().catch(() => null)) as
         | { data?: { run?: ExtractionRunSummary }; error?: string; kind?: string }
@@ -1150,8 +1160,9 @@ export function ProfileEvidenceWorkspace({
         throw new Error(payload?.error ?? "Could not check extraction run status.");
       }
       const run = payload.data.run;
-      setStatus(formatExtractionRunStatus(run.status));
+      setStatus(formatExtractionRunStatus(run));
       if (run.status === "completed" || run.status === "failed") return run;
+      await sleep(1200);
     }
     return {
       id: runId,
@@ -1169,14 +1180,15 @@ export function ProfileEvidenceWorkspace({
       method: "POST",
     });
     const payload = (await response.json().catch(() => null)) as
-      | { data?: { status?: string }; error?: string; kind?: string }
+      | { data?: { hasMoreWork?: boolean; run?: ExtractionRunSummary; status?: string }; error?: string; kind?: string }
       | null;
     if (response.status === 409) {
-      return;
+      return null;
     }
     if (!response.ok) {
       throw new Error(formatUserFacingFailure(payload?.error ?? "Could not process extraction run.", payload?.kind));
     }
+    return payload?.data ?? null;
   }
 
   async function importResumeFile(file: File | null) {
@@ -6525,7 +6537,17 @@ function formatStatus(meta: Extract<ExtractionResponse, { data: unknown }>["meta
   return "Draft created";
 }
 
-function formatExtractionRunStatus(status: ExtractionRunStatus) {
+function formatExtractionRunStatus(runOrStatus: ExtractionRunSummary | ExtractionRunStatus) {
+  const status = typeof runOrStatus === "string" ? runOrStatus : runOrStatus.status;
+  const progress = typeof runOrStatus === "string" ? undefined : runOrStatus.result?.progress;
+  if (status === "extracting_evidence" && progress?.totalEvidenceSegmentCount) {
+    const completed = progress.completedSegmentCount ?? 0;
+    const total = progress.totalEvidenceSegmentCount;
+    const title = progress.currentSegmentTitle?.trim();
+    return title
+      ? `Reviewing section ${Math.min(completed + 1, total)}/${total}: ${title}.`
+      : `Reviewing section ${Math.min(completed + 1, total)}/${total}.`;
+  }
   const copy: Record<ExtractionRunStatus, string> = {
     completed: "Library items created.",
     extracting_evidence: "Extracting evidence from the source.",

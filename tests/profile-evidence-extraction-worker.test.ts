@@ -13,32 +13,51 @@ import { profileEvidenceExtractionRunStaleClaimableStatuses } from "../src/serve
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
 
 describe("profile evidence extraction worker orchestration", () => {
-  it("runs chunked extraction through final validation before one canonical persistence call", async () => {
+  it("initializes extraction state without writing canonical library data", async () => {
     const { calls, dependencies } = buildWorkerFixture();
 
     const result = await runProfileEvidenceExtractionWorkerOnce("worker-test", dependencies);
 
-    expect(result).toMatchObject({ status: "completed" });
+    expect(result).toMatchObject({ hasMoreWork: true, status: "processing" });
     expect(calls.claimedWorkerIds).toEqual(["worker-test"]);
     expect(calls.authUserIds).toEqual(["user-test"]);
     expect(calls.statuses).toEqual([
       "segmenting",
       "extracting_profile",
-      "extracting_evidence",
-      "validating",
-      "saving",
     ]);
+    expect(calls.progressRuns).toHaveLength(1);
+    expect(calls.persistedExtractions).toHaveLength(0);
+    expect(calls.completedRuns).toHaveLength(0);
+    expect(calls.failedRuns).toHaveLength(0);
+    expect(calls.markedResumeSources).toHaveLength(0);
+    expect(calls.embeddingReasons).toHaveLength(0);
+  });
+
+  it("saves canonical library data only after all persisted segments complete", async () => {
+    const { calls, dependencies } = buildWorkerFixture({
+      claimNextRun: async (workerId) => {
+        calls.claimedWorkerIds.push(workerId);
+        return { status: "claimed" as const, run: buildRunPayload({ result: buildCompletedStepRunnerResult() }) };
+      },
+    });
+
+    const result = await runProfileEvidenceExtractionWorkerOnce("worker-test", dependencies);
+
+    expect(result).toMatchObject({ status: "completed" });
+    expect(calls.statuses).toEqual(["validating", "saving"]);
     expect(calls.persistedExtractions).toHaveLength(1);
     expect(calls.completedRuns).toHaveLength(1);
-    expect(calls.failedRuns).toHaveLength(0);
     expect(calls.markedResumeSources).toEqual(["resume-source-test"]);
     expect(calls.embeddingReasons).toEqual(["profile_evidence_extract_run"]);
   });
 
-  it("does not write canonical library data when a chunk fails before final validation", async () => {
+  it("does not write canonical library data when a persisted segment fails before final validation", async () => {
     const { calls, dependencies } = buildWorkerFixture({
-      extractChunked: async (args) => {
-        await args.onStatus?.("extracting_evidence");
+      claimNextRun: async (workerId) => {
+        calls.claimedWorkerIds.push(workerId);
+        return { status: "claimed" as const, run: buildRunPayload({ result: buildPendingStepRunnerResult() }) };
+      },
+      processNextSegment: async () => {
         throw new JobDeskAiError("provider timed out", { kind: "timeout", status: 524 });
       },
     });
@@ -46,7 +65,7 @@ describe("profile evidence extraction worker orchestration", () => {
     const result = await runProfileEvidenceExtractionWorkerOnce("worker-test", dependencies);
 
     expect(result).toMatchObject({ status: "failed" });
-    expect(calls.statuses).toEqual(["segmenting", "extracting_profile", "extracting_evidence"]);
+    expect(calls.statuses).toEqual(["extracting_evidence"]);
     expect(calls.persistedExtractions).toHaveLength(0);
     expect(calls.completedRuns).toHaveLength(0);
     expect(calls.markedResumeSources).toHaveLength(0);
@@ -77,7 +96,7 @@ describe("profile evidence extraction worker orchestration", () => {
     expect(calls.persistedExtractions).toHaveLength(0);
   });
 
-  it("processes only the user-triggered extraction run by id", async () => {
+  it("processes only the user-triggered extraction run by id one bounded unit at a time", async () => {
     const { calls, dependencies } = buildWorkerFixture({
       claimRunById: async (runId, workerId) => {
         calls.claimedRunIds.push(runId);
@@ -91,10 +110,10 @@ describe("profile evidence extraction worker orchestration", () => {
 
     const result = await runProfileEvidenceExtractionWorkerForRun("run-user-clicked", "worker-test", dependencies);
 
-    expect(result).toMatchObject({ status: "completed" });
+    expect(result).toMatchObject({ hasMoreWork: true, status: "processing" });
     expect(calls.claimedRunIds).toEqual(["run-user-clicked"]);
     expect(calls.claimedWorkerIds).toEqual(["worker-test"]);
-    expect(calls.persistedExtractions).toHaveLength(1);
+    expect(calls.persistedExtractions).toHaveLength(0);
   });
 
   it("keeps stale pre-save states reclaimable but excludes saving", () => {
@@ -125,6 +144,7 @@ function buildWorkerFixture(
     failedRuns: [] as unknown[],
     markedResumeSources: [] as string[],
     persistedExtractions: [] as unknown[],
+    progressRuns: [] as unknown[],
     statuses: [] as string[],
   };
   const dependencies: ProfileEvidenceExtractionWorkerDependencies = {
@@ -180,6 +200,34 @@ function buildWorkerFixture(
       };
     },
     persistFailure: async () => ({ status: "saved" as const, workflowRunId: "failure-workflow-test" }),
+    processNextSegment: async ({ state }) => {
+      if (overrides.extractChunked) {
+        await overrides.extractChunked({
+          onStatus: async () => undefined,
+          sourceId: state.sourceId,
+          sourceText: "fixture",
+        });
+      }
+      return {
+        processedSegment: true,
+        state: {
+          ...state,
+          segments: state.segments.map((segment, index) =>
+            index === 0
+              ? {
+                  ...segment,
+                  result: {
+                    evidence_items: buildExtraction().evidence_items,
+                    extraction_notes: [],
+                    initiatives: buildExtraction().initiatives,
+                  },
+                  status: "completed" as const,
+                }
+              : segment,
+          ),
+        },
+      };
+    },
     resolveAiConfig: () => ({
       apiKey: "test-key",
       endpoint: "https://openrouter.example/v1/responses",
@@ -191,7 +239,7 @@ function buildWorkerFixture(
     }),
     resolveRunSource: async () => ({
       run,
-      sourceText: "Jane Doe\nExperience\nAmazon\nSoftware Engineer Jan 2022 - Present\nBuilt reliable platform workflows.",
+      sourceText: "Jane Doe\n\nExperience\nAmazon\nSoftware Engineer Jan 2022 - Present\nBuilt reliable platform workflows.",
     }),
     runAsUser: (userId, callback) => {
       calls.authUserIds.push(userId);
@@ -199,6 +247,10 @@ function buildWorkerFixture(
     },
     scheduleEmbeddingsSync: (reason) => {
       calls.embeddingReasons.push(reason);
+    },
+    saveRunProgress: async (args) => {
+      calls.progressRuns.push(args);
+      return { ...run, result: args.result, status: args.status };
     },
     updateRunStatus: async (args) => {
       calls.statuses.push(args.status);
@@ -242,6 +294,63 @@ function buildRunPayloadBase() {
     status: "parsing" as const,
     updatedAt: "2026-06-27T00:00:00.000Z",
     workspaceId: "workspace-test",
+  };
+}
+
+function buildCompletedStepRunnerResult() {
+  return {
+    profileEvidenceStepRunner: {
+      profileResult: {
+        extraction_notes: [],
+        profile: buildExtraction().profile,
+        work_experiences: buildExtraction().work_experiences,
+      },
+      retryCount: 0,
+      segmentCount: 2,
+      segments: [
+        {
+          id: "work_experience-1",
+          kind: "work_experience",
+          result: {
+            evidence_items: buildExtraction().evidence_items,
+            extraction_notes: [],
+            initiatives: buildExtraction().initiatives,
+          },
+          status: "completed",
+          text: "Amazon\nSoftware Engineer Jan 2022 - Present\nBuilt reliable platform workflows.",
+          title: "Experience",
+        },
+      ],
+      sourceId: "run-test",
+      usage: { inputTokens: 120, outputTokens: 80, totalTokens: 200 },
+      version: "profile-evidence-step-runner-v1",
+    },
+  };
+}
+
+function buildPendingStepRunnerResult() {
+  return {
+    profileEvidenceStepRunner: {
+      profileResult: {
+        extraction_notes: [],
+        profile: buildExtraction().profile,
+        work_experiences: buildExtraction().work_experiences,
+      },
+      retryCount: 0,
+      segmentCount: 2,
+      segments: [
+        {
+          id: "work_experience-1",
+          kind: "work_experience",
+          status: "pending",
+          text: "Amazon\nSoftware Engineer Jan 2022 - Present\nBuilt reliable platform workflows.",
+          title: "Experience",
+        },
+      ],
+      sourceId: "run-test",
+      usage: {},
+      version: "profile-evidence-step-runner-v1",
+    },
   };
 }
 

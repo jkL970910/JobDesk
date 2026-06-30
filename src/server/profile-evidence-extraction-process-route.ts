@@ -6,6 +6,7 @@ type ProcessOnceResult =
   | { status: "skipped"; reason: string }
   | { status: "empty" }
   | { status: "failed"; reason?: string; run?: unknown; runId?: string }
+  | { status: "processing"; hasMoreWork?: boolean; run?: unknown }
   | { status: "completed"; run: unknown };
 type ProcessOnceWorker = () => Promise<ProcessOnceResult>;
 type CronSecretEnv = Record<string, string | undefined>;
@@ -29,7 +30,8 @@ export async function handleProfileEvidenceExtractionProcessOnceRequest(
   return NextResponse.json({
     data: {
       limit: PROCESS_LIMIT,
-      processedCount: result.status === "completed" || result.status === "failed" ? 1 : 0,
+      processedCount:
+        result.status === "completed" || result.status === "failed" || result.status === "processing" ? 1 : 0,
       result,
     },
   });

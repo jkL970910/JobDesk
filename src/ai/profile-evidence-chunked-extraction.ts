@@ -38,6 +38,7 @@ type ChunkedExtractionResult = {
   segmentCount: number;
 };
 
+const stepRunnerStateVersion = "profile-evidence-step-runner-v1";
 const maxSegmentCharacters = 3600;
 const minSegmentCharacters = 40;
 
@@ -58,6 +59,27 @@ const ProjectEvidenceExtraction = z.object({
   evidence_items: z.array(EvidenceDraft).default([]),
   extraction_notes: z.array(z.string()).default([]),
 });
+
+const StepRunnerSegment = z.object({
+  id: z.string(),
+  kind: z.enum(["work_experience", "projects"]),
+  result: z.unknown().optional(),
+  status: z.enum(["pending", "completed"]),
+  text: z.string(),
+  title: z.string(),
+});
+
+const ProfileEvidenceStepRunnerState = z.object({
+  profileResult: ProfileWorkHistoryExtraction,
+  retryCount: z.number().int().min(0).default(0),
+  segmentCount: z.number().int().min(0),
+  segments: z.array(StepRunnerSegment),
+  sourceId: z.string(),
+  usage: z.record(z.string(), z.number().nullable()).default({}),
+  version: z.literal(stepRunnerStateVersion),
+});
+
+export type ProfileEvidenceStepRunnerState = z.infer<typeof ProfileEvidenceStepRunnerState>;
 
 export async function extractProfileEvidenceChunked(params: {
   sourceId: string;
@@ -148,6 +170,151 @@ export async function extractProfileEvidenceChunked(params: {
   };
 }
 
+export function initializeProfileEvidenceStepRunnerState(params: {
+  sourceId: string;
+  sourceText: string;
+}): ProfileEvidenceStepRunnerState {
+  const segments = segmentProfileEvidenceSource(params.sourceText);
+  return ProfileEvidenceStepRunnerState.parse({
+    profileResult: buildDeterministicProfileWorkHistory(segments),
+    retryCount: 0,
+    segmentCount: segments.length,
+    segments: segments
+      .filter((segment) => segment.kind === "work_experience" || segment.kind === "projects")
+      .map((segment) => ({
+        id: segment.id,
+        kind: segment.kind,
+        status: "pending",
+        text: segment.text,
+        title: segment.title,
+      })),
+    sourceId: params.sourceId,
+    usage: {},
+    version: stepRunnerStateVersion,
+  });
+}
+
+export function parseProfileEvidenceStepRunnerState(value: unknown) {
+  const candidate = getProfileEvidenceStepRunnerCandidate(value);
+  if (!candidate) return null;
+  const parsed = ProfileEvidenceStepRunnerState.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
+}
+
+export function serializeProfileEvidenceStepRunnerState(state: ProfileEvidenceStepRunnerState) {
+  return {
+    profileEvidenceStepRunner: ProfileEvidenceStepRunnerState.parse(state),
+  };
+}
+
+export function getProfileEvidenceStepRunnerProgress(state: ProfileEvidenceStepRunnerState) {
+  const completedSegmentCount = state.segments.filter((segment) => segment.status === "completed").length;
+  const nextSegment = state.segments.find((segment) => segment.status === "pending") ?? null;
+  return {
+    completedSegmentCount,
+    currentSegmentTitle: nextSegment?.title ?? null,
+    hasPendingSegments: Boolean(nextSegment),
+    segmentCount: state.segmentCount,
+    totalEvidenceSegmentCount: state.segments.length,
+  };
+}
+
+export async function processNextProfileEvidenceStepRunnerSegment(params: {
+  fetchFn?: FetchLike;
+  state: ProfileEvidenceStepRunnerState;
+}): Promise<{ processedSegment: boolean; state: ProfileEvidenceStepRunnerState }> {
+  const pendingIndex = params.state.segments.findIndex((segment) => segment.status === "pending");
+  if (pendingIndex < 0) {
+    return { processedSegment: false, state: params.state };
+  }
+
+  const adapter = new OpenRouterResponsesAdapter({
+    config: resolveJobDeskAiConfig(),
+    fetchFn: params.fetchFn,
+    maxAttempts: 1,
+  });
+  const usage: JobDeskAiUsage = { ...params.state.usage };
+  let retryCount = params.state.retryCount;
+  const segment = params.state.segments[pendingIndex]!;
+  const result = segment.kind === "work_experience"
+    ? await extractStoryEvidenceForSegment({
+        adapter,
+        profileResult: params.state.profileResult,
+        segment,
+        sourceId: params.state.sourceId,
+      }).catch((error) => {
+        if (!isFallbackChunkFailure(error)) throw error;
+        retryCount += error instanceof JobDeskAiError ? error.retryCount : 1;
+        return {
+          data: buildDeterministicStoryEvidence(segment, params.state.profileResult.work_experiences),
+          retryCount: 0,
+          usage: {},
+        };
+      })
+    : await extractProjectEvidenceForSegment({
+        adapter,
+        segment,
+        sourceId: params.state.sourceId,
+      }).catch((error) => {
+        if (!isFallbackChunkFailure(error)) throw error;
+        retryCount += error instanceof JobDeskAiError ? error.retryCount : 1;
+        return {
+          data: buildDeterministicProjectEvidence(segment),
+          retryCount: 0,
+          usage: {},
+        };
+      });
+
+  mergeUsage(usage, result.usage);
+  retryCount += result.retryCount;
+  const segments = params.state.segments.map((item, index) =>
+    index === pendingIndex
+      ? {
+          ...item,
+          result: result.data,
+          status: "completed" as const,
+        }
+      : item,
+  );
+  return {
+    processedSegment: true,
+    state: ProfileEvidenceStepRunnerState.parse({
+      ...params.state,
+      retryCount,
+      segments,
+      usage,
+    }),
+  };
+}
+
+export function buildProfileEvidenceExtractionFromStepRunnerState(
+  state: ProfileEvidenceStepRunnerState,
+): ChunkedExtractionResult {
+  const pending = state.segments.find((segment) => segment.status !== "completed");
+  if (pending) {
+    throw new JobDeskAiError(`Profile evidence extraction is waiting for ${pending.title}.`, {
+      kind: "provider_error",
+    });
+  }
+  const evidenceResults = state.segments
+    .filter((segment) => segment.kind === "work_experience")
+    .map((segment) => StoryEvidenceExtraction.parse(segment.result));
+  const projectResults = state.segments
+    .filter((segment) => segment.kind === "projects")
+    .map((segment) => ProjectEvidenceExtraction.parse(segment.result));
+  return {
+    data: buildChunkedProfileEvidenceExtractionForTest({
+      evidenceResults,
+      profileResult: state.profileResult,
+      projectResults,
+    }),
+    retryCount: state.retryCount,
+    segmentCount: state.segmentCount,
+    skill: skillRegistry.profileEvidenceExtractionResume,
+    usage: state.usage,
+  };
+}
+
 export function segmentProfileEvidenceSource(sourceText: string): ProfileEvidenceSourceSegment[] {
   const normalized = normalizeSourceText(sourceText);
   if (!normalized) return [];
@@ -179,6 +346,56 @@ export function segmentProfileEvidenceSource(sourceText: string): ProfileEvidenc
     ...segment,
     id: `${segment.kind}-${index + 1}`,
   }));
+}
+
+async function extractStoryEvidenceForSegment(args: {
+  adapter: OpenRouterResponsesAdapter;
+  profileResult: z.infer<typeof ProfileWorkHistoryExtraction>;
+  segment: ProfileEvidenceSourceSegment;
+  sourceId: string;
+}) {
+  return callChunkWithTimeoutRetry({
+    adapter: args.adapter,
+    input: JSON.stringify({
+      source_id: args.sourceId,
+      section: toProviderSegment(args.segment),
+      known_work_experiences: args.profileResult.work_experiences.map((experience) => ({
+        ref: buildWorkExperienceRef(experience),
+        employer: experience.employer,
+        role_title: experience.role_title,
+        start_date: experience.start_date,
+        end_date: experience.end_date,
+      })),
+    }),
+    instructions: buildStoryEvidenceInstructions(),
+    maxOutputTokens: 700,
+    schema: StoryEvidenceExtraction,
+    task: "story-evidence-extraction",
+  });
+}
+
+async function extractProjectEvidenceForSegment(args: {
+  adapter: OpenRouterResponsesAdapter;
+  segment: ProfileEvidenceSourceSegment;
+  sourceId: string;
+}) {
+  return callChunkWithTimeoutRetry({
+    adapter: args.adapter,
+    input: JSON.stringify({
+      source_id: args.sourceId,
+      section: toProviderSegment(args.segment),
+    }),
+    instructions: buildProjectEvidenceInstructions(),
+    maxOutputTokens: 650,
+    schema: ProjectEvidenceExtraction,
+    task: "project-evidence-extraction",
+  });
+}
+
+function getProfileEvidenceStepRunnerCandidate(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  return record.profileEvidenceStepRunner ?? null;
 }
 
 export function buildChunkedProfileEvidenceExtractionForTest(args: {
