@@ -7,6 +7,13 @@ import {
 import { resolveJobDeskAiConfig } from "./config";
 import { JobDeskAiError } from "./errors";
 import { OpenRouterResponsesAdapter } from "./openrouter-adapter";
+import {
+  coerceResumeReviewConfidence,
+  coerceResumeReviewStringList,
+  coerceResumeReviewTextValue,
+  normalizeResumeReviewProviderOutput,
+  type ResumeReviewProviderStage,
+} from "./resume-review-output-normalizer";
 import { composeSkillPrompt } from "./skill-prompt-composer";
 import { skillRegistry } from "./skills-registry";
 import type { FetchLike, JobDeskAiUsage, StructuredJsonResult } from "./types";
@@ -30,47 +37,44 @@ export type ResumeReviewSourceSection = {
 
 const ResumeReviewDimensionSignal = z.object({
   dimension: z.string().trim().min(1),
-  helped: z.preprocess(coerceStringList, z.array(z.string()).default([])),
-  lowered: z.preprocess(coerceStringList, z.array(z.string()).default([])),
-  raise_score: z.preprocess(coerceStringList, z.array(z.string()).default([])),
+  helped: z.array(z.string()).default([]),
+  lowered: z.array(z.string()).default([]),
+  raise_score: z.array(z.string()).default([]),
 });
 
-const ResumeReviewSectionAssessment = z.object({
-  strengths: z.preprocess(coerceStringList, z.array(z.string()).default([])),
-  weaknesses: z.preprocess(coerceStringList, z.array(z.string()).default([])),
-  evidence_questions: z.preprocess(coerceStringList, z.array(z.string()).default([])),
-  ats_notes: z.preprocess(coerceStringList, z.array(z.string()).default([])),
-  risk_flags: z.preprocess(coerceStringList, z.array(z.string()).default([])),
-  dimension_signals: z.preprocess(
-    coerceDimensionSignals,
-    z.array(ResumeReviewDimensionSignal).default([]),
-  ),
-  confidence: z.preprocess(coerceConfidence, z.number().min(0).max(1).default(0.6)),
-});
+const ResumeReviewSectionAssessment = withResumeReviewProviderNormalizer("section_assessment", z.object({
+  strengths: z.array(z.string()).default([]),
+  weaknesses: z.array(z.string()).default([]),
+  evidence_questions: z.array(z.string()).default([]),
+  ats_notes: z.array(z.string()).default([]),
+  risk_flags: z.array(z.string()).default([]),
+  dimension_signals: z.array(ResumeReviewDimensionSignal).default([]),
+  confidence: z.number().min(0).max(1).default(0.6),
+}));
 
-const ResumeReviewScan = z.object({
-  strengths: z.preprocess(coerceStringList, z.array(z.string()).default([])),
-  weaknesses: z.preprocess(coerceStringList, z.array(z.string()).default([])),
-  ten_second_scan: z.preprocess(coerceTextValue, z.string().trim().min(1)),
-  ats_notes: z.preprocess(coerceStringList, z.array(z.string()).default([])),
-});
+const ResumeReviewScan = withResumeReviewProviderNormalizer("scan", z.object({
+  strengths: z.array(z.string()).default([]),
+  weaknesses: z.array(z.string()).default([]),
+  ten_second_scan: z.string().trim().min(1),
+  ats_notes: z.array(z.string()).default([]),
+}));
 
-const ResumeReviewRubric = z.object({
+const ResumeReviewRubric = withResumeReviewProviderNormalizer("rubric", z.object({
   score: ResumeReviewScore,
   rubric: z.array(ReviewRubricItemInput).default([]),
-  suggested_edits: z.preprocess(coerceStringList, z.array(z.string()).default([])),
-});
+  suggested_edits: z.array(z.string()).default([]),
+}));
 
-const ResumeReviewRubricDimension = z.object({
+const ResumeReviewRubricDimension = withResumeReviewProviderNormalizer("rubric_dimension", z.object({
   rubric_item: ReviewRubricItemInput,
-  suggested_edits: z.preprocess(coerceStringList, z.array(z.string()).default([])),
-});
+  suggested_edits: z.array(z.string()).default([]),
+}));
 
-const ResumeReviewEvidence = z.object({
+const ResumeReviewEvidence = withResumeReviewProviderNormalizer("evidence", z.object({
   missing_evidence_questions: z.array(z.string()).default([]),
-  risk_flags: z.preprocess(coerceStringList, z.array(z.string()).default([])),
+  risk_flags: z.array(z.string()).default([]),
   fairness_check: ResumeReviewFairnessCheck,
-});
+}));
 
 export type ResumeReviewSectionAssessmentData = z.infer<typeof ResumeReviewSectionAssessment>;
 export type ResumeReviewScanData = z.infer<typeof ResumeReviewScan>;
@@ -95,70 +99,22 @@ export function resolveResumeReviewStageTimeoutMs(task: string) {
 }
 
 function coerceStringList(value: unknown) {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => coerceTextValue(item))
-      .filter(Boolean);
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed ? [trimmed] : [];
-  }
-  if (value && typeof value === "object") {
-    return Object.values(value)
-      .flatMap((item) => (Array.isArray(item) ? item : [item]))
-      .map((item) => coerceTextValue(item))
-      .filter(Boolean);
-  }
-  return value;
+  return coerceResumeReviewStringList(value);
 }
 
 function coerceTextValue(value: unknown) {
-  if (typeof value === "string") return value.trim();
-  if (!value || typeof value !== "object") return value;
-  const record = value as Record<string, unknown>;
-  const preferred =
-    record.summary ??
-    record.text ??
-    record.note ??
-    record.value ??
-    record.recruiter_view ??
-    record.recruiterView ??
-    record.finding ??
-    record.answer;
-  if (typeof preferred === "string" && preferred.trim()) return preferred.trim();
-  const values = Object.values(record)
-    .flatMap((item) => (Array.isArray(item) ? item : [item]))
-    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-    .map((item) => item.trim());
-  return values.join(" ").trim();
-}
-
-function coerceDimensionSignals(value: unknown) {
-  const signals = Array.isArray(value)
-    ? value
-    : value && typeof value === "object"
-      ? [value]
-      : value;
-  if (!Array.isArray(signals)) return signals;
-  return signals.filter((item) => {
-    if (!item || typeof item !== "object") return false;
-    const dimension = (item as { dimension?: unknown }).dimension;
-    return typeof dimension === "string" && dimension.trim().length > 0;
-  });
+  return coerceResumeReviewTextValue(value);
 }
 
 function coerceConfidence(value: unknown) {
-  if (typeof value === "number") return value;
-  if (typeof value !== "string") return value;
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) return value;
-  const numeric = Number(normalized);
-  if (Number.isFinite(numeric)) return numeric > 1 ? numeric / 100 : numeric;
-  if (["high", "strong"].includes(normalized)) return 0.8;
-  if (["medium", "moderate", "mid"].includes(normalized)) return 0.6;
-  if (["low", "weak"].includes(normalized)) return 0.35;
-  return value;
+  return coerceResumeReviewConfidence(value);
+}
+
+function withResumeReviewProviderNormalizer<TSchema extends z.ZodTypeAny>(
+  stage: ResumeReviewProviderStage,
+  schema: TSchema,
+) {
+  return z.preprocess((value) => normalizeResumeReviewProviderOutput(stage, value).value, schema);
 }
 
 export async function reviewResumeWithAi(params: {

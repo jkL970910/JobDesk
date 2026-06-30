@@ -426,7 +426,7 @@ describe("resume review AI instructions", () => {
 
     expect(result.data.risk_flags).toEqual([
       "Some internal wording needs public-safe context.",
-      "Project impact is not quantified.",
+      "Projects: Project impact is not quantified.",
     ]);
   });
 

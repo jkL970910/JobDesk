@@ -4,66 +4,11 @@
  */
 import { z } from "zod";
 
-const TrimmedStringArray = z
-  .preprocess((value) => {
-    const values = Array.isArray(value)
-      ? value
-      : value && typeof value === "object"
-        ? Object.values(value)
-        : value == null
-          ? []
-          : [value];
-    return values
-      .flatMap((item) => (Array.isArray(item) ? item : [item]))
-      .map((item) => normalizeTextItem(item))
-      .filter(Boolean);
-  }, z.array(z.string()))
-  .default([]);
-
-function normalizeTextItem(item: unknown) {
-  if (typeof item === "string") return item.trim();
-  if (!item || typeof item !== "object") return "";
-
-  const record = item as Record<string, unknown>;
-  const preferred =
-    record.note ??
-    record.summary ??
-    record.text ??
-    record.value ??
-    record.suggestion ??
-    record.question ??
-    record.risk ??
-    record.action ??
-    record.finding;
-  const preferredText = typeof preferred === "string" ? preferred.trim() : "";
-  const section = typeof record.section === "string" ? record.section.trim() : "";
-  if (preferredText && section) return `${section}: ${preferredText}`;
-  if (preferredText) return preferredText;
-
-  const values = Object.values(record)
-    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-    .map((value) => value.trim());
-  return values.join(" ");
-}
+const TrimmedStringArray = z.array(z.string().trim().min(1)).default([]);
 
 const TextValue = z
   .preprocess((value) => {
     if (typeof value === "string") return value.trim();
-    if (value && typeof value === "object") {
-      const record = value as Record<string, unknown>;
-      const preferred =
-        record.summary ??
-        record.text ??
-        record.note ??
-        record.value ??
-        record.recruiter_view ??
-        record.recruiterView;
-      if (typeof preferred === "string") return preferred.trim();
-      const values = Object.values(record)
-        .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-        .map((item) => item.trim());
-      if (values.length > 0) return values.join(" ");
-    }
     return value;
   }, z.string().trim().min(1));
 
@@ -80,7 +25,7 @@ const ScoreValue = z
 const ConfidenceValue = z
   .preprocess((value) => {
     if (typeof value === "string") {
-      const parsed = Number(value.replace(/[^0-9.]/g, ""));
+      const parsed = Number(value.match(/\d+(?:\.\d+)?/)?.[0]);
       if (Number.isFinite(parsed)) return parsed > 1 ? parsed / 100 : parsed;
     }
     return value;
@@ -92,12 +37,12 @@ export const ReviewRubricItem = z.object({
   label: z.string().trim().min(1),
   score: ScoreValue,
   maxScore: ScoreValue.default(100),
-  note: z.string().trim().min(1),
+  note: TextValue,
   findings: TrimmedStringArray,
   helpedScore: TrimmedStringArray,
   loweredScore: TrimmedStringArray,
   evidenceQuestions: TrimmedStringArray,
-  nextAction: z.string().trim().min(1).optional(),
+  nextAction: TextValue.optional(),
   raiseScore: TrimmedStringArray,
 });
 

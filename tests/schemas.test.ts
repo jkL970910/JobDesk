@@ -312,10 +312,7 @@ describe("ResumeReview", () => {
       strengths: ["Strong impact."],
       weaknesses: [],
       suggestedEdits: ["Move top metric earlier."],
-      tenSecondScan: {
-        summary: "Software engineer with strong cloud scale.",
-        concern: "Some details need public-safe wording.",
-      },
+      tenSecondScan: "Software engineer with strong cloud scale.",
       atsNotes: ["Readable headings."],
       missingEvidenceQuestions: ["Which metrics are public-safe?"],
       riskFlags: [],
@@ -342,8 +339,8 @@ describe("ResumeReview", () => {
     expect(parsed.fairness_check.signals_not_penalized).toEqual(["career gap"]);
   });
 
-  it("normalizes object list items into readable review bullets", () => {
-    const parsed = ResumeReview.parse({
+  it("keeps provider object drift out of the final review product schema", () => {
+    expect(() => ResumeReview.parse({
       score: {
         overall: 84,
         confidence: 0.8,
@@ -372,18 +369,7 @@ describe("ResumeReview", () => {
         note: "No protected signals penalized.",
         signals_not_penalized: [],
       },
-    });
-
-    expect(parsed.strengths).toEqual([
-      "Amazon SDE experience: Strong quantified production impact.",
-    ]);
-    expect(parsed.weaknesses).toEqual([
-      "Projects: Project bullets need clearer architecture and outcomes.",
-    ]);
-    expect(parsed.suggested_edits).toEqual(["Move the strongest Amazon metric earlier."]);
-    expect(parsed.ats_notes).toEqual(["Headings are parseable."]);
-    expect(parsed.missing_evidence_questions).toEqual(["Which metrics are safe to disclose?"]);
-    expect(parsed.risk_flags).toEqual(["Some internal Amazon language may need context."]);
+    })).toThrow();
   });
 });
 
