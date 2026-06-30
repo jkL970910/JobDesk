@@ -154,6 +154,13 @@ type GeneratedResumePolishProposalSummary = {
   readiness_review_id: string | null;
   title: string;
   summary: string;
+  editable_sections: Array<{
+    id: string;
+    label: string;
+    original_text: string;
+    proposed_text: string;
+    target_heading: string;
+  }>;
   edits: Array<{
     id: string;
     route: "evidence_gap" | "resume_polish" | "positioning_gap";
@@ -1506,6 +1513,9 @@ function ProfileReferenceView({
   const [isApplyingPolishProposal, setIsApplyingPolishProposal] = useState(false);
   const [mainResumePolishProposal, setMainResumePolishProposal] =
     useState<GeneratedResumePolishProposalSummary | null>(null);
+  const [mainResumePolishDraftSections, setMainResumePolishDraftSections] = useState<
+    GeneratedResumePolishProposalSummary["editable_sections"]
+  >([]);
   const [isGeneratingPositioning, setIsGeneratingPositioning] = useState(false);
   const [refreshSourceResumeId, setRefreshSourceResumeId] = useState("");
   const [refreshMode, setRefreshMode] = useState<
@@ -2058,6 +2068,7 @@ function ProfileReferenceView({
         return;
       }
       setMainResumePolishProposal(payload.data.proposal);
+      setMainResumePolishDraftSections(payload.data.proposal.editable_sections);
       setReadinessReviewStatus("Review the polish proposal before applying it.");
     } catch (error) {
       setReadinessReviewStatus(
@@ -2073,6 +2084,9 @@ function ProfileReferenceView({
     setReadinessReviewStatus("Applying proposal, rerunning Fact Guard, and rescoring...");
     try {
       const response = await fetchJson(`/api/main-resume/${mainResumeId}/polish-proposal`, {
+        body: JSON.stringify({
+          editable_sections: mainResumePolishDraftSections,
+        }),
         method: "POST",
       });
       const payload = (await response.json().catch(() => null)) as
@@ -2094,6 +2108,7 @@ function ProfileReferenceView({
         return;
       }
       setMainResumePolishProposal(null);
+      setMainResumePolishDraftSections([]);
       await refreshMainResumes();
       setReadinessReviewStatus("Polished draft created, checked, and rescored.");
     } catch (error) {
@@ -2941,7 +2956,15 @@ function ProfileReferenceView({
               onReview={() => void reviewGeneratedMainResumeReadiness(latestMainResume.id)}
               onPolish={() => void buildMainResumePolishProposal(latestMainResume.id)}
               polishProposal={mainResumePolishProposal}
+              polishDraftSections={mainResumePolishDraftSections}
               review={latestMainResume.readiness_review}
+              onPolishDraftSectionChange={(sectionId, value) =>
+                setMainResumePolishDraftSections((sections) =>
+                  sections.map((section) =>
+                    section.id === sectionId ? { ...section, proposed_text: value } : section,
+                  ),
+                )
+              }
             />
             <div className="final-review-panel__grid">
               <article className="final-review-checklist">
@@ -3208,8 +3231,10 @@ function GeneratedResumeReadinessPanel({
   onApplyPolishProposal,
   onOpenEvidence,
   onOpenPositioning,
+  onPolishDraftSectionChange,
   onPolish,
   onReview,
+  polishDraftSections,
   polishProposal,
   review,
 }: {
@@ -3219,8 +3244,10 @@ function GeneratedResumeReadinessPanel({
   onApplyPolishProposal: () => void;
   onOpenEvidence: () => void;
   onOpenPositioning: () => void;
+  onPolishDraftSectionChange: (sectionId: string, value: string) => void;
   onPolish: () => void;
   onReview: () => void;
+  polishDraftSections: GeneratedResumePolishProposalSummary["editable_sections"];
   polishProposal: GeneratedResumePolishProposalSummary | null;
   review: GeneratedResumeReadinessReviewSummary | null;
 }) {
@@ -3344,23 +3371,53 @@ function GeneratedResumeReadinessPanel({
           {polishProposal ? (
             <div className="generated-readiness-review__proposal">
               <div>
-                <span>Resume Builder proposal</span>
+                <span>Editable Resume Builder proposal</span>
                 <strong>{polishProposal.title}</strong>
                 <p>{polishProposal.summary}</p>
               </div>
-              {polishProposal.edits.length ? (
-                <ul>
-                  {polishProposal.edits.slice(0, 4).map((edit) => (
-                    <li key={edit.id}>
-                      <b>{edit.title}</b>
-                      <p>{edit.proposed_change}</p>
-                    </li>
+              <div className="generated-readiness-review__proposal-grid">
+                <div className="generated-readiness-review__proposal-edits">
+                  <span>Why JobDesk proposed this</span>
+                  {polishProposal.edits.length ? (
+                    <ul>
+                      {polishProposal.edits.slice(0, 4).map((edit) => (
+                        <li key={edit.id}>
+                          <b>{edit.title}</b>
+                          <p>{edit.proposed_change}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No specific polish finding. This proposal keeps a conservative summary refresh only.</p>
+                  )}
+                </div>
+                <div className="generated-readiness-review__proposal-editor">
+                  <span>Editable draft changes</span>
+                  {polishDraftSections.map((section) => (
+                    <label key={section.id}>
+                      <b>{section.label}</b>
+                      {section.original_text ? (
+                        <small>Current: {section.original_text}</small>
+                      ) : (
+                        <small>New section: {section.target_heading}</small>
+                      )}
+                      <textarea
+                        rows={4}
+                        value={section.proposed_text}
+                        onChange={(event) =>
+                          onPolishDraftSectionChange(section.id, event.target.value)
+                        }
+                      />
+                    </label>
                   ))}
-                </ul>
-              ) : null}
+                </div>
+              </div>
               <button
                 className="primary-button"
-                disabled={isApplyingPolishProposal}
+                disabled={
+                  isApplyingPolishProposal ||
+                  polishDraftSections.some((section) => !section.proposed_text.trim())
+                }
                 type="button"
                 onClick={onApplyPolishProposal}
               >

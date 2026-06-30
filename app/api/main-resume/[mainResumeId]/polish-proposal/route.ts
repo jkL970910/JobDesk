@@ -12,6 +12,22 @@ const paramsSchema = z.object({
   mainResumeId: z.string().uuid(),
 });
 
+const applyBodySchema = z
+  .object({
+    editable_sections: z
+      .array(
+        z.object({
+          id: z.string().trim().min(1),
+          label: z.string().trim().min(1),
+          original_text: z.string().default(""),
+          proposed_text: z.string().trim().min(1),
+          target_heading: z.string().trim().min(1),
+        }),
+      )
+      .optional(),
+  })
+  .default({});
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ mainResumeId: string }> },
@@ -45,7 +61,7 @@ export async function GET(
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ mainResumeId: string }> },
 ) {
   const params = paramsSchema.safeParse(await context.params);
@@ -56,7 +72,17 @@ export async function POST(
     );
   }
 
-  const applied = await applyMainResumePolishProposal(params.data.mainResumeId);
+  const body = applyBodySchema.safeParse(await request.json().catch(() => ({})));
+  if (!body.success) {
+    return NextResponse.json(
+      { error: "Invalid generated resume polish proposal.", kind: "invalid_request" },
+      { status: 400 },
+    );
+  }
+
+  const applied = await applyMainResumePolishProposal(params.data.mainResumeId, {
+    editableSections: body.data.editable_sections,
+  });
   if (applied.status === "not_found") {
     return NextResponse.json(
       { error: "Main resume not found.", kind: "not_found" },

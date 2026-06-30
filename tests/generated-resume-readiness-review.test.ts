@@ -4,6 +4,7 @@ import { generatedClaims } from "../src/db/schema";
 import {
   buildGeneratedResumePolishProposal,
   buildGeneratedResumeReadinessReview,
+  buildPolishedResumeMarkdownFromProposal,
 } from "../src/server/generated-resume-readiness-review";
 
 type ClaimRow = typeof generatedClaims.$inferSelect;
@@ -100,6 +101,13 @@ describe("generated resume readiness review", () => {
 
     expect(proposal.source_main_resume_id).toBe("33333333-3333-4333-8333-333333333333");
     expect(proposal.edits.every((edit) => edit.route !== "evidence_gap")).toBe(true);
+    expect(proposal.editable_sections).toEqual([
+      expect.objectContaining({
+        id: "summary",
+        label: "Opening summary",
+        target_heading: "Summary",
+      }),
+    ]);
     expect(proposal.preview_markdown).toContain("Built onboarding dashboards");
     expect(proposal.preview_markdown).toContain("## Summary");
     expect(proposal.preview_markdown).not.toContain("## Generated polish focus");
@@ -144,6 +152,37 @@ describe("generated resume readiness review", () => {
     expect(proposal.preview_markdown).toContain(
       "Evidence-backed candidate profile led by: Built onboarding dashboards for product teams.",
     );
+  });
+
+  it("builds polished markdown from edited proposal sections", () => {
+    const proposal = buildGeneratedResumePolishProposal({
+      mainResumeId: "44444444-4444-4444-8444-444444444444",
+      readinessReview: buildGeneratedResumeReadinessReview({
+        baseline: null,
+        claims: [claim({ id: "c1", claimStatus: "supported", supportStatus: "supported" })],
+        documentId: "44444444-4444-4444-8444-444444444444",
+        documentType: "main_resume",
+        generatedLabel: "Generated main resume · general readiness review",
+        now: new Date("2026-06-30T12:00:00.000Z"),
+        resumeMarkdown: "## Experience\n- Built onboarding dashboards for product teams.",
+        resumeStatus: "validated",
+        scope: "general_readiness",
+      }),
+      resumeMarkdown: "## Experience\n- Built onboarding dashboards for product teams.",
+    });
+
+    const edited = buildPolishedResumeMarkdownFromProposal({
+      baseMarkdown: "## Experience\n- Built onboarding dashboards for product teams.",
+      editableSections: proposal.editable_sections.map((section) => ({
+        ...section,
+        proposed_text: "Product-focused software engineer with dashboard and onboarding evidence.",
+      })),
+    });
+
+    expect(edited).toContain("## Summary");
+    expect(edited).toContain("Product-focused software engineer");
+    expect(edited).toContain("- Built onboarding dashboards for product teams.");
+    expect(edited).not.toContain("Generated polish focus");
   });
 });
 

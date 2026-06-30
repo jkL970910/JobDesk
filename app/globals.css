@@ -5730,6 +5730,22 @@ strong,
   margin: 4px 0 0;
 }
 
+.generated-readiness-review__proposal-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+}
+
+.generated-readiness-review__proposal-edits,
+.generated-readiness-review__proposal-editor {
+  background: rgba(7, 10, 17, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+}
+
 .generated-readiness-review__proposal ul {
   display: grid;
   gap: 8px;
@@ -5743,11 +5759,45 @@ strong,
   padding-left: 9px;
 }
 
+.generated-readiness-review__proposal-editor label {
+  display: grid;
+  gap: 7px;
+}
+
+.generated-readiness-review__proposal-editor b {
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
+.generated-readiness-review__proposal-editor small {
+  color: var(--faint);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.generated-readiness-review__proposal-editor textarea {
+  background: rgba(8, 12, 20, 0.76);
+  border: 1px solid rgba(158, 195, 255, 0.18);
+  border-radius: 11px;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.45;
+  min-height: 112px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.generated-readiness-review__proposal-editor textarea:focus-visible {
+  border-color: rgba(158, 195, 255, 0.54);
+  outline: 3px solid rgba(79, 140, 255, 0.18);
+}
+
 @media (max-width: 760px) {
   .generated-readiness-review__header,
   .generated-readiness-review__compare,
   .generated-readiness-review__dimensions,
-  .generated-readiness-review__routes {
+  .generated-readiness-review__routes,
+  .generated-readiness-review__proposal-grid {
     grid-template-columns: 1fr;
   }
 

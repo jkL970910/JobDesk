@@ -87,6 +87,17 @@ export const GeneratedResumePolishProposal = z.object({
   readiness_review_id: z.string().uuid().nullable().default(null),
   title: z.string().trim().min(1),
   summary: z.string().trim().min(1),
+  editable_sections: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1),
+        label: z.string().trim().min(1),
+        original_text: z.string().default(""),
+        proposed_text: z.string().trim().min(1),
+        target_heading: z.string().trim().min(1),
+      }),
+    )
+    .default([]),
   edits: z
     .array(
       z.object({

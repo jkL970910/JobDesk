@@ -36,6 +36,8 @@ type GeneratedResumePolishProposalDto = GeneratedResumePolishProposal & {
   readiness_review: GeneratedResumeReadinessDto | null;
 };
 
+type EditablePolishSection = GeneratedResumePolishProposal["editable_sections"][number];
+
 export async function reviewGeneratedMainResumeReadiness(mainResumeVersionId: string) {
   if (!hasDatabaseUrl()) return { status: "skipped" as const, reason: "missing_database_url" as const };
 
@@ -260,7 +262,12 @@ export async function getMainResumePolishProposal(mainResumeVersionId: string) {
   };
 }
 
-export async function applyMainResumePolishProposal(mainResumeVersionId: string) {
+export async function applyMainResumePolishProposal(
+  mainResumeVersionId: string,
+  options: {
+    editableSections?: EditablePolishSection[];
+  } = {},
+) {
   if (!hasDatabaseUrl()) return { status: "skipped" as const, reason: "missing_database_url" as const };
 
   const db = getDb();
@@ -285,7 +292,11 @@ export async function applyMainResumePolishProposal(mainResumeVersionId: string)
     readinessReview: review,
     resumeMarkdown: resume.resumeMarkdown,
   });
-  const polishedResumeJson = buildResumeJsonFromMarkdown(proposal.preview_markdown);
+  const previewMarkdown = buildPolishedResumeMarkdownFromProposal({
+    baseMarkdown: resume.resumeMarkdown,
+    editableSections: options.editableSections ?? proposal.editable_sections,
+  });
+  const polishedResumeJson = buildResumeJsonFromMarkdown(previewMarkdown);
   const claims = await db
     .select()
     .from(generatedClaims)
@@ -328,7 +339,7 @@ export async function applyMainResumePolishProposal(mainResumeVersionId: string)
         refreshStyleConstraints: resume.refreshStyleConstraints,
         title: `${resume.title} · polish proposal`,
         resumeJson: polishedResumeJson,
-        resumeMarkdown: proposal.preview_markdown,
+        resumeMarkdown: previewMarkdown,
         missingEvidenceQuestions: resume.missingEvidenceQuestions,
         version: resume.version + 1,
         status: "unvalidated",
@@ -520,6 +531,7 @@ export function buildGeneratedResumePolishProposal(args: {
     rationale: finding.detail,
     proposed_change: finding.suggested_action,
   }));
+  const editableSections = buildPolishEditableSections(args.resumeMarkdown);
 
   return GeneratedResumePolishProposal.parse({
     source_main_resume_id: args.mainResumeId,
@@ -529,10 +541,11 @@ export function buildGeneratedResumePolishProposal(args: {
       edits.length > 0
         ? "Creates a revised generated draft from the current readiness findings. Evidence gaps stay routed to Evidence Library; this proposal only adjusts generated-resume polish and positioning guidance."
         : "Creates a conservative revised generated draft while preserving the current claim ledger and evidence grounding.",
+    editable_sections: editableSections,
     edits,
-    preview_markdown: buildPolishPreviewMarkdown({
-      markdown: args.resumeMarkdown,
-      findings: edits,
+    preview_markdown: buildPolishedResumeMarkdownFromProposal({
+      baseMarkdown: args.resumeMarkdown,
+      editableSections,
     }),
   });
 }
@@ -680,27 +693,47 @@ function summarizeReadiness(args: {
   return `Generated resume is usable as a draft, but polish could raise readiness beyond ${args.score}.`;
 }
 
-function buildPolishPreviewMarkdown(args: {
-  findings: GeneratedResumePolishProposal["edits"];
+export function buildPolishedResumeMarkdownFromProposal(args: {
+  baseMarkdown: string;
+  editableSections: EditablePolishSection[];
+}) {
+  const summarySection = args.editableSections.find((section) => section.id === "summary");
+  const summaryText = summarySection?.proposed_text.trim();
+  if (!summarySection || !summaryText) return removeGeneratedPolishFocusSection(args.baseMarkdown).trim();
+  return applySummaryPolishSection({
+    markdown: args.baseMarkdown,
+    summaryText,
+    targetHeading: summarySection.target_heading,
+  });
+}
+
+function buildPolishEditableSections(markdown: string): EditablePolishSection[] {
+  const normalized = removeGeneratedPolishFocusSection(markdown.trim()).replace(/\n{3,}/g, "\n\n");
+  const originalSummary = extractMarkdownSectionBody(normalized, ["summary", "profile", "professional summary"]);
+  return [
+    {
+      id: "summary",
+      label: "Opening summary",
+      original_text: originalSummary,
+      proposed_text: buildDefaultPolishSummary(normalized),
+      target_heading: "Summary",
+    },
+  ];
+}
+
+function applySummaryPolishSection(args: {
   markdown: string;
+  summaryText: string;
+  targetHeading: string;
 }) {
   const baseMarkdown = args.markdown.trim();
   const normalized = removeGeneratedPolishFocusSection(baseMarkdown).replace(/\n{3,}/g, "\n\n");
-  const firstBullet = normalized
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => /^[-*]\s+\S/.test(line))
-    ?.replace(/^[-*]\s+/, "")
-    .trim();
-  const summaryText = firstBullet
-    ? `Evidence-backed candidate profile led by: ${firstBullet}`
-    : "Evidence-backed candidate profile with generated resume content ready for review.";
   const lines = normalized.split(/\r?\n/);
   const summaryStartIndex = lines.findIndex((line) =>
     /^#{1,3}\s*(summary|profile|professional summary)\b/i.test(line.trim()),
   );
   if (summaryStartIndex < 0) {
-    return ["## Summary", summaryText, "", normalized].join("\n");
+    return [`## ${args.targetHeading}`, args.summaryText, "", normalized].join("\n");
   }
 
   let summaryEndIndex = lines.length;
@@ -712,10 +745,39 @@ function buildPolishPreviewMarkdown(args: {
   }
   return [
     ...lines.slice(0, summaryStartIndex + 1),
-    summaryText,
+    args.summaryText,
     "",
     ...lines.slice(summaryEndIndex),
   ].join("\n").trim();
+}
+
+function buildDefaultPolishSummary(markdown: string) {
+  const firstBullet = markdown
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^[-*]\s+\S/.test(line))
+    ?.replace(/^[-*]\s+/, "")
+    .trim();
+  const summaryText = firstBullet
+    ? `Evidence-backed candidate profile led by: ${firstBullet}`
+    : "Evidence-backed candidate profile with generated resume content ready for review.";
+  return summaryText;
+}
+
+function extractMarkdownSectionBody(markdown: string, headings: string[]) {
+  const lines = markdown.split(/\r?\n/);
+  const startIndex = lines.findIndex((line) => {
+    const heading = line.trim().match(/^#{1,3}\s+(.+)$/)?.[1]?.trim().toLowerCase();
+    return heading ? headings.includes(heading) : false;
+  });
+  if (startIndex < 0) return "";
+  const body: string[] = [];
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    if (/^#{1,3}\s+\S/.test(lines[index]?.trim() ?? "")) break;
+    const line = lines[index]?.trim() ?? "";
+    if (line) body.push(line);
+  }
+  return body.join("\n");
 }
 
 function removeGeneratedPolishFocusSection(markdown: string) {
