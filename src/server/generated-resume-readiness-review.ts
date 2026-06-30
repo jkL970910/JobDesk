@@ -285,6 +285,7 @@ export async function applyMainResumePolishProposal(mainResumeVersionId: string)
     readinessReview: review,
     resumeMarkdown: resume.resumeMarkdown,
   });
+  const polishedResumeJson = buildResumeJsonFromMarkdown(proposal.preview_markdown);
   const claims = await db
     .select()
     .from(generatedClaims)
@@ -326,7 +327,7 @@ export async function applyMainResumePolishProposal(mainResumeVersionId: string)
         refreshMode: resume.refreshMode,
         refreshStyleConstraints: resume.refreshStyleConstraints,
         title: `${resume.title} · polish proposal`,
-        resumeJson: resume.resumeJson,
+        resumeJson: polishedResumeJson,
         resumeMarkdown: proposal.preview_markdown,
         missingEvidenceQuestions: resume.missingEvidenceQuestions,
         version: resume.version + 1,
@@ -684,25 +685,60 @@ function buildPolishPreviewMarkdown(args: {
   markdown: string;
 }) {
   const baseMarkdown = args.markdown.trim();
-  const normalized = baseMarkdown.replace(/\n{3,}/g, "\n\n");
-  if (/^#{1,3}\s*(summary|profile|professional summary)\b/im.test(normalized)) {
-    return normalized;
-  }
-
+  const normalized = removeGeneratedPolishFocusSection(baseMarkdown).replace(/\n{3,}/g, "\n\n");
+  const focusLines =
+    args.findings.length > 0
+      ? args.findings.slice(0, 3).map((finding) => `- ${finding.title}: ${finding.proposed_change}`)
+      : ["- Review the generated draft for wording, structure, and positioning before export."];
   const firstBullet = normalized
     .split(/\r?\n/)
     .map((line) => line.trim())
     .find((line) => /^[-*]\s+\S/.test(line))
     ?.replace(/^[-*]\s+/, "")
     .trim();
-  if (!firstBullet) return normalized;
-
-  return [
-    "## Summary",
-    `Evidence-backed candidate profile led by: ${firstBullet}`,
-    "",
-    normalized,
+  const focusBody = [
+    "## Generated polish focus",
+    ...(firstBullet ? [`Polish is anchored on the current strongest visible claim: ${firstBullet}`] : []),
+    ...focusLines,
   ].join("\n");
+  return `${focusBody}\n\n${normalized}`;
+}
+
+function removeGeneratedPolishFocusSection(markdown: string) {
+  const lines = markdown.split(/\r?\n/);
+  const startIndex = lines.findIndex((line) =>
+    /^#{1,3}\s+generated polish focus\s*$/i.test(line.trim()),
+  );
+  if (startIndex < 0) return markdown.trim();
+  let endIndex = lines.length;
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    if (/^#{1,3}\s+\S/.test(lines[index]?.trim() ?? "")) {
+      endIndex = index;
+      break;
+    }
+  }
+  return [...lines.slice(0, startIndex), ...lines.slice(endIndex)].join("\n").trim();
+}
+
+function buildResumeJsonFromMarkdown(markdown: string) {
+  const sections: Array<{ title: string; body: string[]; bullets: string[] }> = [];
+  let current: { title: string; body: string[]; bullets: string[] } | null = null;
+  for (const rawLine of markdown.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const heading = line.match(/^#{1,3}\s+(.+)$/);
+    if (heading) {
+      if (current) sections.push(current);
+      current = { title: heading[1]!.trim(), body: [], bullets: [] };
+      continue;
+    }
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    if (!current) current = { title: "Summary", body: [], bullets: [] };
+    if (bullet) current.bullets.push(bullet[1]!.trim());
+    else current.body.push(line);
+  }
+  if (current) sections.push(current);
+  return { sections };
 }
 
 function countResumeSections(markdown: string) {

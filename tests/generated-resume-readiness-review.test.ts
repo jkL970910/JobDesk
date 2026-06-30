@@ -101,7 +101,44 @@ describe("generated resume readiness review", () => {
     expect(proposal.source_main_resume_id).toBe("33333333-3333-4333-8333-333333333333");
     expect(proposal.edits.every((edit) => edit.route !== "evidence_gap")).toBe(true);
     expect(proposal.preview_markdown).toContain("Built onboarding dashboards");
+    expect(proposal.preview_markdown).toContain("## Generated polish focus");
     expect(proposal.preview_markdown).not.toContain("JobDesk polish proposal");
+  });
+
+  it("always makes proposal application visible even when a summary already exists", () => {
+    const review = buildGeneratedResumeReadinessReview({
+      baseline: null,
+      claims: [
+        claim({ id: "c1", claimStatus: "supported", supportStatus: "supported" }),
+      ],
+      documentId: "44444444-4444-4444-8444-444444444444",
+      documentType: "main_resume",
+      generatedLabel: "Generated main resume · general readiness review",
+      now: new Date("2026-06-30T12:00:00.000Z"),
+      resumeMarkdown: [
+        "## Summary",
+        "Evidence-backed product candidate.",
+        "## Experience",
+        "- Built onboarding dashboards for product teams.",
+      ].join("\n"),
+      resumeStatus: "validated",
+      scope: "general_readiness",
+    });
+    const originalMarkdown = [
+      "## Summary",
+      "Evidence-backed product candidate.",
+      "## Experience",
+      "- Built onboarding dashboards for product teams.",
+    ].join("\n");
+    const proposal = buildGeneratedResumePolishProposal({
+      mainResumeId: "44444444-4444-4444-8444-444444444444",
+      readinessReview: review,
+      resumeMarkdown: originalMarkdown,
+    });
+
+    expect(proposal.preview_markdown).not.toBe(originalMarkdown);
+    expect(proposal.preview_markdown).toMatch(/^## Generated polish focus/);
+    expect(proposal.preview_markdown).toContain("## Summary");
   });
 });
 
