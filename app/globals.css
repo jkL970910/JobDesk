@@ -3814,60 +3814,11 @@ strong,
   outline: none;
 }
 
-.review-summary-card,
-.review-summary-report {
+.review-summary-card {
   display: grid;
   gap: 14px;
 }
 
-.review-summary-report__scan {
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 14px;
-  color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1.45;
-  margin: 0;
-  padding: 13px 14px;
-}
-
-.review-summary-report__grid {
-  display: grid;
-  gap: 14px;
-  grid-template-columns: minmax(0, 1.45fr) minmax(260px, 0.65fr);
-}
-
-.review-summary-report__main,
-.review-summary-report__side {
-  display: grid;
-  gap: 10px;
-}
-
-.review-summary-report__section,
-.review-summary-report__mini {
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 14px;
-  display: grid;
-  gap: 7px;
-  padding: 14px;
-}
-
-.review-summary-report__section {
-  border-left: 3px solid var(--accent);
-}
-
-.review-summary-report__section[data-tone="warning"] {
-  border-left-color: var(--warning);
-}
-
-.review-summary-report__section[data-tone="risk"] {
-  border-left-color: #ff7e7e;
-}
-
-.review-summary-report__section span,
-.review-summary-report__mini span,
-.review-summary-report__links span,
 .review-finding-board__header > span {
   color: var(--faint);
   font-size: 0.68rem;
@@ -3883,67 +3834,6 @@ strong,
   color: var(--ink-soft);
   padding: 6px 9px;
   white-space: nowrap;
-}
-
-.review-summary-report__section strong {
-  color: var(--ink);
-  font-size: clamp(1rem, 1.35vw, 1.2rem);
-  line-height: 1.15;
-}
-
-.review-summary-report__mini strong {
-  color: var(--ink);
-  font-size: clamp(1.2rem, 1.8vw, 1.55rem);
-  line-height: 1;
-}
-
-.review-summary-report__section p,
-.review-summary-report__mini p {
-  color: var(--muted);
-  font-size: 0.84rem;
-  line-height: 1.46;
-  margin: 0;
-}
-
-.review-summary-report__links {
-  display: grid;
-  gap: 8px;
-}
-
-.review-summary-report__links button {
-  align-items: center;
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 12px;
-  color: var(--ink);
-  display: grid;
-  gap: 6px;
-  padding: 10px;
-  text-align: left;
-}
-
-.review-summary-report__links button[data-tone="positive"] {
-  border-color: rgba(99, 211, 176, 0.2);
-}
-
-.review-summary-report__links button[data-tone="warning"] {
-  border-color: rgba(255, 184, 107, 0.2);
-}
-
-.review-summary-report__links button[data-tone="risk"] {
-  border-color: rgba(255, 126, 126, 0.2);
-}
-
-.review-summary-report__links button:hover,
-.review-summary-report__links button:focus-visible {
-  background: rgba(79, 140, 255, 0.045);
-  outline: none;
-}
-
-.review-summary-report__links strong {
-  color: var(--ink);
-  font-size: 0.9rem;
-  line-height: 1.25;
 }
 
 .review-dimension-card button,
@@ -4002,6 +3892,26 @@ strong,
   border: 1px solid rgba(79, 140, 255, 0.22);
   color: var(--primary-strong);
   padding: 7px 10px;
+}
+
+.review-finding-board__toggle {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(79, 140, 255, 0.18);
+  border-radius: 999px;
+  color: var(--primary-strong);
+  display: inline-flex;
+  font-size: 0.76rem;
+  font-weight: 820;
+  justify-self: flex-start;
+  padding: 7px 11px;
+}
+
+.review-finding-board__toggle:hover,
+.review-finding-board__toggle:focus-visible {
+  background: rgba(79, 140, 255, 0.08);
+  border-color: rgba(79, 140, 255, 0.34);
+  outline: none;
 }
 
 .review-finding-grid,
@@ -11803,7 +11713,6 @@ span > .help-hint {
     padding-left: 0;
   }
 
-  .review-summary-report__grid,
   .review-finding-card {
     grid-template-columns: 1fr;
   }

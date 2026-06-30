@@ -1136,7 +1136,7 @@ function ResumeReviewReportCard({
 }) {
   const review = resume.latestReview;
   if (!review) return null;
-  const [activeDetailTab, setActiveDetailTab] = useState<ReviewDetailTab>("summary");
+  const [activeDetailTab, setActiveDetailTab] = useState<ReviewDetailTab>("fixes");
   const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
   const [showAllEvidenceTasks, setShowAllEvidenceTasks] = useState(false);
   const reviewRubric = Array.isArray(review.rubric) ? review.rubric : [];
@@ -1381,9 +1381,7 @@ function ResumeReviewReportCard({
         <ReviewDetailTabs
           activeTab={activeDetailTab}
           atsNotes={atsNotes}
-          dimensions={dimensions}
           findingGroups={findingGroups}
-          metadataScan={metadata?.tenSecondScan ?? ""}
           onContinueToEvidence={onContinueToEvidence}
           onOpenEvidenceTasks={onOpenEvidenceTasks}
           onSelect={(tab) => {
@@ -1397,13 +1395,14 @@ function ResumeReviewReportCard({
 }
 
 type ReviewDetailTab =
-  | "summary"
-  | "strengths"
   | "fixes"
   | "evidence"
   | "rewrite"
   | "ats"
-  | "privacy";
+  | "privacy"
+  | "strengths";
+
+const DEFAULT_VISIBLE_REVIEW_FINDINGS = 4;
 
 type ReviewDimension = {
   id: string;
@@ -1765,6 +1764,7 @@ function ReviewFindingBoard({
   selectedFindingId: string | null;
   visibleTitles?: string[];
 }) {
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const visibleGroups = groups.filter(
     (group) =>
       group.items.length > 0 && (!visibleTitles || visibleTitles.includes(group.title)),
@@ -1774,45 +1774,66 @@ function ReviewFindingBoard({
     <section className="review-finding-board">
       <div className="review-finding-board__header">
         <div>
-          <p className="panel-kicker">Detail notes</p>
+          <p className="panel-kicker">Findings by type</p>
           <h3>{activeDetailHeading(visibleTitles)}</h3>
         </div>
         <span>{visibleGroups.reduce((sum, group) => sum + group.items.length, 0)} items</span>
       </div>
-      {visibleGroups.map((group) => (
-        <div className="review-finding-group" key={group.title}>
-          <div className="review-finding-group__top">
-            <h4>{group.title}</h4>
-          </div>
-          <div className="review-finding-list">
-            {group.items.map((item) => (
-              <article
-                className="review-finding-card"
-                data-selected={item.id === selectedFindingId}
-                data-tone={item.tone}
-                id={reviewFindingDomId(item.id)}
-                key={item.id}
+      {visibleGroups.map((group) => {
+        const expanded = Boolean(expandedGroups[group.title]);
+        const visibleItems = expanded
+          ? group.items
+          : group.items.slice(0, DEFAULT_VISIBLE_REVIEW_FINDINGS);
+        const hiddenCount = group.items.length - visibleItems.length;
+        return (
+          <div className="review-finding-group" key={group.title}>
+            <div className="review-finding-group__top">
+              <h4>{group.title}</h4>
+            </div>
+            <div className="review-finding-list">
+              {visibleItems.map((item) => (
+                <article
+                  className="review-finding-card"
+                  data-selected={item.id === selectedFindingId}
+                  data-tone={item.tone}
+                  id={reviewFindingDomId(item.id)}
+                  key={item.id}
+                >
+                  <div>
+                    <span className="review-finding-card__badge">{item.badge}</span>
+                    <strong>{item.title}</strong>
+                    <p>{item.detail}</p>
+                  </div>
+                  <div className="review-finding-card__meta">
+                    <span>{item.nextStep}</span>
+                    <small>{item.why}</small>
+                  </div>
+                  <ReviewFindingAction
+                    finding={item}
+                    groupTitle={group.title}
+                    onContinueToEvidence={onContinueToEvidence}
+                    onOpenEvidenceTasks={onOpenEvidenceTasks}
+                  />
+                </article>
+              ))}
+            </div>
+            {hiddenCount > 0 || expanded ? (
+              <button
+                className="review-finding-board__toggle"
+                type="button"
+                onClick={() =>
+                  setExpandedGroups((current) => ({
+                    ...current,
+                    [group.title]: !expanded,
+                  }))
+                }
               >
-                <div>
-                  <span className="review-finding-card__badge">{item.badge}</span>
-                  <strong>{item.title}</strong>
-                  <p>{item.detail}</p>
-                </div>
-                <div className="review-finding-card__meta">
-                  <span>{item.nextStep}</span>
-                  <small>{item.why}</small>
-                </div>
-                <ReviewFindingAction
-                  finding={item}
-                  groupTitle={group.title}
-                  onContinueToEvidence={onContinueToEvidence}
-                  onOpenEvidenceTasks={onOpenEvidenceTasks}
-                />
-              </article>
-            ))}
+                {expanded ? "Show fewer" : `Show ${hiddenCount} more`}
+              </button>
+            ) : null}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </section>
   );
 }
@@ -1820,9 +1841,7 @@ function ReviewFindingBoard({
 function ReviewDetailTabs({
   activeTab,
   atsNotes,
-  dimensions,
   findingGroups,
-  metadataScan,
   onContinueToEvidence,
   onOpenEvidenceTasks,
   onSelect,
@@ -1830,37 +1849,25 @@ function ReviewDetailTabs({
 }: {
   activeTab: ReviewDetailTab;
   atsNotes: string[];
-  dimensions: ReviewDimension[];
   findingGroups: ReviewFindingGroup[];
-  metadataScan: string;
   onContinueToEvidence: () => void;
   onOpenEvidenceTasks: () => void;
   onSelect: (tab: ReviewDetailTab) => void;
   selectedFindingId: string | null;
 }) {
   const tabs: Array<{ id: ReviewDetailTab; label: string; titles?: string[] }> = [
-    { id: "summary", label: "Summary" },
-    { id: "strengths", label: "Strengths", titles: ["Strengths to preserve"] },
     { id: "fixes", label: "Fixes", titles: ["Weaknesses to fix"] },
     { id: "evidence", label: "Evidence Gaps", titles: ["Evidence gaps"] },
     { id: "rewrite", label: "Rewrite Suggestions", titles: ["Rewrite logic"] },
     { id: "ats", label: "ATS", titles: ["ATS notes"] },
     { id: "privacy", label: "Privacy", titles: ["Privacy and confidentiality"] },
+    { id: "strengths", label: "Strengths", titles: ["Strengths to preserve"] },
   ];
   const active = tabs.find((tab) => tab.id === activeTab) ?? tabs[0]!;
-  const summaryItems = findingGroups
-    .flatMap((group) => group.items.slice(0, 2).map((item) => ({ ...item, groupTitle: group.title })))
-    .slice(0, 6);
-  const topStrength = findingGroups.find((group) => group.title === "Strengths to preserve")?.items[0];
-  const topFix = findingGroups.find((group) => group.title === "Weaknesses to fix")?.items[0];
-  const topGap = findingGroups.find((group) => group.title === "Evidence gaps")?.items[0];
-  const topAts = findingGroups.find((group) => group.title === "ATS notes")?.items[0];
-  const strongestDimension = [...dimensions].sort((a, b) => b.percent - a.percent)[0];
-  const weakestDimension = [...dimensions].sort((a, b) => a.percent - b.percent)[0];
   return (
     <section className="review-detail-panel">
       <div className="review-detail-panel__header">
-        <p className="panel-kicker">Details</p>
+        <p className="panel-kicker">Findings by type</p>
       </div>
       <div className="review-detail-tabs" role="tablist" aria-label="Resume review details">
         {tabs.map((tab) => (
@@ -1876,29 +1883,13 @@ function ReviewDetailTabs({
           </button>
         ))}
       </div>
-      {active.id === "summary" ? (
-        <ReviewSummaryReport
-          dimensions={dimensions}
-          metadataScan={metadataScan}
-          onSelect={onSelect}
-          strongestDimension={strongestDimension}
-          summaryItems={summaryItems}
-          tabs={tabs}
-          topAts={topAts}
-          topFix={topFix}
-          topGap={topGap}
-          topStrength={topStrength}
-          weakestDimension={weakestDimension}
-        />
-      ) : (
-        <ReviewFindingBoard
-          groups={findingGroups}
-          onContinueToEvidence={onContinueToEvidence}
-          onOpenEvidenceTasks={onOpenEvidenceTasks}
-          selectedFindingId={selectedFindingId}
-          visibleTitles={active.titles}
-        />
-      )}
+      <ReviewFindingBoard
+        groups={findingGroups}
+        onContinueToEvidence={onContinueToEvidence}
+        onOpenEvidenceTasks={onOpenEvidenceTasks}
+        selectedFindingId={selectedFindingId}
+        visibleTitles={active.titles}
+      />
       {active.id === "ats" && atsNotes.length === 0 ? (
         <div className="empty-state empty-state--compact">No ATS-specific notes were returned.</div>
       ) : null}
@@ -1938,89 +1929,6 @@ function ReviewFindingAction({
         <span className="review-finding-card__action-note">{action.cta}</span>
       )}
     </div>
-  );
-}
-
-function ReviewSummaryReport({
-  dimensions,
-  metadataScan,
-  onSelect,
-  strongestDimension,
-  summaryItems,
-  tabs,
-  topAts,
-  topFix,
-  topGap,
-  topStrength,
-  weakestDimension,
-}: {
-  dimensions: ReviewDimension[];
-  metadataScan: string;
-  onSelect: (tab: ReviewDetailTab) => void;
-  strongestDimension?: ReviewDimension;
-  summaryItems: Array<ReviewFinding & { groupTitle: string }>;
-  tabs: Array<{ id: ReviewDetailTab; label: string; titles?: string[] }>;
-  topAts?: ReviewFinding;
-  topFix?: ReviewFinding;
-  topGap?: ReviewFinding;
-  topStrength?: ReviewFinding;
-  weakestDimension?: ReviewDimension;
-}) {
-  return (
-    <section className="review-summary-report">
-      {metadataScan ? <p className="review-summary-report__scan">{metadataScan}</p> : null}
-      <div className="review-summary-report__grid">
-        <article className="review-summary-report__main">
-          <div className="review-summary-report__section">
-            <span>Recruiter skim</span>
-            <strong>{topStrength?.title ?? strongestDimension?.label ?? "No strong signal captured yet"}</strong>
-            <p>{topStrength?.detail ?? strongestDimension?.note ?? "Add reviewed evidence to make the strongest profile signal clear."}</p>
-          </div>
-          <div className="review-summary-report__section" data-tone="warning">
-            <span>Highest-priority fix</span>
-            <strong>{topFix?.title ?? weakestDimension?.label ?? "No fix listed"}</strong>
-            <p>{topFix?.detail ?? weakestDimension?.note ?? "Keep this section concise and source-backed before rewriting."}</p>
-          </div>
-          <div className="review-summary-report__section" data-tone="risk">
-            <span>Evidence gap</span>
-            <strong>{topGap?.title ?? "No evidence gap listed"}</strong>
-            <p>{topGap?.detail ?? "If the resume already has enough proof, continue to the detail tabs for ATS and rewrite checks."}</p>
-          </div>
-        </article>
-        <aside className="review-summary-report__side">
-          <div className="review-summary-report__mini">
-            <span>Dimensions</span>
-            <strong>{dimensions.length}</strong>
-            <p>
-              Strongest: {strongestDimension?.label ?? "n/a"} · Weakest: {weakestDimension?.label ?? "n/a"}
-            </p>
-          </div>
-          <div className="review-summary-report__mini">
-            <span>ATS / privacy</span>
-            <strong>{topAts ? "Review" : "Clear"}</strong>
-            <p>{topAts?.detail ?? "No ATS-specific issue was returned in this review."}</p>
-          </div>
-          {summaryItems.length ? (
-            <div className="review-summary-report__links">
-              {summaryItems.slice(0, 4).map((item) => (
-                <button
-                  data-tone={item.tone}
-                  key={`${item.groupTitle}-${item.id}`}
-                  type="button"
-                  onClick={() => {
-                    const matchingTab = tabs.find((tab) => tab.titles?.includes(item.groupTitle));
-                    if (matchingTab) onSelect(matchingTab.id);
-                  }}
-                >
-                  <span>{item.groupTitle}</span>
-                  <strong>{item.nextStep}</strong>
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </aside>
-      </div>
-    </section>
   );
 }
 
