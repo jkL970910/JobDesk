@@ -81,3 +81,25 @@ export const GeneratedResumeReadinessReview = z.object({
 export type GeneratedResumeReadinessReview = z.infer<
   typeof GeneratedResumeReadinessReview
 >;
+
+export const GeneratedResumePolishProposal = z.object({
+  source_main_resume_id: z.string().uuid(),
+  readiness_review_id: z.string().uuid().nullable().default(null),
+  title: z.string().trim().min(1),
+  summary: z.string().trim().min(1),
+  edits: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1),
+        route: GeneratedResumeFindingRoute,
+        title: z.string().trim().min(1),
+        rationale: z.string().trim().min(1),
+        proposed_change: z.string().trim().min(1),
+      }),
+    )
+    .default([]),
+  preview_markdown: z.string().trim().min(1),
+});
+export type GeneratedResumePolishProposal = z.infer<
+  typeof GeneratedResumePolishProposal
+>;

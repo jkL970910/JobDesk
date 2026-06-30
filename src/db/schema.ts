@@ -1050,6 +1050,10 @@ export const generatedResumeReadinessReviews = pgTable(
       table.resumeVersionId,
       table.createdAt,
     ),
+    exactlyOneDocumentChk: check(
+      "generated_resume_readiness_reviews_exactly_one_document_chk",
+      sql`((${table.mainResumeVersionId} IS NOT NULL)::int + (${table.resumeVersionId} IS NOT NULL)::int) = 1`,
+    ),
   }),
 );
 

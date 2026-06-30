@@ -13,6 +13,13 @@ CREATE TABLE IF NOT EXISTS "generated_resume_readiness_reviews" (
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );--> statement-breakpoint
 DO $$ BEGIN
+ ALTER TABLE "generated_resume_readiness_reviews" ADD CONSTRAINT "generated_resume_readiness_reviews_exactly_one_document_chk" CHECK (
+  (("main_resume_version_id" IS NOT NULL)::int + ("resume_version_id" IS NOT NULL)::int) = 1
+ );
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
  ALTER TABLE "generated_resume_readiness_reviews" ADD CONSTRAINT "generated_resume_readiness_reviews_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION
  WHEN duplicate_object THEN null;

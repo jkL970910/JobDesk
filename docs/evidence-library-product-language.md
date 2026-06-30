@@ -648,7 +648,9 @@ Current workflow scope:
 - User manually runs Review generated resume after a main resume is generated.
 - JobDesk shows readiness score, low-score reasons, and routed findings.
 - User manually chooses the next surface: Evidence Library, Resume Builder polish, or Profile Positioning.
-- JobDesk does not yet auto-generate resume edit proposals, auto-accept changes, auto-rerun Fact Guard, or auto-rescore the generated draft.
+- Resume polish findings can create an explicit Resume Builder proposal for the generated Main Resume. Applying that proposal creates a new generated draft, reruns Fact Guard, and stores a fresh readiness review.
+- JobDesk does not automatically create Work Queue tasks from review findings. Evidence gaps only become Work Queue tasks when the Evidence Library workflow explicitly creates actionable enrichment tasks.
+- Full accept/reject/revise history and richer editable resume diffs are future work; the current proposal loop is explicit apply-or-ignore.
 
 Primary CTA:
 

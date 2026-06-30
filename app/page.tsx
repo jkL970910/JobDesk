@@ -149,6 +149,21 @@ type GeneratedResumeReadinessReviewSummary = {
   updated_at: string;
 };
 
+type GeneratedResumePolishProposalSummary = {
+  source_main_resume_id: string;
+  readiness_review_id: string | null;
+  title: string;
+  summary: string;
+  edits: Array<{
+    id: string;
+    route: "evidence_gap" | "resume_polish" | "positioning_gap";
+    title: string;
+    rationale: string;
+    proposed_change: string;
+  }>;
+  preview_markdown: string;
+};
+
 type RetrievalExplanationResponse = {
   data?: {
     evidence?: RetrievalEvidenceExplanation[];
@@ -1487,6 +1502,10 @@ function ProfileReferenceView({
   const profileFactEditorRef = useRef<HTMLElement | null>(null);
   const [isGeneratingMainResume, setIsGeneratingMainResume] = useState(false);
   const [isReviewingGeneratedResume, setIsReviewingGeneratedResume] = useState(false);
+  const [isBuildingPolishProposal, setIsBuildingPolishProposal] = useState(false);
+  const [isApplyingPolishProposal, setIsApplyingPolishProposal] = useState(false);
+  const [mainResumePolishProposal, setMainResumePolishProposal] =
+    useState<GeneratedResumePolishProposalSummary | null>(null);
   const [isGeneratingPositioning, setIsGeneratingPositioning] = useState(false);
   const [refreshSourceResumeId, setRefreshSourceResumeId] = useState("");
   const [refreshMode, setRefreshMode] = useState<
@@ -1979,6 +1998,7 @@ function ProfileReferenceView({
   async function reviewGeneratedMainResumeReadiness(mainResumeId: string) {
     setIsReviewingGeneratedResume(true);
     setReadinessReviewStatus("Reviewing generated resume readiness...");
+    setMainResumePolishProposal(null);
     try {
       const response = await fetchJson(`/api/main-resume/${mainResumeId}/readiness-review`, {
         method: "POST",
@@ -2011,6 +2031,77 @@ function ProfileReferenceView({
       );
     } finally {
       setIsReviewingGeneratedResume(false);
+    }
+  }
+
+  async function buildMainResumePolishProposal(mainResumeId: string) {
+    setIsBuildingPolishProposal(true);
+    setReadinessReviewStatus("Building resume polish proposal...");
+    try {
+      const response = await fetchJson(`/api/main-resume/${mainResumeId}/polish-proposal`);
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            data?: {
+              status?: string;
+              proposal?: GeneratedResumePolishProposalSummary;
+            };
+            error?: string;
+            kind?: string;
+          }
+        | null;
+      if (!response.ok || !payload?.data?.proposal) {
+        setReadinessReviewStatus(
+          payload?.error
+            ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
+            : "Could not build a resume polish proposal.",
+        );
+        return;
+      }
+      setMainResumePolishProposal(payload.data.proposal);
+      setReadinessReviewStatus("Review the polish proposal before applying it.");
+    } catch (error) {
+      setReadinessReviewStatus(
+        error instanceof Error ? error.message : "Could not build a resume polish proposal.",
+      );
+    } finally {
+      setIsBuildingPolishProposal(false);
+    }
+  }
+
+  async function applyMainResumePolishProposal(mainResumeId: string) {
+    setIsApplyingPolishProposal(true);
+    setReadinessReviewStatus("Applying proposal, rerunning Fact Guard, and rescoring...");
+    try {
+      const response = await fetchJson(`/api/main-resume/${mainResumeId}/polish-proposal`, {
+        method: "POST",
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            data?: {
+              status?: string;
+              mainResumeVersionId?: string;
+            };
+            error?: string;
+            kind?: string;
+          }
+        | null;
+      if (!response.ok || payload?.data?.status !== "applied") {
+        setReadinessReviewStatus(
+          payload?.error
+            ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
+            : "Could not apply the resume polish proposal.",
+        );
+        return;
+      }
+      setMainResumePolishProposal(null);
+      await refreshMainResumes();
+      setReadinessReviewStatus("Polished draft created, checked, and rescored.");
+    } catch (error) {
+      setReadinessReviewStatus(
+        error instanceof Error ? error.message : "Could not apply the resume polish proposal.",
+      );
+    } finally {
+      setIsApplyingPolishProposal(false);
     }
   }
 
@@ -2841,11 +2932,15 @@ function ProfileReferenceView({
               </p>
             </div>
             <GeneratedResumeReadinessPanel
+              isApplyingPolishProposal={isApplyingPolishProposal}
+              isBuildingPolishProposal={isBuildingPolishProposal}
               isReviewing={isReviewingGeneratedResume}
+              onApplyPolishProposal={() => void applyMainResumePolishProposal(latestMainResume.id)}
               onOpenEvidence={() => onOpenEvidenceReview("claims")}
               onOpenPositioning={() => onNavigateResume("build_export")}
               onReview={() => void reviewGeneratedMainResumeReadiness(latestMainResume.id)}
-              onPolish={() => onNavigateResume("build_export")}
+              onPolish={() => void buildMainResumePolishProposal(latestMainResume.id)}
+              polishProposal={mainResumePolishProposal}
               review={latestMainResume.readiness_review}
             />
             <div className="final-review-panel__grid">
@@ -3107,18 +3202,26 @@ function getMainResumeClaimStats(resume: MainResumeSummary) {
 }
 
 function GeneratedResumeReadinessPanel({
+  isApplyingPolishProposal,
+  isBuildingPolishProposal,
   isReviewing,
+  onApplyPolishProposal,
   onOpenEvidence,
   onOpenPositioning,
   onPolish,
   onReview,
+  polishProposal,
   review,
 }: {
+  isApplyingPolishProposal: boolean;
+  isBuildingPolishProposal: boolean;
   isReviewing: boolean;
+  onApplyPolishProposal: () => void;
   onOpenEvidence: () => void;
   onOpenPositioning: () => void;
   onPolish: () => void;
   onReview: () => void;
+  polishProposal: GeneratedResumePolishProposalSummary | null;
   review: GeneratedResumeReadinessReviewSummary | null;
 }) {
   const findingsByRoute = groupReadinessFindings(review?.findings ?? []);
@@ -3220,6 +3323,7 @@ function GeneratedResumeReadinessPanel({
                   )}
                   <button
                     className="secondary-button secondary-button--quiet"
+                    disabled={route === "resume_polish" && isBuildingPolishProposal}
                     type="button"
                     onClick={
                       route === "evidence_gap"
@@ -3229,12 +3333,43 @@ function GeneratedResumeReadinessPanel({
                           : onPolish
                     }
                   >
-                    {formatReadinessRouteAction(route)}
+                    {route === "resume_polish" && isBuildingPolishProposal
+                      ? "Preparing proposal..."
+                      : formatReadinessRouteAction(route)}
                   </button>
                 </article>
               );
             })}
           </div>
+          {polishProposal ? (
+            <div className="generated-readiness-review__proposal">
+              <div>
+                <span>Resume Builder proposal</span>
+                <strong>{polishProposal.title}</strong>
+                <p>{polishProposal.summary}</p>
+              </div>
+              {polishProposal.edits.length ? (
+                <ul>
+                  {polishProposal.edits.slice(0, 4).map((edit) => (
+                    <li key={edit.id}>
+                      <b>{edit.title}</b>
+                      <p>{edit.proposed_change}</p>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <button
+                className="primary-button"
+                disabled={isApplyingPolishProposal}
+                type="button"
+                onClick={onApplyPolishProposal}
+              >
+                {isApplyingPolishProposal
+                  ? "Applying and rescoring..."
+                  : "Apply proposal and rescore"}
+              </button>
+            </div>
+          ) : null}
         </>
       ) : null}
     </section>

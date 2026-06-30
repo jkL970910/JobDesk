@@ -12,6 +12,7 @@ import {
   workflowRuns,
 } from "../db/schema";
 import {
+  GeneratedResumePolishProposal,
   GeneratedResumeReadinessReview,
   type GeneratedResumeDocumentType,
   type GeneratedResumeFindingRoute,
@@ -27,6 +28,12 @@ type GeneratedResumeReadinessDto = GeneratedResumeReadinessReview & {
   id: string;
   workflow_run_id: string | null;
   updated_at: string;
+};
+
+type GeneratedResumePolishProposalDto = GeneratedResumePolishProposal & {
+  generated_resume_id: string | null;
+  fact_guard_status: string | null;
+  readiness_review: GeneratedResumeReadinessDto | null;
 };
 
 export async function reviewGeneratedMainResumeReadiness(mainResumeVersionId: string) {
@@ -223,6 +230,148 @@ export async function getLatestGeneratedTailoredResumeReadinessReview(
   return review ? toGeneratedResumeReadinessDto(review) : null;
 }
 
+export async function getMainResumePolishProposal(mainResumeVersionId: string) {
+  if (!hasDatabaseUrl()) return { status: "skipped" as const, reason: "missing_database_url" as const };
+
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [resume] = await db
+    .select()
+    .from(mainResumeVersions)
+    .where(
+      and(
+        eq(mainResumeVersions.workspaceId, workspace.id),
+        eq(mainResumeVersions.id, mainResumeVersionId),
+      ),
+    )
+    .limit(1);
+  if (!resume) return { status: "not_found" as const };
+
+  const review = await getLatestGeneratedMainResumeReadinessReview(mainResumeVersionId);
+  if (!review) return { status: "review_required" as const };
+
+  return {
+    status: "ready" as const,
+    proposal: buildGeneratedResumePolishProposal({
+      mainResumeId: resume.id,
+      readinessReview: review,
+      resumeMarkdown: resume.resumeMarkdown,
+    }),
+  };
+}
+
+export async function applyMainResumePolishProposal(mainResumeVersionId: string) {
+  if (!hasDatabaseUrl()) return { status: "skipped" as const, reason: "missing_database_url" as const };
+
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [resume] = await db
+    .select()
+    .from(mainResumeVersions)
+    .where(
+      and(
+        eq(mainResumeVersions.workspaceId, workspace.id),
+        eq(mainResumeVersions.id, mainResumeVersionId),
+      ),
+    )
+    .limit(1);
+  if (!resume) return { status: "not_found" as const };
+
+  const review = await getLatestGeneratedMainResumeReadinessReview(mainResumeVersionId);
+  if (!review) return { status: "review_required" as const };
+
+  const proposal = buildGeneratedResumePolishProposal({
+    mainResumeId: resume.id,
+    readinessReview: review,
+    resumeMarkdown: resume.resumeMarkdown,
+  });
+  const claims = await db
+    .select()
+    .from(generatedClaims)
+    .where(
+      and(
+        eq(generatedClaims.workspaceId, workspace.id),
+        eq(generatedClaims.mainResumeVersionId, mainResumeVersionId),
+      ),
+    );
+  const now = new Date();
+
+  const saved = await db.transaction(async (tx) => {
+    const [workflowRun] = await tx
+      .insert(workflowRuns)
+      .values({
+        workspaceId: workspace.id,
+        workflowType: skillRegistry.generatedResumeReadinessReview.workflowType,
+        status: "succeeded",
+        provider: "deterministic",
+        model: "generated-polish-proposal-v0",
+        ...workflowSkillFields(skillRegistry.generatedResumeReadinessReview),
+        retryCount: 0,
+        startedAt: now,
+        finishedAt: now,
+      })
+      .returning({ id: workflowRuns.id });
+    if (!workflowRun) throw new Error("Failed to create generated polish workflow run.");
+
+    const [mainResume] = await tx
+      .insert(mainResumeVersions)
+      .values({
+        workspaceId: workspace.id,
+        workflowRunId: workflowRun.id,
+        positioningReportId: resume.positioningReportId,
+        positioningDirectionId: resume.positioningDirectionId,
+        positioningTitle: resume.positioningTitle,
+        generationMode: resume.generationMode,
+        refreshSourceResumeId: resume.refreshSourceResumeId,
+        refreshMode: resume.refreshMode,
+        refreshStyleConstraints: resume.refreshStyleConstraints,
+        title: `${resume.title} · polish proposal`,
+        resumeJson: resume.resumeJson,
+        resumeMarkdown: proposal.preview_markdown,
+        missingEvidenceQuestions: resume.missingEvidenceQuestions,
+        version: resume.version + 1,
+        status: "unvalidated",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: mainResumeVersions.id });
+    if (!mainResume) throw new Error("Failed to create polished main resume version.");
+
+    if (claims.length > 0) {
+      await tx.insert(generatedClaims).values(
+        claims.map((claim) => ({
+          workspaceId: workspace.id,
+          mainResumeVersionId: mainResume.id,
+          claimText: claim.claimText,
+          section: claim.section,
+          evidenceIds: claim.evidenceIds,
+          sourceQuotes: claim.sourceQuotes,
+          supportStatus: "unvalidated" as const,
+          claimStatus: "unvalidated" as const,
+          riskLevel: claim.riskLevel,
+          createdAt: now,
+        })),
+      );
+    }
+
+    return {
+      mainResumeVersionId: mainResume.id,
+      workflowRunId: workflowRun.id,
+    };
+  });
+
+  return {
+    status: "applied" as const,
+    mainResumeVersionId: saved.mainResumeVersionId,
+    proposal: {
+      ...proposal,
+      generated_resume_id: saved.mainResumeVersionId,
+      fact_guard_status: null,
+      readiness_review: null,
+    } satisfies GeneratedResumePolishProposalDto,
+  };
+}
+
 export function buildGeneratedResumeReadinessReview(args: {
   baseline: { label: string; score: number } | null;
   claims: GeneratedClaimRow[];
@@ -348,6 +497,42 @@ export function buildGeneratedResumeReadinessReview(args: {
     },
     findings,
     created_at: args.now.toISOString(),
+  });
+}
+
+export function buildGeneratedResumePolishProposal(args: {
+  mainResumeId: string;
+  readinessReview: GeneratedResumeReadinessDto | GeneratedResumeReadinessReview;
+  resumeMarkdown: string;
+}) {
+  const polishFindings = args.readinessReview.findings.filter(
+    (finding) => finding.route === "resume_polish" || finding.route === "positioning_gap",
+  );
+  const selectedFindings =
+    polishFindings.length > 0
+      ? polishFindings
+      : args.readinessReview.findings.filter((finding) => finding.route !== "evidence_gap");
+  const edits = selectedFindings.slice(0, 4).map((finding) => ({
+    id: `polish-${finding.id}`,
+    route: finding.route,
+    title: finding.title,
+    rationale: finding.detail,
+    proposed_change: finding.suggested_action,
+  }));
+
+  return GeneratedResumePolishProposal.parse({
+    source_main_resume_id: args.mainResumeId,
+    readiness_review_id: "id" in args.readinessReview ? args.readinessReview.id : null,
+    title: "Resume polish proposal",
+    summary:
+      edits.length > 0
+        ? "Creates a revised generated draft from the current readiness findings. Evidence gaps stay routed to Evidence Library; this proposal only adjusts generated-resume polish and positioning guidance."
+        : "Creates a conservative revised generated draft while preserving the current claim ledger and evidence grounding.",
+    edits,
+    preview_markdown: buildPolishPreviewMarkdown({
+      markdown: args.resumeMarkdown,
+      findings: edits,
+    }),
   });
 }
 
@@ -492,6 +677,32 @@ function summarizeReadiness(args: {
     return `Generated resume is ready to export with a readiness score of ${args.score}.`;
   }
   return `Generated resume is usable as a draft, but polish could raise readiness beyond ${args.score}.`;
+}
+
+function buildPolishPreviewMarkdown(args: {
+  findings: GeneratedResumePolishProposal["edits"];
+  markdown: string;
+}) {
+  const baseMarkdown = args.markdown.trim();
+  const normalized = baseMarkdown.replace(/\n{3,}/g, "\n\n");
+  if (/^#{1,3}\s*(summary|profile|professional summary)\b/im.test(normalized)) {
+    return normalized;
+  }
+
+  const firstBullet = normalized
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^[-*]\s+\S/.test(line))
+    ?.replace(/^[-*]\s+/, "")
+    .trim();
+  if (!firstBullet) return normalized;
+
+  return [
+    "## Summary",
+    `Evidence-backed candidate profile led by: ${firstBullet}`,
+    "",
+    normalized,
+  ].join("\n");
 }
 
 function countResumeSections(markdown: string) {

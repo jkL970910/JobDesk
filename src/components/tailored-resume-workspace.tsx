@@ -33,6 +33,32 @@ type ResumeClaim = {
   last_validated_at?: string | null;
 };
 
+type GeneratedResumeReadinessReviewSummary = {
+  id: string;
+  scope_label: string;
+  score: number;
+  verdict:
+    | "ready_to_export"
+    | "recommended_polish"
+    | "needs_evidence_before_export";
+  summary: string;
+  readiness_dimensions: Array<{
+    key: string;
+    label: string;
+    score: number;
+    rationale: string;
+  }>;
+  findings: Array<{
+    id: string;
+    route: "evidence_gap" | "resume_polish" | "positioning_gap";
+    severity: "info" | "warning" | "blocker";
+    title: string;
+    detail: string;
+    suggested_action: string;
+    linked_claim_ids: string[];
+  }>;
+};
+
 type RecentResume = {
   id: string;
   jobId: string;
@@ -41,6 +67,7 @@ type RecentResume = {
   missing_evidence_questions: string[];
   status: string;
   updatedAt: string;
+  readiness_review: GeneratedResumeReadinessReviewSummary | null;
   claims: ResumeClaim[];
 };
 
@@ -116,6 +143,7 @@ export function TailoredResumeWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isFactGuardPending, startFactGuardTransition] = useTransition();
+  const [isReadinessReviewPending, startReadinessReviewTransition] = useTransition();
   const [selectedEvidence, setSelectedEvidence] = useState<RetrievalEvidenceExplanation[]>([]);
   const [sourceMaterial, setSourceMaterial] = useState<RetrievalSourceMaterialExplanation[]>([]);
 
@@ -313,6 +341,30 @@ export function TailoredResumeWorkspace() {
     });
   }
 
+  async function reviewGeneratedResumeReadiness() {
+    if (!latestResume?.id) return;
+    startReadinessReviewTransition(async () => {
+      setError(null);
+      setStatus("Reviewing generated tailored resume readiness...");
+      const response = await fetchJson(`/api/resumes/${latestResume.id}/readiness-review`, {
+        method: "POST",
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { data?: { status?: string }; error?: string; kind?: string }
+        | null;
+      if (!response.ok) {
+        setError(
+          payload?.error
+            ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
+            : "Generated resume readiness review failed.",
+        );
+        return;
+      }
+      await loadRecentResumes();
+      setStatus("Generated tailored resume readiness review updated.");
+    });
+  }
+
   const selectedJob = jobs.find((job) => job.id === selectedJobId);
   const canGenerateResume =
     Boolean(selectedJobId) &&
@@ -325,6 +377,7 @@ export function TailoredResumeWorkspace() {
         resume_markdown: draft.resume_markdown,
         missing_evidence_questions: draft.missing_evidence_questions,
         status: draftMeta?.status ?? "unvalidated",
+        readiness_review: null,
         claims: draftMeta?.claims ?? draft.claims.map((claim, index) => ({
           id: `${claim.claim_text}-${index}`,
           claim_text: claim.claim_text,
@@ -417,6 +470,16 @@ export function TailoredResumeWorkspace() {
               {isFactGuardPending ? "Checking..." : "Review Claims"}
             </button>
           ) : null}
+          {latestResume ? (
+            <button
+              className="secondary-button secondary-button--quiet"
+              disabled={isPending || isReadinessReviewPending}
+              type="button"
+              onClick={() => void reviewGeneratedResumeReadiness()}
+            >
+              {isReadinessReviewPending ? "Reviewing..." : "Review generated resume"}
+            </button>
+          ) : null}
           <span className={error ? "status status--error" : "status"}>
             {error ?? status}
           </span>
@@ -446,7 +509,12 @@ export function TailoredResumeWorkspace() {
           </div>
         </div>
         {displayResume ? (
-          <ResumeResult exportResume={exportResume} resume={displayResume} />
+          <ResumeResult
+            exportResume={exportResume}
+            isReadinessReviewPending={isReadinessReviewPending}
+            resume={displayResume}
+            reviewReadiness={() => void reviewGeneratedResumeReadiness()}
+          />
         ) : (
           <div className="empty-state empty-state--compact">
             Approve evidence for resume use, then generate a tailored draft.
@@ -545,17 +613,22 @@ function buildGenerationStatus(payload: Extract<TailorResponse, { data: Tailored
 
 function ResumeResult({
   exportResume,
+  isReadinessReviewPending,
   resume,
+  reviewReadiness,
 }: {
   exportResume: (resumeId: string, format: "markdown" | "json") => Promise<void>;
+  isReadinessReviewPending: boolean;
   resume: {
     id?: string;
     title: string;
     resume_markdown: string;
     missing_evidence_questions: string[];
     status?: string;
+    readiness_review?: GeneratedResumeReadinessReviewSummary | null;
     claims: ResumeClaim[];
   };
+  reviewReadiness: () => void;
 }) {
   const isValidated = resume.status === "validated";
   return (
@@ -618,8 +691,97 @@ function ResumeResult({
       {resume.missing_evidence_questions.length > 0 ? (
         <Section title="Missing evidence questions" items={resume.missing_evidence_questions} />
       ) : null}
+      {resume.id ? (
+        <TailoredReadinessReviewPanel
+          isReviewing={isReadinessReviewPending}
+          review={resume.readiness_review ?? null}
+          reviewReadiness={reviewReadiness}
+        />
+      ) : null}
       <ClaimReviewPanel claims={resume.claims} />
     </div>
+  );
+}
+
+function TailoredReadinessReviewPanel({
+  isReviewing,
+  review,
+  reviewReadiness,
+}: {
+  isReviewing: boolean;
+  review: GeneratedResumeReadinessReviewSummary | null;
+  reviewReadiness: () => void;
+}) {
+  const findingsByRoute = groupReadinessFindings(review?.findings ?? []);
+  return (
+    <section className="section-block generated-readiness-review" data-state={review?.verdict ?? "not_run"}>
+      <div className="generated-readiness-review__header">
+        <div>
+          <p className="panel-kicker">Generated Resume Readiness Review</p>
+          <h4>
+            {review ? formatGeneratedReadinessVerdict(review.verdict) : "Review this tailored draft before export"}
+          </h4>
+          <p>
+            {review
+              ? review.summary
+              : "Fact Guard checks claim support. This review checks whether the generated tailored resume is strong enough for the selected JD."}
+          </p>
+        </div>
+        <div className="generated-readiness-review__score">
+          <strong>{review ? review.score : "--"}</strong>
+          <span>readiness</span>
+        </div>
+      </div>
+      <div className="generated-readiness-review__actions">
+        <button
+          className="secondary-button"
+          disabled={isReviewing}
+          type="button"
+          onClick={reviewReadiness}
+        >
+          {isReviewing ? "Reviewing..." : review ? "Refresh readiness review" : "Review generated resume"}
+        </button>
+        <span>Soft gate only. Final export still follows Fact Guard.</span>
+      </div>
+      {review ? (
+        <>
+          <div className="generated-readiness-review__dimensions">
+            {review.readiness_dimensions.map((dimension) => (
+              <article key={dimension.key}>
+                <span>{dimension.label}</span>
+                <strong>{dimension.score}</strong>
+                <p>{dimension.rationale}</p>
+              </article>
+            ))}
+          </div>
+          <div className="generated-readiness-review__routes">
+            {(["evidence_gap", "resume_polish", "positioning_gap"] as const).map((route) => {
+              const routeFindings = findingsByRoute[route] ?? [];
+              return (
+                <article key={route}>
+                  <div>
+                    <span>{formatReadinessRoute(route)}</span>
+                    <strong>{routeFindings.length}</strong>
+                  </div>
+                  {routeFindings.length ? (
+                    <ul>
+                      {routeFindings.slice(0, 2).map((finding) => (
+                        <li key={finding.id}>
+                          <b>{finding.title}</b>
+                          <p>{finding.detail}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No finding routed here.</p>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+    </section>
   );
 }
 
@@ -658,6 +820,34 @@ function ClaimReviewPanel({ claims }: { claims: ResumeClaim[] }) {
       </div>
     </section>
   );
+}
+
+function groupReadinessFindings(findings: GeneratedResumeReadinessReviewSummary["findings"]) {
+  return findings.reduce<
+    Record<GeneratedResumeReadinessReviewSummary["findings"][number]["route"], typeof findings>
+  >(
+    (groups, finding) => {
+      groups[finding.route] = [...(groups[finding.route] ?? []), finding];
+      return groups;
+    },
+    { evidence_gap: [], positioning_gap: [], resume_polish: [] },
+  );
+}
+
+function formatGeneratedReadinessVerdict(
+  verdict: GeneratedResumeReadinessReviewSummary["verdict"],
+) {
+  if (verdict === "ready_to_export") return "Ready to export";
+  if (verdict === "needs_evidence_before_export") return "Needs evidence before export";
+  return "Recommended polish";
+}
+
+function formatReadinessRoute(
+  route: GeneratedResumeReadinessReviewSummary["findings"][number]["route"],
+) {
+  if (route === "evidence_gap") return "Evidence gap";
+  if (route === "positioning_gap") return "Positioning gap";
+  return "Resume polish";
 }
 
 function ClaimCard({ claim }: { claim: ResumeClaim }) {

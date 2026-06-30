@@ -48,6 +48,19 @@ describe("resume export coverage assumptions", () => {
     expect(getMainResumeExportBlocker({ format: "html", status: "validated" })).toBeNull();
   });
 
+  it("does not use generated readiness as a final export gate", () => {
+    const recommendedPolishReview = {
+      verdict: "recommended_polish",
+      score: 78,
+    };
+
+    expect(recommendedPolishReview.verdict).toBe("recommended_polish");
+    expect(getMainResumeExportBlocker({ format: "docx", status: "validated" })).toBeNull();
+    expect(
+      getMainResumeExportBlocker({ format: "docx", status: "unvalidated" }),
+    ).toMatchObject({ kind: "resume_not_validated" });
+  });
+
   it("uses the same Fact Guard gate for tailored final exports", () => {
     expect(
       getResumeFinalExportBlocker({ format: "markdown", status: "unvalidated" }),

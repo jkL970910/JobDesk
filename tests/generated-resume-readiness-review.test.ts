@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { generatedClaims } from "../src/db/schema";
-import { buildGeneratedResumeReadinessReview } from "../src/server/generated-resume-readiness-review";
+import {
+  buildGeneratedResumePolishProposal,
+  buildGeneratedResumeReadinessReview,
+} from "../src/server/generated-resume-readiness-review";
 
 type ClaimRow = typeof generatedClaims.$inferSelect;
 
@@ -69,6 +72,36 @@ describe("generated resume readiness review", () => {
     expect(review.hard_gate_status.export_policy).toBe("enabled");
     expect(["ready_to_export", "recommended_polish"]).toContain(review.verdict);
     expect(review.findings.every((finding) => finding.route !== "evidence_gap")).toBe(true);
+  });
+
+  it("builds a polish proposal from generated-readiness findings without converting evidence gaps into tasks", () => {
+    const review = buildGeneratedResumeReadinessReview({
+      baseline: null,
+      claims: [
+        claim({ id: "c1", claimStatus: "supported", supportStatus: "supported" }),
+        claim({ id: "c2", claimStatus: "supported", supportStatus: "supported" }),
+      ],
+      documentId: "33333333-3333-4333-8333-333333333333",
+      documentType: "main_resume",
+      generatedLabel: "Generated main resume · general readiness review",
+      now: new Date("2026-06-30T12:00:00.000Z"),
+      resumeMarkdown: [
+        "## Experience",
+        "- Built onboarding dashboards for product teams.",
+      ].join("\n"),
+      resumeStatus: "validated",
+      scope: "general_readiness",
+    });
+    const proposal = buildGeneratedResumePolishProposal({
+      mainResumeId: "33333333-3333-4333-8333-333333333333",
+      readinessReview: review,
+      resumeMarkdown: "## Experience\n- Built onboarding dashboards for product teams.",
+    });
+
+    expect(proposal.source_main_resume_id).toBe("33333333-3333-4333-8333-333333333333");
+    expect(proposal.edits.every((edit) => edit.route !== "evidence_gap")).toBe(true);
+    expect(proposal.preview_markdown).toContain("Built onboarding dashboards");
+    expect(proposal.preview_markdown).not.toContain("JobDesk polish proposal");
   });
 });
 
