@@ -643,6 +643,13 @@ Do not describe every review finding as a task. Generated resume findings route 
 
 Fact Guard, public-safe policy, unsupported claims, and export policy remain hard gates. Generated Resume Readiness Review is a soft gate that explains whether the generated draft is ready, recommended for polish, or needs evidence before export.
 
+Current workflow scope:
+
+- User manually runs Review generated resume after a main resume is generated.
+- JobDesk shows readiness score, low-score reasons, and routed findings.
+- User manually chooses the next surface: Evidence Library, Resume Builder polish, or Profile Positioning.
+- JobDesk does not yet auto-generate resume edit proposals, auto-accept changes, auto-rerun Fact Guard, or auto-rescore the generated draft.
+
 Primary CTA:
 
 > Approve evidence
