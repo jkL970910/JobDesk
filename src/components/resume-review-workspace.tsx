@@ -915,13 +915,23 @@ function ResumeReviewSourceControls({
             {new Date(selectedResume.updatedAt).toLocaleDateString()}
           </p>
         </div>
-        <button
-          disabled={Boolean(isReviewStarting(selectedResume, activeOperation) || reviewRun)}
-          type="button"
-          onClick={() => void onRerun(selectedResume)}
-        >
-          {reviewActionLabel(selectedResume, isReviewStarting(selectedResume, activeOperation), reviewRun)}
-        </button>
+        <div className="review-source-card__actions">
+          <button
+            disabled={Boolean(isReviewStarting(selectedResume, activeOperation) || reviewRun)}
+            type="button"
+            onClick={() => void onRerun(selectedResume)}
+          >
+            {reviewActionLabel(selectedResume, isReviewStarting(selectedResume, activeOperation), reviewRun)}
+          </button>
+          <button
+            className="review-source-card__delete"
+            disabled={Boolean(activeOperation || reviewRun)}
+            type="button"
+            onClick={() => void onDelete(selectedResume)}
+          >
+            {activeOperation === `delete:${selectedResume.id}` ? "Deleting..." : "Delete"}
+          </button>
+        </div>
       </div>
       {duplicateResume ? (
         <div className="review-source-card__notice">

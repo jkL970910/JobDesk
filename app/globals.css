@@ -3582,6 +3582,14 @@ strong,
   justify-content: space-between;
 }
 
+.review-source-card__actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: flex-end;
+}
+
 .review-side-note span,
 .review-source-card span,
 .review-source-version-list span,
@@ -3694,6 +3702,17 @@ strong,
   border-radius: 999px;
   padding: 7px 9px;
   white-space: nowrap;
+}
+
+.review-source-card button.review-source-card__delete {
+  background: rgba(255, 107, 107, 0.08);
+  border-color: rgba(255, 107, 107, 0.22);
+  color: #ffb4b4;
+}
+
+.review-source-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
 }
 
 .review-source-card__notice {
