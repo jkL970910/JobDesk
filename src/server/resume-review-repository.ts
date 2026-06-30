@@ -115,6 +115,17 @@ type ResumeReviewActiveRun = {
   finishedAt: string | null;
   errorKind: string | null;
   errorMessage: string | null;
+  stepProgress?: ResumeReviewStepProgress | null;
+};
+
+type ResumeReviewStepProgress = {
+  currentStepTitle: string | null;
+  completedSteps: number;
+  failedSteps: number;
+  processingSteps: number;
+  sectionCompleted: number;
+  sectionTotal: number;
+  totalSteps: number;
 };
 
 type ResumeReviewProcessResult = {
@@ -354,7 +365,7 @@ export async function getResumeReviewRun(runId: string) {
     run,
     workspaceId: workspace.id,
   });
-  return { status: "ready" as const, run: toResumeReviewRunPayload(currentRun) };
+  return { status: "ready" as const, run: await toResumeReviewRunPayloadWithProgress(db, currentRun, workspace.id) };
 }
 
 export async function processResumeReviewRun(runId: string) {
@@ -384,7 +395,7 @@ export async function processResumeReviewRun(runId: string) {
     workspaceId: workspace.id,
   });
   if (runnableRun.status !== "running") {
-    return { status: "ready" as const, run: toResumeReviewRunPayload(runnableRun) };
+    return { status: "ready" as const, run: await toResumeReviewRunPayloadWithProgress(db, runnableRun, workspace.id) };
   }
   const resumeSourceVersionId = getResumeSourceVersionIdFromWorkflowRun(currentRun);
   if (!resumeSourceVersionId) return { status: "not_found" as const };
@@ -413,7 +424,7 @@ export async function processResumeReviewRun(runId: string) {
       .limit(1);
     return {
       hasMoreWork: Boolean(latestRun?.status === "running"),
-      run: toResumeReviewRunPayload(latestRun ?? runnableRun),
+      run: await toResumeReviewRunPayloadWithProgress(db, latestRun ?? runnableRun, workspace.id),
       status: "ready" as const,
     };
   }
@@ -443,7 +454,7 @@ export async function processResumeReviewRun(runId: string) {
       status: "failed",
       workspaceId: workspace.id,
     });
-    return { status: "failed" as const, run: toResumeReviewRunPayload(failedRun) };
+    return { status: "failed" as const, run: await toResumeReviewRunPayloadWithProgress(db, failedRun, workspace.id) };
   }
 }
 
@@ -1194,7 +1205,7 @@ async function processClaimedResumeReviewStep(args: {
     return {
       hasMoreWork: false,
       resume: saved.resume,
-      run: toResumeReviewRunPayload(finishedRun),
+      run: await toResumeReviewRunPayloadWithProgress(args.db, finishedRun, args.workspaceId),
       status: "saved",
     };
   }
@@ -1481,7 +1492,7 @@ async function resumeReviewStepResponse(
     .limit(1);
   return {
     hasMoreWork: args.hasMoreWork,
-    run: toResumeReviewRunPayload(currentRun ?? args.run),
+    run: await toResumeReviewRunPayloadWithProgress(db, currentRun ?? args.run, args.workspaceId),
     status: "ready",
   };
 }
@@ -2031,6 +2042,50 @@ function toResumeReviewRunPayload(run: typeof workflowRuns.$inferSelect): Resume
     stage: getResumeReviewRunStage(run),
     startedAt: run.startedAt.toISOString(),
     status: run.status,
+  };
+}
+
+async function toResumeReviewRunPayloadWithProgress(
+  db: Pick<DbHandle, "select">,
+  run: typeof workflowRuns.$inferSelect,
+  workspaceId: string,
+): Promise<ResumeReviewActiveRun> {
+  return {
+    ...toResumeReviewRunPayload(run),
+    stepProgress: await buildResumeReviewStepProgress(db, run, workspaceId),
+  };
+}
+
+async function buildResumeReviewStepProgress(
+  db: Pick<DbHandle, "select">,
+  run: typeof workflowRuns.$inferSelect,
+  workspaceId: string,
+): Promise<ResumeReviewStepProgress | null> {
+  const steps = await db
+    .select({
+      sequence: resumeReviewRunSteps.sequence,
+      status: resumeReviewRunSteps.status,
+      stepKind: resumeReviewRunSteps.stepKind,
+      title: resumeReviewRunSteps.title,
+    })
+    .from(resumeReviewRunSteps)
+    .where(and(eq(resumeReviewRunSteps.workspaceId, workspaceId), eq(resumeReviewRunSteps.workflowRunId, run.id)))
+    .orderBy(resumeReviewRunSteps.sequence);
+  if (steps.length === 0) return null;
+  const sectionSteps = steps.filter((step) => step.stepKind === "assess_section");
+  const activeStep =
+    steps.find((step) => step.status === "processing") ??
+    steps.find((step) => step.status === "failed") ??
+    steps.find((step) => step.status === "pending") ??
+    null;
+  return {
+    completedSteps: steps.filter((step) => step.status === "completed").length,
+    currentStepTitle: activeStep?.title ?? null,
+    failedSteps: steps.filter((step) => step.status === "failed").length,
+    processingSteps: steps.filter((step) => step.status === "processing").length,
+    sectionCompleted: sectionSteps.filter((step) => step.status === "completed").length,
+    sectionTotal: sectionSteps.length,
+    totalSteps: steps.length,
   };
 }
 

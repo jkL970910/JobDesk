@@ -63,6 +63,15 @@ type ResumeReviewRunSummary = {
   finishedAt: string | null;
   errorKind: string | null;
   errorMessage: string | null;
+  stepProgress?: {
+    currentStepTitle: string | null;
+    completedSteps: number;
+    failedSteps: number;
+    processingSteps: number;
+    sectionCompleted: number;
+    sectionTotal: number;
+    totalSteps: number;
+  } | null;
 };
 
 type ReviewMetadata = {
@@ -707,6 +716,7 @@ export function ResumeReviewWorkspace({
             elapsedSeconds={reviewRunElapsedSeconds}
             fileName={formatResumeTitle(selectedResume.title)}
             mode="rerun"
+            stepProgress={selectedActiveReviewRun.stepProgress}
             stage={selectedActiveReviewRun.stage}
           />
         ) : null}
@@ -1050,11 +1060,13 @@ function ResumeReviewProgressNotice({
   fileName,
   mode = "upload",
   stage,
+  stepProgress,
 }: {
   elapsedSeconds: number;
   fileName: string;
   mode?: "rerun" | "upload";
   stage?: ResumeReviewRunSummary["stage"];
+  stepProgress?: ResumeReviewRunSummary["stepProgress"];
 }) {
   const progressByStage: Record<ResumeReviewRunSummary["stage"], number> = {
     analyzing: 45,
@@ -1131,6 +1143,17 @@ function ResumeReviewProgressNotice({
   const progress = stage
     ? Math.max(progressByStage[stage], progressFromActiveStep)
     : Math.min(92, 16 + elapsedSeconds * 2);
+  const sectionProgressText =
+    stepProgress && stepProgress.sectionTotal > 0
+      ? `${stepProgress.sectionCompleted}/${stepProgress.sectionTotal} resume sections reviewed`
+      : "";
+  const currentStepText = stepProgress?.currentStepTitle
+    ? `Current: ${stepProgress.currentStepTitle}.`
+    : "";
+  const overallStepProgressText =
+    stepProgress && stepProgress.totalSteps > 0
+      ? `${stepProgress.completedSteps}/${stepProgress.totalSteps} review steps complete`
+      : "";
   return (
     <div className="progress-notice" role="status" aria-live="polite">
       <div className="progress-notice__top">
@@ -1143,6 +1166,9 @@ function ResumeReviewProgressNotice({
       <p>
         {activeStage.detail}
         {fileName ? ` File: ${fileName}.` : ""}
+        {sectionProgressText && (stage === "scanning" || stage === "analyzing") ? ` ${sectionProgressText}.` : ""}
+        {currentStepText ? ` ${currentStepText}` : ""}
+        {overallStepProgressText && stage && stage !== "scanning" && stage !== "analyzing" ? ` ${overallStepProgressText}.` : ""}
         {elapsedSeconds >= 60 && elapsedSeconds < 110
           ? " Resume review can take one to two minutes for longer files."
           : ""}
@@ -1158,7 +1184,13 @@ function ResumeReviewProgressNotice({
             <span>{index + 1}</span>
             <div>
               <strong>{stageItem.label}</strong>
-              <small>{stageItem.summary}</small>
+              <small>
+                {stageItem.key === "scanning" && sectionProgressText
+                  ? sectionProgressText
+                  : stageItem.key === activeStage.key && currentStepText
+                    ? currentStepText
+                    : stageItem.summary}
+              </small>
             </div>
           </li>
         ))}

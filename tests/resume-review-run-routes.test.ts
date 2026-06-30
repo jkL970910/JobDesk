@@ -212,7 +212,19 @@ describe("resume review run routes", () => {
 
   it("returns the persisted run for polling", async () => {
     mockedGetRun.mockResolvedValueOnce({
-      run: buildReviewRunPayload({ id: "run-poll", stage: "analyzing" }),
+      run: buildReviewRunPayload({
+        id: "run-poll",
+        stage: "scanning",
+        stepProgress: {
+          completedSteps: 3,
+          currentStepTitle: "Review Work Experience",
+          failedSteps: 0,
+          processingSteps: 1,
+          sectionCompleted: 2,
+          sectionTotal: 6,
+          totalSteps: 7,
+        },
+      }),
       status: "ready",
     });
 
@@ -227,7 +239,12 @@ describe("resume review run routes", () => {
       data: {
         run: {
           id: "run-poll",
-          stage: "analyzing",
+          stage: "scanning",
+          stepProgress: {
+            currentStepTitle: "Review Work Experience",
+            sectionCompleted: 2,
+            sectionTotal: 6,
+          },
           status: "running",
         },
         status: "ready",
@@ -365,6 +382,15 @@ type ReviewRunPayload = {
     | "failed";
   startedAt: string;
   status: "running" | "succeeded" | "failed" | "skipped";
+  stepProgress?: {
+    currentStepTitle: string | null;
+    completedSteps: number;
+    failedSteps: number;
+    processingSteps: number;
+    sectionCompleted: number;
+    sectionTotal: number;
+    totalSteps: number;
+  } | null;
 };
 
 type ResumePayload = {
