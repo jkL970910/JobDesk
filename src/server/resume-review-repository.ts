@@ -136,6 +136,7 @@ type ResumeReviewStepKind =
 
 const RESUME_REVIEW_STALE_RUN_MS = 15 * 60 * 1000;
 const RESUME_REVIEW_STEP_LOCK_MS = 4 * 60 * 1000;
+const RESUME_REVIEW_STEPPED_STALE_MS = 10 * 60 * 1000;
 const RESUME_REVIEW_PROCESSOR_ID = `resume-review-${process.pid}`;
 const RESUME_REVIEW_STALE_ERROR_MESSAGE =
   "Resume review did not finish within the expected window. Start the full review again.";
@@ -631,7 +632,7 @@ async function persistResumeReviewResult(args: {
 }
 
 async function findActiveResumeReviewRun(
-  db: Pick<DbHandle, "select" | "update">,
+  db: Pick<DbHandle, "execute" | "select" | "update">,
   args: {
     resumeSourceVersionId: string;
     workspaceId: string;
@@ -1547,7 +1548,7 @@ function sanitizeAiEndpoint(endpoint?: string) {
 }
 
 async function expireStaleResumeReviewRuns(
-  db: Pick<DbHandle, "select" | "update">,
+  db: Pick<DbHandle, "execute" | "select" | "update">,
   args: {
     runs: Array<typeof workflowRuns.$inferSelect>;
     workspaceId: string;
@@ -1565,14 +1566,23 @@ async function expireStaleResumeReviewRuns(
 }
 
 async function expireStaleResumeReviewRun(
-  db: Pick<DbHandle, "select" | "update">,
+  db: Pick<DbHandle, "execute" | "select" | "update">,
   args: {
     run: typeof workflowRuns.$inferSelect;
     workspaceId: string;
   },
 ) {
   if (!isStaleResumeReviewRun(args.run)) return args.run;
-  if (await hasResumeReviewRunSteps(db, args.run, args.workspaceId)) return args.run;
+  const stepHealth = await getResumeReviewRunStepHealth(db, args.run, args.workspaceId);
+  if (stepHealth.hasSteps && !isStaleSteppedResumeReviewRun(args.run, stepHealth)) {
+    return args.run;
+  }
+  if (stepHealth.hasSteps) {
+    await failStaleResumeReviewStep(db, {
+      run: args.run,
+      workspaceId: args.workspaceId,
+    });
+  }
   return finishResumeReviewRun(db, {
     errorKind: "timeout",
     errorMessage: RESUME_REVIEW_STALE_ERROR_MESSAGE,
@@ -1582,17 +1592,68 @@ async function expireStaleResumeReviewRun(
   });
 }
 
-async function hasResumeReviewRunSteps(
+async function failStaleResumeReviewStep(
+  db: Pick<DbHandle, "execute">,
+  args: {
+    run: typeof workflowRuns.$inferSelect;
+    workspaceId: string;
+  },
+) {
+  const now = new Date();
+  await db.execute(sql`
+    UPDATE ${resumeReviewRunSteps}
+    SET
+      failure_kind = 'timeout',
+      failure_message = ${RESUME_REVIEW_STALE_ERROR_MESSAGE},
+      locked_at = NULL,
+      locked_by = NULL,
+      lock_expires_at = NULL,
+      status = 'failed',
+      updated_at = ${now}
+    WHERE id = (
+      SELECT id
+      FROM ${resumeReviewRunSteps}
+      WHERE workspace_id = ${args.workspaceId}
+        AND workflow_run_id = ${args.run.id}
+        AND status <> 'completed'
+      ORDER BY sequence
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    )
+  `);
+}
+
+async function getResumeReviewRunStepHealth(
   db: Pick<DbHandle, "select">,
   run: typeof workflowRuns.$inferSelect,
   workspaceId: string,
 ) {
-  const [step] = await db
-    .select({ id: resumeReviewRunSteps.id })
+  const now = new Date();
+  const [summary] = await db
+    .select({
+      activeProcessingCount: sql<number>`
+        count(*) filter (
+          where ${resumeReviewRunSteps.status} = 'processing'
+            and ${resumeReviewRunSteps.lockExpiresAt} is not null
+            and ${resumeReviewRunSteps.lockExpiresAt} > ${now}
+        )::int
+      `,
+      failedCount: sql<number>`count(*) filter (where ${resumeReviewRunSteps.status} = 'failed')::int`,
+      lastUpdatedAt: sql<Date | null>`
+        max(${resumeReviewRunSteps.updatedAt}) filter (
+          where ${resumeReviewRunSteps.status} <> 'completed'
+        )
+      `,
+      stepCount: sql<number>`count(*)::int`,
+    })
     .from(resumeReviewRunSteps)
-    .where(and(eq(resumeReviewRunSteps.workspaceId, workspaceId), eq(resumeReviewRunSteps.workflowRunId, run.id)))
-    .limit(1);
-  return Boolean(step);
+    .where(and(eq(resumeReviewRunSteps.workspaceId, workspaceId), eq(resumeReviewRunSteps.workflowRunId, run.id)));
+  return {
+    activeProcessingCount: Number(summary?.activeProcessingCount ?? 0),
+    failedCount: Number(summary?.failedCount ?? 0),
+    hasSteps: Number(summary?.stepCount ?? 0) > 0,
+    lastUpdatedAt: asDate(summary?.lastUpdatedAt) ?? null,
+  };
 }
 
 function isStaleResumeReviewRun(run: typeof workflowRuns.$inferSelect, now = Date.now()) {
@@ -1600,6 +1661,21 @@ function isStaleResumeReviewRun(run: typeof workflowRuns.$inferSelect, now = Dat
   const stage = getResumeReviewRunStage(run);
   if (!STALE_RESUME_REVIEW_STAGES.has(stage)) return false;
   return now - run.startedAt.getTime() > RESUME_REVIEW_STALE_RUN_MS;
+}
+
+function isStaleSteppedResumeReviewRun(
+  run: typeof workflowRuns.$inferSelect,
+  stepHealth: {
+    activeProcessingCount: number;
+    failedCount: number;
+    lastUpdatedAt: Date | null;
+  },
+  now = Date.now(),
+) {
+  if (stepHealth.activeProcessingCount > 0) return false;
+  if (stepHealth.failedCount > 0) return true;
+  const lastActivityAt = stepHealth.lastUpdatedAt?.getTime() ?? run.startedAt.getTime();
+  return now - lastActivityAt > RESUME_REVIEW_STEPPED_STALE_MS;
 }
 
 function getResumeReviewRunStageForStepKind(stepKind: string): ResumeReviewActiveRun["stage"] {
@@ -1721,7 +1797,7 @@ async function finishResumeReviewRun(
 }
 
 async function findResumeByHash(
-  db: Pick<DbHandle, "select" | "update">,
+  db: Pick<DbHandle, "execute" | "select" | "update">,
   args: {
     workspaceId: string;
     contentHash: string;

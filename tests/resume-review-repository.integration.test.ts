@@ -224,6 +224,69 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
     }
   });
 
+  it("expires stale stepped review runs when no step lock is active", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const owner = await registerUser({
+      email: `resume-stale-stepped-run-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected owner user.");
+
+    const result = await runWithAuthContext(owner.user.id, async () => {
+      const resumeId = await createResumeSourceFixture(`Stale Stepped Run Resume ${suffix}.txt`);
+      const started = await startResumeReviewRun(resumeId);
+      if (started.status !== "created") throw new Error("Expected review run.");
+      const processed = await processResumeReviewRun(started.run.id);
+      expect(processed.status).toBe("ready");
+
+      const db = getDb();
+      await db
+        .update(resumeReviewRunSteps)
+        .set({
+          lockExpiresAt: null,
+          lockedAt: null,
+          lockedBy: null,
+          updatedAt: new Date(Date.now() - 20 * 60 * 1000),
+        })
+        .where(and(eq(resumeReviewRunSteps.workflowRunId, started.run.id), eq(resumeReviewRunSteps.status, "pending")));
+      await db
+        .update(workflowRuns)
+        .set({
+          skillMetadata: {
+            resumeSourceVersionId: resumeId,
+            stage: "scanning",
+            trigger: "user_retry",
+          },
+          startedAt: new Date(Date.now() - 20 * 60 * 1000),
+          status: "running",
+        })
+        .where(and(eq(workflowRuns.id, started.run.id), eq(workflowRuns.workflowType, skillRegistry.resumeReviewGeneral.workflowType)));
+
+      const polled = await getResumeReviewRun(started.run.id);
+      const restarted = await startResumeReviewRun(resumeId);
+      return { polled, restarted };
+    });
+
+    expect(result.polled).toMatchObject({
+      run: {
+        errorKind: "timeout",
+        stage: "failed",
+        status: "failed",
+      },
+      status: "ready",
+    });
+    expect(result.restarted).toMatchObject({
+      run: {
+        stage: "scanning",
+        status: "running",
+      },
+      status: "created",
+    });
+    expect(result.restarted.status === "created" ? result.restarted.run.id : null).toBe(
+      result.polled.status === "ready" ? result.polled.run.id : null,
+    );
+  });
+
   it("retries the failed review step without duplicating completed steps", async () => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const owner = await registerUser({
