@@ -164,6 +164,42 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
     expect(result.steps.filter((step) => step.stepKind === "segment_source")).toHaveLength(1);
   });
 
+  it("deletes resume review workflow runs when deleting the source version", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const owner = await registerUser({
+      email: `resume-delete-run-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected owner user.");
+    restoreAiAdapter = setResumeReviewStepAiAdapterForTest(buildStepAdapter());
+    const result = await runWithAuthContext(owner.user.id, async () => {
+      const resumeId = await createResumeSourceFixture(`Delete Run Resume ${suffix}.txt`);
+      const started = await startResumeReviewRun(resumeId);
+      if (started.status !== "created") throw new Error("Expected review run.");
+      await processResumeReviewRun(started.run.id);
+      const deleted = await deleteResumeSourceVersion(resumeId);
+      const db = getDb();
+      const remainingRuns = await db
+        .select()
+        .from(workflowRuns)
+        .where(eq(workflowRuns.id, started.run.id));
+      const remainingSteps = await db
+        .select()
+        .from(resumeReviewRunSteps)
+        .where(eq(resumeReviewRunSteps.workflowRunId, started.run.id));
+      const remainingResume = await db
+        .select()
+        .from(resumeSourceVersions)
+        .where(eq(resumeSourceVersions.id, resumeId));
+      return { deleted, remainingResume, remainingRuns, remainingSteps };
+    });
+
+    expect(result.deleted).toMatchObject({ status: "deleted" });
+    expect(result.remainingRuns).toHaveLength(0);
+    expect(result.remainingSteps).toHaveLength(0);
+    expect(result.remainingResume).toHaveLength(0);
+  });
+
   it("expires stale pre-save review runs so polling and retry can recover", async () => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const owner = await registerUser({

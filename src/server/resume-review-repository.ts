@@ -251,6 +251,15 @@ export async function deleteResumeSourceVersion(resumeSourceVersionId: string) {
   if (!resume) return { status: "not_found" as const };
 
   await db.transaction(async (tx) => {
+    await tx
+      .delete(workflowRuns)
+      .where(
+        and(
+          eq(workflowRuns.workspaceId, workspace.id),
+          eq(workflowRuns.workflowType, skillRegistry.resumeReviewGeneral.workflowType),
+          sql`${workflowRuns.skillMetadata}->>'resumeSourceVersionId' = ${resumeSourceVersionId}`,
+        ),
+      );
     await deleteRebuildSourceChunksForSource({
       db: tx,
       sourceDocumentId: resume.sourceDocumentId,
