@@ -9,3 +9,4 @@ export * from "./evidence";
 export * from "./profile-evidence-extraction";
 export * from "./jd-analysis";
 export * from "./tailored-resume";
+export * from "./generated-resume-readiness-review";

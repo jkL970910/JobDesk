@@ -99,6 +99,7 @@ type MainResumeSummary = {
   missing_evidence_questions: string[];
   status: string;
   updatedAt: string;
+  readiness_review: GeneratedResumeReadinessReviewSummary | null;
   claims: Array<{
     id: string;
     claim_text: string;
@@ -106,6 +107,46 @@ type MainResumeSummary = {
     claim_status: string;
     risk_level: string;
   }>;
+};
+
+type GeneratedResumeReadinessReviewSummary = {
+  id: string;
+  scope_label: string;
+  score: number;
+  verdict:
+    | "ready_to_export"
+    | "recommended_polish"
+    | "needs_evidence_before_export";
+  summary: string;
+  before_after: {
+    baseline_label: string | null;
+    baseline_score: number | null;
+    generated_label: string;
+    generated_score: number;
+    delta: number | null;
+  };
+  readiness_dimensions: Array<{
+    key: string;
+    label: string;
+    score: number;
+    rationale: string;
+  }>;
+  hard_gate_status: {
+    fact_guard: "passed" | "needs_review" | "not_run";
+    public_safe: "passed" | "needs_review";
+    export_policy: "enabled" | "blocked";
+    blockers: string[];
+  };
+  findings: Array<{
+    id: string;
+    route: "evidence_gap" | "resume_polish" | "positioning_gap";
+    severity: "info" | "warning" | "blocker";
+    title: string;
+    detail: string;
+    suggested_action: string;
+    linked_claim_ids: string[];
+  }>;
+  updated_at: string;
 };
 
 type RetrievalExplanationResponse = {
@@ -1435,6 +1476,7 @@ function ProfileReferenceView({
     "loading",
   );
   const [mainResumeStatus, setMainResumeStatus] = useState<string | null>(null);
+  const [readinessReviewStatus, setReadinessReviewStatus] = useState<string | null>(null);
   const [positioningStatus, setPositioningStatus] = useState<string | null>(null);
   const [profileActionStatus, setProfileActionStatus] = useState<string | null>(null);
   const [activeProfileFactEditor, setActiveProfileFactEditor] =
@@ -1444,6 +1486,7 @@ function ProfileReferenceView({
   const [profileReloadKey, setProfileReloadKey] = useState(0);
   const profileFactEditorRef = useRef<HTMLElement | null>(null);
   const [isGeneratingMainResume, setIsGeneratingMainResume] = useState(false);
+  const [isReviewingGeneratedResume, setIsReviewingGeneratedResume] = useState(false);
   const [isGeneratingPositioning, setIsGeneratingPositioning] = useState(false);
   const [refreshSourceResumeId, setRefreshSourceResumeId] = useState("");
   const [refreshMode, setRefreshMode] = useState<
@@ -1888,13 +1931,7 @@ function ProfileReferenceView({
         );
         return;
       }
-      const mainResumeResponse = await fetchJson("/api/main-resume");
-      if (mainResumeResponse.ok) {
-        const mainResumePayload = (await mainResumeResponse.json()) as {
-          data?: { resumes?: MainResumeSummary[] };
-        };
-        setMainResumes(mainResumePayload.data?.resumes ?? []);
-      }
+      await refreshMainResumes();
       setMainResumeEvidence(payload?.meta?.selectedEvidence ?? []);
       setMainResumeStatus(
         payload?.meta?.factGuard?.status === "validated"
@@ -1928,6 +1965,53 @@ function ProfileReferenceView({
     const payload = (await response.json()) as RetrievalExplanationResponse;
     setMainResumeEvidence(payload.data?.evidence ?? []);
     setMainResumeSourceMaterial(payload.data?.sourceMaterial ?? []);
+  }
+
+  async function refreshMainResumes() {
+    const mainResumeResponse = await fetchJson("/api/main-resume");
+    if (!mainResumeResponse.ok) return;
+    const mainResumePayload = (await mainResumeResponse.json()) as {
+      data?: { resumes?: MainResumeSummary[] };
+    };
+    setMainResumes(mainResumePayload.data?.resumes ?? []);
+  }
+
+  async function reviewGeneratedMainResumeReadiness(mainResumeId: string) {
+    setIsReviewingGeneratedResume(true);
+    setReadinessReviewStatus("Reviewing generated resume readiness...");
+    try {
+      const response = await fetchJson(`/api/main-resume/${mainResumeId}/readiness-review`, {
+        method: "POST",
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            data?: {
+              status?: string;
+              review?: GeneratedResumeReadinessReviewSummary;
+            };
+            error?: string;
+            kind?: string;
+          }
+        | null;
+      if (!response.ok) {
+        setReadinessReviewStatus(
+          payload?.error
+            ? `${payload.error}${payload.kind ? ` (${payload.kind})` : ""}`
+            : "Generated resume readiness review failed.",
+        );
+        return;
+      }
+      await refreshMainResumes();
+      setReadinessReviewStatus("Generated resume readiness review updated.");
+    } catch (error) {
+      setReadinessReviewStatus(
+        error instanceof Error
+          ? error.message
+          : "Generated resume readiness review failed.",
+      );
+    } finally {
+      setIsReviewingGeneratedResume(false);
+    }
   }
 
   async function createPositioningEnrichmentTasks() {
@@ -2647,6 +2731,7 @@ function ProfileReferenceView({
               </details>
             ) : null}
         {mainResumeStatus ? <p className="status">{mainResumeStatus}</p> : null}
+        {readinessReviewStatus ? <p className="status">{readinessReviewStatus}</p> : null}
         {latestMainResume ? (
           <section className="main-resume-builder__preview final-review-panel" aria-label="Main resume final review">
             <div className="main-resume-builder__preview-header final-review-panel__header">
@@ -2755,6 +2840,14 @@ function ProfileReferenceView({
                 : `${latestMainResumeClaimStats?.supported ?? 0}/${latestMainResumeClaimStats?.total ?? 0} claims supported. Fix unsupported claims or add evidence before using this as a final resume.`}
               </p>
             </div>
+            <GeneratedResumeReadinessPanel
+              isReviewing={isReviewingGeneratedResume}
+              onOpenEvidence={() => onOpenEvidenceReview("claims")}
+              onOpenPositioning={() => onNavigateResume("build_export")}
+              onReview={() => void reviewGeneratedMainResumeReadiness(latestMainResume.id)}
+              onPolish={() => onNavigateResume("build_export")}
+              review={latestMainResume.readiness_review}
+            />
             <div className="final-review-panel__grid">
               <article className="final-review-checklist">
                 <span>Finalization checklist</span>
@@ -3011,6 +3104,183 @@ function getMainResumeClaimStats(resume: MainResumeSummary) {
   ).length;
   const needsReview = Math.max(total - supported, 0);
   return { needsReview, supported, total };
+}
+
+function GeneratedResumeReadinessPanel({
+  isReviewing,
+  onOpenEvidence,
+  onOpenPositioning,
+  onPolish,
+  onReview,
+  review,
+}: {
+  isReviewing: boolean;
+  onOpenEvidence: () => void;
+  onOpenPositioning: () => void;
+  onPolish: () => void;
+  onReview: () => void;
+  review: GeneratedResumeReadinessReviewSummary | null;
+}) {
+  const findingsByRoute = groupReadinessFindings(review?.findings ?? []);
+  return (
+    <section className="generated-readiness-review" data-state={review?.verdict ?? "not_run"}>
+      <div className="generated-readiness-review__header">
+        <div>
+          <p className="panel-kicker">Generated Resume Readiness Review</p>
+          <h4>
+            {review
+              ? formatGeneratedReadinessVerdict(review.verdict)
+              : "Check whether this generated draft is actually stronger"}
+          </h4>
+          <p>
+            {review
+              ? review.summary
+              : "Fact Guard proves claims are supported. This review checks whether the generated resume is ready to use, what improved, and where the next fix belongs."}
+          </p>
+        </div>
+        <div className="generated-readiness-review__score">
+          <strong>{review ? review.score : "--"}</strong>
+          <span>readiness</span>
+          {review?.before_after.delta !== null && review?.before_after.delta !== undefined ? (
+            <em data-positive={review.before_after.delta >= 0}>
+              {review.before_after.delta >= 0 ? "+" : ""}
+              {review.before_after.delta} vs source
+            </em>
+          ) : null}
+        </div>
+      </div>
+      <div className="generated-readiness-review__actions">
+        <button
+          className="secondary-button"
+          disabled={isReviewing}
+          type="button"
+          onClick={onReview}
+        >
+          {isReviewing ? "Reviewing..." : review ? "Refresh readiness review" : "Review generated resume"}
+        </button>
+        <span>Soft gate only. Fact Guard and export policy still decide final export.</span>
+      </div>
+      {review ? (
+        <>
+          <div className="generated-readiness-review__compare">
+            <article>
+              <span>{review.before_after.baseline_label ?? "Original source review"}</span>
+              <strong>
+                {review.before_after.baseline_score ?? "n/a"}
+              </strong>
+            </article>
+            <article>
+              <span>{review.before_after.generated_label}</span>
+              <strong>{review.before_after.generated_score}</strong>
+            </article>
+            <article>
+              <span>Hard gates</span>
+              <strong>{formatHardGateStatus(review)}</strong>
+            </article>
+          </div>
+          <div className="generated-readiness-review__dimensions">
+            {review.readiness_dimensions.map((dimension) => (
+              <article key={dimension.key}>
+                <span>{dimension.label}</span>
+                <strong>{dimension.score}</strong>
+                <p>{dimension.rationale}</p>
+              </article>
+            ))}
+          </div>
+          {review.hard_gate_status.blockers.length ? (
+            <div className="generated-readiness-review__blockers">
+              <strong>Export blockers remain</strong>
+              <ul>
+                {review.hard_gate_status.blockers.slice(0, 4).map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <div className="generated-readiness-review__routes">
+            {(["evidence_gap", "resume_polish", "positioning_gap"] as const).map((route) => {
+              const routeFindings = findingsByRoute[route] ?? [];
+              return (
+                <article key={route}>
+                  <div>
+                    <span>{formatReadinessRoute(route)}</span>
+                    <strong>{routeFindings.length}</strong>
+                  </div>
+                  {routeFindings.length ? (
+                    <ul>
+                      {routeFindings.slice(0, 3).map((finding) => (
+                        <li key={finding.id}>
+                          <b>{finding.title}</b>
+                          <p>{finding.detail}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No finding routed here.</p>
+                  )}
+                  <button
+                    className="secondary-button secondary-button--quiet"
+                    type="button"
+                    onClick={
+                      route === "evidence_gap"
+                        ? onOpenEvidence
+                        : route === "positioning_gap"
+                          ? onOpenPositioning
+                          : onPolish
+                    }
+                  >
+                    {formatReadinessRouteAction(route)}
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+function groupReadinessFindings(findings: GeneratedResumeReadinessReviewSummary["findings"]) {
+  return findings.reduce<
+    Record<GeneratedResumeReadinessReviewSummary["findings"][number]["route"], typeof findings>
+  >(
+    (groups, finding) => {
+      groups[finding.route] = [...(groups[finding.route] ?? []), finding];
+      return groups;
+    },
+    { evidence_gap: [], positioning_gap: [], resume_polish: [] },
+  );
+}
+
+function formatGeneratedReadinessVerdict(
+  verdict: GeneratedResumeReadinessReviewSummary["verdict"],
+) {
+  if (verdict === "ready_to_export") return "Ready to export";
+  if (verdict === "needs_evidence_before_export") return "Needs evidence before export";
+  return "Recommended polish";
+}
+
+function formatHardGateStatus(review: GeneratedResumeReadinessReviewSummary) {
+  if (review.hard_gate_status.export_policy === "enabled") return "Export enabled";
+  if (review.hard_gate_status.fact_guard === "not_run") return "Fact Guard not run";
+  return "Export blocked";
+}
+
+function formatReadinessRoute(
+  route: GeneratedResumeReadinessReviewSummary["findings"][number]["route"],
+) {
+  if (route === "evidence_gap") return "Evidence gap";
+  if (route === "positioning_gap") return "Positioning gap";
+  return "Resume polish";
+}
+
+function formatReadinessRouteAction(
+  route: GeneratedResumeReadinessReviewSummary["findings"][number]["route"],
+) {
+  if (route === "evidence_gap") return "Open Evidence Library";
+  if (route === "positioning_gap") return "Open positioning";
+  return "Polish draft";
 }
 
 function formatMainResumeUserState(resume: MainResumeSummary) {

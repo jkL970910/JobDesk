@@ -627,6 +627,22 @@ Helper copy:
 
 > Approved evidence can support generated resume bullets. Unapproved evidence stays in the library but is not used for resumes.
 
+### Review Findings, Evidence Questions, And Tasks
+
+Use these terms separately:
+
+- Review finding: an explanation or recommendation from Resume Review or Generated Resume Readiness Review.
+- Evidence question: a question that may become an enrichment task if it asks for missing proof, metrics, ownership, source quotes, or public-safe wording.
+- Work Queue task: a concrete user action already created in the Evidence Library workflow.
+
+Do not describe every review finding as a task. Generated resume findings route to one of three destinations:
+
+- Evidence gap -> Evidence Library / Work Queue when proof or safe wording is missing.
+- Resume polish -> Resume Builder when wording, section order, scan quality, or bullet clarity needs work.
+- Positioning gap -> Profile Positioning when target role, seniority, or narrative angle is unclear.
+
+Fact Guard, public-safe policy, unsupported claims, and export policy remain hard gates. Generated Resume Readiness Review is a soft gate that explains whether the generated draft is ready, recommended for polish, or needs evidence before export.
+
 Primary CTA:
 
 > Approve evidence

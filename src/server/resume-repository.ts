@@ -27,6 +27,10 @@ import { claimsMatch, validateBulletClaimCoverage } from "./tailored-resume-guar
 import { workflowSkillFields } from "./workflow-run-metadata";
 import { skillRegistry } from "../ai/skills-registry";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
+import {
+  getLatestGeneratedMainResumeReadinessReview,
+  getLatestGeneratedTailoredResumeReadinessReview,
+} from "./generated-resume-readiness-review";
 
 type DbHandle = ReturnType<typeof getDb>;
 
@@ -350,6 +354,7 @@ async function toMainResumeDto(
         eq(generatedClaims.mainResumeVersionId, resume.id),
       ),
     );
+  const readinessReview = await getLatestGeneratedMainResumeReadinessReview(resume.id);
   return {
     id: resume.id,
     title: resume.title,
@@ -366,6 +371,7 @@ async function toMainResumeDto(
     version: resume.version,
     status: resume.status,
     updatedAt: resume.updatedAt.toISOString(),
+    readiness_review: readinessReview,
     claims: claims.map((claim) => ({
       id: claim.id,
       claim_text: claim.claimText,
@@ -424,6 +430,7 @@ async function toTailoredResumeDto(
         eq(generatedClaims.resumeVersionId, resume.id),
       ),
     );
+  const readinessReview = await getLatestGeneratedTailoredResumeReadinessReview(resume.id);
   return {
     id: resume.id,
     jobId: resume.jobId,
@@ -434,6 +441,7 @@ async function toTailoredResumeDto(
     version: resume.version,
     status: resume.status,
     updatedAt: resume.updatedAt.toISOString(),
+    readiness_review: readinessReview,
     claims: claims.map((claim) => ({
       id: claim.id,
       claim_text: claim.claimText,

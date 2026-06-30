@@ -218,6 +218,13 @@
       "when": 1782766800000,
       "tag": "0030_resume_review_run_steps",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1782853200000,
+      "tag": "0031_generated_resume_readiness_reviews",
+      "breakpoints": true
     }
   ]
 }

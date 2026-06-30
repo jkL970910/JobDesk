@@ -994,6 +994,65 @@ export const mainResumeVersions = pgTable(
   }),
 );
 
+export const generatedResumeReadinessReviews = pgTable(
+  "generated_resume_readiness_reviews",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    workflowRunId: uuid("workflow_run_id").references(() => workflowRuns.id, {
+      onDelete: "set null",
+    }),
+    mainResumeVersionId: uuid("main_resume_version_id").references(
+      () => mainResumeVersions.id,
+      { onDelete: "cascade" },
+    ),
+    resumeVersionId: uuid("resume_version_id").references(
+      () => resumeVersions.id,
+      { onDelete: "cascade" },
+    ),
+    documentType: varchar("document_type", { length: 40 })
+      .$type<"main_resume" | "tailored_resume">()
+      .notNull(),
+    scope: varchar("scope", { length: 40 })
+      .$type<"general_readiness" | "jd_specific_readiness">()
+      .notNull(),
+    reviewJson: jsonb("review_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    score: integer("score").notNull(),
+    verdict: varchar("verdict", { length: 60 })
+      .$type<
+        | "ready_to_export"
+        | "recommended_polish"
+        | "needs_evidence_before_export"
+      >()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workspaceCreatedIdx: index("generated_resume_readiness_workspace_created_idx").on(
+      table.workspaceId,
+      table.createdAt,
+    ),
+    mainResumeIdx: index("generated_resume_readiness_main_resume_idx").on(
+      table.mainResumeVersionId,
+      table.createdAt,
+    ),
+    tailoredResumeIdx: index("generated_resume_readiness_tailored_resume_idx").on(
+      table.resumeVersionId,
+      table.createdAt,
+    ),
+  }),
+);
+
 export const profileEvidenceExtractionRuns = pgTable(
   "profile_evidence_extraction_runs",
   {

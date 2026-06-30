@@ -6,6 +6,7 @@ export type RuntimeSkillId =
   | "profile-evidence-extraction-project-note"
   | "profile-positioning"
   | "resume-review-general"
+  | "generated-resume-readiness-review"
   | "main-resume"
   | "tailored-resume"
   | "fact-guard-v0"
@@ -110,6 +111,16 @@ export const skillRegistry = {
     schemaVersion: "0.1",
     modelTier: "strong",
     sourceSkillIds: ["hr-screening-review"],
+  },
+  generatedResumeReadinessReview: {
+    skillId: "generated-resume-readiness-review",
+    skillVersion: "0.1",
+    promptVersion: "generated-resume-readiness-v1",
+    workflowType: "generated-resume-readiness-review",
+    schemaName: "GeneratedResumeReadinessReview",
+    schemaVersion: "0.1",
+    modelTier: "none",
+    sourceSkillIds: ["hr-screening-review", "claim-support-judgment"],
   },
   mainResume: {
     skillId: "main-resume",
