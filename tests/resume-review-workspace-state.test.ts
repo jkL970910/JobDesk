@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  resolveResumeReviewSelectedResume,
   resolveResumeReviewSelectedId,
   upsertResumeReviewSummary,
   type ResumeSourceReviewSummary,
@@ -24,6 +25,19 @@ describe("resume review workspace state", () => {
     );
 
     expect(next.map((resume) => resume.id)).toEqual(["resume-v2", "resume-v1"]);
+  });
+
+  it("shows a pending upload resume while the server list temporarily only contains the older reviewed resume", () => {
+    const pending = resumeSummary({ id: "resume-v2", latestReview: null, version: 2 });
+    const selected = resolveResumeReviewSelectedResume({
+      isUploading: false,
+      pendingUploadResume: pending,
+      resumes: [resumeSummary({ id: "resume-v1", latestReview: reviewSummary(), version: 1 })],
+      selectedId: "resume-v2",
+    });
+
+    expect(selected?.id).toBe("resume-v2");
+    expect(selected?.latestReview).toBeNull();
   });
 });
 

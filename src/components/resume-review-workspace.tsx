@@ -39,6 +39,20 @@ export function resolveResumeReviewSelectedId(args: {
   return args.resumes[0]?.id ?? "";
 }
 
+export function resolveResumeReviewSelectedResume(args: {
+  isUploading: boolean;
+  pendingUploadResume: ResumeSourceReviewSummary | null;
+  resumes: ResumeSourceReviewSummary[];
+  selectedId: string;
+}) {
+  if (args.isUploading) return null;
+  if (args.pendingUploadResume) return args.pendingUploadResume;
+  if (args.selectedId) {
+    return args.resumes.find((resume) => resume.id === args.selectedId) ?? null;
+  }
+  return args.resumes[0] ?? null;
+}
+
 type ResumeReviewRunSummary = {
   id: string;
   status: "running" | "succeeded" | "failed" | "skipped";
@@ -161,12 +175,14 @@ export function ResumeReviewWorkspace({
   const [parseStatus, setParseStatus] = useState<ResumeParseStatus | null>(null);
   const [enrichmentTasks, setEnrichmentTasks] = useState<EnrichmentTaskSummary[]>([]);
   const [reviewRunElapsedSeconds, setReviewRunElapsedSeconds] = useState(0);
+  const [pendingUploadResume, setPendingUploadResume] = useState<ResumeSourceReviewSummary | null>(null);
   const [pendingRerunResume, setPendingRerunResume] = useState<ResumeSourceReviewSummary | null>(null);
-  const selectedResume = isUploading
-    ? null
-    : selectedId
-      ? resumes.find((resume) => resume.id === selectedId) ?? null
-      : resumes[0] ?? null;
+  const selectedResume = resolveResumeReviewSelectedResume({
+    isUploading,
+    pendingUploadResume,
+    resumes,
+    selectedId,
+  });
   const selectedReview = selectedResume?.latestReview ?? null;
   const selectedResumeIsExtracted = selectedResume?.status === "extracted";
   const selectedActiveReviewRun =
@@ -253,12 +269,15 @@ export function ResumeReviewWorkspace({
     };
     const nextResumes = payload.data?.resumes ?? [];
     setResumes(nextResumes);
-    setSelectedId(
+    setSelectedId((currentId) =>
       resolveResumeReviewSelectedId({
-        currentId: selectedId,
+        currentId,
         requestedId: selectId,
         resumes: nextResumes,
       }),
+    );
+    setPendingUploadResume((current) =>
+      current && nextResumes.some((resume) => resume.id === current.id) ? null : current,
     );
   }
 
@@ -303,10 +322,19 @@ export function ResumeReviewWorkspace({
             : resume,
         ),
       );
+      setPendingUploadResume((current) =>
+        current?.id === resumeId
+          ? {
+              ...current,
+              activeReviewRun: run.status === "running" ? run : null,
+            }
+          : current,
+      );
     }
     if (run.status !== "running") {
       if (resumeId) {
         setActiveOperation((current) => (current === `rerun:${resumeId}` ? null : current));
+        setPendingUploadResume((current) => (current?.id === resumeId ? null : current));
       }
       await loadResumes(resumeId);
       if (resumeId) {
@@ -320,6 +348,7 @@ export function ResumeReviewWorkspace({
   async function uploadResume(file: File | null) {
     setError(null);
     setDuplicateResume(null);
+    setPendingUploadResume(null);
     setParseStatus(null);
     if (!file) return;
     setIsUploading(true);
@@ -348,6 +377,7 @@ export function ResumeReviewWorkspace({
       if (payload.data.status === "duplicate" && payload.data.existingResume) {
         const existingResume = payload.data.existingResume;
         setDuplicateResume(existingResume);
+        setPendingUploadResume(existingResume.activeReviewRun ? existingResume : null);
         setResumes((current) => upsertResumeReviewSummary(current, existingResume));
         if (payload.data.parseQuality) {
           setParseStatus({
@@ -370,6 +400,7 @@ export function ResumeReviewWorkspace({
       }
       if (payload.data.status === "saved" && payload.data.resume) {
         const savedResume = payload.data.resume;
+        setPendingUploadResume(savedResume);
         setResumes((current) => upsertResumeReviewSummary(current, savedResume));
         if (payload.data.parseQuality) {
           setParseStatus({
@@ -389,12 +420,14 @@ export function ResumeReviewWorkspace({
             fallbackError: "Could not complete resume review.",
           });
           if (processed?.resume) {
+            setPendingUploadResume(null);
             setStatus(
               `Reviewed ${formatResumeTitle(processed.resume.title)}${payload.data.parseWarnings?.length ? ` · ${payload.data.parseWarnings.length} source note${payload.data.parseWarnings.length === 1 ? "" : "s"}` : ""}`,
             );
             return;
           }
           if (processed?.run?.status === "failed") {
+            setPendingUploadResume(null);
             setStatus(`Saved ${formatResumeTitle(savedResume.title)}. Full review needs another pass.`);
             return;
           }
