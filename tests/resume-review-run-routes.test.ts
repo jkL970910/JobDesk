@@ -1,13 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { POST as uploadPost } from "../app/api/resume-review/route";
-import { PATCH } from "../app/api/resume-review/[resumeSourceVersionId]/route";
+import { DELETE, GET, PATCH } from "../app/api/resume-review/[resumeSourceVersionId]/route";
 import { POST as rerunPost } from "../app/api/resume-review/[resumeSourceVersionId]/rerun/route";
 import { POST as processPost } from "../app/api/resume-review/runs/[runId]/process/route";
 import { GET as runGet } from "../app/api/resume-review/runs/[runId]/route";
 import { parseResumeSourceFile } from "../src/server/resume-source-parser";
 import {
   createResumeSourceVersion,
+  deleteResumeSourceVersion,
+  getResumeSourceDeleteImpact,
   getResumeReviewRun,
   processResumeReviewRun,
   startResumeReviewRun,
@@ -25,12 +27,15 @@ vi.mock("../src/server/resume-review-repository", () => ({
   createResumeSourceVersion: vi.fn(),
   deleteResumeSourceVersion: vi.fn(),
   getResumeReviewRun: vi.fn(),
+  getResumeSourceDeleteImpact: vi.fn(),
   getResumeSourceVersion: vi.fn(),
   processResumeReviewRun: vi.fn(),
   startResumeReviewRun: vi.fn(),
 }));
 
 const mockedCreateResumeSourceVersion = vi.mocked(createResumeSourceVersion);
+const mockedDeleteResumeSourceVersion = vi.mocked(deleteResumeSourceVersion);
+const mockedGetDeleteImpact = vi.mocked(getResumeSourceDeleteImpact);
 const mockedGetRun = vi.mocked(getResumeReviewRun);
 const mockedParseResumeSourceFile = vi.mocked(parseResumeSourceFile);
 const mockedProcessRun = vi.mocked(processResumeReviewRun);
@@ -206,6 +211,124 @@ describe("resume review run routes", () => {
           id: "run-patch",
         },
         status: "created",
+      },
+    });
+  });
+
+  it("previews delete impact for a resume source", async () => {
+    mockedGetDeleteImpact.mockResolvedValueOnce({
+      impact: {
+        draftEvidenceItems: 2,
+        draftInitiatives: 1,
+        draftPortfolioProjects: 0,
+        draftWorkExperiences: 3,
+        openEnrichmentTasks: 4,
+      },
+      resume: buildResumePayload(),
+      status: "ready",
+    });
+
+    const response = await GET(
+      new Request("http://localhost/api/resume-review/resume-1?includeDeleteImpact=1"),
+      { params: Promise.resolve({ resumeSourceVersionId: "resume-1" }) },
+    );
+
+    expect(mockedGetDeleteImpact).toHaveBeenCalledWith("resume-1");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        impact: {
+          draftEvidenceItems: 2,
+          openEnrichmentTasks: 4,
+        },
+        status: "ready",
+      },
+    });
+  });
+
+  it("deletes a resume source while keeping library materials by default", async () => {
+    mockedDeleteResumeSourceVersion.mockResolvedValueOnce({
+      cleanupMode: "keep_library",
+      deletedCounts: {
+        draftEvidenceItems: 0,
+        draftInitiatives: 0,
+        draftPortfolioProjects: 0,
+        draftWorkExperiences: 0,
+        openEnrichmentTasks: 0,
+        sourceDocumentDeleted: false,
+      },
+      impact: {
+        draftEvidenceItems: 1,
+        draftInitiatives: 0,
+        draftPortfolioProjects: 0,
+        draftWorkExperiences: 1,
+        openEnrichmentTasks: 1,
+      },
+      resume: buildResumePayload(),
+      status: "deleted",
+    });
+
+    const response = await DELETE(
+      new Request("http://localhost/api/resume-review/resume-1", {
+        body: JSON.stringify({ cleanupMode: "keep_library" }),
+        method: "DELETE",
+      }),
+      { params: Promise.resolve({ resumeSourceVersionId: "resume-1" }) },
+    );
+
+    expect(mockedDeleteResumeSourceVersion).toHaveBeenCalledWith("resume-1", {
+      cleanupMode: "keep_library",
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        cleanupMode: "keep_library",
+        status: "deleted",
+      },
+    });
+  });
+
+  it("passes draft material cleanup mode to resume source deletion", async () => {
+    mockedDeleteResumeSourceVersion.mockResolvedValueOnce({
+      cleanupMode: "remove_draft_materials",
+      deletedCounts: {
+        draftEvidenceItems: 1,
+        draftInitiatives: 1,
+        draftPortfolioProjects: 0,
+        draftWorkExperiences: 2,
+        openEnrichmentTasks: 3,
+        sourceDocumentDeleted: true,
+      },
+      impact: {
+        draftEvidenceItems: 1,
+        draftInitiatives: 1,
+        draftPortfolioProjects: 0,
+        draftWorkExperiences: 2,
+        openEnrichmentTasks: 3,
+      },
+      resume: buildResumePayload(),
+      status: "deleted",
+    });
+
+    const response = await DELETE(
+      new Request("http://localhost/api/resume-review/resume-1", {
+        body: JSON.stringify({ cleanupMode: "remove_draft_materials" }),
+        method: "DELETE",
+      }),
+      { params: Promise.resolve({ resumeSourceVersionId: "resume-1" }) },
+    );
+
+    expect(mockedDeleteResumeSourceVersion).toHaveBeenCalledWith("resume-1", {
+      cleanupMode: "remove_draft_materials",
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        cleanupMode: "remove_draft_materials",
+        deletedCounts: {
+          openEnrichmentTasks: 3,
+          sourceDocumentDeleted: true,
+        },
       },
     });
   });

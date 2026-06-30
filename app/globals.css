@@ -2326,6 +2326,11 @@ strong,
   width: 100%;
 }
 
+.resume-review-confirm__card--delete {
+  border-color: rgba(255, 127, 141, 0.24);
+  max-width: min(620px, calc(100vw - 32px));
+}
+
 .resume-review-confirm__card > span {
   color: var(--primary-strong);
   font-size: 0.72rem;
@@ -2374,8 +2379,48 @@ strong,
   justify-content: flex-end;
 }
 
+.resume-review-confirm__actions--stacked {
+  flex-wrap: wrap;
+}
+
 .resume-review-confirm__actions button {
   min-width: 112px;
+}
+
+.resume-delete-impact {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.resume-delete-impact span {
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+.resume-delete-impact ul {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.resume-delete-impact li {
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  min-width: 0;
+}
+
+.resume-delete-impact p {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .resume-upload-zone {

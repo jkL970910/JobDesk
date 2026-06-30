@@ -164,6 +164,20 @@ type ResumeReviewMutationPayload = {
   kind?: string;
 };
 
+type ResumeDeleteImpact = {
+  draftEvidenceItems: number;
+  draftInitiatives: number;
+  draftPortfolioProjects: number;
+  draftWorkExperiences: number;
+  openEnrichmentTasks: number;
+};
+
+type PendingDeleteResume = {
+  impact: ResumeDeleteImpact | null;
+  loading: boolean;
+  resume: ResumeSourceReviewSummary;
+};
+
 export function ResumeReviewWorkspace({
   onExtractToEvidence,
   onOpenEvidenceReview,
@@ -189,6 +203,7 @@ export function ResumeReviewWorkspace({
   const [uploadAttemptFocused, setUploadAttemptFocused] = useState(false);
   const [pendingUploadResume, setPendingUploadResume] = useState<ResumeSourceReviewSummary | null>(null);
   const [pendingRerunResume, setPendingRerunResume] = useState<ResumeSourceReviewSummary | null>(null);
+  const [pendingDeleteResume, setPendingDeleteResume] = useState<PendingDeleteResume | null>(null);
   const selectedResume = resolveResumeReviewSelectedResume({
     isUploading,
     pendingUploadResume,
@@ -478,26 +493,66 @@ export function ResumeReviewWorkspace({
     void uploadResume(event.dataTransfer.files?.[0] ?? null);
   }
 
-  async function deleteResume(resume: ResumeSourceReviewSummary) {
-    if (
-      !window.confirm(
-        `Delete ${formatResumeTitle(resume.title)} v${resume.version}? This removes the stored resume source and review report, but does not delete any Evidence Library items already extracted from it.`,
-      )
-    ) {
-      return;
+  async function requestDeleteResume(resume: ResumeSourceReviewSummary) {
+    setPendingDeleteResume({ impact: null, loading: true, resume });
+    try {
+      const response = await fetchJson(`/api/resume-review/${resume.id}?includeDeleteImpact=1`);
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            data?: {
+              impact?: ResumeDeleteImpact;
+            };
+          }
+        | null;
+      setPendingDeleteResume((current) =>
+        current?.resume.id === resume.id
+          ? {
+              impact: payload?.data?.impact ?? null,
+              loading: false,
+              resume,
+            }
+          : current,
+      );
+    } catch {
+      setPendingDeleteResume((current) =>
+        current?.resume.id === resume.id
+          ? {
+              ...current,
+              loading: false,
+            }
+          : current,
+      );
     }
+  }
+
+  async function deleteResume(resume: ResumeSourceReviewSummary, cleanupMode: "keep_library" | "remove_draft_materials") {
     setError(null);
     setActiveOperation(`delete:${resume.id}`);
     try {
       const response = await fetchJson(`/api/resume-review/${resume.id}`, {
+        body: JSON.stringify({ cleanupMode }),
+        headers: { "Content-Type": "application/json" },
         method: "DELETE",
       });
       if (!response.ok) {
         setError(await formatResumeReviewError(response, "Could not delete resume source."));
         return;
       }
-      setStatus(`Deleted ${formatResumeTitle(resume.title)} v${resume.version}.`);
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            data?: {
+              deletedCounts?: ResumeDeleteImpact;
+            };
+          }
+        | null;
+      const removedCount = countResumeDeleteImpact(payload?.data?.deletedCounts);
+      setStatus(
+        cleanupMode === "remove_draft_materials" && removedCount > 0
+          ? `Deleted ${formatResumeTitle(resume.title)} v${resume.version} and removed ${removedCount} draft material item(s).`
+          : `Deleted ${formatResumeTitle(resume.title)} v${resume.version}. Evidence Library materials were kept.`,
+      );
       setDuplicateResume(null);
+      setPendingDeleteResume(null);
       setUploadAttemptFocused(false);
       await loadResumes();
       setEnrichmentTasks([]);
@@ -644,7 +699,7 @@ export function ResumeReviewWorkspace({
               duplicateResume={duplicateResume}
               isDragActive={isDragActive}
               isUploading={isUploading}
-              onDelete={deleteResume}
+              onDelete={requestDeleteResume}
               onDismissDuplicate={() => setDuplicateResume(null)}
               onDrag={handleResumeDrag}
               onDragEnd={handleResumeDragEnd}
@@ -794,7 +849,7 @@ export function ResumeReviewWorkspace({
                     className="resume-version-action resume-version-action--danger"
                     disabled={Boolean(activeOperation)}
                     type="button"
-                    onClick={() => void deleteResume(resume)}
+                    onClick={() => void requestDeleteResume(resume)}
                   >
                     {activeOperation === `delete:${resume.id}` ? "Deleting..." : "Delete"}
                   </button>
@@ -816,7 +871,28 @@ export function ResumeReviewWorkspace({
           onConfirm={() => void rerunReview(pendingRerunResume)}
         />
       ) : null}
+      {pendingDeleteResume ? (
+        <ResumeDeleteConfirmDialog
+          active={activeOperation === `delete:${pendingDeleteResume.resume.id}`}
+          impact={pendingDeleteResume.impact}
+          loading={pendingDeleteResume.loading}
+          resume={pendingDeleteResume.resume}
+          onCancel={() => setPendingDeleteResume(null)}
+          onDelete={(cleanupMode) => void deleteResume(pendingDeleteResume.resume, cleanupMode)}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function countResumeDeleteImpact(impact?: Partial<ResumeDeleteImpact> | null) {
+  if (!impact) return 0;
+  return (
+    (impact.draftEvidenceItems ?? 0) +
+    (impact.draftInitiatives ?? 0) +
+    (impact.draftPortfolioProjects ?? 0) +
+    (impact.draftWorkExperiences ?? 0) +
+    (impact.openEnrichmentTasks ?? 0)
   );
 }
 
@@ -859,6 +935,82 @@ function ResumeReviewConfirmDialog({
           </button>
           <button className="primary-button" disabled={active} type="button" onClick={onConfirm}>
             {active ? "Starting..." : "Run review"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+  return mounted ? createPortal(dialog, document.body) : null;
+}
+
+function ResumeDeleteConfirmDialog({
+  active,
+  impact,
+  loading,
+  onCancel,
+  onDelete,
+  resume,
+}: {
+  active: boolean;
+  impact: ResumeDeleteImpact | null;
+  loading: boolean;
+  onCancel: () => void;
+  onDelete: (cleanupMode: "keep_library" | "remove_draft_materials") => void;
+  resume: ResumeSourceReviewSummary;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  const impactedCount = countResumeDeleteImpact(impact);
+  const dialog = (
+    <div
+      aria-labelledby="resume-delete-confirm-title"
+      aria-modal="true"
+      className="resume-review-confirm"
+      role="dialog"
+    >
+      <div className="resume-review-confirm__card resume-review-confirm__card--delete">
+        <span>Delete resume source</span>
+        <h3 id="resume-delete-confirm-title">What should happen to imported materials?</h3>
+        <p>
+          Deleting {formatResumeTitle(resume.title)} v{resume.version} removes the uploaded resume and its review.
+          Evidence Library materials are reusable assets, so JobDesk keeps them unless you explicitly remove draft material from this source.
+        </p>
+        <div className="resume-review-confirm__details">
+          <strong>{formatResumeTitle(resume.title)}</strong>
+          <small>Version {resume.version} · {formatResumeVersionStatus(resume.status)}</small>
+        </div>
+        <div className="resume-delete-impact">
+          <span>{loading ? "Checking imported materials..." : `${impactedCount} draft/imported item(s) can be cleaned up`}</span>
+          <ul>
+            <li>{impact?.draftWorkExperiences ?? 0} draft Work Experience item(s)</li>
+            <li>{impact?.draftInitiatives ?? 0} draft Story Target item(s)</li>
+            <li>{impact?.draftPortfolioProjects ?? 0} draft Project item(s)</li>
+            <li>{impact?.draftEvidenceItems ?? 0} draft Evidence Claim(s)</li>
+            <li>{impact?.openEnrichmentTasks ?? 0} open Work Queue task(s)</li>
+          </ul>
+          <p>Approved evidence and resume-ready canonical assets are always kept.</p>
+        </div>
+        <div className="resume-review-confirm__actions resume-review-confirm__actions--stacked">
+          <button className="secondary-button" disabled={active} type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            className="secondary-button"
+            disabled={active}
+            type="button"
+            onClick={() => onDelete("keep_library")}
+          >
+            {active ? "Deleting..." : "Keep library materials"}
+          </button>
+          <button
+            className="secondary-button secondary-button--danger"
+            disabled={active || loading}
+            type="button"
+            onClick={() => onDelete("remove_draft_materials")}
+          >
+            {active ? "Deleting..." : "Remove draft materials too"}
           </button>
         </div>
       </div>

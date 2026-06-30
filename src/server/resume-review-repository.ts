@@ -1,13 +1,19 @@
 import crypto from "node:crypto";
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
 import { getDb, hasDatabaseUrl } from "../db/client";
 import {
+  evidenceItems,
+  enrichmentTasks,
+  initiatives,
+  portfolioProjects,
+  profileEvidenceExtractionRuns,
   resumeReviewRunSteps,
   resumeReviewReports,
   resumeSourceVersions,
   sourceDocuments,
+  workExperiences,
   workflowRuns,
 } from "../db/schema";
 import { resolveJobDeskAiConfig } from "../ai/config";
@@ -47,7 +53,7 @@ import {
 } from "./enrichment-task-repository";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 import type { ResumeSourceParseResult } from "./resume-source-parser";
-import { deleteRebuildSourceChunksForSource, indexSourceChunks } from "./source-chunk-service";
+import { indexSourceChunks } from "./source-chunk-service";
 
 type DbHandle = ReturnType<typeof getDb>;
 type ResumeReviewAiAdapter = typeof reviewResumeWithAi;
@@ -105,6 +111,20 @@ type ResumeReviewBuildResult = {
   retryCount: number;
   usage: JobDeskAiUsage;
   skill: JobDeskAiSkillBinding;
+};
+
+type ResumeDeleteCleanupMode = "keep_library" | "remove_draft_materials";
+
+export type ResumeSourceDeleteImpact = {
+  draftEvidenceItems: number;
+  draftInitiatives: number;
+  draftPortfolioProjects: number;
+  draftWorkExperiences: number;
+  openEnrichmentTasks: number;
+};
+
+type ResumeSourceDeleteCounts = ResumeSourceDeleteImpact & {
+  sourceDocumentDeleted: boolean;
 };
 
 type ResumeReviewActiveRun = {
@@ -248,7 +268,33 @@ export async function getResumeSourceVersion(resumeSourceVersionId: string) {
   };
 }
 
-export async function deleteResumeSourceVersion(resumeSourceVersionId: string) {
+export async function getResumeSourceDeleteImpact(resumeSourceVersionId: string) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [resume] = await db
+    .select()
+    .from(resumeSourceVersions)
+    .where(and(eq(resumeSourceVersions.workspaceId, workspace.id), eq(resumeSourceVersions.id, resumeSourceVersionId)))
+    .limit(1);
+  if (!resume) return { status: "not_found" as const };
+  return {
+    status: "ready" as const,
+    impact: await getResumeDeleteImpactCounts(db, {
+      resumeSourceVersionId: resume.id,
+      sourceDocumentId: resume.sourceDocumentId,
+      workspaceId: workspace.id,
+    }),
+    resume: toResumeSourcePayload(resume),
+  };
+}
+
+export async function deleteResumeSourceVersion(
+  resumeSourceVersionId: string,
+  options: { cleanupMode?: ResumeDeleteCleanupMode } = {},
+) {
   if (!hasDatabaseUrl()) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
   }
@@ -261,7 +307,29 @@ export async function deleteResumeSourceVersion(resumeSourceVersionId: string) {
     .limit(1);
   if (!resume) return { status: "not_found" as const };
 
+  const cleanupMode = options.cleanupMode ?? "keep_library";
+  const impact = await getResumeDeleteImpactCounts(db, {
+    resumeSourceVersionId: resume.id,
+    sourceDocumentId: resume.sourceDocumentId,
+    workspaceId: workspace.id,
+  });
+  let deletedCounts: ResumeSourceDeleteCounts = {
+    draftEvidenceItems: 0,
+    draftInitiatives: 0,
+    draftPortfolioProjects: 0,
+    draftWorkExperiences: 0,
+    openEnrichmentTasks: 0,
+    sourceDocumentDeleted: false,
+  };
+
   await db.transaction(async (tx) => {
+    if (cleanupMode === "remove_draft_materials") {
+      deletedCounts = await deleteDraftResumeMaterials(tx, {
+        resumeSourceVersionId: resume.id,
+        sourceDocumentId: resume.sourceDocumentId,
+        workspaceId: workspace.id,
+      });
+    }
     await tx
       .delete(workflowRuns)
       .where(
@@ -271,21 +339,36 @@ export async function deleteResumeSourceVersion(resumeSourceVersionId: string) {
           sql`${workflowRuns.skillMetadata}->>'resumeSourceVersionId' = ${resumeSourceVersionId}`,
         ),
       );
-    await deleteRebuildSourceChunksForSource({
-      db: tx,
-      sourceDocumentId: resume.sourceDocumentId,
-      workspaceId: workspace.id,
-    });
+    await tx
+      .delete(profileEvidenceExtractionRuns)
+      .where(
+        and(
+          eq(profileEvidenceExtractionRuns.workspaceId, workspace.id),
+          eq(profileEvidenceExtractionRuns.resumeSourceVersionId, resumeSourceVersionId),
+        ),
+      );
     await tx
       .delete(resumeSourceVersions)
       .where(and(eq(resumeSourceVersions.workspaceId, workspace.id), eq(resumeSourceVersions.id, resumeSourceVersionId)));
-    await tx
-      .delete(sourceDocuments)
-      .where(and(eq(sourceDocuments.workspaceId, workspace.id), eq(sourceDocuments.id, resume.sourceDocumentId)));
+    if (cleanupMode === "remove_draft_materials") {
+      const remainingReferences = await countSourceDocumentLibraryReferences(tx, {
+        sourceDocumentId: resume.sourceDocumentId,
+        workspaceId: workspace.id,
+      });
+      if (remainingReferences === 0) {
+        await tx
+          .delete(sourceDocuments)
+          .where(and(eq(sourceDocuments.workspaceId, workspace.id), eq(sourceDocuments.id, resume.sourceDocumentId)));
+        deletedCounts.sourceDocumentDeleted = true;
+      }
+    }
   });
 
   return {
     status: "deleted" as const,
+    cleanupMode,
+    deletedCounts,
+    impact,
     resume: toResumeSourcePayload(resume),
   };
 }
@@ -294,6 +377,186 @@ export async function rerunResumeReview(resumeSourceVersionId: string) {
   const started = await startResumeReviewRun(resumeSourceVersionId);
   if (started.status !== "created") return started;
   return processResumeReviewRun(started.run.id);
+}
+
+async function getResumeDeleteImpactCounts(
+  db: Pick<DbHandle, "select">,
+  args: { workspaceId: string; sourceDocumentId: string; resumeSourceVersionId: string },
+): Promise<ResumeSourceDeleteImpact> {
+  const [
+    [draftEvidence],
+    [draftWork],
+    [draftInitiatives],
+    [draftPortfolio],
+    [openTasks],
+  ] = await Promise.all([
+    db
+      .select({ value: count() })
+      .from(evidenceItems)
+      .where(
+        and(
+          eq(evidenceItems.workspaceId, args.workspaceId),
+          eq(evidenceItems.sourceDocumentId, args.sourceDocumentId),
+          ne(evidenceItems.status, "approved"),
+        ),
+      ),
+    db
+      .select({ value: count() })
+      .from(workExperiences)
+      .where(
+        and(
+          eq(workExperiences.workspaceId, args.workspaceId),
+          eq(workExperiences.sourceDocumentId, args.sourceDocumentId),
+          ne(workExperiences.status, "approved"),
+          sql`not exists (
+            select 1 from ${initiatives}
+            where ${initiatives.workExperienceId} = ${workExperiences.id}
+            and ${initiatives.status} = 'approved'
+          )`,
+        ),
+      ),
+    db
+      .select({ value: count() })
+      .from(initiatives)
+      .where(
+        and(
+          eq(initiatives.workspaceId, args.workspaceId),
+          eq(initiatives.sourceDocumentId, args.sourceDocumentId),
+          ne(initiatives.status, "approved"),
+        ),
+      ),
+    db
+      .select({ value: count() })
+      .from(portfolioProjects)
+      .where(
+        and(
+          eq(portfolioProjects.workspaceId, args.workspaceId),
+          eq(portfolioProjects.sourceDocumentId, args.sourceDocumentId),
+          ne(portfolioProjects.status, "approved"),
+        ),
+      ),
+    db
+      .select({ value: count() })
+      .from(enrichmentTasks)
+      .where(
+        and(
+          eq(enrichmentTasks.workspaceId, args.workspaceId),
+          eq(enrichmentTasks.resumeSourceVersionId, args.resumeSourceVersionId),
+          inArray(enrichmentTasks.status, ["open", "answered"]),
+        ),
+      ),
+  ]);
+  return {
+    draftEvidenceItems: draftEvidence?.value ?? 0,
+    draftInitiatives: draftInitiatives?.value ?? 0,
+    draftPortfolioProjects: draftPortfolio?.value ?? 0,
+    draftWorkExperiences: draftWork?.value ?? 0,
+    openEnrichmentTasks: openTasks?.value ?? 0,
+  };
+}
+
+async function deleteDraftResumeMaterials(
+  db: Pick<DbHandle, "delete" | "select" | "update">,
+  args: { workspaceId: string; sourceDocumentId: string; resumeSourceVersionId: string },
+): Promise<ResumeSourceDeleteCounts> {
+  const evidence = await db
+    .delete(evidenceItems)
+    .where(
+      and(
+        eq(evidenceItems.workspaceId, args.workspaceId),
+        eq(evidenceItems.sourceDocumentId, args.sourceDocumentId),
+        ne(evidenceItems.status, "approved"),
+      ),
+    )
+    .returning({ id: evidenceItems.id });
+  const initiativesResult = await db
+    .delete(initiatives)
+    .where(
+      and(
+        eq(initiatives.workspaceId, args.workspaceId),
+        eq(initiatives.sourceDocumentId, args.sourceDocumentId),
+        ne(initiatives.status, "approved"),
+      ),
+    )
+    .returning({ id: initiatives.id });
+  const work = await db
+    .delete(workExperiences)
+    .where(
+      and(
+        eq(workExperiences.workspaceId, args.workspaceId),
+        eq(workExperiences.sourceDocumentId, args.sourceDocumentId),
+        ne(workExperiences.status, "approved"),
+        sql`not exists (
+          select 1 from ${initiatives}
+          where ${initiatives.workExperienceId} = ${workExperiences.id}
+        )`,
+      ),
+    )
+    .returning({ id: workExperiences.id });
+  const portfolio = await db
+    .delete(portfolioProjects)
+    .where(
+      and(
+        eq(portfolioProjects.workspaceId, args.workspaceId),
+        eq(portfolioProjects.sourceDocumentId, args.sourceDocumentId),
+        ne(portfolioProjects.status, "approved"),
+      ),
+    )
+    .returning({ id: portfolioProjects.id });
+  const tasks = await db
+    .delete(enrichmentTasks)
+    .where(
+      and(
+        eq(enrichmentTasks.workspaceId, args.workspaceId),
+        eq(enrichmentTasks.resumeSourceVersionId, args.resumeSourceVersionId),
+        inArray(enrichmentTasks.status, ["open", "answered"]),
+      ),
+    )
+    .returning({ id: enrichmentTasks.id });
+
+  return {
+    draftEvidenceItems: evidence.length,
+    draftInitiatives: initiativesResult.length,
+    draftPortfolioProjects: portfolio.length,
+    draftWorkExperiences: work.length,
+    openEnrichmentTasks: tasks.length,
+    sourceDocumentDeleted: false,
+  };
+}
+
+async function countSourceDocumentLibraryReferences(
+  db: Pick<DbHandle, "select">,
+  args: { workspaceId: string; sourceDocumentId: string },
+) {
+  const [
+    [evidence],
+    [work],
+    [initiativesResult],
+    [portfolio],
+  ] = await Promise.all([
+    db
+      .select({ value: count() })
+      .from(evidenceItems)
+      .where(and(eq(evidenceItems.workspaceId, args.workspaceId), eq(evidenceItems.sourceDocumentId, args.sourceDocumentId))),
+    db
+      .select({ value: count() })
+      .from(workExperiences)
+      .where(and(eq(workExperiences.workspaceId, args.workspaceId), eq(workExperiences.sourceDocumentId, args.sourceDocumentId))),
+    db
+      .select({ value: count() })
+      .from(initiatives)
+      .where(and(eq(initiatives.workspaceId, args.workspaceId), eq(initiatives.sourceDocumentId, args.sourceDocumentId))),
+    db
+      .select({ value: count() })
+      .from(portfolioProjects)
+      .where(and(eq(portfolioProjects.workspaceId, args.workspaceId), eq(portfolioProjects.sourceDocumentId, args.sourceDocumentId))),
+  ]);
+  return (
+    (evidence?.value ?? 0) +
+    (work?.value ?? 0) +
+    (initiativesResult?.value ?? 0) +
+    (portfolio?.value ?? 0)
+  );
 }
 
 export async function startResumeReviewRun(resumeSourceVersionId: string) {
