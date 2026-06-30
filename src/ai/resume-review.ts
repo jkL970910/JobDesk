@@ -58,12 +58,12 @@ const ResumeReviewScan = z.object({
 const ResumeReviewRubric = z.object({
   score: ResumeReviewScore,
   rubric: z.array(ReviewRubricItemInput).default([]),
-  suggested_edits: z.array(z.string()).default([]),
+  suggested_edits: z.preprocess(coerceStringList, z.array(z.string()).default([])),
 });
 
 const ResumeReviewRubricDimension = z.object({
   rubric_item: ReviewRubricItemInput,
-  suggested_edits: z.array(z.string()).default([]),
+  suggested_edits: z.preprocess(coerceStringList, z.array(z.string()).default([])),
 });
 
 const ResumeReviewEvidence = z.object({

@@ -11,6 +11,7 @@ import {
   reviewResumeWithAi,
   resolveResumeReviewStageTimeoutMs,
   segmentResumeReviewSource,
+  synthesizeResumeReviewRubricDimensionWithAi,
 } from "../src/ai/resume-review";
 
 describe("resume review AI instructions", () => {
@@ -548,6 +549,55 @@ describe("resume review AI instructions", () => {
     expect(rubric.rubric).toHaveLength(RESUME_REVIEW_RUBRIC_DIMENSIONS.length);
     expect(rubric.score.overall).toBe(88);
     expect(rubric.suggested_edits[0]).toContain("Improve");
+  });
+
+  it("normalizes object-shaped rubric dimension suggested edits", async () => {
+    const dimension = RESUME_REVIEW_RUBRIC_DIMENSIONS.find((candidate) => candidate.key === "impact_evidence")!;
+    const adapter = {
+      callStructuredJson: async (request: { schema: { parse: (value: unknown) => unknown } }) => ({
+        data: request.schema.parse({
+          rubric_item: {
+            evidenceQuestions: ["Which metric proves the strongest impact?"],
+            findings: ["Impact is visible but not quantified enough."],
+            helpedScore: ["The resume names production workflow impact."],
+            key: dimension.key,
+            label: dimension.label,
+            loweredScore: ["Impact bullets need sharper metrics."],
+            maxScore: 100,
+            nextAction: "Add one measurable outcome.",
+            note: "Impact evidence is present but still needs stronger proof.",
+            raiseScore: ["Add a result metric to the strongest bullet."],
+            score: 72,
+          },
+          suggested_edits: [
+            {
+              suggestion: "Move the strongest measurable impact bullet higher.",
+            },
+          ],
+        }),
+        outputText: "",
+        retryCount: 0,
+        usage: {},
+      }),
+    };
+
+    const result = await synthesizeResumeReviewRubricDimensionWithAi({
+      adapter: adapter as never,
+      dimension,
+      synthesisInput: JSON.stringify({
+        manifest: {
+          sectionCount: 1,
+          sections: [{ id: "work-1", kind: "work_experience", title: "Experience", textChars: 1200 }],
+          sourceTitle: "Jiekun Liu - Resume.docx",
+          totalChars: 1200,
+        },
+        section_assessments: [],
+      }),
+    });
+
+    expect(result.data.suggested_edits).toEqual([
+      "Move the strongest measurable impact bullet higher.",
+    ]);
   });
 
   it("segments resume review source into bounded review sections", () => {
