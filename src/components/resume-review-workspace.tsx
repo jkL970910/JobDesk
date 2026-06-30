@@ -1770,11 +1770,11 @@ function ReviewFindingBoard({
       group.items.length > 0 && (!visibleTitles || visibleTitles.includes(group.title)),
   );
   if (!visibleGroups.length) return null;
+  const showGroupTitles = visibleGroups.length > 1;
   return (
     <section className="review-finding-board">
       <div className="review-finding-board__header">
         <div>
-          <p className="panel-kicker">Findings by type</p>
           <h3>{activeDetailHeading(visibleTitles)}</h3>
         </div>
         <span>{visibleGroups.reduce((sum, group) => sum + group.items.length, 0)} items</span>
@@ -1787,9 +1787,11 @@ function ReviewFindingBoard({
         const hiddenCount = group.items.length - visibleItems.length;
         return (
           <div className="review-finding-group" key={group.title}>
-            <div className="review-finding-group__top">
-              <h4>{group.title}</h4>
-            </div>
+            {showGroupTitles ? (
+              <div className="review-finding-group__top">
+                <h4>{group.title}</h4>
+              </div>
+            ) : null}
             <div className="review-finding-list">
               {visibleItems.map((item) => (
                 <article
