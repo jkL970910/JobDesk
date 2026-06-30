@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  coerceResumeReviewConfidence,
   coerceResumeReviewScore,
   normalizeResumeReviewProviderOutput,
 } from "../src/ai/resume-review-output-normalizer";
@@ -78,5 +79,12 @@ describe("resume review provider output normalizer", () => {
   it("does not guess vague score labels as numeric scores", () => {
     expect(coerceResumeReviewScore("72/100")).toBe(72);
     expect(coerceResumeReviewScore("medium")).toBe("medium");
+  });
+
+  it("normalizes common provider confidence strings into fractions", () => {
+    expect(coerceResumeReviewConfidence("86%")).toBe(0.86);
+    expect(coerceResumeReviewConfidence("80 percent")).toBe(0.8);
+    expect(coerceResumeReviewConfidence("confidence: 0.8")).toBe(0.8);
+    expect(coerceResumeReviewConfidence("medium")).toBe(0.6);
   });
 });

@@ -1656,6 +1656,21 @@ function ProfileReferenceView({
   const latestMainResumeClaimStats = latestMainResume
     ? getMainResumeClaimStats(latestMainResume)
     : null;
+  const visibleMainResumePolishProposal =
+    latestMainResume && mainResumePolishProposal?.source_main_resume_id === latestMainResume.id
+      ? mainResumePolishProposal
+      : null;
+  const visibleMainResumePolishDraftSections = visibleMainResumePolishProposal
+    ? mainResumePolishDraftSections
+    : [];
+
+  useEffect(() => {
+    if (!mainResumePolishProposal || !latestMainResume) return;
+    if (mainResumePolishProposal.source_main_resume_id === latestMainResume.id) return;
+    setMainResumePolishProposal(null);
+    setMainResumePolishDraftSections([]);
+  }, [latestMainResume?.id, mainResumePolishProposal]);
+
   const missingProfileAreas = [
     profileFacts.email && profileFacts.phone ? null : "Contact",
     profileFacts.location ? null : "Location",
@@ -2079,11 +2094,15 @@ function ProfileReferenceView({
     }
   }
 
-  async function applyMainResumePolishProposal(mainResumeId: string) {
+  async function applyMainResumePolishProposal() {
+    if (!mainResumePolishProposal) {
+      setReadinessReviewStatus("Build a resume polish proposal before applying it.");
+      return;
+    }
     setIsApplyingPolishProposal(true);
     setReadinessReviewStatus("Applying proposal, rerunning Fact Guard, and rescoring...");
     try {
-      const response = await fetchJson(`/api/main-resume/${mainResumeId}/polish-proposal`, {
+      const response = await fetchJson(`/api/main-resume/${mainResumePolishProposal.source_main_resume_id}/polish-proposal`, {
         body: JSON.stringify({
           editable_sections: mainResumePolishDraftSections,
         }),
@@ -2950,13 +2969,13 @@ function ProfileReferenceView({
               isApplyingPolishProposal={isApplyingPolishProposal}
               isBuildingPolishProposal={isBuildingPolishProposal}
               isReviewing={isReviewingGeneratedResume}
-              onApplyPolishProposal={() => void applyMainResumePolishProposal(latestMainResume.id)}
+              onApplyPolishProposal={() => void applyMainResumePolishProposal()}
               onOpenEvidence={() => onOpenEvidenceReview("claims")}
               onOpenPositioning={() => onNavigateResume("build_export")}
               onReview={() => void reviewGeneratedMainResumeReadiness(latestMainResume.id)}
               onPolish={() => void buildMainResumePolishProposal(latestMainResume.id)}
-              polishProposal={mainResumePolishProposal}
-              polishDraftSections={mainResumePolishDraftSections}
+              polishProposal={visibleMainResumePolishProposal}
+              polishDraftSections={visibleMainResumePolishDraftSections}
               review={latestMainResume.readiness_review}
               onPolishDraftSectionChange={(sectionId, value) =>
                 setMainResumePolishDraftSections((sections) =>

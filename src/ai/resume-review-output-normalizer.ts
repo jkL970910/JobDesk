@@ -80,7 +80,8 @@ export function coerceResumeReviewConfidence(value: unknown) {
   if (typeof value !== "string") return value;
   const normalized = value.trim().toLowerCase();
   if (!normalized) return value;
-  const numeric = Number(normalized);
+  const numericText = normalized.match(/\d+(?:\.\d+)?/)?.[0];
+  const numeric = numericText ? Number(numericText) : NaN;
   if (Number.isFinite(numeric)) return numeric > 1 ? numeric / 100 : numeric;
   if (["high", "strong"].includes(normalized)) return 0.8;
   if (["medium", "moderate", "mid"].includes(normalized)) return 0.6;
