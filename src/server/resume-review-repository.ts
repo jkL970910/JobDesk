@@ -1282,7 +1282,6 @@ async function claimNextResumeReviewStep(
           WHERE earlier.workspace_id = ${args.workspaceId}
             AND earlier.workflow_run_id = ${args.run.id}
             AND earlier.sequence < ${resumeReviewRunSteps.sequence}
-            AND earlier.step_kind <> 'synthesize_rubric_dimension'
             AND earlier.status <> 'completed'
         )
       ORDER BY sequence
@@ -1332,6 +1331,7 @@ async function claimReadyResumeReviewRubricDimensionSteps(
           WHERE earlier.workspace_id = ${args.workspaceId}
             AND earlier.workflow_run_id = ${args.run.id}
             AND earlier.sequence < ${resumeReviewRunSteps.sequence}
+            AND earlier.step_kind <> 'synthesize_rubric_dimension'
             AND earlier.status <> 'completed'
         )
       ORDER BY sequence
