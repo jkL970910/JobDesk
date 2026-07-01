@@ -104,6 +104,12 @@ type ExtractionRunSummary = {
   retryAfterSeconds?: number | null;
 };
 
+type ExtractionRunProcessResult =
+  | { run: ExtractionRunSummary; status: "terminal" }
+  | { run: ExtractionRunSummary; status: "active_timeout" };
+
+const terminalExtractionStatuses = new Set<ExtractionRunStatus>(["completed", "failed"]);
+
 type DedupeCandidate = {
   primary: {
     id: string;
@@ -1043,37 +1049,8 @@ export function ProfileEvidenceWorkspace({
         setActiveExtractionRunId(payload.data.run.id);
         setActiveExtractionRun(payload.data.run);
         setStatus(formatExtractionRunStatus(payload.data.run));
-        const completedRun = await processExtractionRunUntilTerminal(payload.data.run.id);
-        if (completedRun.status === "completed") {
-          await refreshLibraryAfterMutation();
-          await loadResumeSources();
-          setResult(null);
-          setLastIntakeSummary({
-            evidenceCount: completedRun.result?.evidenceCount ?? 0,
-            projectCount: completedRun.result?.projectCount ?? 0,
-            storyCount: completedRun.result?.storyCount ?? 0,
-            workExperienceCount: completedRun.result?.workExperienceCount ?? 0,
-            sourceTitle: completedRun.result?.sourceTitle ?? (sourceTitle.trim() || "Resume/source"),
-            type: completedRun.result?.type ?? "resume",
-          });
-          setStatus("Library items created from the reviewed resume.");
-          setActiveSection("review");
-          setActiveExtractionRunId(null);
-          setActiveExtractionRun(null);
-          return;
-        }
-        const message = formatUserFacingFailure(
-          completedRun.failureMessage ?? "AI extraction failed.",
-          completedRun.failureKind ?? undefined,
-        );
-        if (completedRun.canRetry) {
-          setRetryableFailure({
-            message,
-            retryAfterSeconds: completedRun.retryAfterSeconds ?? undefined,
-            scope: "resume",
-          });
-        }
-        setError(message);
+        const result = await processExtractionRunUntilTerminal(payload.data.run.id);
+        await handleExtractionProcessResult(result);
       } catch (caught) {
         setError(
           caught instanceof Error
@@ -1084,6 +1061,51 @@ export function ProfileEvidenceWorkspace({
         setIsExtracting(false);
       }
     })();
+  }
+
+  async function handleExtractionProcessResult(result: ExtractionRunProcessResult) {
+    const run = result.run;
+    if (run.status === "completed") {
+      await refreshLibraryAfterMutation();
+      await loadResumeSources();
+      setResult(null);
+      setLastIntakeSummary({
+        evidenceCount: run.result?.evidenceCount ?? 0,
+        projectCount: run.result?.projectCount ?? 0,
+        storyCount: run.result?.storyCount ?? 0,
+        workExperienceCount: run.result?.workExperienceCount ?? 0,
+        sourceTitle: run.result?.sourceTitle ?? (sourceTitle.trim() || "Resume/source"),
+        type: run.result?.type ?? "resume",
+      });
+      setStatus("Library items created from the reviewed resume.");
+      setActiveSection("review");
+      setActiveExtractionRunId(null);
+      setActiveExtractionRun(null);
+      return;
+    }
+    if (!terminalExtractionStatuses.has(run.status)) {
+      setActiveExtractionRunId(run.id);
+      setActiveExtractionRun(run);
+      setRetryableFailure({
+        message: "Extraction is paused with saved progress. Continue processing this run to finish creating library items.",
+        scope: "resume",
+      });
+      setStatus(formatExtractionRunStatus(run));
+      setError(null);
+      return;
+    }
+    const message = formatUserFacingFailure(
+      run.failureMessage ?? "AI extraction failed.",
+      run.failureKind ?? undefined,
+    );
+    if (run.canRetry) {
+      setRetryableFailure({
+        message,
+        retryAfterSeconds: run.retryAfterSeconds ?? undefined,
+        scope: "resume",
+      });
+    }
+    setError(message);
   }
 
   function retryExtractionRun() {
@@ -1097,6 +1119,12 @@ export function ProfileEvidenceWorkspace({
     setIsExtracting(true);
     void (async () => {
       try {
+        const currentRun = activeExtractionRun;
+        if (currentRun && currentRun.status !== "failed") {
+          setStatus(formatExtractionRunStatus(currentRun));
+          await handleExtractionProcessResult(await processExtractionRunUntilTerminal(currentRun.id));
+          return;
+        }
         const response = await fetchJson(`/api/profile-evidence/extract/runs/${activeExtractionRunId}/retry`, {
           method: "POST",
         });
@@ -1110,36 +1138,7 @@ export function ProfileEvidenceWorkspace({
         setActiveExtractionRunId(payload.data.run.id);
         setActiveExtractionRun(payload.data.run);
         setStatus(formatExtractionRunStatus(payload.data.run));
-        const completedRun = await processExtractionRunUntilTerminal(payload.data.run.id);
-        if (completedRun.status === "completed") {
-          await refreshLibraryAfterMutation();
-          await loadResumeSources();
-          setLastIntakeSummary({
-            evidenceCount: completedRun.result?.evidenceCount ?? 0,
-            projectCount: completedRun.result?.projectCount ?? 0,
-            storyCount: completedRun.result?.storyCount ?? 0,
-            workExperienceCount: completedRun.result?.workExperienceCount ?? 0,
-            sourceTitle: completedRun.result?.sourceTitle ?? (sourceTitle.trim() || "Resume/source"),
-            type: completedRun.result?.type ?? "resume",
-          });
-          setStatus("Library items created from the reviewed resume.");
-          setActiveExtractionRunId(null);
-          setActiveExtractionRun(null);
-          setActiveSection("review");
-          return;
-        }
-        const message = formatUserFacingFailure(
-          completedRun.failureMessage ?? "AI extraction failed.",
-          completedRun.failureKind ?? undefined,
-        );
-        if (completedRun.canRetry) {
-          setRetryableFailure({
-            message,
-            retryAfterSeconds: completedRun.retryAfterSeconds ?? undefined,
-            scope: "resume",
-          });
-        }
-        setError(message);
+        await handleExtractionProcessResult(await processExtractionRunUntilTerminal(payload.data.run.id));
       } catch (caught) {
         setError(caught instanceof Error ? formatUserFacingFailure(caught.message) : "Profile evidence extraction failed.");
       } finally {
@@ -1148,7 +1147,7 @@ export function ProfileEvidenceWorkspace({
     })();
   }
 
-  async function processExtractionRunUntilTerminal(runId: string) {
+  async function processExtractionRunUntilTerminal(runId: string): Promise<ExtractionRunProcessResult> {
     const startedAt = Date.now();
     const maxWaitMs = 12 * 60_000;
     while (Date.now() - startedAt < maxWaitMs) {
@@ -1161,7 +1160,9 @@ export function ProfileEvidenceWorkspace({
       if (processed?.run) {
         setActiveExtractionRun(processed.run);
         setStatus(formatExtractionRunStatus(processed.run));
-        if (processed.run.status === "completed" || processed.run.status === "failed") return processed.run;
+        if (processed.run.status === "completed" || processed.run.status === "failed") {
+          return { run: processed.run, status: "terminal" };
+        }
       }
       let response: Response;
       try {
@@ -1180,20 +1181,23 @@ export function ProfileEvidenceWorkspace({
       const run = payload.data.run;
       setActiveExtractionRun(run);
       setStatus(formatExtractionRunStatus(run));
-      if (run.status === "completed" || run.status === "failed") return run;
+      if (run.status === "completed" || run.status === "failed") {
+        return { run, status: "terminal" };
+      }
       if (hadNetworkError) {
         await sleep(2500);
       }
       await sleep(1200);
     }
-    return {
-      id: runId,
-      status: "failed" as const,
-      failureKind: "worker_timeout",
-      failureMessage: "Extraction is still running or the server stopped before it could finish. Keep this source and retry in a moment.",
-      canRetry: true,
-      retryAfterSeconds: 10,
-    };
+    const response = await fetchJson(`/api/profile-evidence/extract/runs/${runId}`);
+    const payload = (await response.json().catch(() => null)) as
+      | { data?: { run?: ExtractionRunSummary }; error?: string; kind?: string }
+      | null;
+    if (!response.ok || !payload?.data?.run) {
+      throw new Error(payload?.error ?? "Could not check extraction run status.");
+    }
+    setActiveExtractionRun(payload.data.run);
+    return { run: payload.data.run, status: "active_timeout" };
   }
 
   async function triggerExtractionRunProcessing(runId: string) {
@@ -2700,7 +2704,17 @@ export function ProfileEvidenceWorkspace({
               <FormStatePill state={sourceFormState} />
               {retryableFailure?.scope === "resume" ? (
                 <ExtractionFailureRecovery
+                  actionLabel={
+                    activeExtractionRun && !terminalExtractionStatuses.has(activeExtractionRun.status)
+                      ? "Continue processing"
+                      : "Retry extraction"
+                  }
                   failure={retryableFailure}
+                  helpText={
+                    activeExtractionRun && !terminalExtractionStatuses.has(activeExtractionRun.status)
+                      ? "Progress has been saved. Continue this run to finish creating library items."
+                      : undefined
+                  }
                   onRetry={retryExtractionRun}
                   onSaveSourceOnly={() => {
                     setError(null);
@@ -2876,8 +2890,8 @@ export function ProfileEvidenceWorkspace({
                 <FormStatePill state={projectFormState} />
                 {retryableFailure?.scope === "project" ? (
                   <ExtractionFailureRecovery
-                    failure={retryableFailure}
-                    onRetry={runProjectEnrichment}
+                  failure={retryableFailure}
+                  onRetry={runProjectEnrichment}
                     onSaveSourceOnly={() => {
                       setError(null);
                       setRetryableFailure(null);
@@ -3940,12 +3954,16 @@ function ProfileFactSourceForm({
 }
 
 function ExtractionFailureRecovery({
+  actionLabel = "Retry extraction",
   failure,
+  helpText,
   onRetry,
   onSaveSourceOnly,
   onSplitMaterial,
 }: {
+  actionLabel?: string;
   failure: RetryableExtractionFailure;
+  helpText?: string;
   onRetry: () => void;
   onSaveSourceOnly: () => void;
   onSplitMaterial: () => void;
@@ -3955,15 +3973,13 @@ function ExtractionFailureRecovery({
       <div>
         <strong>{failure.message}</strong>
         <p>
-          {failure.retryAfterSeconds
-            ? `Wait about ${failure.retryAfterSeconds} seconds, then retry. `
-            : ""}
-          Large sources can time out; retry, split the material, or keep the source for later.
+          {helpText ??
+            `${failure.retryAfterSeconds ? `Wait about ${failure.retryAfterSeconds} seconds, then retry. ` : ""}Large sources can take several passes; retry, split the material, or keep the source for later.`}
         </p>
       </div>
       <div>
         <button className="primary-button" type="button" onClick={onRetry}>
-          Retry extraction
+          {actionLabel}
         </button>
         <button className="secondary-button" type="button" onClick={onSplitMaterial}>
           Split material
