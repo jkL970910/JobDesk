@@ -1993,6 +1993,216 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     });
   });
 
+  it("applies downstream strategies when removing a Work Experience", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const unique = crypto.randomUUID();
+    const [sourceRole, targetRole] = await db
+      .insert(workExperiences)
+      .values([
+        {
+          workspaceId: workspace.id,
+          employer: `Source role ${unique}`,
+          roleTitle: "Software Engineer",
+          startDate: "2023",
+          status: "approved",
+        },
+        {
+          workspaceId: workspace.id,
+          employer: `Target role ${unique}`,
+          roleTitle: "Senior Software Engineer",
+          startDate: "2024",
+          status: "approved",
+        },
+      ])
+      .returning({ id: workExperiences.id });
+    if (!sourceRole || !targetRole) throw new Error("Expected Work Experience rows.");
+    const [story] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        workExperienceId: sourceRole.id,
+        internalTitle: `Role story ${unique}`,
+        actions: ["Built platform"],
+        results: ["Improved rollout"],
+        metrics: [],
+        status: "pending",
+      })
+      .returning({ id: initiatives.id });
+    if (!story) throw new Error("Expected Story Target row.");
+    const [directEvidence, storyEvidence] = await db
+      .insert(evidenceItems)
+      .values([
+        {
+          workspaceId: workspace.id,
+          text: `Direct role evidence ${unique}`,
+          sourceQuote: `Direct role evidence ${unique}`,
+          evidenceType: "extracted",
+          sensitivityLevel: "public_safe",
+          relatedWorkExperienceId: sourceRole.id,
+          relatedInitiativeId: null,
+          status: "pending",
+        },
+        {
+          workspaceId: workspace.id,
+          text: `Story evidence ${unique}`,
+          sourceQuote: `Story evidence ${unique}`,
+          evidenceType: "extracted",
+          sensitivityLevel: "public_safe",
+          relatedWorkExperienceId: null,
+          relatedInitiativeId: story.id,
+          status: "pending",
+        },
+      ])
+      .returning({ id: evidenceItems.id });
+    if (!directEvidence || !storyEvidence) throw new Error("Expected Evidence rows.");
+    const [task] = await db
+      .insert(enrichmentTasks)
+      .values({
+        workspaceId: workspace.id,
+        taskType: "scope",
+        status: "open",
+        sourceType: "evidence",
+        sourceLabel: `Role task ${unique}`,
+        prompt: "Clarify this role.",
+        dedupeKey: `role-task-${unique}`,
+        workExperienceId: sourceRole.id,
+      })
+      .returning({ id: enrichmentTasks.id });
+    if (!task) throw new Error("Expected task row.");
+
+    const reassigned = await reviewWorkExperience({
+      workExperienceId: sourceRole.id,
+      action: "reject_role",
+      downstreamStrategy: "reassign",
+      reassignToWorkExperienceId: targetRole.id,
+    });
+    expect(reassigned.status).toBe("saved");
+    if (reassigned.status !== "saved") throw new Error("Expected reassigned remove result.");
+    expect(reassigned.downstreamSummary).toMatchObject({
+      strategy: "reassign",
+      evidenceCount: 1,
+      storyTargetCount: 1,
+      taskCount: 1,
+    });
+    const [movedStory] = await db
+      .select({ workExperienceId: initiatives.workExperienceId })
+      .from(initiatives)
+      .where(eq(initiatives.id, story.id));
+    const [movedEvidence] = await db
+      .select({ relatedWorkExperienceId: evidenceItems.relatedWorkExperienceId })
+      .from(evidenceItems)
+      .where(eq(evidenceItems.id, directEvidence.id));
+    const [movedTask] = await db
+      .select({ workExperienceId: enrichmentTasks.workExperienceId })
+      .from(enrichmentTasks)
+      .where(eq(enrichmentTasks.id, task.id));
+    expect(movedStory?.workExperienceId).toBe(targetRole.id);
+    expect(movedEvidence?.relatedWorkExperienceId).toBe(targetRole.id);
+    expect(movedTask?.workExperienceId).toBe(targetRole.id);
+
+    const [keepRole] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: `Keep role ${unique}`,
+        roleTitle: "Frontend Engineer",
+        startDate: "2022",
+        status: "approved",
+      })
+      .returning({ id: workExperiences.id });
+    if (!keepRole) throw new Error("Expected keep role.");
+    const [keepStory] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        workExperienceId: keepRole.id,
+        internalTitle: `Keep story ${unique}`,
+        status: "pending",
+      })
+      .returning({ id: initiatives.id });
+    const [keepEvidence] = await db
+      .insert(evidenceItems)
+      .values({
+        workspaceId: workspace.id,
+        text: `Keep evidence ${unique}`,
+        sourceQuote: `Keep evidence ${unique}`,
+        evidenceType: "extracted",
+        sensitivityLevel: "public_safe",
+        relatedWorkExperienceId: keepRole.id,
+        status: "pending",
+      })
+      .returning({ id: evidenceItems.id });
+    if (!keepStory || !keepEvidence) throw new Error("Expected keep downstream rows.");
+    const kept = await reviewWorkExperience({
+      workExperienceId: keepRole.id,
+      action: "reject_role",
+      downstreamStrategy: "keep",
+    });
+    expect(kept.status).toBe("saved");
+    const [unassignedStory] = await db
+      .select({ workExperienceId: initiatives.workExperienceId, status: initiatives.status })
+      .from(initiatives)
+      .where(eq(initiatives.id, keepStory.id));
+    const [unassignedEvidence] = await db
+      .select({ relatedWorkExperienceId: evidenceItems.relatedWorkExperienceId, status: evidenceItems.status })
+      .from(evidenceItems)
+      .where(eq(evidenceItems.id, keepEvidence.id));
+    expect(unassignedStory).toMatchObject({ workExperienceId: null, status: "pending" });
+    expect(unassignedEvidence).toMatchObject({ relatedWorkExperienceId: null, status: "pending" });
+
+    const [deleteRole] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: `Delete role ${unique}`,
+        roleTitle: "Intern",
+        startDate: "2021",
+        status: "approved",
+      })
+      .returning({ id: workExperiences.id });
+    if (!deleteRole) throw new Error("Expected delete role.");
+    const [deleteStory] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        workExperienceId: deleteRole.id,
+        internalTitle: `Delete story ${unique}`,
+        status: "pending",
+      })
+      .returning({ id: initiatives.id });
+    if (!deleteStory) throw new Error("Expected delete story.");
+    const [deleteEvidence] = await db
+      .insert(evidenceItems)
+      .values({
+        workspaceId: workspace.id,
+        text: `Delete evidence ${unique}`,
+        sourceQuote: `Delete evidence ${unique}`,
+        evidenceType: "extracted",
+        sensitivityLevel: "public_safe",
+        relatedInitiativeId: deleteStory.id,
+        status: "pending",
+      })
+      .returning({ id: evidenceItems.id });
+    if (!deleteEvidence) throw new Error("Expected delete evidence.");
+    const deleted = await reviewWorkExperience({
+      workExperienceId: deleteRole.id,
+      action: "reject_role",
+      downstreamStrategy: "delete_downstream",
+    });
+    expect(deleted.status).toBe("saved");
+    const [rejectedStory] = await db
+      .select({ status: initiatives.status })
+      .from(initiatives)
+      .where(eq(initiatives.id, deleteStory.id));
+    const [rejectedEvidence] = await db
+      .select({ status: evidenceItems.status })
+      .from(evidenceItems)
+      .where(eq(evidenceItems.id, deleteEvidence.id));
+    expect(rejectedStory?.status).toBe("rejected");
+    expect(rejectedEvidence?.status).toBe("rejected");
+  });
+
   it("rejects Story Target review when required story material is missing", async () => {
     const db = getDb();
     const workspace = await getCurrentWorkspace(db);

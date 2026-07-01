@@ -23,6 +23,8 @@ const requestSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.enum(["mark_reviewed", "mark_needs_update", "reject_role"]),
+    downstreamStrategy: z.enum(["keep", "delete_downstream", "reassign"]).optional(),
+    reassignToWorkExperienceId: z.string().uuid().nullable().optional(),
   }),
 ]);
 
@@ -52,6 +54,8 @@ export async function PATCH(
     : await reviewWorkExperience({
         workExperienceId: params.data.experienceId,
         action: body.data.action,
+        downstreamStrategy: body.data.downstreamStrategy,
+        reassignToWorkExperienceId: body.data.reassignToWorkExperienceId,
       });
 
   if (result.status === "skipped") {

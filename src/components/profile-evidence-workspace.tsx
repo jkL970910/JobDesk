@@ -9620,6 +9620,9 @@ function WorkExperienceList({
             )}
             key={experience.id ?? `${experience.employer}-${experience.role_title}`}
             onRefresh={onRefresh}
+            reassignTargets={workExperiences.filter(
+              (target) => target.id && target.id !== experience.id && target.status !== "rejected",
+            )}
           />
         ))}
       </div>
@@ -9632,16 +9635,21 @@ function WorkExperienceRow({
   experience,
   initiatives,
   onRefresh,
+  reassignTargets = [],
   reviewMode = false,
 }: {
   directEvidence: EvidenceCardItem[];
   experience: WorkExperienceItem;
   initiatives: InitiativeItem[];
   onRefresh: () => Promise<void>;
+  reassignTargets?: WorkExperienceItem[];
   reviewMode?: boolean;
 }) {
   const { fetchJson } = useAccess();
   const [isEditing, setIsEditing] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [removeStrategy, setRemoveStrategy] = useState<"keep" | "delete_downstream" | "reassign">("keep");
+  const [reassignToWorkExperienceId, setReassignToWorkExperienceId] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [draft, setDraft] = useState({
@@ -9661,6 +9669,7 @@ function WorkExperienceRow({
     });
     setMessage(null);
     setIsEditing(false);
+    setIsRemoving(false);
   }, [experience.id, experience.end_date, experience.location, experience.start_date, experience.summary, experience.team]);
 
   async function saveRoleDetails() {
@@ -9698,18 +9707,19 @@ function WorkExperienceRow({
     }
   }
 
-  async function updateRoleReview(action: "mark_reviewed" | "mark_needs_update" | "reject_role") {
+  async function updateRoleReview(
+    action: "mark_reviewed" | "mark_needs_update" | "reject_role",
+    options?: {
+      downstreamStrategy?: "keep" | "delete_downstream" | "reassign";
+      reassignToWorkExperienceId?: string | null;
+    },
+  ) {
     if (!experience.id) {
       setMessage({ ok: false, text: "This work experience has not been saved yet." });
       return;
     }
-    if (
-      action === "reject_role" &&
-      !reviewMode &&
-      !window.confirm(
-        "Remove this Work Experience from the Library view? Linked Story Targets and Evidence Claims will be preserved for reassignment.",
-      )
-    ) {
+    if (action === "reject_role" && options?.downstreamStrategy === "reassign" && !options.reassignToWorkExperienceId) {
+      setMessage({ ok: false, text: "Choose where to reassign linked Story Targets and Evidence Claims." });
       return;
     }
     const loadingCopy = action === "mark_reviewed"
@@ -9721,7 +9731,11 @@ function WorkExperienceRow({
     setMessage({ ok: true, text: loadingCopy });
     try {
       const response = await fetchJson(`/api/work-experiences/${experience.id}`, {
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({
+          action,
+          downstreamStrategy: options?.downstreamStrategy,
+          reassignToWorkExperienceId: options?.reassignToWorkExperienceId ?? null,
+        }),
         headers: { "Content-Type": "application/json" },
         method: "PATCH",
       });
@@ -9731,6 +9745,7 @@ function WorkExperienceRow({
         return;
       }
       await onRefresh();
+      setIsRemoving(false);
       setMessage({
         ok: true,
         text: action === "mark_reviewed"
@@ -9806,13 +9821,84 @@ function WorkExperienceRow({
               className="secondary-button secondary-button--danger"
               disabled={isSaving || !canRejectRole}
               type="button"
-              onClick={() => void updateRoleReview("reject_role")}
+              onClick={() => {
+                setIsRemoving((value) => !value);
+                setMessage(null);
+              }}
             >
-              {isSaving ? "Removing..." : "Remove"}
+              {isRemoving ? "Cancel remove" : "Remove"}
             </button>
           ) : null}
         </div>
       </div>
+      {isRemoving ? (
+        <div className="work-experience-row__remove-panel">
+          <div>
+            <strong>Remove this Work Experience</strong>
+            <p>
+              Choose what should happen to {initiatives.length} linked Story Target
+              {initiatives.length === 1 ? "" : "s"} and {directEvidence.length} direct Evidence Claim
+              {directEvidence.length === 1 ? "" : "s"}.
+            </p>
+          </div>
+          <label>
+            <input
+              checked={removeStrategy === "keep"}
+              name={`remove-${experience.id}`}
+              type="radio"
+              onChange={() => setRemoveStrategy("keep")}
+            />
+            <span>Keep them, but make them unassigned</span>
+          </label>
+          <label>
+            <input
+              checked={removeStrategy === "reassign"}
+              disabled={reassignTargets.length === 0}
+              name={`remove-${experience.id}`}
+              type="radio"
+              onChange={() => setRemoveStrategy("reassign")}
+            />
+            <span>Move them to another Work Experience</span>
+          </label>
+          {removeStrategy === "reassign" ? (
+            <select
+              className="jd-input jd-input--compact"
+              disabled={reassignTargets.length === 0}
+              value={reassignToWorkExperienceId}
+              onChange={(event) => setReassignToWorkExperienceId(event.target.value)}
+            >
+              <option value="">Choose Work Experience</option>
+              {reassignTargets.map((target) => (
+                <option key={target.id} value={target.id}>
+                  {formatWorkExperienceDisplayLabel(target)}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <label>
+            <input
+              checked={removeStrategy === "delete_downstream"}
+              name={`remove-${experience.id}`}
+              type="radio"
+              onChange={() => setRemoveStrategy("delete_downstream")}
+            />
+            <span>Also remove linked Story Targets and Evidence Claims</span>
+          </label>
+          <button
+            className="secondary-button secondary-button--danger"
+            disabled={isSaving || (removeStrategy === "reassign" && !reassignToWorkExperienceId)}
+            type="button"
+            onClick={() =>
+              void updateRoleReview("reject_role", {
+                downstreamStrategy: removeStrategy,
+                reassignToWorkExperienceId: removeStrategy === "reassign" ? reassignToWorkExperienceId : null,
+              })
+            }
+          >
+            {isSaving ? "Removing..." : "Confirm remove"}
+          </button>
+        </div>
+      ) : null}
       {reviewMode ? (
         <div className="work-experience-row__actions">
           <button
@@ -9976,6 +10062,9 @@ function RoleReviewQueue({
               )}
               key={experience.id ?? `${experience.employer}-${experience.role_title}`}
               onRefresh={onRefresh}
+              reassignTargets={roles.filter(
+                (target) => target.id && target.id !== experience.id && target.status !== "rejected",
+              )}
               reviewMode
             />
           ))}

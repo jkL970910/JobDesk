@@ -2979,61 +2979,277 @@ export async function updateWorkExperienceFields(args: {
 export async function reviewWorkExperience(args: {
   workExperienceId: string;
   action: "mark_reviewed" | "mark_needs_update" | "reject_role";
+  downstreamStrategy?: "keep" | "delete_downstream" | "reassign";
+  reassignToWorkExperienceId?: string | null;
 }) {
   if (!hasDatabaseUrl()) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
   }
 
   const db = getDb();
-  const workspace = await getCurrentWorkspace(db);
-  const [current] = await db
-    .select({
-      id: workExperiences.id,
-      employer: workExperiences.employer,
-      roleTitle: workExperiences.roleTitle,
-      startDate: workExperiences.startDate,
-      endDate: workExperiences.endDate,
-      status: workExperiences.status,
-      workspaceId: workExperiences.workspaceId,
-    })
-    .from(workExperiences)
-    .where(and(eq(workExperiences.workspaceId, workspace.id), eq(workExperiences.id, args.workExperienceId)))
-    .limit(1);
-  if (!current) return { status: "not_found" as const };
-  if (current.status === "rejected" && args.action !== "reject_role") {
-    return { status: "invalid" as const, reason: "work_experience_rejected" as const };
-  }
-
-  if (args.action === "mark_reviewed") {
-    const missingCore = [
-      current.employer.trim(),
-      current.roleTitle.trim(),
-      current.startDate?.trim() || current.endDate?.trim() || "",
-    ].some((value) => value.length === 0);
-    if (missingCore) {
-      return { status: "invalid" as const, reason: "work_experience_review_missing_core_fields" as const };
+  return db.transaction(async (tx) => {
+    const workspace = await getCurrentWorkspace(tx);
+    const [current] = await tx
+      .select({
+        id: workExperiences.id,
+        employer: workExperiences.employer,
+        roleTitle: workExperiences.roleTitle,
+        startDate: workExperiences.startDate,
+        endDate: workExperiences.endDate,
+        status: workExperiences.status,
+        workspaceId: workExperiences.workspaceId,
+      })
+      .from(workExperiences)
+      .where(and(eq(workExperiences.workspaceId, workspace.id), eq(workExperiences.id, args.workExperienceId)))
+      .limit(1);
+    if (!current) return { status: "not_found" as const };
+    if (current.status === "rejected" && args.action !== "reject_role") {
+      return { status: "invalid" as const, reason: "work_experience_rejected" as const };
     }
+
+    if (args.action === "mark_reviewed") {
+      const missingCore = [
+        current.employer.trim(),
+        current.roleTitle.trim(),
+        current.startDate?.trim() || current.endDate?.trim() || "",
+      ].some((value) => value.length === 0);
+      if (missingCore) {
+        return { status: "invalid" as const, reason: "work_experience_review_missing_core_fields" as const };
+      }
+    }
+
+    if (args.action === "reject_role" && args.downstreamStrategy === "reassign") {
+      if (!args.reassignToWorkExperienceId || args.reassignToWorkExperienceId === args.workExperienceId) {
+        return { status: "invalid" as const, reason: "invalid_reassign_work_experience" as const };
+      }
+      const [target] = await tx
+        .select({
+          id: workExperiences.id,
+          status: workExperiences.status,
+          workspaceId: workExperiences.workspaceId,
+        })
+        .from(workExperiences)
+        .where(
+          and(
+            eq(workExperiences.workspaceId, workspace.id),
+            eq(workExperiences.id, args.reassignToWorkExperienceId),
+          ),
+        )
+        .limit(1);
+      if (!target) return { status: "invalid" as const, reason: "reassign_work_experience_not_found" as const };
+      if (target.status === "rejected") {
+        return { status: "invalid" as const, reason: "reassign_work_experience_rejected" as const };
+      }
+    }
+
+    const now = new Date();
+    let downstreamSummary:
+      | {
+          strategy: "keep" | "delete_downstream" | "reassign";
+          evidenceCount: number;
+          storyTargetCount: number;
+          taskCount: number;
+        }
+      | undefined;
+    if (args.action === "reject_role") {
+      downstreamSummary = await applyRejectedWorkExperienceDownstreamStrategy(tx, {
+        workspaceId: workspace.id,
+        workExperienceId: args.workExperienceId,
+        strategy: args.downstreamStrategy ?? "keep",
+        reassignToWorkExperienceId: args.reassignToWorkExperienceId ?? null,
+        now,
+      });
+    }
+
+    const status = args.action === "mark_reviewed"
+      ? "approved"
+      : args.action === "reject_role"
+        ? "rejected"
+        : "pending";
+    const [updated] = await tx
+      .update(workExperiences)
+      .set({ status, updatedAt: now })
+      .where(and(eq(workExperiences.workspaceId, workspace.id), eq(workExperiences.id, args.workExperienceId)))
+      .returning({
+        id: workExperiences.id,
+        employer: workExperiences.employer,
+        roleTitle: workExperiences.roleTitle,
+        status: workExperiences.status,
+        updatedAt: workExperiences.updatedAt,
+      });
+    return updated
+      ? ({ status: "saved" as const, workExperience: updated, downstreamSummary })
+      : ({ status: "not_found" as const });
+  });
+}
+
+async function applyRejectedWorkExperienceDownstreamStrategy(
+  db: Pick<ReturnType<typeof getDb>, "update">,
+  args: {
+    workspaceId: string;
+    workExperienceId: string;
+    strategy: "keep" | "delete_downstream" | "reassign";
+    reassignToWorkExperienceId: string | null;
+    now: Date;
+  },
+) {
+  if (args.strategy === "reassign") {
+    const [evidence, stories, tasks] = await Promise.all([
+      db
+        .update(evidenceItems)
+        .set({
+          relatedWorkExperienceId: args.reassignToWorkExperienceId,
+          updatedAt: args.now,
+        })
+        .where(
+          and(
+            eq(evidenceItems.workspaceId, args.workspaceId),
+            eq(evidenceItems.relatedWorkExperienceId, args.workExperienceId),
+          ),
+        )
+        .returning({ id: evidenceItems.id }),
+      db
+        .update(initiatives)
+        .set({
+          workExperienceId: args.reassignToWorkExperienceId,
+          updatedAt: args.now,
+        })
+        .where(
+          and(
+            eq(initiatives.workspaceId, args.workspaceId),
+            eq(initiatives.workExperienceId, args.workExperienceId),
+          ),
+        )
+        .returning({ id: initiatives.id }),
+      db
+        .update(enrichmentTasks)
+        .set({
+          workExperienceId: args.reassignToWorkExperienceId,
+          updatedAt: args.now,
+        })
+        .where(
+          and(
+            eq(enrichmentTasks.workspaceId, args.workspaceId),
+            eq(enrichmentTasks.workExperienceId, args.workExperienceId),
+          ),
+        )
+        .returning({ id: enrichmentTasks.id }),
+    ]);
+    return {
+      strategy: args.strategy,
+      evidenceCount: evidence.length,
+      storyTargetCount: stories.length,
+      taskCount: tasks.length,
+    };
   }
 
-  const status = args.action === "mark_reviewed"
-    ? "approved"
-    : args.action === "reject_role"
-      ? "rejected"
-      : "pending";
-  const [updated] = await db
-    .update(workExperiences)
-    .set({ status, updatedAt: new Date() })
-    .where(and(eq(workExperiences.workspaceId, workspace.id), eq(workExperiences.id, args.workExperienceId)))
-    .returning({
-      id: workExperiences.id,
-      employer: workExperiences.employer,
-      roleTitle: workExperiences.roleTitle,
-      status: workExperiences.status,
-      updatedAt: workExperiences.updatedAt,
-    });
-  return updated
-    ? ({ status: "saved" as const, workExperience: updated })
-    : ({ status: "not_found" as const });
+  if (args.strategy === "delete_downstream") {
+    const [directEvidence, stories, tasks] = await Promise.all([
+      db
+        .update(evidenceItems)
+        .set({ status: "rejected", updatedAt: args.now })
+        .where(
+          and(
+            eq(evidenceItems.workspaceId, args.workspaceId),
+            eq(evidenceItems.relatedWorkExperienceId, args.workExperienceId),
+          ),
+        )
+        .returning({ id: evidenceItems.id }),
+      db
+        .update(initiatives)
+        .set({ status: "rejected", updatedAt: args.now })
+        .where(
+          and(
+            eq(initiatives.workspaceId, args.workspaceId),
+            eq(initiatives.workExperienceId, args.workExperienceId),
+          ),
+        )
+        .returning({ id: initiatives.id }),
+      db
+        .update(enrichmentTasks)
+        .set({
+          status: "dismissed",
+          dismissedAt: args.now,
+          resolvedAt: args.now,
+          resolutionKind: "dismissed",
+          updatedAt: args.now,
+        })
+        .where(
+          and(
+            eq(enrichmentTasks.workspaceId, args.workspaceId),
+            eq(enrichmentTasks.workExperienceId, args.workExperienceId),
+          ),
+        )
+        .returning({ id: enrichmentTasks.id }),
+    ]);
+    const storyEvidence = stories.length
+      ? await db
+          .update(evidenceItems)
+          .set({ status: "rejected", updatedAt: args.now })
+          .where(
+            and(
+              eq(evidenceItems.workspaceId, args.workspaceId),
+              inArray(evidenceItems.relatedInitiativeId, stories.map((story) => story.id)),
+            ),
+          )
+          .returning({ id: evidenceItems.id })
+      : [];
+    return {
+      strategy: args.strategy,
+      evidenceCount: directEvidence.length + storyEvidence.length,
+      storyTargetCount: stories.length,
+      taskCount: tasks.length,
+    };
+  }
+
+  const [evidence, stories, tasks] = await Promise.all([
+    db
+      .update(evidenceItems)
+      .set({
+        relatedWorkExperienceId: null,
+        updatedAt: args.now,
+      })
+      .where(
+        and(
+          eq(evidenceItems.workspaceId, args.workspaceId),
+          eq(evidenceItems.relatedWorkExperienceId, args.workExperienceId),
+        ),
+      )
+      .returning({ id: evidenceItems.id }),
+    db
+      .update(initiatives)
+      .set({
+        workExperienceId: null,
+        updatedAt: args.now,
+      })
+      .where(
+        and(
+          eq(initiatives.workspaceId, args.workspaceId),
+          eq(initiatives.workExperienceId, args.workExperienceId),
+        ),
+      )
+      .returning({ id: initiatives.id }),
+    db
+      .update(enrichmentTasks)
+      .set({
+        workExperienceId: null,
+        targetScope: "assign_later",
+        updatedAt: args.now,
+      })
+      .where(
+        and(
+          eq(enrichmentTasks.workspaceId, args.workspaceId),
+          eq(enrichmentTasks.workExperienceId, args.workExperienceId),
+        ),
+      )
+      .returning({ id: enrichmentTasks.id }),
+  ]);
+  return {
+    strategy: args.strategy,
+    evidenceCount: evidence.length,
+    storyTargetCount: stories.length,
+    taskCount: tasks.length,
+  };
 }
 
 function getSubmittedWorkExperienceFields(args: {
