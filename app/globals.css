@@ -10328,11 +10328,18 @@ span > .help-hint {
   text-transform: uppercase;
 }
 
-.work-experience-row__links > div {
+.work-experience-row__linked-items {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
+}
+
+.work-experience-row__link-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
 }
 
 .work-experience-row__links small {

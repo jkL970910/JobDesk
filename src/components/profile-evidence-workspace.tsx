@@ -9703,6 +9703,15 @@ function WorkExperienceRow({
       setMessage({ ok: false, text: "This work experience has not been saved yet." });
       return;
     }
+    if (
+      action === "reject_role" &&
+      !reviewMode &&
+      !window.confirm(
+        "Remove this Work Experience from the Library view? Linked Story Targets and Evidence Claims will be preserved for reassignment.",
+      )
+    ) {
+      return;
+    }
     const loadingCopy = action === "mark_reviewed"
       ? "Marking work experience reviewed..."
       : action === "reject_role"
@@ -9770,7 +9779,7 @@ function WorkExperienceRow({
       ) : null}
       <div className="work-experience-row__links">
         <span>Linked story targets</span>
-        <div>
+        <div className="work-experience-row__linked-items">
           {initiatives.length > 0 ? (
             initiatives.map((initiative) => (
               <small key={initiative.id ?? initiative.internal_title}>
@@ -9781,16 +9790,28 @@ function WorkExperienceRow({
             <small>No story targets linked yet</small>
           )}
         </div>
-        <button
-          className="secondary-button secondary-button--quiet"
-          type="button"
-          onClick={() => {
-            setIsEditing((value) => !value);
-            setMessage(null);
-          }}
-        >
-          {isEditing ? "Cancel edit" : "Edit details"}
-        </button>
+        <div className="work-experience-row__link-actions">
+          <button
+            className="secondary-button secondary-button--quiet"
+            type="button"
+            onClick={() => {
+              setIsEditing((value) => !value);
+              setMessage(null);
+            }}
+          >
+            {isEditing ? "Cancel edit" : "Edit details"}
+          </button>
+          {!reviewMode ? (
+            <button
+              className="secondary-button secondary-button--danger"
+              disabled={isSaving || !canRejectRole}
+              type="button"
+              onClick={() => void updateRoleReview("reject_role")}
+            >
+              {isSaving ? "Removing..." : "Remove"}
+            </button>
+          ) : null}
+        </div>
       </div>
       {reviewMode ? (
         <div className="work-experience-row__actions">
