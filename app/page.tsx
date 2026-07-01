@@ -3098,8 +3098,8 @@ function formatWorkExperienceFact(
   experience?: EvidenceLibrarySummary["workExperiences"][number],
 ) {
   if (!experience) return null;
-  const roleTitle = cleanDisplayText(experience.role_title);
-  const employer = cleanDisplayText(experience.employer);
+  const roleTitle = formatCareerRoleTitle(experience.role_title);
+  const employer = formatCareerRoleEmployer(experience.employer);
   const team = cleanDisplayText(experience.team);
   const title = [roleTitle, employer].filter(Boolean).join(" · ");
   return title || team || null;
@@ -3137,13 +3137,13 @@ function buildCareerRoleCoverage(library: EvidenceLibrarySummary | null) {
         : coverageState === "needs_proof"
           ? "Add more resume-ready claims or story context."
           : "No linked evidence yet.";
-    const employer = cleanDisplayText(experience.employer);
-    const roleTitle = cleanDisplayText(experience.role_title);
+    const employer = formatCareerRoleEmployer(experience.employer);
+    const roleTitle = formatCareerRoleTitle(experience.role_title);
     const team = cleanDisplayText(experience.team);
     const location = cleanDisplayText(experience.location);
     const title =
       [employer, roleTitle].filter(Boolean).join(" · ") || `Work experience ${index + 1}`;
-    const metaParts = [team, location, cleanDisplayText(experience.summary)].filter(Boolean);
+    const metaParts = [team, location].filter(Boolean);
     return {
       dateRange: formatRoleDateRange(experience),
       evidenceCount: linkedEvidence.length,
@@ -3232,6 +3232,28 @@ function cleanDisplayText(value: string | null | undefined) {
   if (!trimmed || trimmed === "{}" || trimmed === "null") return "";
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) return "";
   return trimmed;
+}
+
+function formatCareerRoleTitle(value: string | null | undefined) {
+  const trimmed = cleanDisplayText(value);
+  if (!trimmed) return "";
+  if (looksLikeRoleSentence(trimmed)) return "Role title needs review";
+  return trimmed;
+}
+
+function formatCareerRoleEmployer(value: string | null | undefined) {
+  const trimmed = cleanDisplayText(value);
+  if (!trimmed) return "";
+  if (looksLikeRoleSentence(trimmed)) return "Employer needs review";
+  return trimmed;
+}
+
+function looksLikeRoleSentence(value: string) {
+  if (value.length > 96) return true;
+  if (value.split(/\s+/).length > 12) return true;
+  if (/^[-*•]/.test(value)) return true;
+  if (/[.!?]\s/.test(value)) return true;
+  return false;
 }
 
 function getMainResumeClaimStats(resume: MainResumeSummary) {
