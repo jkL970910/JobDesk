@@ -88,6 +88,7 @@ type StagedResumeReviewResult = StructuredJsonResult<ResumeReview> & {
 
 const DEFAULT_RESUME_REVIEW_SECTION_TIMEOUT_MS = 55_000;
 const DEFAULT_RESUME_REVIEW_SYNTHESIS_TIMEOUT_MS = 120_000;
+const RESUME_REVIEW_SECTION_CHAR_CAP = 1600;
 
 export function resolveResumeReviewStageTimeoutMs(task: string) {
   const envValue = process.env.JOBDESK_RESUME_REVIEW_STAGE_TIMEOUT_MS;
@@ -724,7 +725,23 @@ function pushResumeReviewSection(
 ) {
   const text = section.lines.join("\n").trim();
   if (!text) return;
-  for (const chunk of splitResumeReviewSectionByCharacterCap(text, 1600)) {
+  if (section.kind === "work_experience") {
+    pushSemanticResumeReviewBlocks(sections, {
+      blocks: splitResumeReviewWorkExperienceBlocks(section.lines),
+      heading: section.heading,
+      kind: section.kind,
+    });
+    return;
+  }
+  if (section.kind === "projects") {
+    pushSemanticResumeReviewBlocks(sections, {
+      blocks: splitResumeReviewProjectBlocks(section.lines),
+      heading: section.heading,
+      kind: section.kind,
+    });
+    return;
+  }
+  for (const chunk of splitResumeReviewSectionByCharacterCap(text, RESUME_REVIEW_SECTION_CHAR_CAP)) {
     sections.push({
       id: "",
       kind: section.kind,
@@ -732,6 +749,130 @@ function pushResumeReviewSection(
       title: section.heading,
     });
   }
+}
+
+function pushSemanticResumeReviewBlocks(
+  sections: ResumeReviewSourceSection[],
+  args: {
+    blocks: string[][];
+    heading: string;
+    kind: ResumeReviewSectionKind;
+  },
+) {
+  for (const block of args.blocks) {
+    const text = block.join("\n").trim();
+    if (!text) continue;
+    const title = buildSemanticResumeReviewSectionTitle(args.heading, block);
+    const chunks = splitSemanticResumeReviewBlockWithContext(block, RESUME_REVIEW_SECTION_CHAR_CAP);
+    chunks.forEach((chunk, index) => {
+      sections.push({
+        id: "",
+        kind: args.kind,
+        text: chunk,
+        title: chunks.length > 1 ? `${title} (${index + 1}/${chunks.length})` : title,
+      });
+    });
+  }
+}
+
+function splitResumeReviewWorkExperienceBlocks(lines: string[]) {
+  const blocks: string[][] = [];
+  let current: string[] = [];
+  lines.forEach((line, index) => {
+    const startsNewRole =
+      current.length > 0 && isLikelyWorkExperienceBlockStart(lines, index);
+    if (startsNewRole) {
+      blocks.push(current);
+      current = [line];
+      return;
+    }
+    current.push(line);
+  });
+  if (current.length) blocks.push(current);
+  return blocks;
+}
+
+function splitResumeReviewProjectBlocks(lines: string[]) {
+  const blocks: string[][] = [];
+  let current: string[] = [];
+  lines.forEach((line, index) => {
+    const startsNewProject =
+      current.length > 0 &&
+      isLikelySemanticHeader(line) &&
+      !hasResumeReviewDateSignal(line) &&
+      !hasJobTitleSignal(line) &&
+      Boolean(lines[index + 1]);
+    if (startsNewProject) {
+      blocks.push(current);
+      current = [line];
+      return;
+    }
+    current.push(line);
+  });
+  if (current.length) blocks.push(current);
+  return blocks;
+}
+
+function isLikelyWorkExperienceBlockStart(lines: string[], index: number) {
+  const line = lines[index] ?? "";
+  const next = lines[index + 1] ?? "";
+  const previous = lines[index - 1] ?? "";
+  if (!isLikelySemanticHeader(line)) return false;
+  if (hasCompanyNameSignal(line) && (hasJobTitleSignal(next) || hasResumeReviewDateSignal(next))) return true;
+  return (
+    hasJobTitleSignal(line) &&
+    hasResumeReviewDateSignal(line) &&
+    !hasCompanyNameSignal(previous) &&
+    !hasJobTitleSignal(previous)
+  );
+}
+
+function buildSemanticResumeReviewSectionTitle(heading: string, lines: string[]) {
+  const contextLines = getSemanticBlockContextLines(lines);
+  if (contextLines.length === 0) return heading;
+  return [heading, contextLines.slice(0, 2).join(" · ")].join(" — ");
+}
+
+function splitSemanticResumeReviewBlockWithContext(lines: string[], cap: number) {
+  const text = lines.join("\n").trim();
+  if (text.length <= cap) return [text];
+  const contextLines = getSemanticBlockContextLines(lines);
+  const detailLines = lines.slice(Math.max(1, contextLines.length));
+  const chunks: string[] = [];
+  let current = [...contextLines];
+  for (const line of detailLines) {
+    const next = [...current, line].join("\n");
+    if (next.length > cap && current.length > contextLines.length) {
+      chunks.push(current.join("\n"));
+      current = [...contextLines, line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length > contextLines.length || chunks.length === 0) {
+    chunks.push(current.join("\n"));
+  }
+  return chunks.flatMap((chunk) => {
+    if (chunk.length <= cap) return [chunk];
+    const context = contextLines.join("\n");
+    const body = chunk.slice(context.length).trim();
+    const bodyCap = Math.max(400, cap - context.length - 2);
+    const pieces: string[] = [];
+    for (let index = 0; index < body.length; index += bodyCap) {
+      pieces.push([context, body.slice(index, index + bodyCap).trim()].filter(Boolean).join("\n"));
+    }
+    return pieces;
+  });
+}
+
+function getSemanticBlockContextLines(lines: string[]) {
+  const context: string[] = [];
+  for (const line of lines) {
+    if (isResumeReviewBulletLine(line)) break;
+    context.push(line);
+    if (context.length >= 3) break;
+  }
+  return context.length > 0 ? context : lines.slice(0, 1);
 }
 
 function splitResumeReviewSectionByCharacterCap(text: string, cap: number) {
@@ -757,6 +898,36 @@ function splitResumeReviewSectionByCharacterCap(text: string, cap: number) {
     }
     return pieces;
   });
+}
+
+function isLikelySemanticHeader(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed || isResumeReviewBulletLine(trimmed)) return false;
+  if (trimmed.length > 120) return false;
+  if (/[.!?]$/.test(trimmed) && trimmed.split(/\s+/).length > 8) return false;
+  return true;
+}
+
+function isResumeReviewBulletLine(line: string) {
+  return /^\s*(?:[-*•‣]|\d+[.)])\s+/.test(line);
+}
+
+function hasCompanyNameSignal(line: string) {
+  const words = line.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 8) return false;
+  return words.some((word) => /^[A-Z][A-Za-z&.,'-]*$/.test(word) || /^[A-Z]{2,}$/.test(word));
+}
+
+function hasJobTitleSignal(line: string) {
+  return /\b(engineer|developer|intern|manager|analyst|designer|architect|consultant|researcher|scientist|lead|director|specialist|coordinator|associate|founder|owner|product|software|frontend|front-end|backend|back-end|full-stack|data|machine learning|ml)\b/i.test(
+    line,
+  );
+}
+
+function hasResumeReviewDateSignal(line: string) {
+  return /\b(?:19|20)\d{2}\b|\b(?:present|current|now)\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\b/i.test(
+    line,
+  );
 }
 
 function sleep(ms: number) {

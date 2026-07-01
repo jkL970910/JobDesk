@@ -147,7 +147,7 @@ describe("resume review AI instructions", () => {
       }
       if (!tasks.includes("scan")) {
         tasks.push("scan");
-        expect(userInput).not.toContain("Built platform workflow used by 3 teams");
+        expect(userInput).not.toContain('"text"');
         return jsonResponse({
           ats_notes: ["The target role is visible but could be stronger."],
           strengths: ["Recent engineering experience is visible."],
@@ -157,7 +157,7 @@ describe("resume review AI instructions", () => {
       }
       if (!tasks.includes("rubric")) {
         tasks.push("rubric");
-        expect(userInput).not.toContain("Built platform workflow used by 3 teams");
+        expect(userInput).not.toContain('"text"');
         return jsonResponse({
           score: {
             confidence: 0.78,
@@ -183,7 +183,7 @@ describe("resume review AI instructions", () => {
         });
       }
       tasks.push("evidence");
-      expect(userInput).not.toContain("Built platform workflow used by 3 teams");
+      expect(userInput).not.toContain('"text"');
       return jsonResponse({
         fairness_check: {
           applied: true,
@@ -677,6 +677,75 @@ describe("resume review AI instructions", () => {
       "skills",
     ]);
     expect(sections.every((section) => section.text.length <= 1600)).toBe(true);
+  });
+
+  it("keeps each work experience role as one semantic section when it fits", () => {
+    const sections = segmentResumeReviewSource(`
+      Jane Doe
+
+      Experience
+      Amazon
+      Software Development Engineer Jan 2022 - Present
+      - Built station workflow services used by dispatch teams.
+      - Improved route planning latency by 30%.
+
+      Shopify
+      Front-End Developer Intern May 2021 - Aug 2021
+      - Built checkout analytics UI in React.
+      - Partnered with backend engineers on event tracking.
+    `);
+
+    const workSections = sections.filter((section) => section.kind === "work_experience");
+    expect(workSections).toHaveLength(2);
+    expect(workSections[0]?.title).toContain("Amazon");
+    expect(workSections[0]?.text).toContain("Software Development Engineer Jan 2022 - Present");
+    expect(workSections[0]?.text).toContain("Improved route planning latency");
+    expect(workSections[0]?.text).not.toContain("Shopify");
+    expect(workSections[1]?.title).toContain("Shopify");
+    expect(workSections[1]?.text).toContain("Front-End Developer Intern May 2021 - Aug 2021");
+  });
+
+  it("splits oversized work experience roles with repeated role header context", () => {
+    const bullets = Array.from(
+      { length: 28 },
+      (_, index) =>
+        `- Delivered project ${index + 1} with detailed implementation context, ownership scope, measurable result, cross-functional collaboration, and production rollout notes.`,
+    ).join("\n");
+    const sections = segmentResumeReviewSource(`
+      Jane Doe
+
+      Experience
+      Amazon
+      Software Development Engineer Jan 2022 - Present
+      ${bullets}
+    `);
+
+    const workSections = sections.filter((section) => section.kind === "work_experience");
+    expect(workSections.length).toBeGreaterThan(1);
+    expect(workSections.every((section) => section.text.includes("Amazon"))).toBe(true);
+    expect(workSections.every((section) => section.text.includes("Software Development Engineer Jan 2022 - Present"))).toBe(true);
+    expect(workSections.every((section) => section.title.includes("Amazon"))).toBe(true);
+  });
+
+  it("keeps standalone project entries as semantic project sections", () => {
+    const sections = segmentResumeReviewSource(`
+      Jane Doe
+
+      Projects
+      Portfolio Tracker
+      - Built a personal finance dashboard with account-level holdings.
+      - Added quote freshness and source labels.
+
+      JobDesk Resume Review
+      - Built a staged resume review runner.
+      - Added reviewer score calibration.
+    `);
+
+    const projectSections = sections.filter((section) => section.kind === "projects");
+    expect(projectSections).toHaveLength(2);
+    expect(projectSections[0]?.title).toContain("Portfolio Tracker");
+    expect(projectSections[0]?.text).not.toContain("JobDesk Resume Review");
+    expect(projectSections[1]?.title).toContain("JobDesk Resume Review");
   });
 
   it("keeps full resume review moving when a section assessment times out", async () => {
