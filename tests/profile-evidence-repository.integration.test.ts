@@ -761,6 +761,82 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     ).toBe(true);
   }, 20_000);
 
+  it("keeps Work Experience persistence high-level and rejects bullet-shaped role containers", async () => {
+    const sourceTitle = `Work experience sanitizer ${crypto.randomUUID()}`;
+    const base = buildExtraction();
+    const extraction: ProfileEvidenceExtraction = {
+      ...base,
+      profile: {
+        ...base.profile,
+        experience: [
+          {
+            employer: simpleField("Amazon", "Amazon", 0.9),
+            title: simpleField("Software Engineer", "Software Engineer", 0.9),
+            start_date: simpleField("Jan 2022", "Jan 2022", 0.8),
+            end_date: simpleField("Present", "Present", 0.8),
+            bullets: [
+              simpleField(
+                "Built a long platform migration story that should become initiative/evidence material, not Work Experience summary.",
+                "Built a long platform migration story that should become initiative/evidence material, not Work Experience summary.",
+                0.8,
+              ),
+            ],
+          },
+        ],
+      },
+      work_experiences: [
+        {
+          employer: "Amazon",
+          role_title: "Software Engineer",
+          team: null,
+          location: "Toronto",
+          start_date: "Jan 2022",
+          end_date: "Present",
+          summary: "Built platform workflows that improved operations reliability across multiple launch teams.",
+          status: "pending",
+        },
+        {
+          employer: "Worked on a visualization platform with a long paragraph that came from a resume bullet.",
+          role_title: "Worked on a visualization platform with a long paragraph that came from a resume bullet.",
+          team: null,
+          location: null,
+          start_date: null,
+          end_date: null,
+          summary: "This should be quarantined because it is not an employer or role container.",
+          status: "pending",
+        },
+      ],
+    };
+    const result = await persistProfileEvidenceExtraction({
+      sourceTitle,
+      sourceText: sampleSourceText,
+      extraction,
+      provider: "integration-test",
+      model: "test-model",
+      usage: { totalTokens: 42 },
+      retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
+    });
+
+    expect(result.status).toBe("saved");
+    if (result.status !== "saved") throw new Error("Expected saved profile evidence.");
+    const saved = await getDb()
+      .select({
+        employer: workExperiences.employer,
+        roleTitle: workExperiences.roleTitle,
+        summary: workExperiences.summary,
+      })
+      .from(workExperiences)
+      .where(eq(workExperiences.sourceDocumentId, result.sourceDocumentId));
+
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({
+      employer: "Amazon",
+      roleTitle: "Software Engineer",
+      summary: null,
+    });
+  });
+
   it("previews enrichment answers as proposals before committing canonical evidence", async () => {
     const db = getDb();
     const workspace = await getCurrentWorkspace(db);

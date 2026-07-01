@@ -493,6 +493,7 @@ function buildStoryEvidenceInstructions() {
     "Return only JSON with keys: initiatives, evidence_items, extraction_notes.",
     "Do not return profile, work_experiences, portfolio_projects, or project_cards in this call.",
     "Initiatives are coherent employer-internal project/story containers under a Work Experience.",
+    "Keep Work Experience as a high-level employer/role container; do not move section bullets into Work Experience fields.",
     "Use work_experience_ref matching a known_work_experiences ref when possible.",
     "Evidence items must be atomic reusable facts and must quote the source verbatim.",
     "Any metric in evidence text or metrics must appear in source_quote.",

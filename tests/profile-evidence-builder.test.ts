@@ -20,6 +20,7 @@ describe("Evidence Library Builder instructions", () => {
 
     expect(instructions).toContain("project note");
     expect(instructions).toContain("work_experiences are employer/role containers");
+    expect(instructions).toContain("Detailed bullets and achievements belong in initiatives and evidence_items");
     expect(instructions).toContain("create either one initiative");
     expect(instructions).toContain("Return at most 8 evidence_items");
     expect(instructions).toContain("redaction");

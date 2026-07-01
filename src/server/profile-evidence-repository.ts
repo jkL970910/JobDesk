@@ -174,10 +174,10 @@ export async function persistProfileEvidenceExtraction(args: {
       throw new Error("Failed to create profile.");
     }
 
-    const workExperienceDrafts = mergeWorkExperienceDrafts(
+    const workExperienceDrafts = sanitizeWorkExperienceDrafts(mergeWorkExperienceDrafts(
       args.extraction.work_experiences,
       profileExperiencesToWorkExperienceDrafts(args.extraction.profile.experience),
-    );
+    ));
     const initiativeConsolidation = consolidateInitiativeDrafts(args.extraction.initiatives);
     const workExperienceIdByDraftId = new Map<string, string>();
     const workExperienceAnchorTexts = new Map<string, string>();
@@ -4014,14 +4014,49 @@ function profileExperiencesToWorkExperienceDrafts(
     location: null,
     start_date: experience.start_date?.value ?? null,
     end_date: experience.end_date?.value ?? null,
-    summary:
-      experience.bullets
-        .map((bullet) => bullet.value.trim())
-        .filter(Boolean)
-        .slice(0, 3)
-        .join(" ") || null,
+    summary: null,
     status: "pending",
   }));
+}
+
+function sanitizeWorkExperienceDrafts(
+  experiences: ProfileEvidenceExtraction["work_experiences"],
+): ProfileEvidenceExtraction["work_experiences"] {
+  return experiences
+    .map((experience) => {
+      const employer = sanitizeWorkExperienceName(experience.employer);
+      const roleTitle = sanitizeWorkExperienceName(experience.role_title);
+      if (!employer || !roleTitle) return null;
+      return {
+        ...experience,
+        employer,
+        role_title: roleTitle,
+        summary: sanitizeWorkExperienceSummary(experience.summary),
+      };
+    })
+    .filter((experience): experience is ProfileEvidenceExtraction["work_experiences"][number] =>
+      Boolean(experience),
+    );
+}
+
+function sanitizeWorkExperienceName(value: string) {
+  const normalized = value.replace(/^[-*•]\s*/, "").trim();
+  if (!normalized) return null;
+  if (normalized.length > 96) return null;
+  if (normalized.split(/\s+/).length > 12) return null;
+  if (/[.!?]\s/.test(normalized)) return null;
+  return normalized;
+}
+
+function sanitizeWorkExperienceSummary(value: string | null | undefined) {
+  const normalized = value?.replace(/^[-*•]\s*/, "").trim();
+  if (!normalized) return null;
+  if (normalized.length > 180) return null;
+  if (/[.!?]\s+\S+/.test(normalized)) return null;
+  if (/\b(reduced|increased|improved|built|delivered|launched|optimized|migrated|implemented|led|owned)\b/i.test(normalized)) {
+    return null;
+  }
+  return normalized;
 }
 
 function mergeWorkExperienceDrafts(
