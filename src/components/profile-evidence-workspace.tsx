@@ -1147,12 +1147,24 @@ export function ProfileEvidenceWorkspace({
     const startedAt = Date.now();
     const maxWaitMs = 12 * 60_000;
     while (Date.now() - startedAt < maxWaitMs) {
-      const processed = await triggerExtractionRunProcessing(runId);
+      let hadNetworkError = false;
+      const processed = await triggerExtractionRunProcessing(runId).catch(() => {
+        hadNetworkError = true;
+        setStatus("Connection was interrupted. Checking extraction progress.");
+        return null;
+      });
       if (processed?.run) {
         setStatus(formatExtractionRunStatus(processed.run));
         if (processed.run.status === "completed" || processed.run.status === "failed") return processed.run;
       }
-      const response = await fetchJson(`/api/profile-evidence/extract/runs/${runId}`);
+      let response: Response;
+      try {
+        response = await fetchJson(`/api/profile-evidence/extract/runs/${runId}`);
+      } catch {
+        setStatus("Connection was interrupted. Retrying extraction progress check.");
+        await sleep(2500);
+        continue;
+      }
       const payload = (await response.json().catch(() => null)) as
         | { data?: { run?: ExtractionRunSummary }; error?: string; kind?: string }
         | null;
@@ -1162,6 +1174,9 @@ export function ProfileEvidenceWorkspace({
       const run = payload.data.run;
       setStatus(formatExtractionRunStatus(run));
       if (run.status === "completed" || run.status === "failed") return run;
+      if (hadNetworkError) {
+        await sleep(2500);
+      }
       await sleep(1200);
     }
     return {
