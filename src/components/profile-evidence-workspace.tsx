@@ -704,6 +704,7 @@ export function ProfileEvidenceWorkspace({
   const [retryableFailure, setRetryableFailure] =
     useState<RetryableExtractionFailure | null>(null);
   const [activeExtractionRunId, setActiveExtractionRunId] = useState<string | null>(null);
+  const [activeExtractionRun, setActiveExtractionRun] = useState<ExtractionRunSummary | null>(null);
   const [status, setStatus] = useState("Add material to continue.");
   const [retrievalPreview, setRetrievalPreview] = useState<{
     evidence: RetrievalEvidenceExplanation[];
@@ -1040,6 +1041,7 @@ export function ProfileEvidenceWorkspace({
           return;
         }
         setActiveExtractionRunId(payload.data.run.id);
+        setActiveExtractionRun(payload.data.run);
         setStatus(formatExtractionRunStatus(payload.data.run));
         const completedRun = await processExtractionRunUntilTerminal(payload.data.run.id);
         if (completedRun.status === "completed") {
@@ -1057,6 +1059,7 @@ export function ProfileEvidenceWorkspace({
           setStatus("Library items created from the reviewed resume.");
           setActiveSection("review");
           setActiveExtractionRunId(null);
+          setActiveExtractionRun(null);
           return;
         }
         const message = formatUserFacingFailure(
@@ -1105,6 +1108,7 @@ export function ProfileEvidenceWorkspace({
           return;
         }
         setActiveExtractionRunId(payload.data.run.id);
+        setActiveExtractionRun(payload.data.run);
         setStatus(formatExtractionRunStatus(payload.data.run));
         const completedRun = await processExtractionRunUntilTerminal(payload.data.run.id);
         if (completedRun.status === "completed") {
@@ -1120,6 +1124,7 @@ export function ProfileEvidenceWorkspace({
           });
           setStatus("Library items created from the reviewed resume.");
           setActiveExtractionRunId(null);
+          setActiveExtractionRun(null);
           setActiveSection("review");
           return;
         }
@@ -1154,6 +1159,7 @@ export function ProfileEvidenceWorkspace({
         return null;
       });
       if (processed?.run) {
+        setActiveExtractionRun(processed.run);
         setStatus(formatExtractionRunStatus(processed.run));
         if (processed.run.status === "completed" || processed.run.status === "failed") return processed.run;
       }
@@ -1172,6 +1178,7 @@ export function ProfileEvidenceWorkspace({
         throw new Error(payload?.error ?? "Could not check extraction run status.");
       }
       const run = payload.data.run;
+      setActiveExtractionRun(run);
       setStatus(formatExtractionRunStatus(run));
       if (run.status === "completed" || run.status === "failed") return run;
       if (hadNetworkError) {
@@ -2698,6 +2705,7 @@ export function ProfileEvidenceWorkspace({
                   onSaveSourceOnly={() => {
                     setError(null);
                     setActiveExtractionRunId(null);
+                    setActiveExtractionRun(null);
                     setRetryableFailure(null);
                     setStatus("Source kept in Add Material. You can retry extraction or split the material later.");
                     setActiveSection("review");
@@ -2705,6 +2713,7 @@ export function ProfileEvidenceWorkspace({
                   onSplitMaterial={() => {
                     setError(null);
                     setActiveExtractionRunId(null);
+                    setActiveExtractionRun(null);
                     setStatus("Split the resume text into a smaller section, then retry Create library items.");
                     setRetryableFailure(null);
                     setResumeSourceEditable(true);
@@ -2714,6 +2723,7 @@ export function ProfileEvidenceWorkspace({
               <p className="source-status">{entryGuidance.primaryHint}</p>
               {isExtracting ? (
                 <ProgressNotice
+                  activeRun={activeExtractionRun}
                   elapsedSeconds={extractElapsedSeconds}
                   label="Extraction run processing"
                   mode="evidence"
@@ -3405,21 +3415,21 @@ function getFileProcessingStages(
 }
 
 function ProgressNotice({
+  activeRun,
   elapsedSeconds,
   label,
   mode,
 }: {
+  activeRun?: ExtractionRunSummary | null;
   elapsedSeconds: number;
   label: string;
   mode: "evidence" | "project";
 }) {
-  const progress = Math.min(92, 18 + elapsedSeconds * 2);
   const stages = getProgressStages(mode);
-  const activeIndex = Math.min(
-    elapsedSeconds < 8 ? 0 : elapsedSeconds < 22 ? 1 : elapsedSeconds < 40 ? 2 : 3,
-    stages.length - 1,
-  );
+  const progressInfo = buildExtractionProgressInfo(activeRun, elapsedSeconds, stages.length);
+  const activeIndex = progressInfo.activeIndex;
   const activeStage = stages[activeIndex]!;
+  const progress = progressInfo.progress;
   return (
     <div className="progress-notice" role="status" aria-live="polite">
       <div className="progress-notice__top">
@@ -3431,7 +3441,8 @@ function ProgressNotice({
       </div>
       <p>
         {activeStage.detail}
-        {elapsedSeconds >= 40 ? " Longer sources can take about a minute." : ""}
+        {progressInfo.detail ? ` ${progressInfo.detail}` : ""}
+        {elapsedSeconds >= 60 && !progressInfo.detail ? " Longer sources can take a few minutes while JobDesk reviews each section." : ""}
       </p>
       <ol className="progress-stages" aria-label="Current extraction stages">
         {stages.map((stage, index) => (
@@ -3443,7 +3454,7 @@ function ProgressNotice({
             <span>{index + 1}</span>
             <div>
               <strong>{stage.label}</strong>
-              <small>{stage.summary}</small>
+              <small>{progressInfo.stageSummaries[index] ?? stage.summary}</small>
             </div>
           </li>
         ))}
@@ -3451,6 +3462,76 @@ function ProgressNotice({
       <p>Keep this page open; the library will switch to review mode when this finishes.</p>
     </div>
   );
+}
+
+function buildExtractionProgressInfo(
+  run: ExtractionRunSummary | null | undefined,
+  elapsedSeconds: number,
+  stageCount: number,
+) {
+  const fallbackIndex = Math.min(
+    elapsedSeconds < 8 ? 0 : elapsedSeconds < 22 ? 1 : elapsedSeconds < 40 ? 2 : 3,
+    stageCount - 1,
+  );
+  if (!run) {
+    return {
+      activeIndex: fallbackIndex,
+      detail: "",
+      progress: Math.min(92, 18 + elapsedSeconds * 2),
+      stageSummaries: [] as string[],
+    };
+  }
+  const progress = run.result?.progress;
+  const total = progress?.totalEvidenceSegmentCount ?? 0;
+  const completed = progress?.completedSegmentCount ?? 0;
+  const current = progress?.currentSegmentTitle?.trim();
+  const activeIndexByStatus: Record<ExtractionRunStatus, number> = {
+    completed: stageCount - 1,
+    extracting_evidence: 2,
+    extracting_profile: 1,
+    failed: stageCount - 1,
+    parsing: 0,
+    queued: 0,
+    saving: 4,
+    segmenting: 1,
+    validating: 3,
+  };
+  const activeIndex = Math.min(activeIndexByStatus[run.status] ?? fallbackIndex, stageCount - 1);
+  const segmentProgress = total > 0 ? completed / total : 0;
+  const progressPercent =
+    run.status === "completed"
+      ? 100
+      : run.status === "saving"
+        ? 88
+        : run.status === "validating"
+          ? 76
+          : run.status === "extracting_evidence"
+            ? Math.min(74, Math.max(38, 38 + Math.round(segmentProgress * 32)))
+            : Math.max(16, Math.round(((activeIndex + 0.55) / stageCount) * 100));
+  const sectionText = total > 0
+    ? `${completed}/${total} evidence sections complete`
+    : "";
+  const currentText = current && total > 0
+    ? `Current: section ${Math.min(completed + 1, total)}/${total}, ${current}.`
+    : "";
+  const detail =
+    run.status === "extracting_evidence"
+      ? [sectionText ? `${sectionText}.` : "", currentText].filter(Boolean).join(" ")
+      : run.status === "validating"
+        ? "Combining section results and checking the extracted material before saving."
+        : run.status === "saving"
+          ? "Saving Work Experiences, Story Targets, and Evidence Claims into the library."
+          : "";
+  const stageSummaries = [] as string[];
+  if (sectionText) stageSummaries[2] = sectionText;
+  if (run.status === "validating") stageSummaries[3] = "combining section results";
+  if (run.status === "saving") stageSummaries[4] = "saving canonical items";
+  return {
+    activeIndex,
+    detail,
+    progress: progressPercent,
+    stageSummaries,
+  };
 }
 
 function getProgressStages(mode: "evidence" | "project") {
@@ -3480,22 +3561,27 @@ function getProgressStages(mode: "evidence" | "project") {
   }
   return [
     {
-      label: "Read source",
+      label: "Prepare source",
       summary: "Use the selected reviewed resume or added source text.",
       detail: "Reading the source and preparing it for evidence extraction.",
     },
     {
-      label: "Find useful details",
-        summary: "Find profile facts, Evidence Claims, and Story Target drafts.",
-        detail: "Finding profile facts, reusable Evidence Claims, and Story Target drafts.",
+      label: "Map work history",
+      summary: "Identify profile facts and Work Experience containers.",
+      detail: "Mapping profile facts and Work Experience containers before section review.",
     },
     {
-      label: "Structure library items",
-      summary: "Convert raw signals into reviewable cards.",
-      detail: "Turning source material into Evidence Library cards with missing details and questions.",
+      label: "Review evidence sections",
+      summary: "Extract Evidence Claims and Story Target drafts section by section.",
+      detail: "Reviewing each resume section for reusable Evidence Claims and Story Target drafts.",
     },
     {
-      label: "Save and review",
+      label: "Validate material",
+      summary: "Combine section results into one reviewed extraction.",
+      detail: "Combining section results and checking the extracted material before saving.",
+    },
+    {
+      label: "Save library",
       summary: "Save results and surface possible overlaps.",
       detail: "Saving library items, refreshing review tabs, and preparing possible-overlap cleanup.",
     },
