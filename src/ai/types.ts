@@ -37,12 +37,15 @@ export type JobDeskAiDiagnostics = {
   maxOutputTokens?: number;
   timeoutMs?: number;
   durationMs?: number;
+  seed?: number;
   responseChars?: number;
   outputChars?: number;
   receivedResponse?: boolean;
   status?: number | null;
   retryCount?: number;
   finalAttempt?: number;
+  temperature?: number;
+  topP?: number;
   failurePhase?:
     | "fetch"
     | "http"
@@ -70,7 +73,10 @@ export type JobDeskAiConfig = {
   transport: "responses" | "chat-completions";
   model: string;
   reasoningEffort: JobDeskReasoningEffort;
+  seed?: number;
   store: boolean;
+  temperature: number;
+  topP?: number;
 };
 
 export type FetchLike = (

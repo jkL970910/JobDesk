@@ -385,6 +385,38 @@ export function composeResumeReviewFromStages(args: {
   });
 }
 
+export function calibrateResumeReviewForSectionFallbacks(args: {
+  fallbackSectionCount: number;
+  review: ResumeReview;
+  totalSectionCount: number;
+}) {
+  if (args.fallbackSectionCount <= 0) return args.review;
+  const fallbackNote =
+    args.fallbackSectionCount === 1
+      ? "1 resume section used low-confidence fallback analysis after the provider timed out."
+      : `${args.fallbackSectionCount} resume sections used low-confidence fallback analysis after provider timeouts.`;
+  const confidenceCap = args.fallbackSectionCount >= args.totalSectionCount ? 0.35 : 0.55;
+  return ResumeReview.parse({
+    ...args.review,
+    risk_flags: [...args.review.risk_flags, fallbackNote],
+    score: {
+      ...args.review.score,
+      confidence: Math.min(args.review.score.confidence, confidenceCap),
+      scope_note: `${args.review.score.scope_note} ${fallbackNote}`,
+    },
+  });
+}
+
+export function isTimedOutResumeReviewSectionAssessment(
+  assessment: ResumeReviewSectionAssessmentData,
+) {
+  return (
+    assessment.confidence <= 0.25 &&
+    assessment.evidence_questions.some((question) => question.toLowerCase().includes("took too long")) &&
+    assessment.risk_flags.some((flag) => flag.toLowerCase().includes("not completed"))
+  );
+}
+
 async function assessResumeReviewSection(args: {
   adapter: OpenRouterResponsesAdapter;
   resumeTitle: string;
@@ -399,6 +431,7 @@ async function assessResumeReviewSection(args: {
       }),
       instructions: buildResumeReviewSectionAssessmentInstructions(),
       maxOutputTokens: 620,
+      retryTimeout: false,
       schema: ResumeReviewSectionAssessment,
       task: "general-resume-review-section-assessment",
     });
@@ -575,6 +608,7 @@ async function callResumeReviewStageWithRetry<TSchema extends z.ZodTypeAny>(args
   input: string;
   instructions: string;
   maxOutputTokens: number;
+  retryTimeout?: boolean;
   schema: TSchema;
   task: string;
 }): Promise<StructuredJsonResult<z.infer<TSchema>>> {
@@ -591,6 +625,9 @@ async function callResumeReviewStageWithRetry<TSchema extends z.ZodTypeAny>(args
     });
   } catch (error) {
     if (!isRetryableResumeReviewStageFailure(error)) throw error;
+    if (error instanceof JobDeskAiError && error.kind === "timeout" && args.retryTimeout === false) {
+      throw error;
+    }
     await sleep(1200);
     try {
       const result = await args.adapter.callStructuredJson({

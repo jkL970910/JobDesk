@@ -258,6 +258,9 @@ export class OpenRouterResponsesAdapter {
       return {
         model: this.config.model,
         response_format: { type: "json_object" },
+        temperature: this.config.temperature,
+        ...(this.config.topP != null ? { top_p: this.config.topP } : {}),
+        ...(this.config.seed != null ? { seed: this.config.seed } : {}),
         messages: [
           {
             role: "system",
@@ -282,6 +285,9 @@ export class OpenRouterResponsesAdapter {
         },
       ],
       reasoning: { effort: this.config.reasoningEffort },
+      temperature: this.config.temperature,
+      ...(this.config.topP != null ? { top_p: this.config.topP } : {}),
+      ...(this.config.seed != null ? { seed: this.config.seed } : {}),
       text: { verbosity: "low", format: { type: "json_object" } },
       max_output_tokens: request.maxOutputTokens ?? 1400,
       store: this.config.store,
@@ -307,6 +313,9 @@ function buildBaseDiagnostics<TSchema extends import("zod").z.ZodTypeAny>(args: 
     reasoningEffort: args.config.reasoningEffort,
     requestBodyChars: args.requestBodyChars,
     retryCount: args.retryCount,
+    seed: args.config.seed,
+    temperature: args.config.temperature,
+    topP: args.config.topP,
     task: args.request.task,
     timeoutMs: args.timeoutMs,
     transport: args.config.transport,

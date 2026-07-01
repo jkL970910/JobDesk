@@ -6,6 +6,7 @@ import {
   buildResumeReviewRubricDimensionInstructions,
   buildResumeReviewRubricInstructions,
   buildResumeReviewScanInstructions,
+  calibrateResumeReviewForSectionFallbacks,
   consolidateResumeReviewRubricDimensions,
   RESUME_REVIEW_RUBRIC_DIMENSIONS,
   reviewResumeWithAi,
@@ -52,6 +53,53 @@ describe("resume review AI instructions", () => {
     process.env.JOBDESK_RESUME_REVIEW_STAGE_TIMEOUT_MS = "90000";
     expect(resolveResumeReviewStageTimeoutMs("general-resume-review-section-assessment")).toBe(90_000);
     expect(resolveResumeReviewStageTimeoutMs("general-resume-review-rubric")).toBe(90_000);
+  });
+
+  it("marks final reviews as lower confidence when section analysis used timeout fallback", () => {
+    const review = calibrateResumeReviewForSectionFallbacks({
+      fallbackSectionCount: 1,
+      totalSectionCount: 5,
+      review: {
+        ats_notes: [],
+        fairness_check: {
+          applied: true,
+          note: "No protected or proxy signals were penalized.",
+          signals_not_penalized: [],
+        },
+        missing_evidence_questions: [],
+        risk_flags: [],
+        rubric: [
+          {
+            evidenceQuestions: [],
+            findings: ["Structure is readable."],
+            helpedScore: ["Sections are clear."],
+            key: "structure",
+            label: "Structure",
+            loweredScore: [],
+            maxScore: 100,
+            nextAction: "Keep section order clear.",
+            note: "Readable structure.",
+            raiseScore: [],
+            score: 82,
+          },
+        ],
+        score: {
+          confidence: 0.78,
+          overall: 82,
+          scope_note: "General resume review without a target JD.",
+        },
+        strengths: [],
+        suggested_edits: [],
+        ten_second_scan: "Clear but needs stronger quantified impact.",
+        weaknesses: [],
+      },
+    });
+
+    expect(review.score.confidence).toBe(0.55);
+    expect(review.score.scope_note).toContain("low-confidence fallback analysis");
+    expect(review.risk_flags).toContain(
+      "1 resume section used low-confidence fallback analysis after the provider timed out.",
+    );
   });
 
   it("splits full resume review into staged provider calls and consolidates the result", async () => {
@@ -162,7 +210,7 @@ describe("resume review AI instructions", () => {
     });
 
     expect(result.stageCount).toBe(4);
-    expect(result.retryCount).toBe(1);
+    expect(result.retryCount).toBe(0);
     expect(stages).toEqual(["scanning", "scoring", "evidence_review"]);
     expect(tasks.slice(0, 2)).toEqual(["section", "section"]);
     expect(tasks.slice(-3)).toEqual(["scan", "rubric", "evidence"]);
@@ -703,9 +751,9 @@ describe("resume review AI instructions", () => {
       sourceTitle: "Jane Doe Resume",
     });
 
-    expect(sectionCalls).toBe(4);
+    expect(sectionCalls).toBe(2);
     expect(result.data.score.overall).toBe(62);
-    expect(result.retryCount).toBe(2);
+    expect(result.retryCount).toBe(0);
   });
 });
 

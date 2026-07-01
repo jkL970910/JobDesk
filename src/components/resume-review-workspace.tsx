@@ -6,6 +6,10 @@ import { createPortal } from "react-dom";
 import { useAccess } from "./access-provider";
 import { buildDimensionDetail } from "./resume-review-dimension-detail";
 
+const RESUME_REVIEW_PROCESS_STEP_DELAY_MS = 250;
+const RESUME_REVIEW_ACTIVE_POLL_INTERVAL_MS = 1500;
+const RESUME_REVIEW_ACTIVE_PUMP_INTERVAL_MS = 1000;
+
 export type ResumeSourceReviewSummary = {
   activeReviewRun: ResumeReviewRunSummary | null;
   id: string;
@@ -264,10 +268,10 @@ export function ResumeReviewWorkspace({
     const elapsedTimer = window.setInterval(updateElapsed, 1000);
     const pollTimer = window.setInterval(() => {
       void refreshReviewRun(selectedActiveReviewRun.id, selectedResume?.id);
-    }, 2000);
+    }, RESUME_REVIEW_ACTIVE_POLL_INTERVAL_MS);
     const pumpTimer = window.setInterval(() => {
       void pumpActiveRun();
-    }, 2600);
+    }, RESUME_REVIEW_ACTIVE_PUMP_INTERVAL_MS);
     void pumpActiveRun();
     return () => {
       cancelled = true;
@@ -640,7 +644,7 @@ export function ResumeReviewWorkspace({
       }
       if (latestPayload.run?.status === "failed") return latestPayload;
       if (!latestPayload?.hasMoreWork) break;
-      await wait(1200);
+      await wait(RESUME_REVIEW_PROCESS_STEP_DELAY_MS);
     }
     await loadResumes(resumeId);
     return latestPayload;

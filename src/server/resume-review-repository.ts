@@ -23,8 +23,10 @@ import { JobDeskAiError } from "../ai/errors";
 import {
   assessResumeReviewSectionWithAi,
   buildResumeReviewSynthesisInput,
+  calibrateResumeReviewForSectionFallbacks,
   composeResumeReviewFromStages,
   consolidateResumeReviewRubricDimensions,
+  isTimedOutResumeReviewSectionAssessment,
   RESUME_REVIEW_RUBRIC_DIMENSIONS,
   reviewResumeWithAi,
   segmentResumeReviewSource,
@@ -173,6 +175,7 @@ const RESUME_REVIEW_STALE_RUN_MS = 15 * 60 * 1000;
 const RESUME_REVIEW_STEP_LOCK_MS = 4 * 60 * 1000;
 const RESUME_REVIEW_STEPPED_STALE_MS = 10 * 60 * 1000;
 const RESUME_REVIEW_PROCESSOR_ID = `resume-review-${process.pid}`;
+const RESUME_REVIEW_RUBRIC_DIMENSION_CONCURRENCY = 3;
 const RESUME_REVIEW_STALE_ERROR_MESSAGE =
   "Resume review did not finish within the expected window. Start the full review again.";
 const STALE_RESUME_REVIEW_STAGES = new Set<ResumeReviewActiveRun["stage"]>([
@@ -1279,6 +1282,7 @@ async function claimNextResumeReviewStep(
           WHERE earlier.workspace_id = ${args.workspaceId}
             AND earlier.workflow_run_id = ${args.run.id}
             AND earlier.sequence < ${resumeReviewRunSteps.sequence}
+            AND earlier.step_kind <> 'synthesize_rubric_dimension'
             AND earlier.status <> 'completed'
         )
       ORDER BY sequence
@@ -1288,6 +1292,57 @@ async function claimNextResumeReviewStep(
     RETURNING *
   `);
   return mapResumeReviewRunStepRow(result.rows[0]);
+}
+
+async function claimReadyResumeReviewRubricDimensionSteps(
+  db: Pick<DbHandle, "execute">,
+  args: {
+    limit: number;
+    run: typeof workflowRuns.$inferSelect;
+    workspaceId: string;
+  },
+) {
+  if (args.limit <= 0) return [];
+  const now = new Date();
+  const lockExpiresAt = new Date(now.getTime() + RESUME_REVIEW_STEP_LOCK_MS);
+  const result = await db.execute(sql`
+    UPDATE ${resumeReviewRunSteps}
+    SET
+      attempt_count = attempt_count + 1,
+      failure_kind = NULL,
+      failure_message = NULL,
+      locked_at = ${now},
+      locked_by = ${RESUME_REVIEW_PROCESSOR_ID},
+      lock_expires_at = ${lockExpiresAt},
+      status = 'processing',
+      updated_at = ${now}
+    WHERE id IN (
+      SELECT id
+      FROM ${resumeReviewRunSteps}
+      WHERE workspace_id = ${args.workspaceId}
+        AND workflow_run_id = ${args.run.id}
+        AND step_kind = 'synthesize_rubric_dimension'
+        AND (
+          status = 'pending'
+          OR (status = 'processing' AND lock_expires_at < ${now})
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM ${resumeReviewRunSteps} earlier
+          WHERE earlier.workspace_id = ${args.workspaceId}
+            AND earlier.workflow_run_id = ${args.run.id}
+            AND earlier.sequence < ${resumeReviewRunSteps.sequence}
+            AND earlier.status <> 'completed'
+        )
+      ORDER BY sequence
+      FOR UPDATE SKIP LOCKED
+      LIMIT ${args.limit}
+    )
+    RETURNING *
+  `);
+  return result.rows
+    .map((row) => mapResumeReviewRunStepRow(row))
+    .filter((step): step is typeof resumeReviewRunSteps.$inferSelect => Boolean(step));
 }
 
 async function processClaimedResumeReviewStep(args: {
@@ -1340,6 +1395,7 @@ async function processClaimedResumeReviewStep(args: {
       resultJson: {
         assessment: assessment.data,
         diagnostics: sanitizeAiDiagnostics(assessment.diagnostics),
+        fallback: isTimedOutResumeReviewSectionAssessment(assessment.data),
         retryCount: assessment.retryCount,
         usage: assessment.usage,
       },
@@ -1418,21 +1474,50 @@ async function processClaimedResumeReviewStep(args: {
       stage: "scoring",
       workspaceId: args.workspaceId,
     });
-    const dimension = parseStepInput<(typeof RESUME_REVIEW_RUBRIC_DIMENSIONS)[number]>(args.step.inputJson, "dimension");
-    const rubricDimension = await resumeReviewStepAiAdapter.synthesizeRubricDimension({
-      dimension,
-      synthesisInput,
-    });
-    await completeResumeReviewStep(args.db, {
-      resultJson: {
-        diagnostics: sanitizeAiDiagnostics(rubricDimension.diagnostics),
-        dimension: rubricDimension.data,
-        retryCount: rubricDimension.retryCount,
-        usage: rubricDimension.usage,
-      },
-      step: args.step,
-      workspaceId: args.workspaceId,
-    });
+    const dimensionSteps = [
+      args.step,
+      ...(await claimReadyResumeReviewRubricDimensionSteps(args.db, {
+        limit: RESUME_REVIEW_RUBRIC_DIMENSION_CONCURRENCY - 1,
+        run: args.run,
+        workspaceId: args.workspaceId,
+      })),
+    ];
+    const results = await Promise.allSettled(
+      dimensionSteps.map((step) =>
+        processRubricDimensionStep(args.db, {
+          step,
+          synthesisInput,
+          workspaceId: args.workspaceId,
+        }),
+      ),
+    );
+    const failedIndex = results.findIndex((result) => result.status === "rejected");
+    if (failedIndex >= 0) {
+      const failedStep = dimensionSteps[failedIndex] ?? args.step;
+      const error = (results[failedIndex] as PromiseRejectedResult).reason;
+      await Promise.all(
+        results.map((result, index) => {
+          if (result.status !== "rejected") return Promise.resolve();
+          const step = dimensionSteps[index] ?? args.step;
+          const reason = result.reason;
+          return failResumeReviewStep(args.db, {
+            diagnostics: reason instanceof JobDeskAiError ? reason.diagnostics : null,
+            errorKind: reason instanceof JobDeskAiError ? reason.kind : "provider_error",
+            errorMessage: reason instanceof Error ? reason.message : "Resume review rubric dimension failed.",
+            step,
+            workspaceId: args.workspaceId,
+          });
+        }),
+      );
+      const failedRun = await finishResumeReviewRun(args.db, {
+        errorKind: error instanceof JobDeskAiError ? error.kind : "provider_error",
+        errorMessage: error instanceof Error ? error.message : "Resume review rubric dimension failed.",
+        run: args.run,
+        status: "failed",
+        workspaceId: args.workspaceId,
+      });
+      return { status: "failed" as const, run: await toResumeReviewRunPayloadWithProgress(args.db, failedRun, args.workspaceId) };
+    }
     return resumeReviewStepResponse(args.db, {
       hasMoreWork: true,
       run: args.run,
@@ -1534,6 +1619,34 @@ async function processClaimedResumeReviewStep(args: {
   }
 
   throw new Error(`Unsupported resume review step: ${args.step.stepKind}`);
+}
+
+async function processRubricDimensionStep(
+  db: DbHandle,
+  args: {
+    step: typeof resumeReviewRunSteps.$inferSelect;
+    synthesisInput: ReturnType<typeof buildResumeReviewSynthesisInput>;
+    workspaceId: string;
+  },
+) {
+  const dimension = parseStepInput<(typeof RESUME_REVIEW_RUBRIC_DIMENSIONS)[number]>(
+    args.step.inputJson,
+    "dimension",
+  );
+  const rubricDimension = await resumeReviewStepAiAdapter.synthesizeRubricDimension({
+    dimension,
+    synthesisInput: args.synthesisInput,
+  });
+  return completeResumeReviewStep(db, {
+    resultJson: {
+      diagnostics: sanitizeAiDiagnostics(rubricDimension.diagnostics),
+      dimension: rubricDimension.data,
+      retryCount: rubricDimension.retryCount,
+      usage: rubricDimension.usage,
+    },
+    step: args.step,
+    workspaceId: args.workspaceId,
+  });
 }
 
 async function completeResumeReviewStep(
@@ -1746,10 +1859,18 @@ async function buildReviewFromCompletedSteps(
       ? findCompletedStepResult<ResumeReviewRubricData>(steps, "calibrate_score", "rubric")
       : findCompletedStepResult<ResumeReviewRubricData>(steps, "synthesize_rubric", "rubric");
   const evidenceStep = findCompletedStepResult<ResumeReviewEvidenceData>(steps, "synthesize_evidence", "evidence");
-  const review = composeResumeReviewFromStages({
+  const fallbackSectionCount = steps.filter(
+    (step) => step.stepKind === "assess_section" && step.resultJson?.fallback === true,
+  ).length;
+  const totalSectionCount = steps.filter((step) => step.stepKind === "assess_section").length;
+  const review = calibrateResumeReviewForSectionFallbacks({
+    fallbackSectionCount,
+    review: composeResumeReviewFromStages({
     evidence: evidenceStep,
     rubric: rubricStep,
     scan: scanStep,
+    }),
+    totalSectionCount,
   });
   const config = resolveJobDeskAiConfig();
   return fromAiReview({
@@ -1873,9 +1994,12 @@ function sanitizeAiDiagnostics(diagnostics?: JobDeskAiDiagnostics | null) {
     requestBodyChars: diagnostics.requestBodyChars,
     responseChars: diagnostics.responseChars,
     retryCount: diagnostics.retryCount,
+    seed: diagnostics.seed,
     status: diagnostics.status,
     task: diagnostics.task,
+    temperature: diagnostics.temperature,
     timeoutMs: diagnostics.timeoutMs,
+    topP: diagnostics.topP,
     transport: diagnostics.transport,
   };
 }

@@ -101,6 +101,7 @@ describe("OpenRouterResponsesAdapter", () => {
         model: "gpt-5.5",
         reasoningEffort: "medium",
         store: false,
+        temperature: 0,
       },
       fetchFn,
     });
@@ -135,6 +136,7 @@ describe("OpenRouterResponsesAdapter", () => {
         model: "gpt-5.5",
         reasoningEffort: "medium",
         store: false,
+        temperature: 0,
       },
       fetchFn: async () => {
         throw new Error("should not fetch");
@@ -193,6 +195,7 @@ describe("OpenRouterResponsesAdapter", () => {
         model: "gpt-5.5",
         reasoningEffort: "medium",
         store: false,
+        temperature: 0,
       },
       fetchFn,
     });
@@ -219,6 +222,7 @@ describe("OpenRouterResponsesAdapter", () => {
         model: "gpt-5.5",
         reasoningEffort: "medium",
         store: false,
+        temperature: 0,
       },
       fetchFn: async () =>
         new Response(JSON.stringify({ output_text: "{\"job_id\":\"missing\"}" }), {
@@ -255,6 +259,7 @@ describe("OpenRouterResponsesAdapter", () => {
         model: "gpt-5.5",
         reasoningEffort: "medium",
         store: false,
+        temperature: 0,
       },
       fetchFn: async (_url: string | URL, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
@@ -335,6 +340,9 @@ describe("OpenRouterResponsesAdapter", () => {
         model: "gpt-5.5",
         reasoningEffort: "medium",
         store: false,
+        seed: 1234,
+        temperature: 0,
+        topP: 1,
       },
       fetchFn,
     });
@@ -351,6 +359,9 @@ describe("OpenRouterResponsesAdapter", () => {
     expect(result.usage.totalTokens).toBe(11);
     expect(result.skill.skillId).toBe("jd-analysis");
     expect(bodies[0]?.response_format).toEqual({ type: "json_object" });
+    expect(bodies[0]?.temperature).toBe(0);
+    expect(bodies[0]?.top_p).toBe(1);
+    expect(bodies[0]?.seed).toBe(1234);
     expect(Array.isArray(bodies[0]?.messages)).toBe(true);
   });
 });

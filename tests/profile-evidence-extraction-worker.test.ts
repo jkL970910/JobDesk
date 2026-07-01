@@ -235,6 +235,7 @@ function buildWorkerFixture(
       providerEnabled: true,
       reasoningEffort: "medium",
       store: false,
+      temperature: 0,
       transport: "responses",
     }),
     resolveRunSource: async () => ({

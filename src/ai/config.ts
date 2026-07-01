@@ -3,6 +3,7 @@ import type { JobDeskAiConfig, JobDeskReasoningEffort } from "./types";
 const DEFAULT_OPENROUTER_ENDPOINT = "https://openrouter.icu/v1/chat/completions";
 const DEFAULT_MODEL = "gpt-5.5";
 const DEFAULT_REASONING_EFFORT = "medium";
+const DEFAULT_TEMPERATURE = 0;
 
 const reasoningEfforts = new Set([
   "minimal",
@@ -56,6 +57,17 @@ function normalizeReasoningEffort(value?: string | null): JobDeskReasoningEffort
     : DEFAULT_REASONING_EFFORT;
 }
 
+function normalizeOptionalNumber(value?: string | null) {
+  const parsed = value == null || value.trim() === "" ? NaN : Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function normalizeTemperature(value?: string | null) {
+  const parsed = normalizeOptionalNumber(value);
+  if (parsed == null) return DEFAULT_TEMPERATURE;
+  return Math.min(2, Math.max(0, parsed));
+}
+
 export function resolveJobDeskAiConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): JobDeskAiConfig {
@@ -76,6 +88,9 @@ export function resolveJobDeskAiConfig(
         : normalizeOpenRouterResponsesEndpoint(rawBaseUrl),
     model: env.JOBDESK_AI_MODEL?.trim() || DEFAULT_MODEL,
     reasoningEffort: normalizeReasoningEffort(env.JOBDESK_AI_REASONING_EFFORT),
+    seed: normalizeOptionalNumber(env.JOBDESK_AI_SEED),
     store: env.JOBDESK_DISABLE_RESPONSE_STORAGE === "true" ? false : true,
+    temperature: normalizeTemperature(env.JOBDESK_AI_TEMPERATURE),
+    topP: normalizeOptionalNumber(env.JOBDESK_AI_TOP_P),
   };
 }
