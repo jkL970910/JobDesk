@@ -25,6 +25,9 @@ export type EvidenceLibraryIaStoryTarget = {
 };
 
 export type EvidenceLibraryIaWorkExperience = {
+  employer?: string | null;
+  role_title?: string | null;
+  summary?: string | null;
   status: string;
 };
 
@@ -59,7 +62,40 @@ export function filterCanonicalLibraryAssets<T extends { status?: string }>(asse
 }
 
 export function shouldReviewWorkExperienceAsset(experience: EvidenceLibraryIaWorkExperience) {
-  return isCanonicalLibraryAsset(experience) && experience.status !== "approved";
+  return (
+    isCanonicalLibraryAsset(experience) &&
+    (experience.status !== "approved" || hasUnsafeWorkExperienceFields(experience))
+  );
+}
+
+export function hasUnsafeWorkExperienceFields(experience: EvidenceLibraryIaWorkExperience) {
+  return (
+    isUnsafeWorkExperienceLabel(experience.employer) ||
+    isUnsafeWorkExperienceLabel(experience.role_title) ||
+    isUnsafeWorkExperienceSummary(experience.summary)
+  );
+}
+
+function isUnsafeWorkExperienceLabel(value?: string | null) {
+  const normalized = value?.trim() ?? "";
+  if (!normalized) return false;
+  return (
+    normalized.length > 96 ||
+    normalized.split(/\s+/).length > 12 ||
+    /^[-*•]/.test(normalized) ||
+    /[.!?](?:\s|$)/.test(normalized) ||
+    /\b(worked|built|launched|delivered|implemented|optimized|scaled|improved|reduced|increased)\b/i.test(normalized)
+  );
+}
+
+function isUnsafeWorkExperienceSummary(value?: string | null) {
+  const normalized = value?.trim() ?? "";
+  if (!normalized) return false;
+  return (
+    normalized.length > 220 ||
+    /^[-*•]/.test(normalized) ||
+    /\b(increased|reduced|improved|built|launched|delivered|implemented|optimized|scaled)\b/i.test(normalized)
+  );
 }
 
 export function getStoryTargetReadinessState(target: EvidenceLibraryIaStoryTarget) {

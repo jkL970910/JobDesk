@@ -5297,7 +5297,7 @@ function SourceSectionReviewPane({
                 <option value="">Choose Work Experience</option>
                 {workExperiences.map((experience) => (
                   <option key={experience.id} value={experience.id}>
-                    {experience.employer} · {experience.role_title}
+                    {formatWorkExperienceDisplayLabel(experience)}
                   </option>
                 ))}
               </select>
@@ -6021,7 +6021,7 @@ function buildTargetObjectReference(
     const experience = sources.workExperiences.find((item) => item.id === targetId);
     if (!experience) return null;
     return {
-      label: `Current Work Experience · ${experience.employer}`,
+      label: `Current Work Experience · ${formatWorkExperienceDisplayLabel(experience)}`,
       text: formatWorkExperienceReferenceText(experience),
     };
   }
@@ -6045,10 +6045,12 @@ function formatStoryTargetReferenceText(target: InitiativeItem | PortfolioProjec
 
 function formatWorkExperienceReferenceText(experience: WorkExperienceItem) {
   const parts = [
-    experience.role_title,
+    formatWorkExperienceDisplayLabel(experience),
     experience.team ? `Team: ${experience.team}` : null,
     experience.location ? `Location: ${experience.location}` : null,
-    experience.summary,
+    experience.start_date || experience.end_date
+      ? `Dates: ${[experience.start_date, experience.end_date].filter(Boolean).join(" - ")}`
+      : null,
   ];
   return parts.filter((part): part is string => Boolean(part && part.trim())).join(" · ");
 }
@@ -7650,7 +7652,7 @@ function buildWorkQueueRoleFilterOptions({
   return (linkTargets.workExperiences ?? [])
     .filter((experience) => experience.id && roleIds.has(experience.id))
     .map((experience) => ({
-      label: [experience.employer, experience.role_title].filter(Boolean).join(" · "),
+      label: formatWorkExperienceDisplayLabel(experience),
       value: `work_experience:${experience.id}`,
     }));
 }
@@ -7697,7 +7699,7 @@ function buildEvidenceRoleFilterOptions(
   const roles = (linkTargets.workExperiences ?? [])
     .filter((experience) => experience.id && roleIdsWithEvidence.has(experience.id))
     .map((experience) => ({
-      label: [experience.employer, experience.role_title].filter(Boolean).join(" · "),
+      label: formatWorkExperienceDisplayLabel(experience),
       value: `work_experience:${experience.id}`,
     }));
   const hasStandaloneEvidence = items.some((item) => isStandaloneEvidenceForFilter(item, initiativeRoleById));
@@ -7963,7 +7965,7 @@ function formatEvidenceLinkedTarget(
       (target) => target.id === item.related_work_experience_id,
     );
     return experience
-      ? `${experience.employer} · ${experience.role_title}`
+      ? formatWorkExperienceDisplayLabel(experience)
       : "work experience";
   }
   if (item.related_project_id) {
@@ -8602,7 +8604,7 @@ function StarStoryPanel({
             options={[
               { label: "All work experiences", value: "all" },
               ...workExperiences.map((experience) => ({
-                label: `${experience.employer} · ${experience.role_title}`,
+                label: formatWorkExperienceDisplayLabel(experience),
                 value: experience.id ?? "",
               })).filter((option) => option.value),
               { label: "Portfolio Projects", value: "standalone" },
@@ -9079,7 +9081,7 @@ function buildEvidenceTargetOptions(
   for (const experience of linkTargets?.workExperiences ?? []) {
     if (!experience.id) continue;
     targets.push({
-      label: `Work experience · ${experience.employer} · ${experience.role_title}`,
+      label: `Work experience · ${formatWorkExperienceDisplayLabel(experience)}`,
       value: `work_experience:${experience.id}`,
     });
   }
@@ -9739,6 +9741,7 @@ function WorkExperienceRow({
   const canMarkNeedsUpdate = experience.status !== "pending" && experience.status !== "rejected";
   const canRejectRole = experience.status !== "rejected";
   const completeness = getWorkExperienceCompleteness(experience);
+  const displayEmployer = formatWorkExperienceDisplayEmployer(experience.employer);
   const displayRoleTitle = formatWorkExperienceDisplayRoleTitle(experience.role_title);
 
   return (
@@ -9746,7 +9749,7 @@ function WorkExperienceRow({
       <div className="story-group-row__summary">
         <span>{reviewMode ? "Work Experience review" : "Work Experience"}</span>
         <div>
-          <strong>{experience.employer} · {displayRoleTitle}</strong>
+          <strong>{displayEmployer} · {displayRoleTitle}</strong>
           <p>
             {[experience.team, experience.location, experience.start_date, experience.end_date]
               .filter(Boolean)
@@ -9876,13 +9879,35 @@ function WorkExperienceRow({
   );
 }
 
+function formatWorkExperienceDisplayLabel(experience: Pick<WorkExperienceItem, "employer" | "role_title">) {
+  return [
+    formatWorkExperienceDisplayEmployer(experience.employer),
+    formatWorkExperienceDisplayRoleTitle(experience.role_title),
+  ].join(" · ");
+}
+
+function formatWorkExperienceDisplayEmployer(employer: string) {
+  const normalized = employer.trim();
+  if (!normalized) return "Employer needs review";
+  if (isUnsafeWorkExperienceDisplayText(normalized)) return "Employer needs review";
+  return normalized;
+}
+
 function formatWorkExperienceDisplayRoleTitle(roleTitle: string) {
   const normalized = roleTitle.trim();
   if (!normalized) return "Role title needs review";
-  if (normalized.length > 96 || normalized.split(/\s+/).length > 12 || /[.!?]\s/.test(normalized)) {
-    return "Role title needs review";
-  }
+  if (isUnsafeWorkExperienceDisplayText(normalized)) return "Role title needs review";
   return normalized;
+}
+
+function isUnsafeWorkExperienceDisplayText(value: string) {
+  return (
+    value.length > 96 ||
+    value.split(/\s+/).length > 12 ||
+    /^[-*•]/.test(value) ||
+    /[.!?](?:\s|$)/.test(value) ||
+    /\b(worked|built|launched|delivered|implemented|optimized|scaled|improved|reduced|increased)\b/i.test(value)
+  );
 }
 
 function RoleReviewQueue({
@@ -10072,7 +10097,7 @@ function WorkInitiativeList({
             options={[
               { label: "All story targets", value: "all" },
               ...workExperiences.map((experience) => ({
-                label: `${experience.employer} · ${experience.role_title}`,
+                label: formatWorkExperienceDisplayLabel(experience),
                 value: experience.id ?? "",
               })).filter((option) => option.value),
               { label: "Portfolio Projects", value: "standalone" },
@@ -10342,14 +10367,14 @@ function StoryTargetRow({
                     <option value="">Unassigned / standalone</option>
                     {workExperiences.map((experience) => (
                       <option key={experience.id} value={experience.id}>
-                        {experience.employer} · {experience.role_title}
+                        {formatWorkExperienceDisplayLabel(experience)}
                       </option>
                     ))}
                   </select>
                 ) : (
                   <span className="story-target-row__role-chip">
                     {assignedWorkExperience
-                      ? `${assignedWorkExperience.employer} · ${assignedWorkExperience.role_title}`
+                      ? formatWorkExperienceDisplayLabel(assignedWorkExperience)
                       : "Unassigned"}
                   </span>
                 )}
@@ -10472,7 +10497,7 @@ function StoryTargetRow({
             </strong>
             <p>
               {assignedWorkExperience
-                ? `${assignedWorkExperience.employer} · ${assignedWorkExperience.role_title}`
+                ? formatWorkExperienceDisplayLabel(assignedWorkExperience)
                 : "Unassigned / standalone"}
             </p>
           </div>
@@ -10700,17 +10725,19 @@ function formatWorkExperienceStatus(status: string) {
 
 function getWorkExperienceCompleteness(experience: WorkExperienceItem) {
   const hasDate = Boolean((experience.start_date ?? "").trim() || (experience.end_date ?? "").trim());
+  const employer = experience.employer.trim();
+  const roleTitle = experience.role_title.trim();
   const checks = [
     {
       key: "employer",
       label: "Employer",
-      complete: Boolean(experience.employer.trim()),
+      complete: Boolean(employer) && !isUnsafeWorkExperienceDisplayText(employer),
       required: true,
     },
     {
       key: "role_title",
       label: "Title",
-      complete: Boolean(experience.role_title.trim()),
+      complete: Boolean(roleTitle) && !isUnsafeWorkExperienceDisplayText(roleTitle),
       required: true,
     },
     {
@@ -10777,7 +10804,7 @@ function formatInitiativeRoleChip(
 ) {
   if (!initiative.work_experience_id) return "Standalone initiative";
   const role = workExperiences.find((experience) => experience.id === initiative.work_experience_id);
-  return role ? `${role.employer} · ${role.role_title}` : "Work initiative";
+  return role ? formatWorkExperienceDisplayLabel(role) : "Work initiative";
 }
 
 function formatMergeStoryOptionLabel({
@@ -10793,7 +10820,7 @@ function formatMergeStoryOptionLabel({
   const role = option.work_experience_id
     ? workExperiences.find((experience) => experience.id === option.work_experience_id)
     : null;
-  const roleLabel = role ? `${role.employer} ${role.role_title}` : "Standalone";
+  const roleLabel = role ? formatWorkExperienceDisplayLabel(role) : "Standalone";
   return `${title} · ${roleLabel} · ${claimCount} claim${claimCount === 1 ? "" : "s"}`;
 }
 

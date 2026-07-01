@@ -118,6 +118,24 @@ describe("Evidence Library IA semantics", () => {
     expect(isCanonicalLibraryAsset({ status: "rejected" })).toBe(false);
   });
 
+  it("returns polluted Work Experiences to review even after approval", () => {
+    expect(
+      shouldReviewWorkExperienceAsset({
+        employer: "Worked on a visualization platform using React and TypeScript to improve debugging.",
+        role_title: "Worked on a visualization platform using React and TypeScript to improve debugging.",
+        status: "approved",
+      }),
+    ).toBe(true);
+    expect(
+      shouldReviewWorkExperienceAsset({
+        employer: "Amazon",
+        role_title: "Software Development Engineer",
+        summary: "Built and launched NFC check-in platform across the Last Mile network.",
+        status: "approved",
+      }),
+    ).toBe(true);
+  });
+
   it("filters rejected child assets before Library rows calculate linked children", () => {
     const visibleClaims = filterCanonicalLibraryAssets([
       evidenceClaim({ status: "approved", related_initiative_id: "story-1" }),
