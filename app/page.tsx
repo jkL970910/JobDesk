@@ -698,7 +698,6 @@ function DashboardView({
     (library?.portfolioProjects.filter((item) => item.status !== "approved").length ?? 0);
   const hasExtractedMaterial = hasResumePrepMaterial({
     claimsNeedingReview,
-    library,
     resumeReadyClaims,
     storyTargets,
   });
@@ -1306,7 +1305,6 @@ function getResumePrepWorkflowState({
   }
   const hasExtractedMaterial = hasResumePrepMaterial({
     claimsNeedingReview,
-    library,
     resumeReadyClaims: approvedClaims,
     storyTargets,
   });
@@ -1326,16 +1324,14 @@ function getResumePrepWorkflowState({
 
 function hasResumePrepMaterial({
   claimsNeedingReview,
-  library,
   resumeReadyClaims,
   storyTargets,
 }: {
   claimsNeedingReview: number;
-  library: EvidenceLibrarySummary | null;
   resumeReadyClaims: number;
   storyTargets: number;
 }) {
-  return Boolean(library?.profile) || storyTargets > 0 || resumeReadyClaims > 0 || claimsNeedingReview > 0;
+  return storyTargets > 0 || resumeReadyClaims > 0 || claimsNeedingReview > 0;
 }
 
 function countResumeReadyClaims(
@@ -1630,7 +1626,6 @@ function ProfileReferenceView({
   const profileFacts = extractProfileFacts(library?.profile?.profile);
   const hasExtractedMaterial = hasResumePrepMaterial({
     claimsNeedingReview,
-    library,
     resumeReadyClaims: resumeEligibleEvidence,
     storyTargets,
   });

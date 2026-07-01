@@ -8,7 +8,9 @@ import {
   enrichmentTasks,
   initiatives,
   portfolioProjects,
+  profileFactHistory,
   profileEvidenceExtractionRuns,
+  profiles,
   resumeReviewRunSteps,
   resumeReviewReports,
   resumeSourceVersions,
@@ -121,9 +123,11 @@ export type ResumeSourceDeleteImpact = {
   draftPortfolioProjects: number;
   draftWorkExperiences: number;
   openEnrichmentTasks: number;
+  profileRows: number;
 };
 
 type ResumeSourceDeleteCounts = ResumeSourceDeleteImpact & {
+  orphanSourceSectionTasks: number;
   sourceDocumentDeleted: boolean;
 };
 
@@ -319,6 +323,8 @@ export async function deleteResumeSourceVersion(
     draftPortfolioProjects: 0,
     draftWorkExperiences: 0,
     openEnrichmentTasks: 0,
+    orphanSourceSectionTasks: 0,
+    profileRows: 0,
     sourceDocumentDeleted: false,
   };
 
@@ -356,6 +362,13 @@ export async function deleteResumeSourceVersion(
         workspaceId: workspace.id,
       });
       if (remainingReferences === 0) {
+        const profileCleanup = await deleteSourceDerivedProfileMaterial(tx, {
+          sourceDocumentId: resume.sourceDocumentId,
+          sourceLabel: resume.title,
+          workspaceId: workspace.id,
+        });
+        deletedCounts.profileRows = profileCleanup.profileRows;
+        deletedCounts.orphanSourceSectionTasks = profileCleanup.orphanSourceSectionTasks;
         await tx
           .delete(sourceDocuments)
           .where(and(eq(sourceDocuments.workspaceId, workspace.id), eq(sourceDocuments.id, resume.sourceDocumentId)));
@@ -452,6 +465,7 @@ async function getResumeDeleteImpactCounts(
     draftPortfolioProjects: draftPortfolio?.value ?? 0,
     draftWorkExperiences: draftWork?.value ?? 0,
     openEnrichmentTasks: openTasks?.value ?? 0,
+    profileRows: 0,
   };
 }
 
@@ -520,7 +534,53 @@ async function deleteDraftResumeMaterials(
     draftPortfolioProjects: portfolio.length,
     draftWorkExperiences: work.length,
     openEnrichmentTasks: tasks.length,
+    orphanSourceSectionTasks: 0,
+    profileRows: 0,
     sourceDocumentDeleted: false,
+  };
+}
+
+async function deleteSourceDerivedProfileMaterial(
+  db: Pick<DbHandle, "delete" | "select">,
+  args: { workspaceId: string; sourceDocumentId: string; sourceLabel: string },
+) {
+  const profileRows = await db
+    .select({ id: profiles.id })
+    .from(profiles)
+    .where(and(eq(profiles.workspaceId, args.workspaceId), eq(profiles.sourceDocumentId, args.sourceDocumentId)));
+  if (profileRows.length > 0) {
+    await db
+      .delete(profileFactHistory)
+      .where(
+        and(
+          eq(profileFactHistory.workspaceId, args.workspaceId),
+          inArray(profileFactHistory.profileId, profileRows.map((profile) => profile.id)),
+        ),
+      );
+    await db
+      .delete(profiles)
+      .where(and(eq(profiles.workspaceId, args.workspaceId), eq(profiles.sourceDocumentId, args.sourceDocumentId)));
+  }
+  const orphanTasks = await db
+    .delete(enrichmentTasks)
+    .where(
+      and(
+        eq(enrichmentTasks.workspaceId, args.workspaceId),
+        eq(enrichmentTasks.taskType, "source_section_review"),
+        eq(enrichmentTasks.sourceLabel, args.sourceLabel),
+        sql`${enrichmentTasks.resumeSourceVersionId} is null`,
+        sql`${enrichmentTasks.resumeReviewReportId} is null`,
+        sql`${enrichmentTasks.evidenceItemId} is null`,
+        sql`${enrichmentTasks.workExperienceId} is null`,
+        sql`${enrichmentTasks.initiativeId} is null`,
+        sql`${enrichmentTasks.portfolioProjectId} is null`,
+        inArray(enrichmentTasks.status, ["open", "answered"]),
+      ),
+    )
+    .returning({ id: enrichmentTasks.id });
+  return {
+    orphanSourceSectionTasks: orphanTasks.length,
+    profileRows: profileRows.length,
   };
 }
 

@@ -16,6 +16,9 @@ import {
 import { registerUser, runWithAuthContext } from "../src/server/auth-service";
 import { getDb } from "../src/db/client";
 import {
+  enrichmentTasks,
+  profileFactHistory,
+  profiles,
   resumeReviewReports,
   resumeReviewRunSteps,
   resumeSourceVersions,
@@ -198,6 +201,87 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
     expect(result.remainingRuns).toHaveLength(0);
     expect(result.remainingSteps).toHaveLength(0);
     expect(result.remainingResume).toHaveLength(0);
+  });
+
+  it("removes source-derived profile residue and orphan source-section tasks when deleting draft materials", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const owner = await registerUser({
+      email: `resume-delete-profile-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected owner user.");
+
+    const result = await runWithAuthContext(owner.user.id, async () => {
+      const resumeId = await createResumeSourceFixture(`Delete Profile Resume ${suffix}.txt`);
+      const db = getDb();
+      const workspace = await getCurrentWorkspace(db);
+      const [resume] = await db
+        .select({
+          sourceDocumentId: resumeSourceVersions.sourceDocumentId,
+          title: resumeSourceVersions.title,
+        })
+        .from(resumeSourceVersions)
+        .where(eq(resumeSourceVersions.id, resumeId))
+        .limit(1);
+      if (!resume) throw new Error("Expected resume row.");
+      const [profile] = await db
+        .insert(profiles)
+        .values({
+          workspaceId: workspace.id,
+          sourceDocumentId: resume.sourceDocumentId,
+          displayName: "Jane Doe",
+          profileJson: { contact: { name: "Jane Doe" } },
+        })
+        .returning({ id: profiles.id });
+      if (!profile) throw new Error("Expected profile row.");
+      await db.insert(profileFactHistory).values({
+        workspaceId: workspace.id,
+        profileId: profile.id,
+        field: "contact",
+        valueJson: { name: "Jane Doe" },
+        sourceType: "resume_import",
+        sourceDocumentId: resume.sourceDocumentId,
+      });
+      await db.insert(enrichmentTasks).values({
+        workspaceId: workspace.id,
+        taskType: "source_section_review",
+        status: "open",
+        sourceType: "resume_review",
+        sourceLabel: resume.title,
+        prompt: "Review orphan source section.",
+        dedupeKey: `orphan-source-section-${suffix}`,
+      });
+
+      const deleted = await deleteResumeSourceVersion(resumeId, {
+        cleanupMode: "remove_draft_materials",
+      });
+      const remainingProfiles = await db
+        .select()
+        .from(profiles)
+        .where(eq(profiles.id, profile.id));
+      const remainingFacts = await db
+        .select()
+        .from(profileFactHistory)
+        .where(eq(profileFactHistory.profileId, profile.id));
+      const remainingTasks = await db
+        .select()
+        .from(enrichmentTasks)
+        .where(eq(enrichmentTasks.dedupeKey, `orphan-source-section-${suffix}`));
+      return { deleted, remainingFacts, remainingProfiles, remainingTasks };
+    });
+
+    expect(result.deleted).toMatchObject({
+      cleanupMode: "remove_draft_materials",
+      deletedCounts: {
+        orphanSourceSectionTasks: 1,
+        profileRows: 1,
+        sourceDocumentDeleted: true,
+      },
+      status: "deleted",
+    });
+    expect(result.remainingProfiles).toHaveLength(0);
+    expect(result.remainingFacts).toHaveLength(0);
+    expect(result.remainingTasks).toHaveLength(0);
   });
 
   it("expires stale pre-save review runs so polling and retry can recover", async () => {
