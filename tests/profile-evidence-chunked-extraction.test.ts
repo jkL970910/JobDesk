@@ -106,6 +106,29 @@ describe("chunked profile evidence extraction", () => {
     });
   });
 
+  it("does not promote long dated bullets into standalone work experience titles", () => {
+    const segments = segmentProfileEvidenceSource(`
+      JANE DOE
+
+      Experience
+      AMAZON Toronto, Canada
+      Software Dev Engineer Dec 2023 - Present
+      - In 2024, led a migration project across fulfillment services that improved operations workflows for station teams and required weekly coordination with product, data, and platform partners.
+      - Built internal tools for launch readiness.
+    `);
+    const result = buildDeterministicProfileWorkHistoryForTest(segments);
+
+    expect(segments.filter((segment) => segment.kind === "work_experience")).toHaveLength(1);
+    expect(result.work_experiences).toHaveLength(1);
+    expect(result.work_experiences[0]).toMatchObject({
+      employer: "AMAZON",
+      role_title: "Software Dev Engineer",
+      start_date: "Dec 2023",
+      end_date: "Present",
+    });
+    expect(result.work_experiences[0]?.role_title).not.toContain("migration project");
+  });
+
   it("normalizes noisy PDF-style text and caps long work sections", () => {
     const longBullet = `Built resilient platform flows with TypeScript and AWS. `.repeat(140);
     const segments = segmentProfileEvidenceSource(`

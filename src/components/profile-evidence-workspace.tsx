@@ -2698,7 +2698,7 @@ export function ProfileEvidenceWorkspace({
                     {isExtracting ? "Processing..." : entryGuidance.primaryActionLabel}
                 </button>
                 <span className={error ? "status status--error" : "status"}>
-                  {error ?? status}
+                  {error ?? (isExtracting ? "Processing is active. Follow the detailed progress below." : status)}
                 </span>
               </div>
               <FormStatePill state={sourceFormState} />
@@ -9739,13 +9739,14 @@ function WorkExperienceRow({
   const canMarkNeedsUpdate = experience.status !== "pending" && experience.status !== "rejected";
   const canRejectRole = experience.status !== "rejected";
   const completeness = getWorkExperienceCompleteness(experience);
+  const displayRoleTitle = formatWorkExperienceDisplayRoleTitle(experience.role_title);
 
   return (
     <article className="story-group-row work-experience-row">
       <div className="story-group-row__summary">
         <span>{reviewMode ? "Work Experience review" : "Work Experience"}</span>
         <div>
-          <strong>{experience.employer} · {experience.role_title}</strong>
+          <strong>{experience.employer} · {displayRoleTitle}</strong>
           <p>
             {[experience.team, experience.location, experience.start_date, experience.end_date]
               .filter(Boolean)
@@ -9763,9 +9764,6 @@ function WorkExperienceRow({
             </span>
           ))}
         </div>
-      ) : null}
-      {experience.summary ? (
-        <p className="story-group-row__note">{experience.summary}</p>
       ) : null}
       <div className="work-experience-row__links">
         <span>Linked story targets</span>
@@ -9876,6 +9874,15 @@ function WorkExperienceRow({
       ) : null}
     </article>
   );
+}
+
+function formatWorkExperienceDisplayRoleTitle(roleTitle: string) {
+  const normalized = roleTitle.trim();
+  if (!normalized) return "Role title needs review";
+  if (normalized.length > 96 || normalized.split(/\s+/).length > 12 || /[.!?]\s/.test(normalized)) {
+    return "Role title needs review";
+  }
+  return normalized;
 }
 
 function RoleReviewQueue({

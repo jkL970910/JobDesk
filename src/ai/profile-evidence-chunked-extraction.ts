@@ -771,7 +771,9 @@ function extractWorkExperience(text: string): z.infer<typeof WorkExperienceDraft
     role_title: roleTitle || "Unknown role",
     start_date: dates.start,
     status: "pending",
-    summary: lines.slice(datedLineIndex >= 0 ? datedLineIndex + 1 : 2, datedLineIndex >= 0 ? datedLineIndex + 4 : 5).join(" ") || null,
+    summary: buildWorkExperienceSummary(
+      lines.slice(datedLineIndex >= 0 ? datedLineIndex + 1 : 2, datedLineIndex >= 0 ? datedLineIndex + 4 : 5),
+    ),
     team: null,
   };
 }
@@ -783,10 +785,12 @@ function parseSingleLineExperience(line: string) {
   if (parts.length < 2) return null;
   const [employer, roleTitle, ...locationParts] = parts;
   if (!employer || !roleTitle) return null;
+  const cleanedRoleTitle = cleanupRoleTitle(roleTitle);
+  if (!cleanedRoleTitle) return null;
   return {
     employer: cleanupEmployer(employer),
     location: locationParts.join(", ") || null,
-    roleTitle,
+    roleTitle: cleanedRoleTitle,
   };
 }
 
@@ -804,9 +808,23 @@ function cleanupEmployer(value: string) {
 }
 
 function cleanupRoleTitle(value: string) {
-  return value
+  const cleaned = value
     .replace(/((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Spring|Summer|Fall|Winter)?\.?\s*(?:19|20)\d{2})\s*(?:-|–|—|to)\s*(Present|Current|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Spring|Summer|Fall|Winter)?\.?\s*(?:19|20)\d{2})/i, "")
+    .replace(/^[-*•]\s*/, "")
+    .replace(/^[,;:|/\\-]+|[,;:|/\\-]+$/g, "")
     .trim();
+  if (!isSafeRoleTitle(cleaned)) return "";
+  return cleaned;
+}
+
+function buildWorkExperienceSummary(lines: string[]) {
+  const summary = lines
+    .map((line) => line.replace(/^[-*•]\s*/, "").trim())
+    .filter((line) => line.length >= 12)
+    .slice(0, 2)
+    .join(" ");
+  if (!summary) return null;
+  return summary.length > 280 ? `${summary.slice(0, 277).trimEnd()}...` : summary;
 }
 
 function normalizeSourceText(sourceText: string) {
@@ -922,7 +940,21 @@ function looksLikeRoleStart(line: string) {
 }
 
 function looksLikeDatedRoleLine(line: string) {
-  return /\b(19|20)\d{2}\b/.test(line) && /\b(present|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|spring|summer|fall|winter)\b/i.test(line);
+  const normalized = line.trim();
+  if (normalized.length > 150) return false;
+  if (/^[-*•]/.test(normalized)) return false;
+  if (!extractDateRange(normalized).start) return false;
+  return /\b(19|20)\d{2}\b/.test(normalized) && /\b(present|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|spring|summer|fall|winter)\b/i.test(normalized);
+}
+
+function isSafeRoleTitle(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return false;
+  if (normalized.length > 96) return false;
+  if (normalized.split(/\s+/).length > 12) return false;
+  if (/^[-*•]/.test(normalized)) return false;
+  if (/[.!?]\s/.test(normalized)) return false;
+  return true;
 }
 
 function splitByCharacterCap(text: string, cap: number) {
