@@ -2582,8 +2582,10 @@ function formatReviewConfidence(confidence: number | undefined) {
 function formatReviewLimitReason(reason: string) {
   const copy: Record<string, string> = {
     contract_invalid: "The full review came back incomplete.",
+    db_error: "The review service could not save progress. Please retry.",
     invalid_response: "The full review was not usable.",
     provider_error: "The review service did not complete successfully.",
+    server_error: "The review service did not complete successfully.",
     timeout: "The full review took too long to finish.",
   };
   return copy[reason] ?? "The full review was not available.";

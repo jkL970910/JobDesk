@@ -68,6 +68,8 @@ type ResumeReviewStepAiAdapter = {
   synthesizeScan: typeof synthesizeResumeReviewScanWithAi;
 };
 
+const RESUME_REVIEW_RUN_STEP_TITLE_MAX_LENGTH = 240;
+
 let resumeReviewAiAdapter: ResumeReviewAiAdapter = reviewResumeWithAi;
 let resumeReviewStepAiAdapter: ResumeReviewStepAiAdapter = {
   assessSection: assessResumeReviewSectionWithAi,
@@ -98,6 +100,28 @@ export function setResumeReviewStepAiAdapterForTest(adapter: Partial<ResumeRevie
       synthesizeScan: synthesizeResumeReviewScanWithAi,
     };
   };
+}
+
+export function clampResumeReviewRunStepTitle(title: string) {
+  const normalized = title.replace(/\s+/g, " ").trim();
+  if (normalized.length <= RESUME_REVIEW_RUN_STEP_TITLE_MAX_LENGTH) return normalized;
+  const suffix = "...";
+  return `${normalized.slice(0, RESUME_REVIEW_RUN_STEP_TITLE_MAX_LENGTH - suffix.length).trimEnd()}${suffix}`;
+}
+
+function classifyResumeReviewProcessFailure(error: unknown): JobDeskAiFailureKind {
+  if (error instanceof JobDeskAiError) return error.kind;
+  return getDatabaseErrorCode(error) ? "db_error" : "server_error";
+}
+
+function getDatabaseErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const directCode = (error as { code?: unknown }).code;
+  if (typeof directCode === "string" && directCode.length > 0) return directCode;
+  const cause = (error as { cause?: unknown }).cause;
+  if (!cause || typeof cause !== "object") return null;
+  const causeCode = (cause as { code?: unknown }).code;
+  return typeof causeCode === "string" && causeCode.length > 0 ? causeCode : null;
 }
 
 type ResumeReviewBuildResult = {
@@ -763,8 +787,8 @@ export async function processResumeReviewRun(runId: string) {
       workspaceId: workspace.id,
     });
   } catch (error) {
-    const failureKind = error instanceof JobDeskAiError ? error.kind : "provider_error";
-    const failureMessage = error instanceof Error ? error.message : "Unknown provider error.";
+    const failureKind = classifyResumeReviewProcessFailure(error);
+    const failureMessage = error instanceof Error ? error.message : "Resume review processing failed.";
     await failResumeReviewStep(db, {
       diagnostics: error instanceof JobDeskAiError ? error.diagnostics : null,
       errorKind: failureKind,
@@ -1505,7 +1529,7 @@ async function processClaimedResumeReviewStep(args: {
           const reason = result.reason;
           return failResumeReviewStep(args.db, {
             diagnostics: reason instanceof JobDeskAiError ? reason.diagnostics : null,
-            errorKind: reason instanceof JobDeskAiError ? reason.kind : "provider_error",
+            errorKind: classifyResumeReviewProcessFailure(reason),
             errorMessage: reason instanceof Error ? reason.message : "Resume review rubric dimension failed.",
             step,
             workspaceId: args.workspaceId,
@@ -1513,7 +1537,7 @@ async function processClaimedResumeReviewStep(args: {
         }),
       );
       const failedRun = await finishResumeReviewRun(args.db, {
-        errorKind: error instanceof JobDeskAiError ? error.kind : "provider_error",
+        errorKind: classifyResumeReviewProcessFailure(error),
         errorMessage: error instanceof Error ? error.message : "Resume review rubric dimension failed.",
         run: args.run,
         status: "failed",
@@ -1745,7 +1769,7 @@ async function insertSectionAssessmentSteps(
         stepKey: `assess-${section.id}`,
         stepKind: "assess_section",
         sequence: index + 1,
-        title: `Review ${section.title}`,
+        title: clampResumeReviewRunStepTitle(`Review ${section.title}`),
         inputJson: { section },
         resultJson: {},
         status: "pending" as const,

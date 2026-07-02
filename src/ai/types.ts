@@ -10,6 +10,8 @@ export type JobDeskAiFailureKind =
   | "empty_output"
   | "invalid_json"
   | "contract_invalid"
+  | "db_error"
+  | "server_error"
   | "provider_error";
 
 export type JobDeskReasoningEffort =
