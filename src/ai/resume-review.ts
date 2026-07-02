@@ -86,6 +86,19 @@ type StagedResumeReviewResult = StructuredJsonResult<ResumeReview> & {
   stageCount: number;
 };
 
+type ResumeReviewSectionAssessmentMetadata = {
+  fallback: boolean;
+  providerTimedOut: boolean;
+  provisional: boolean;
+  subchunkCount?: number;
+  subchunkRecoveryAttempted: boolean;
+};
+
+type ResumeReviewSectionAssessmentResult =
+  StructuredJsonResult<ResumeReviewSectionAssessmentData> & {
+    metadata: ResumeReviewSectionAssessmentMetadata;
+  };
+
 const DEFAULT_RESUME_REVIEW_SECTION_TIMEOUT_MS = 55_000;
 const DEFAULT_RESUME_REVIEW_SYNTHESIS_TIMEOUT_MS = 120_000;
 const RESUME_REVIEW_SECTION_CHAR_CAP = 1600;
@@ -422,9 +435,9 @@ async function assessResumeReviewSection(args: {
   adapter: OpenRouterResponsesAdapter;
   resumeTitle: string;
   section: ResumeReviewSourceSection;
-}): Promise<StructuredJsonResult<ResumeReviewSectionAssessmentData>> {
+}): Promise<ResumeReviewSectionAssessmentResult> {
   try {
-    return await callResumeReviewStageWithRetry({
+    const result = await callResumeReviewStageWithRetry({
       adapter: args.adapter,
       input: JSON.stringify({
         resume_title: args.resumeTitle,
@@ -436,17 +449,135 @@ async function assessResumeReviewSection(args: {
       schema: ResumeReviewSectionAssessment,
       task: "general-resume-review-section-assessment",
     });
+    return {
+      ...result,
+      metadata: {
+        fallback: false,
+        providerTimedOut: false,
+        provisional: false,
+        subchunkRecoveryAttempted: false,
+      },
+    };
   } catch (error) {
     if (!(error instanceof JobDeskAiError) || error.kind !== "timeout") throw error;
+    const subchunks = splitResumeReviewSectionIntoRecoverySubchunks(args.section);
+    if (subchunks.length > 1) {
+      const recovered = await assessResumeReviewSectionSubchunks({
+        adapter: args.adapter,
+        resumeTitle: args.resumeTitle,
+        section: args.section,
+        subchunks,
+      });
+      if (recovered) {
+        return {
+          ...recovered,
+          metadata: {
+            fallback: false,
+            providerTimedOut: true,
+            provisional: true,
+            subchunkCount: subchunks.length,
+            subchunkRecoveryAttempted: true,
+          },
+        };
+      }
+    }
     const data = buildTimedOutSectionAssessment(args.section);
     return {
       data,
       outputText: JSON.stringify(data),
       retryCount: error.retryCount,
+      metadata: {
+        fallback: true,
+        providerTimedOut: true,
+        provisional: true,
+        subchunkCount: subchunks.length > 1 ? subchunks.length : undefined,
+        subchunkRecoveryAttempted: subchunks.length > 1,
+      },
       skill: skillRegistry.resumeReviewGeneral,
       usage: {},
     };
   }
+}
+
+async function assessResumeReviewSectionSubchunks(args: {
+  adapter: OpenRouterResponsesAdapter;
+  resumeTitle: string;
+  section: ResumeReviewSourceSection;
+  subchunks: ResumeReviewSourceSection[];
+}): Promise<StructuredJsonResult<ResumeReviewSectionAssessmentData> | null> {
+  const results: Array<StructuredJsonResult<ResumeReviewSectionAssessmentData>> = [];
+  for (const subchunk of args.subchunks) {
+    try {
+      results.push(
+        await callResumeReviewStageWithRetry({
+          adapter: args.adapter,
+          input: JSON.stringify({
+            resume_title: args.resumeTitle,
+            section: subchunk,
+          }),
+          instructions: buildResumeReviewSectionAssessmentInstructions(),
+          maxOutputTokens: 500,
+          retryTimeout: false,
+          schema: ResumeReviewSectionAssessment,
+          task: "general-resume-review-section-assessment-subchunk",
+        }),
+      );
+    } catch (error) {
+      if (error instanceof JobDeskAiError && error.kind === "timeout") continue;
+      throw error;
+    }
+  }
+  if (results.length === 0) return null;
+  const data = mergeResumeReviewSectionAssessments({
+    section: args.section,
+    assessments: results.map((result) => result.data),
+    attemptedSubchunkCount: args.subchunks.length,
+  });
+  return {
+    data,
+    outputText: JSON.stringify(data),
+    retryCount: results.reduce((sum, result) => sum + result.retryCount, 0),
+    skill: skillRegistry.resumeReviewGeneral,
+    usage: results.reduce<JobDeskAiUsage>((usage, result) => {
+      mergeUsage(usage, result.usage);
+      return usage;
+    }, {}),
+  };
+}
+
+function mergeResumeReviewSectionAssessments(args: {
+  section: ResumeReviewSourceSection;
+  assessments: ResumeReviewSectionAssessmentData[];
+  attemptedSubchunkCount: number;
+}) {
+  const recoveredCount = args.assessments.length;
+  const incompleteCount = args.attemptedSubchunkCount - recoveredCount;
+  const averageConfidence =
+    args.assessments.reduce((sum, assessment) => sum + assessment.confidence, 0) / recoveredCount;
+  return ResumeReviewSectionAssessment.parse({
+    ats_notes: uniqueResumeReviewList(args.assessments.flatMap((assessment) => assessment.ats_notes)),
+    confidence: Math.min(0.65, Math.max(0.35, averageConfidence - (incompleteCount > 0 ? 0.15 : 0.05))),
+    dimension_signals: args.assessments.flatMap((assessment) => assessment.dimension_signals).slice(0, 12),
+    evidence_questions: uniqueResumeReviewList([
+      ...args.assessments.flatMap((assessment) => assessment.evidence_questions),
+      ...(incompleteCount > 0
+        ? [`${args.section.title} still has ${incompleteCount} sub-section that needs manual review.`]
+        : []),
+    ]),
+    risk_flags: uniqueResumeReviewList([
+      ...args.assessments.flatMap((assessment) => assessment.risk_flags),
+      `${args.section.title} was recovered from smaller section analysis after the full section timed out.`,
+      ...(incompleteCount > 0
+        ? [`${args.section.title} has partial fallback coverage because ${incompleteCount} sub-section timed out.`]
+        : []),
+    ]),
+    strengths: uniqueResumeReviewList(args.assessments.flatMap((assessment) => assessment.strengths)),
+    weaknesses: uniqueResumeReviewList(args.assessments.flatMap((assessment) => assessment.weaknesses)),
+  });
+}
+
+function uniqueResumeReviewList(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))].slice(0, 10);
 }
 
 function buildTimedOutSectionAssessment(section: ResumeReviewSourceSection): ResumeReviewSectionAssessmentData {
@@ -873,6 +1004,41 @@ function getSemanticBlockContextLines(lines: string[]) {
     if (context.length >= 3) break;
   }
   return context.length > 0 ? context : lines.slice(0, 1);
+}
+
+function splitResumeReviewSectionIntoRecoverySubchunks(section: ResumeReviewSourceSection) {
+  const lines = section.text.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 4) return [];
+  const contextLines =
+    section.kind === "work_experience" || section.kind === "projects"
+      ? getSemanticBlockContextLines(lines)
+      : [section.title];
+  const detailLines = lines.slice(section.kind === "work_experience" || section.kind === "projects" ? contextLines.length : 0);
+  if (detailLines.length < 2) return [];
+  const groups = groupResumeReviewRecoveryDetailLines(detailLines, 650);
+  if (groups.length <= 1) return [];
+  return groups.map((group, index) => ({
+    id: `${section.id}-subchunk-${index + 1}`,
+    kind: section.kind,
+    text: [...contextLines, ...group].join("\n"),
+    title: `${section.title} sub-section ${index + 1}/${groups.length}`,
+  }));
+}
+
+function groupResumeReviewRecoveryDetailLines(lines: string[], cap: number) {
+  const groups: string[][] = [];
+  let current: string[] = [];
+  for (const line of lines) {
+    const next = [...current, line].join("\n");
+    if (next.length > cap && current.length > 0) {
+      groups.push(current);
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length) groups.push(current);
+  return groups;
 }
 
 function splitResumeReviewSectionByCharacterCap(text: string, cap: number) {

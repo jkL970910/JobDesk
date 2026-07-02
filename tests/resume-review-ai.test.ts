@@ -748,6 +748,111 @@ describe("resume review AI instructions", () => {
     expect(projectSections[1]?.title).toContain("JobDesk Resume Review");
   });
 
+  it("recovers a timed-out long section by assessing smaller semantic subchunks", async () => {
+    process.env.JOBDESK_OPENROUTER_API_KEY = "test-key";
+    process.env.JOBDESK_PROVIDER_ENABLED = "true";
+
+    let fullSectionTimedOut = false;
+    let synthesisCalls = 0;
+    let subchunkCalls = 0;
+    const fetchFn = async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        input?: Array<{ content?: string }>;
+        messages?: Array<{ content?: string }>;
+      };
+      const userInput = body.input?.[0]?.content ?? body.messages?.at(-1)?.content ?? "";
+      if (userInput.includes('"section"')) {
+        if (!userInput.includes("sub-section")) {
+          fullSectionTimedOut = true;
+          const error = new Error("aborted");
+          error.name = "AbortError";
+          throw error;
+        }
+        subchunkCalls += 1;
+        expect(userInput).toContain("Amazon");
+        expect(userInput).toContain("Software Development Engineer Jan 2022 - Present");
+        return jsonResponse({
+          ats_notes: ["Recovered sub-section stays readable."],
+          confidence: 0.72,
+          dimension_signals: [],
+          evidence_questions: [`Which metric proves recovered chunk ${subchunkCalls}?`],
+          risk_flags: [],
+          strengths: [`Recovered chunk ${subchunkCalls} has concrete detail.`],
+          weaknesses: [],
+        });
+      }
+      synthesisCalls += 1;
+      if (synthesisCalls === 1) {
+        expect(userInput).toContain("recovered from smaller section analysis");
+        return jsonResponse({
+          ats_notes: [],
+          strengths: ["Recovered long work experience detail."],
+          ten_second_scan: "Reviewer sees recovered work experience detail.",
+          weaknesses: [],
+        });
+      }
+      if (synthesisCalls === 2) {
+        return jsonResponse({
+          score: {
+            confidence: 0.65,
+            overall: 74,
+            scope_note: "General resume review with recovered section analysis.",
+          },
+          rubric: [
+            {
+              evidenceQuestions: ["Which metric proves recovered chunk 1?"],
+              findings: ["Recovered detail supports impact review."],
+              helpedScore: ["Subchunk recovery preserved work context."],
+              key: "impact_evidence",
+              label: "Impact evidence",
+              loweredScore: [],
+              maxScore: 100,
+              nextAction: "Add metrics to recovered work details.",
+              note: "Recovered section analysis is usable.",
+              raiseScore: ["Add a clearer metric."],
+              score: 74,
+            },
+          ],
+          suggested_edits: ["Add metrics to recovered work details."],
+        });
+      }
+      return jsonResponse({
+        fairness_check: {
+          applied: true,
+          note: "No protected or proxy signals were penalized.",
+          signals_not_penalized: [],
+        },
+        missing_evidence_questions: ["Which metric proves recovered chunk 1?"],
+        risk_flags: [],
+      });
+    };
+
+    const longBullets = Array.from(
+      { length: 14 },
+      (_, index) =>
+        `- Delivered recovered workflow ${index + 1} with implementation details, ownership scope, launch context, partner teams, user impact, and measurable production notes.`,
+    ).join("\n");
+    const result = await reviewResumeWithAi({
+      fetchFn,
+      sourceText: [
+        "Jane Doe",
+        "",
+        "Experience",
+        "Amazon",
+        "Software Development Engineer Jan 2022 - Present",
+        longBullets,
+      ].join("\n"),
+      sourceTitle: "Jane Doe Resume",
+    });
+
+    expect(fullSectionTimedOut).toBe(true);
+    expect(subchunkCalls).toBeGreaterThan(1);
+    expect(result.data.score.overall).toBe(74);
+    expect(result.data.risk_flags).not.toContain(
+      "Experience — Amazon · Software Development Engineer Jan 2022 - Present needs manual review because this section took too long to analyze automatically.",
+    );
+  });
+
   it("keeps full resume review moving when a section assessment times out", async () => {
     process.env.JOBDESK_OPENROUTER_API_KEY = "test-key";
     process.env.JOBDESK_PROVIDER_ENABLED = "true";

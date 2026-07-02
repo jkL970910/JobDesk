@@ -723,6 +723,12 @@ function buildSectionAssessmentResult() {
       strengths: ["Technical project work is visible."],
       weaknesses: ["Impact scale is not yet clear."],
     },
+    metadata: {
+      fallback: false,
+      providerTimedOut: false,
+      provisional: false,
+      subchunkRecoveryAttempted: false,
+    },
     outputText: "{}",
     retryCount: 0,
     skill: skillRegistry.resumeReviewGeneral,
