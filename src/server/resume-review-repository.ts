@@ -2267,7 +2267,7 @@ async function finishResumeReviewRun(
 }
 
 async function findResumeByHash(
-  db: Pick<DbHandle, "execute" | "select" | "update">,
+  db: Pick<DbHandle, "execute" | "insert" | "select" | "update">,
   args: {
     workspaceId: string;
     contentHash: string;
@@ -2292,9 +2292,18 @@ async function findResumeByHash(
     resumeSourceVersionId: existing.id,
     workspaceId: args.workspaceId,
   });
+  const reviewRun =
+    activeRun ??
+    (latestReport
+      ? null
+      : await createResumeReviewRun(db, {
+          resumeSourceVersionId: existing.id,
+          trigger: "initial_upload",
+          workspaceId: args.workspaceId,
+        }));
   return {
     status: "duplicate" as const,
-    existingResume: toResumeSummary(existing, latestReport, activeRun ?? undefined),
+    existingResume: toResumeSummary(existing, latestReport, reviewRun ?? undefined),
   };
 }
 

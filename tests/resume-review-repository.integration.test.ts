@@ -1,9 +1,12 @@
+import crypto from "node:crypto";
+
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 
 import { JobDeskAiError } from "../src/ai/errors";
 import { loadDotEnv } from "../src/ai/env";
 import {
+  createResumeSourceVersion,
   deleteResumeSourceVersion,
   getResumeReviewRun,
   getResumeSourceVersion,
@@ -165,6 +168,74 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
     });
     expect(result.reports).toHaveLength(0);
     expect(result.steps.filter((step) => step.stepKind === "segment_source")).toHaveLength(1);
+  });
+
+  it("starts a review run when duplicate detection finds an uploaded source without a run or report", async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const owner = await registerUser({
+      email: `resume-duplicate-orphan-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected owner user.");
+
+    const result = await runWithAuthContext(owner.user.id, async () => {
+      const db = getDb();
+      const workspace = await getCurrentWorkspace(db);
+      const sourceText = "Jane Doe\nExperience\nBuilt onboarding analytics dashboards with SQL.";
+      const contentHash = crypto.createHash("sha256").update(sourceText).digest("hex");
+      const now = new Date();
+      const [sourceDocument] = await db
+        .insert(sourceDocuments)
+        .values({
+          workspaceId: workspace.id,
+          sourceType: "resume-review",
+          title: `Duplicate Orphan Resume ${suffix}.txt`,
+          contentText: sourceText,
+          contentHash,
+          createdAt: now,
+        })
+        .returning({ id: sourceDocuments.id });
+      if (!sourceDocument) throw new Error("Expected source document fixture.");
+      const [orphan] = await db
+        .insert(resumeSourceVersions)
+        .values({
+          workspaceId: workspace.id,
+          sourceDocumentId: sourceDocument.id,
+          title: `Duplicate Orphan Resume ${suffix}.txt`,
+          contentHash,
+          sourceKind: "text",
+          sourceText,
+          version: 1,
+          status: "uploaded",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: resumeSourceVersions.id });
+      if (!orphan) throw new Error("Expected orphan resume fixture.");
+
+      const duplicate = await createResumeSourceVersion({
+        sourceKind: "text",
+        sourceText,
+        sourceTitle: `Duplicate Orphan Resume ${suffix}.txt`,
+      });
+      const runs = await db
+        .select()
+        .from(workflowRuns)
+        .where(eq(workflowRuns.workflowType, skillRegistry.resumeReviewGeneral.workflowType));
+      return { duplicate, orphan, runs };
+    });
+
+    expect(result.duplicate).toMatchObject({
+      existingResume: {
+        activeReviewRun: {
+          stage: "queued",
+          status: "running",
+        },
+        id: result.orphan.id,
+      },
+      status: "duplicate",
+    });
+    expect(result.runs).toHaveLength(1);
   });
 
   it("deletes resume review workflow runs when deleting the source version", async () => {
