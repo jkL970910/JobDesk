@@ -665,6 +665,7 @@ export function buildResumeReviewSectionAssessmentInstructions() {
     "dimension_signals should name dimensions such as readability, impact_evidence, project_depth, ats, structure, or evidence_readiness, with helped/lowered/raise_score lists.",
     "Do not penalize protected or proxy signals. If a fairness concern appears, phrase it as a neutral preparation note in risk_flags only if it affects public wording.",
     "Return only JSON with keys: strengths, weaknesses, evidence_questions, ats_notes, risk_flags, dimension_signals, confidence.",
+    "confidence must be a JSON number from 0 to 1, for example 0.72. Do not return labels such as high, medium, low, or medium confidence.",
     "Keep findings source-specific and concise. Avoid generic advice that could apply to any resume.",
   ]);
 }

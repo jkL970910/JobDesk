@@ -83,9 +83,9 @@ export function coerceResumeReviewConfidence(value: unknown) {
   const numericText = normalized.match(/\d+(?:\.\d+)?/)?.[0];
   const numeric = numericText ? Number(numericText) : NaN;
   if (Number.isFinite(numeric)) return numeric > 1 ? numeric / 100 : numeric;
-  if (["high", "strong"].includes(normalized)) return 0.8;
-  if (["medium", "moderate", "mid"].includes(normalized)) return 0.6;
-  if (["low", "weak"].includes(normalized)) return 0.35;
+  if (/\b(high|strong)\b/.test(normalized)) return 0.8;
+  if (/\b(medium|moderate|mid)\b/.test(normalized)) return 0.6;
+  if (/\b(low|weak)\b/.test(normalized)) return 0.35;
   return value;
 }
 

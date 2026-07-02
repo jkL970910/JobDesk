@@ -86,5 +86,8 @@ describe("resume review provider output normalizer", () => {
     expect(coerceResumeReviewConfidence("80 percent")).toBe(0.8);
     expect(coerceResumeReviewConfidence("confidence: 0.8")).toBe(0.8);
     expect(coerceResumeReviewConfidence("medium")).toBe(0.6);
+    expect(coerceResumeReviewConfidence("medium confidence")).toBe(0.6);
+    expect(coerceResumeReviewConfidence("High confidence based on source detail")).toBe(0.8);
+    expect(coerceResumeReviewConfidence("low confidence - sparse evidence")).toBe(0.35);
   });
 });
