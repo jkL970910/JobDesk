@@ -592,7 +592,8 @@ type EvidenceUpdateAction =
   | "approve_for_resume"
   | "reject"
   | "edit"
-  | "mark_external_safe";
+  | "mark_external_safe"
+  | "delete";
 
 type EvidenceUpdatePatch = {
   text?: string;
@@ -2145,6 +2146,24 @@ export function ProfileEvidenceWorkspace({
         "interview",
       ]),
     );
+    if (action === "delete") {
+      const response = await fetchJson(`/api/evidence/${item.id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        const message = payload?.error ?? "Failed to delete evidence.";
+        setError(message);
+        return { ok: false, message };
+      }
+      setResult(null);
+      await refreshLibraryAfterMutation();
+      const message = formatEvidenceActionMessage(action);
+      setStatus(message);
+      return { ok: true, message };
+    }
     const response = await fetchJson(`/api/evidence/${item.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -6696,7 +6715,13 @@ async function formatLoadError(response: Response, fallback: string) {
 }
 
 function formatEvidenceActionMessage(
-  action: "approve" | "approve_for_resume" | "reject" | "edit" | "mark_external_safe",
+  action:
+    | "approve"
+    | "approve_for_resume"
+    | "reject"
+    | "edit"
+    | "mark_external_safe"
+    | "delete",
 ) {
   if (action === "approve") {
     return "Evidence approved. It is confirmed, but use Approve for resume before resume generation.";
@@ -6709,6 +6734,9 @@ function formatEvidenceActionMessage(
   }
   if (action === "edit") {
     return "Evidence updated. Related resume claims may need another check.";
+  }
+  if (action === "delete") {
+    return "Evidence deleted. Related generated resume claims were marked for review.";
   }
   return "External-safe summary saved and resume/interview use enabled.";
 }
@@ -9372,6 +9400,19 @@ function EvidenceCard({
             onClick={() => onUpdate(item, "reject")}
           >
             Reject
+          </button>
+          <button
+            className="secondary-button secondary-button--danger"
+            disabled={isUpdating}
+            type="button"
+            onClick={() => {
+              const confirmed = window.confirm(
+                "Delete this Evidence Claim? Generated resume claims that used it will need review.",
+              );
+              if (confirmed) onUpdate(item, "delete");
+            }}
+          >
+            Delete
           </button>
           <button
             className="secondary-button"

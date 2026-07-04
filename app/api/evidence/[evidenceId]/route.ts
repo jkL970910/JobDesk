@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { updateEvidenceItem } from "../../../../src/server/profile-evidence-repository";
+import {
+  deleteEvidenceItem,
+  updateEvidenceItem,
+} from "../../../../src/server/profile-evidence-repository";
 import { AllowedUsage, SensitivityLevel } from "../../../../src/schemas/shared";
 import { schedulePersonalEmbeddingsSync } from "../../../../src/server/embedding-service";
 
@@ -64,5 +67,29 @@ export async function PATCH(
   }
 
   schedulePersonalEmbeddingsSync(`evidence_${body.data.action}`);
+  return NextResponse.json({ data: result });
+}
+
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ evidenceId: string }> },
+) {
+  const params = paramsSchema.safeParse(await context.params);
+  if (!params.success) {
+    return NextResponse.json(
+      { error: "Invalid evidence delete request.", kind: "invalid_request" },
+      { status: 400 },
+    );
+  }
+
+  const result = await deleteEvidenceItem(params.data.evidenceId);
+  if (result.status === "not_found") {
+    return NextResponse.json(
+      { error: "Evidence item not found.", kind: "not_found" },
+      { status: 404 },
+    );
+  }
+
+  schedulePersonalEmbeddingsSync("evidence_delete");
   return NextResponse.json({ data: result });
 }

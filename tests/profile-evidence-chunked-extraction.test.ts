@@ -4,6 +4,7 @@ import { JobDeskAiError } from "../src/ai/errors";
 import {
   buildChunkedProfileEvidenceExtractionForTest,
   buildDeterministicProfileWorkHistoryForTest,
+  buildDeterministicStoryEvidenceForTest,
   extractProfileEvidenceChunked,
   segmentProfileEvidenceSource,
 } from "../src/ai/profile-evidence-chunked-extraction";
@@ -377,6 +378,71 @@ describe("chunked profile evidence extraction", () => {
       status: "pending",
     });
     expect(result.data.extraction_notes.join(" ")).toContain("timed out");
+  });
+
+  it("keeps fallback evidence attached to the correct Amazon role and titled story", () => {
+    const segments = segmentProfileEvidenceSource(`
+        JIEKUN LIU
+        Toronto, ON
+
+        Experience
+        AMAZON Toronto, Canada
+        Software Dev Engineer (Last Mile Delivery Technology) Dec 2023 - Present
+        NFC Check-In Platform — Scaling Last Mile Network Rollout
+        Scaled a new NFC check-in method (50% faster check-in, 50% improved delivery promise) from 10 pilot stations to ~50 production stations across the US Last Mile network by building device management and validation infrastructure.
+        Delivered React operations portal and extensible validation API to allow station operators to monitor and self-service station check-in workflows.
+
+        Business-Critical Service Region Migration — Design Lead
+        Designed a reusable three-layer decoupled live migration architecture for a tier-1 service across AWS regions with zero downtime.
+
+        Package Return Workflow Enhancement
+        Proposed and won adoption of a source-of-truth alternative to an event-timer design, then owned end-to-end implementation, driving package return adoption from 40% to 80%.
+
+        Infrastructure Modernization
+        Reduced environment setup for highest-criticality services from 2+ weeks to 2-3 days using AWS CDK.
+
+        AMAZON Toronto, Canada
+        Software Dev Engineer Intern May 2022 - Aug 2022
+        Worked on building a distributed cloud cache for a Tier-1 authority service in Amazon Last Mile which helps millions of drivers efficiently and effectively manage their delivery work session and assignment eligibility, using Java and NAWS.
+    `);
+    const profileResult = buildDeterministicProfileWorkHistoryForTest(segments);
+    const result = buildChunkedProfileEvidenceExtractionForTest({
+      evidenceResults: segments
+        .filter((segment) => segment.kind === "work_experience")
+        .map((segment) => buildDeterministicStoryEvidenceForTest(segment, profileResult.work_experiences)),
+      profileResult,
+      projectResults: [],
+    });
+
+    const titles = result.initiatives.map((item) => item.internal_title);
+    expect(titles).toEqual(
+      expect.arrayContaining([
+        "NFC Check-In Platform — Scaling Last Mile Network Rollout",
+        "Business-Critical Service Region Migration — Design Lead",
+        "Package Return Workflow Enhancement",
+        "Infrastructure Modernization",
+      ]),
+    );
+
+    const nfcEvidence = result.evidence_items.filter((item) =>
+      item.source_quote.includes("NFC check-in"),
+    );
+    expect(nfcEvidence).not.toHaveLength(0);
+    expect(nfcEvidence.every((item) => item.related_initiative_id?.includes("NFC"))).toBe(true);
+    expect(nfcEvidence.every((item) => item.related_initiative_id?.includes("cache"))).toBe(false);
+
+    const cacheEvidence = result.evidence_items.find((item) =>
+      item.source_quote.includes("distributed cloud cache"),
+    );
+    expect(cacheEvidence).toMatchObject({
+      allowed_usage: [],
+      public_safe_summary: null,
+      related_work_experience_id: "AMAZON · Software Dev Engineer Intern",
+      sensitivity_level: "private",
+      status: "pending",
+    });
+    expect(cacheEvidence?.related_initiative_id).toContain("distributed cloud cache");
+    expect(result.extraction_notes.join(" ")).toContain("partial conservative source-grounded drafts");
   });
 
   it("falls back to conservative drafts when a chunk returns invalid contract output", async () => {

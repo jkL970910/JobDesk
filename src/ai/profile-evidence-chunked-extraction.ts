@@ -26,6 +26,7 @@ type SegmentKind =
 export type ProfileEvidenceSourceSegment = {
   id: string;
   kind: SegmentKind;
+  parentTitle?: string;
   title: string;
   text: string;
 };
@@ -493,12 +494,13 @@ function buildStoryEvidenceInstructions() {
     "Return only JSON with keys: initiatives, evidence_items, extraction_notes.",
     "Do not return profile, work_experiences, portfolio_projects, or project_cards in this call.",
     "Initiatives are coherent employer-internal project/story containers under a Work Experience.",
+    "Create one initiative for each distinct titled project or coherent story in the section.",
     "Keep Work Experience as a high-level employer/role container; do not move section bullets into Work Experience fields.",
     "Use work_experience_ref matching a known_work_experiences ref when possible.",
     "Evidence items must be atomic reusable facts and must quote the source verbatim.",
     "Any metric in evidence text or metrics must appear in source_quote.",
     "Use sensitivity_level=private unless clearly public-safe, status=pending, and needs_user_confirmation=true for inferred evidence.",
-    "Return at most 1 initiative and 2 evidence_items for this section.",
+    "Return at most 3 initiatives and 6 evidence_items for this section.",
   ]);
 }
 
@@ -521,9 +523,16 @@ function buildDeterministicStoryEvidence(
   const workExperience = matchWorkExperienceForSegment(segment, workExperiences);
   const workRef = workExperience ? buildWorkExperienceRef(workExperience) : null;
   const lines = segment.text.split("\n").map((line) => line.trim()).filter(Boolean);
-  const bodyLines = lines.slice(2).filter((line) => line.length >= 24);
-  const title = inferInitiativeTitle(bodyLines[0] ?? lines[0] ?? "Imported work story");
-  const quotes = bodyLines.slice(0, 2);
+  const contentStartIndex = findWorkStoryContentStartIndex(lines);
+  const contentLines = lines.slice(contentStartIndex);
+  const hasStoryTitle = Boolean(contentLines[0] && looksLikeStoryTitle(contentLines[0]));
+  const title = inferInitiativeTitle(
+    hasStoryTitle ? contentLines[0]! : contentLines.find((line) => line.length >= 24) ?? lines[0] ?? "Imported work story",
+  );
+  const quotes = contentLines
+    .slice(hasStoryTitle ? 1 : 0)
+    .filter((line) => line.length >= 24)
+    .slice(0, 3);
   return StoryEvidenceExtraction.parse({
     evidence_items: quotes.map((quote) => ({
       allowed_usage: [],
@@ -541,7 +550,7 @@ function buildDeterministicStoryEvidence(
       text: quote.replace(/^[-•]\s*/, "").slice(0, 280),
     })),
     extraction_notes: [
-      `AI evidence extraction timed out for ${segment.title}; JobDesk created conservative source-grounded drafts for review.`,
+      `AI evidence extraction timed out for ${segment.parentTitle ?? segment.title}; JobDesk created partial conservative source-grounded drafts for review.`,
     ],
     initiatives: [
       {
@@ -564,6 +573,8 @@ function buildDeterministicStoryEvidence(
     ],
   });
 }
+
+export const buildDeterministicStoryEvidenceForTest = buildDeterministicStoryEvidence;
 
 function buildDeterministicProjectEvidence(
   segment: ProfileEvidenceSourceSegment,
@@ -616,12 +627,60 @@ function matchWorkExperienceForSegment(
   segment: ProfileEvidenceSourceSegment,
   workExperiences: Array<z.infer<typeof WorkExperienceDraft>>,
 ) {
-  const textKey = normalizeKey(segment.text);
-  return (
-    workExperiences.find((experience) =>
-      normalizeKey([experience.employer, experience.role_title].join(" ")).split(" ").some((token) => token.length > 3 && textKey.includes(token)),
-    ) ?? workExperiences[0] ?? null
+  if (workExperiences.length === 0) return null;
+  const segmentLines = segment.text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const roleLine = segmentLines.find((line) => looksLikeDatedRoleLine(line));
+  const previousLine = roleLine ? segmentLines[Math.max(0, segmentLines.indexOf(roleLine) - 1)] : null;
+  const candidates = workExperiences
+    .map((experience) => ({
+      experience,
+      score: scoreWorkExperienceMatch({
+        experience,
+        previousLine,
+        roleLine,
+        segment,
+      }),
+    }))
+    .sort((left, right) => right.score - left.score);
+  const best = candidates[0];
+  if (!best || best.score < 6) return null;
+  return best.experience;
+}
+
+function scoreWorkExperienceMatch(args: {
+  experience: z.infer<typeof WorkExperienceDraft>;
+  previousLine: string | null | undefined;
+  roleLine: string | null | undefined;
+  segment: ProfileEvidenceSourceSegment;
+}) {
+  const employer = normalizeKey(args.experience.employer);
+  const roleTitle = normalizeKey(args.experience.role_title);
+  const startDate = normalizeKey(args.experience.start_date ?? "");
+  const endDate = normalizeKey(args.experience.end_date ?? "");
+  const roleLine = normalizeKey(args.roleLine ?? "");
+  const previousLine = normalizeKey(args.previousLine ?? "");
+  const segmentHeader = normalizeKey(
+    args.segment.text
+      .split("\n")
+      .slice(0, 4)
+      .join(" "),
   );
+  let score = 0;
+  if (employer && previousLine.includes(employer)) score += 4;
+  if (roleTitle && roleLine.includes(roleTitle)) score += 5;
+  if (startDate && roleLine.includes(startDate)) score += 3;
+  if (endDate && roleLine.includes(endDate)) score += 2;
+  if (employer && segmentHeader.includes(employer)) score += 2;
+  if (roleTitle && segmentHeader.includes(roleTitle)) score += 2;
+  if (startDate && segmentHeader.includes(startDate)) score += 2;
+  if (endDate && segmentHeader.includes(endDate)) score += 1;
+  return score;
+}
+
+function findWorkStoryContentStartIndex(lines: string[]) {
+  const datedLineIndex = lines.findIndex((line) => looksLikeDatedRoleLine(line));
+  if (datedLineIndex >= 0) return datedLineIndex + 1;
+  return lines.length > 2 ? 2 : 0;
 }
 
 function inferInitiativeTitle(text: string) {
@@ -888,13 +947,71 @@ function splitWorkExperienceSegments(segments: ProfileEvidenceSourceSegment[]) {
       continue;
     }
     const roleChunks = splitWorkExperienceText(segment.text);
-    if (roleChunks.length <= 1) {
-      output.push(segment);
+    const roleSegments = roleChunks.flatMap((text) => splitWorkRoleIntoStorySegments(segment, text));
+    if (roleSegments.length <= 1) {
+      output.push(roleSegments[0] ?? segment);
       continue;
     }
-    output.push(...roleChunks.map((text) => ({ ...segment, text })));
+    output.push(...roleSegments);
   }
   return output;
+}
+
+function splitWorkRoleIntoStorySegments(
+  baseSegment: ProfileEvidenceSourceSegment,
+  roleText: string,
+): ProfileEvidenceSourceSegment[] {
+  const lines = roleText.split("\n").map((line) => line.trim()).filter(Boolean);
+  const datedRoleIndex = lines.findIndex((line) => looksLikeDatedRoleLine(line));
+  if (datedRoleIndex < 0) {
+    return splitByCharacterCap(roleText, maxSegmentCharacters).map((text) => ({
+      ...baseSegment,
+      text,
+    }));
+  }
+  const headerLines = lines.slice(0, datedRoleIndex + 1);
+  const bodyLines = lines.slice(datedRoleIndex + 1);
+  const storyTitleIndexes = bodyLines
+    .map((line, index) => ({ index, line }))
+    .filter(({ line }) => looksLikeStoryTitle(line))
+    .map(({ index }) => index);
+  if (storyTitleIndexes.length <= 1) {
+    return splitByCharacterCap(roleText, maxSegmentCharacters).map((text) => ({
+      ...baseSegment,
+      text,
+    }));
+  }
+
+  return storyTitleIndexes.flatMap((startIndex, storyIndex) => {
+    const endIndex = storyTitleIndexes[storyIndex + 1] ?? bodyLines.length;
+    const storyLines = bodyLines.slice(startIndex, endIndex);
+    const storyTitle = storyLines[0] ?? baseSegment.title;
+    const storyText = [...headerLines, ...storyLines].join("\n");
+    return splitByCharacterCap(storyText, maxSegmentCharacters).map((text) => ({
+      ...baseSegment,
+      parentTitle: baseSegment.title,
+      text,
+      title: storyTitle,
+    }));
+  });
+}
+
+function looksLikeStoryTitle(line: string) {
+  const normalized = line.trim();
+  if (normalized.length < 8 || normalized.length > 120) return false;
+  if (/^[-*•]/.test(normalized)) return false;
+  if (looksLikeDatedRoleLine(normalized)) return false;
+  if (/[.!?]$/.test(normalized)) return false;
+  if (/\b(worked|built|delivered|designed|implemented|reduced|improved|coordinated|proposed|fixed|mentored)\b/i.test(normalized)) {
+    return false;
+  }
+  if (/\b(platform|migration|workflow|modernization|rollout|portal|service|system|infrastructure|enhancement|design lead|project)\b/i.test(normalized)) {
+    return true;
+  }
+  if (/[—–-]/.test(normalized) && /^[A-Z0-9][A-Za-z0-9&/() ,.'—–-]+$/.test(normalized)) {
+    return true;
+  }
+  return false;
 }
 
 function splitWorkExperienceText(text: string) {
@@ -907,6 +1024,11 @@ function splitWorkExperienceText(text: string) {
         ? index
         : index - 1,
     );
+  if (datedRoleIndexes.length === 1) {
+    const start = datedRoleIndexes[0]!;
+    const chunk = lines.slice(start).join("\n");
+    return splitByCharacterCap(chunk, maxSegmentCharacters);
+  }
   const startIndexes = (datedRoleIndexes.length > 1 ? datedRoleIndexes : lines
     .map((line, index) => ({ index, line }))
     .filter(({ line }) => looksLikeRoleStart(line))

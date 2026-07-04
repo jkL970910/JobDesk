@@ -3471,6 +3471,88 @@ export async function updateEvidenceItem(args: {
   };
 }
 
+export async function deleteEvidenceItem(evidenceId: string) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [existing] = await db
+    .select({ id: evidenceItems.id })
+    .from(evidenceItems)
+    .where(and(eq(evidenceItems.workspaceId, workspace.id), eq(evidenceItems.id, evidenceId)))
+    .limit(1);
+  if (!existing) return { status: "not_found" as const };
+
+  const claims = await db
+    .select({ id: generatedClaims.id, evidenceIds: generatedClaims.evidenceIds })
+    .from(generatedClaims)
+    .where(eq(generatedClaims.workspaceId, workspace.id));
+  const impactedClaimIds = claims
+    .filter((claim) => claim.evidenceIds.includes(evidenceId))
+    .map((claim) => claim.id);
+
+  const result = await db.transaction(async (tx) => {
+    const staleClaims =
+      impactedClaimIds.length > 0
+        ? await tx
+            .update(generatedClaims)
+            .set({
+              claimStatus: "stale",
+              supportStatus: "unvalidated",
+              staleReason: "Linked evidence was deleted.",
+              lastValidatedAt: null,
+            })
+            .where(
+              and(
+                eq(generatedClaims.workspaceId, workspace.id),
+                inArray(generatedClaims.id, impactedClaimIds),
+              ),
+            )
+            .returning({ id: generatedClaims.id })
+        : [];
+    const taskTargets = await tx
+      .delete(enrichmentTaskTargets)
+      .where(
+        and(
+          eq(enrichmentTaskTargets.workspaceId, workspace.id),
+          eq(enrichmentTaskTargets.targetKind, "evidence"),
+          eq(enrichmentTaskTargets.targetId, evidenceId),
+        ),
+      )
+      .returning({ id: enrichmentTaskTargets.id });
+    const tasks = await tx
+      .delete(enrichmentTasks)
+      .where(
+        and(
+          eq(enrichmentTasks.workspaceId, workspace.id),
+          eq(enrichmentTasks.evidenceItemId, evidenceId),
+        ),
+      )
+      .returning({ id: enrichmentTasks.id });
+    const deleted = await tx
+      .delete(evidenceItems)
+      .where(and(eq(evidenceItems.workspaceId, workspace.id), eq(evidenceItems.id, evidenceId)))
+      .returning({ id: evidenceItems.id });
+    return {
+      deleted,
+      staleClaims,
+      taskTargets,
+      tasks,
+    };
+  });
+
+  if (result.deleted.length === 0) return { status: "not_found" as const };
+  return {
+    status: "deleted" as const,
+    deletedEvidenceItemId: result.deleted[0]!.id,
+    deletedEnrichmentTasks: result.tasks.length,
+    deletedEnrichmentTaskTargets: result.taskTargets.length,
+    staleGeneratedClaims: result.staleClaims.length,
+  };
+}
+
 export async function getResumeTailoringContext(
   job?: ResumeRetrievalJobContext | null,
 ) {
