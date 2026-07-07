@@ -59,6 +59,7 @@ npm run test:integration
 npm run verify:local
 npm run gen:jsonschema
 npm run ai:smoke:jd
+npm run smoke:resume-core -- --base-url http://127.0.0.1:3030
 npm run smoke:full -- --resume-file /path/to/resume.pdf --base-url http://127.0.0.1:3030
 npm run db:generate
 npm run db:migrate

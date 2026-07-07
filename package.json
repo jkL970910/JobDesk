@@ -15,6 +15,7 @@
     "verify:resume-core": "tsx scripts/verify-resume-core-loop.ts",
     "gen:jsonschema": "tsx scripts/generate-json-schema.ts",
     "ai:smoke:jd": "tsx scripts/smoke-jd-analysis.ts",
+    "smoke:resume-core": "tsx scripts/smoke-resume-core.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
