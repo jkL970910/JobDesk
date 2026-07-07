@@ -225,6 +225,20 @@
       "when": 1782853200000,
       "tag": "0031_generated_resume_readiness_reviews",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1783526400000,
+      "tag": "0032_source_cleanup_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1783612800000,
+      "tag": "0033_evidence_quarantine_fields",
+      "breakpoints": true
     }
   ]
 }

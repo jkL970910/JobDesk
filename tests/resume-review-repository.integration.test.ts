@@ -25,6 +25,7 @@ import {
   resumeReviewReports,
   resumeReviewRunSteps,
   resumeSourceVersions,
+  sourceCleanupEvents,
   sourceDocuments,
   workflowRuns,
 } from "../src/db/schema";
@@ -221,7 +222,12 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
       const runs = await db
         .select()
         .from(workflowRuns)
-        .where(eq(workflowRuns.workflowType, skillRegistry.resumeReviewGeneral.workflowType));
+        .where(
+          and(
+            eq(workflowRuns.workspaceId, workspace.id),
+            eq(workflowRuns.workflowType, skillRegistry.resumeReviewGeneral.workflowType),
+          ),
+        );
       return { duplicate, orphan, runs };
     });
 
@@ -338,7 +344,11 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
         .select()
         .from(enrichmentTasks)
         .where(eq(enrichmentTasks.dedupeKey, `orphan-source-section-${suffix}`));
-      return { deleted, remainingFacts, remainingProfiles, remainingTasks };
+      const cleanupEvents = await db
+        .select()
+        .from(sourceCleanupEvents)
+        .where(eq(sourceCleanupEvents.workspaceId, workspace.id));
+      return { cleanupEvents, deleted, remainingFacts, remainingProfiles, remainingTasks };
     });
 
     expect(result.deleted).toMatchObject({
@@ -353,6 +363,29 @@ describe.skipIf(!runIntegration)("resume review repository workspace isolation",
     expect(result.remainingProfiles).toHaveLength(0);
     expect(result.remainingFacts).toHaveLength(0);
     expect(result.remainingTasks).toHaveLength(0);
+    const deletedResumeId = result.deleted.status === "deleted" ? result.deleted.resume.id : null;
+    const cleanupEvent = result.cleanupEvents.find(
+      (event) =>
+        deletedResumeId &&
+        typeof event.resultJson === "object" &&
+        event.resultJson !== null &&
+        "resumeSourceVersionId" in event.resultJson &&
+        event.resultJson.resumeSourceVersionId === deletedResumeId,
+    );
+    expect(cleanupEvent).toMatchObject({
+      cleanupMode: "remove_draft_materials",
+      dryRun: 0,
+      initiator: "user",
+    });
+    expect(cleanupEvent?.impactJson).toMatchObject({
+      orphanSourceSectionTasks: 1,
+      profileRows: 1,
+    });
+    expect(cleanupEvent?.resultJson).toMatchObject({
+      orphanSourceSectionTasks: 1,
+      profileRows: 1,
+      sourceDocumentDeleted: true,
+    });
   });
 
   it("expires stale pre-save review runs so polling and retry can recover", async () => {

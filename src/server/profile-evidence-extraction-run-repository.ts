@@ -117,6 +117,7 @@ export async function claimNextProfileEvidenceExtractionRun(workerId: string) {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
   }
   const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
   const now = new Date();
   const staleLock = new Date(now.getTime() - 15 * 60_000);
   const candidates = await db
@@ -124,6 +125,7 @@ export async function claimNextProfileEvidenceExtractionRun(workerId: string) {
     .from(profileEvidenceExtractionRuns)
     .where(
       and(
+        eq(profileEvidenceExtractionRuns.workspaceId, workspace.id),
         inArray(profileEvidenceExtractionRuns.status, profileEvidenceExtractionRunStaleClaimableStatuses),
         or(
           isNull(profileEvidenceExtractionRuns.lockedAt),
@@ -153,6 +155,7 @@ export async function claimNextProfileEvidenceExtractionRun(workerId: string) {
     .where(
       and(
         eq(profileEvidenceExtractionRuns.id, candidate.id),
+        eq(profileEvidenceExtractionRuns.workspaceId, workspace.id),
         inArray(profileEvidenceExtractionRuns.status, profileEvidenceExtractionRunStaleClaimableStatuses),
         or(
           isNull(profileEvidenceExtractionRuns.lockedAt),

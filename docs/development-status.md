@@ -1,6 +1,6 @@
 # JobDesk Development Status
 
-Last updated: 2026-06-28
+Last updated: 2026-07-07
 Baseline commit: ce44458 `Build local MVP workflow baseline`
 Latest implementation commit: 79dff3e `feat: expose target eligibility metadata`
 Production URL: https://jobdesk-tau.vercel.app
@@ -196,6 +196,14 @@ Integration tests use the configured JobDesk database and write temporary workfl
 | Priority | Task | Status |
 |----------|------|--------|
 | P0 | Keep this status file updated with every implementation step | Active |
+| P0 | Freeze new workflow/module work until the Resume Core Loop is hardened | Active |
+| P0 | P0.1a Source impact preview, draft-material cleanup, and cleanup audit event | Done, local |
+| P0 | P0.2 Unified resume evidence eligibility policy computed by backend and returned through API DTOs | Done, local |
+| P0 | P0.3a Evidence-only Asset Action Service for edit/approve/reject/approve-for-resume/link/unlink/stale-claim handling | Done, local |
+| P0 | P0.1b Approved source-derived material quarantine, executed through the evidence action seam with strong confirmation | Done, local |
+| P0 | P0.4 Unified Main/Tailored Resume readiness worklist for hard blockers, evidence blockers, stale claims, missing evidence, and polish-only findings | Done, local |
+| P0 | P0.5 Tailored Resume DOCX/HTML export parity using the existing export renderer and export gate | Planned |
+| P0 | P0.6 Full Resume Core Loop QA suite, with targeted tests added in every slice before the final E2E pass | Planned |
 | P0 | Add a reusable local full-workflow smoke script without storing resume content in git | Done |
 | P0 | Improve claim review UX so `unvalidated` resumes show exactly which claims need attention | Done, MVP |
 | P0 | Add Skills Registry audit metadata and workflow diagnostics | Done, MVP |

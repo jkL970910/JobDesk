@@ -89,6 +89,15 @@ export async function DELETE(
       { status: 404 },
     );
   }
+  if (result.status === "invalid") {
+    return NextResponse.json(
+      {
+        error: result.reason,
+        kind: "invalid_evidence_delete",
+      },
+      { status: 409 },
+    );
+  }
 
   schedulePersonalEmbeddingsSync("evidence_delete");
   return NextResponse.json({ data: result });

@@ -24,6 +24,7 @@ describe("evidence item route", () => {
       deletedEnrichmentTaskTargets: 1,
       deletedEnrichmentTasks: 2,
       deletedEvidenceItemId: "11111111-1111-4111-8111-111111111111",
+      dismissedTargetOnlyEnrichmentTasks: 0,
       staleGeneratedClaims: 1,
       status: "deleted",
     });
@@ -64,6 +65,23 @@ describe("evidence item route", () => {
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toMatchObject({
       kind: "not_found",
+    });
+  });
+
+  it("returns conflict when evidence deletion is protected", async () => {
+    mockedDeleteEvidenceItem.mockResolvedValueOnce({
+      reason: "resume_ready_evidence_requires_quarantine",
+      status: "invalid",
+    });
+
+    const response = await DELETE(new Request("http://localhost/api/evidence/evidence-1"), {
+      params: Promise.resolve({ evidenceId: "33333333-3333-4333-8333-333333333333" }),
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "resume_ready_evidence_requires_quarantine",
+      kind: "invalid_evidence_delete",
     });
   });
 });

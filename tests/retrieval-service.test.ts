@@ -44,6 +44,12 @@ describe("retrieval service", () => {
     expect(
       isEvidenceEligible(candidate({ evidence_type: "inferred" }), resumePolicy),
     ).toBe(false);
+    expect(
+      isEvidenceEligible(candidate({ source_quote: "" }), resumePolicy),
+    ).toBe(false);
+    expect(
+      isEvidenceEligible(candidate({ quarantined_at: "2026-07-07T12:00:00.000Z" }), resumePolicy),
+    ).toBe(false);
   });
 
   it("ranks public-safe summaries as searchable resume evidence", () => {
@@ -252,6 +258,7 @@ function candidate(
     public_safe_summary: null,
     status: "approved",
     needs_user_confirmation: false,
+    quarantined_at: null,
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...patch,
   };

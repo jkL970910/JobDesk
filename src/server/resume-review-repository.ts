@@ -14,6 +14,7 @@ import {
   resumeReviewRunSteps,
   resumeReviewReports,
   resumeSourceVersions,
+  sourceCleanupEvents,
   sourceDocuments,
   workExperiences,
   workflowRuns,
@@ -148,11 +149,11 @@ export type ResumeSourceDeleteImpact = {
   draftPortfolioProjects: number;
   draftWorkExperiences: number;
   openEnrichmentTasks: number;
+  orphanSourceSectionTasks: number;
   profileRows: number;
 };
 
 type ResumeSourceDeleteCounts = ResumeSourceDeleteImpact & {
-  orphanSourceSectionTasks: number;
   sourceDocumentDeleted: boolean;
 };
 
@@ -315,6 +316,7 @@ export async function getResumeSourceDeleteImpact(resumeSourceVersionId: string)
     impact: await getResumeDeleteImpactCounts(db, {
       resumeSourceVersionId: resume.id,
       sourceDocumentId: resume.sourceDocumentId,
+      sourceLabel: resume.title,
       workspaceId: workspace.id,
     }),
     resume: toResumeSourcePayload(resume),
@@ -341,6 +343,7 @@ export async function deleteResumeSourceVersion(
   const impact = await getResumeDeleteImpactCounts(db, {
     resumeSourceVersionId: resume.id,
     sourceDocumentId: resume.sourceDocumentId,
+    sourceLabel: resume.title,
     workspaceId: workspace.id,
   });
   let deletedCounts: ResumeSourceDeleteCounts = {
@@ -401,6 +404,21 @@ export async function deleteResumeSourceVersion(
         deletedCounts.sourceDocumentDeleted = true;
       }
     }
+    await tx.insert(sourceCleanupEvents).values({
+      workspaceId: workspace.id,
+      resumeSourceVersionId: null,
+      sourceDocumentId: deletedCounts.sourceDocumentDeleted ? null : resume.sourceDocumentId,
+      cleanupMode,
+      initiator: "user",
+      dryRun: 0,
+      impactJson: impact as unknown as Record<string, unknown>,
+      resultJson: {
+        ...deletedCounts,
+        resumeSourceVersionId: resume.id,
+        sourceDocumentId: resume.sourceDocumentId,
+      } as unknown as Record<string, unknown>,
+      createdAt: new Date(),
+    });
   });
 
   return {
@@ -420,7 +438,7 @@ export async function rerunResumeReview(resumeSourceVersionId: string) {
 
 async function getResumeDeleteImpactCounts(
   db: Pick<DbHandle, "select">,
-  args: { workspaceId: string; sourceDocumentId: string; resumeSourceVersionId: string },
+  args: { workspaceId: string; sourceDocumentId: string; resumeSourceVersionId: string; sourceLabel: string },
 ): Promise<ResumeSourceDeleteImpact> {
   const [
     [draftEvidence],
@@ -428,6 +446,8 @@ async function getResumeDeleteImpactCounts(
     [draftInitiatives],
     [draftPortfolio],
     [openTasks],
+    [profileRows],
+    [orphanSourceSectionTasks],
   ] = await Promise.all([
     db
       .select({ value: count() })
@@ -484,6 +504,27 @@ async function getResumeDeleteImpactCounts(
           inArray(enrichmentTasks.status, ["open", "answered"]),
         ),
       ),
+    db
+      .select({ value: count() })
+      .from(profiles)
+      .where(and(eq(profiles.workspaceId, args.workspaceId), eq(profiles.sourceDocumentId, args.sourceDocumentId))),
+    db
+      .select({ value: count() })
+      .from(enrichmentTasks)
+      .where(
+        and(
+          eq(enrichmentTasks.workspaceId, args.workspaceId),
+          eq(enrichmentTasks.taskType, "source_section_review"),
+          eq(enrichmentTasks.sourceLabel, args.sourceLabel),
+          sql`${enrichmentTasks.resumeSourceVersionId} is null`,
+          sql`${enrichmentTasks.resumeReviewReportId} is null`,
+          sql`${enrichmentTasks.evidenceItemId} is null`,
+          sql`${enrichmentTasks.workExperienceId} is null`,
+          sql`${enrichmentTasks.initiativeId} is null`,
+          sql`${enrichmentTasks.portfolioProjectId} is null`,
+          inArray(enrichmentTasks.status, ["open", "answered"]),
+        ),
+      ),
   ]);
   return {
     draftEvidenceItems: draftEvidence?.value ?? 0,
@@ -491,7 +532,8 @@ async function getResumeDeleteImpactCounts(
     draftPortfolioProjects: draftPortfolio?.value ?? 0,
     draftWorkExperiences: draftWork?.value ?? 0,
     openEnrichmentTasks: openTasks?.value ?? 0,
-    profileRows: 0,
+    orphanSourceSectionTasks: orphanSourceSectionTasks?.value ?? 0,
+    profileRows: profileRows?.value ?? 0,
   };
 }
 

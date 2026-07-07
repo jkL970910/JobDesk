@@ -195,6 +195,19 @@ type TargetEligibility = {
   reason: string;
 };
 
+type ResumeEvidenceEligibility = {
+  eligible: boolean;
+  blockers: Array<{
+    code: string;
+    detail: string;
+    label: string;
+    nextAction: string;
+  }>;
+  nextAction: string;
+  summary: string;
+  canUsePublicSafeSummary: boolean;
+};
+
 type LibraryItemProvenance = {
   kind: "manual_or_generated" | "source_document";
   source_document_id?: string | null;
@@ -215,9 +228,12 @@ type EvidenceCardItem = {
   public_safe_summary?: string | null;
   status: string;
   needs_user_confirmation: boolean;
+  quarantined_at?: string | null;
+  quarantine_reason?: string | null;
   enrichment_task_count?: number;
   provenance?: LibraryItemProvenance;
   target_eligibility?: TargetEligibility;
+  resume_eligibility?: ResumeEvidenceEligibility;
   updatedAt?: string;
 };
 
@@ -7551,7 +7567,8 @@ function isStoryEnrichmentTarget(
 }
 
 function getEvidenceReadiness(item: EvidenceCardItem) {
-  if (isResumeReadyEvidence(item)) {
+  const eligibility = item.resume_eligibility;
+  if (eligibility?.eligible || (!eligibility && isResumeReadyEvidence(item))) {
     const usesSafeSummary = item.sensitivity_level !== "public_safe" && Boolean(item.public_safe_summary?.trim());
     return {
       label: usesSafeSummary ? "Resume-ready via safe wording" : "Resume-ready",
@@ -7559,6 +7576,13 @@ function getEvidenceReadiness(item: EvidenceCardItem) {
       next: usesSafeSummary
         ? "Resume generation will use the public-safe wording, not the private source text."
         : "Can support main resume or tailored resume generation.",
+    };
+  }
+  if (eligibility && !eligibility.eligible) {
+    return {
+      label: "Needs review",
+      state: "needs_review" as const,
+      next: eligibility.summary,
     };
   }
   if (item.status === "approved") {
@@ -7874,11 +7898,20 @@ function isStandaloneEvidenceForFilter(
 }
 
 function isResumeReadyEvidence(item: EvidenceCardItem) {
+  if (item.resume_eligibility) return item.resume_eligibility.eligible;
   return (
     item.status === "approved" &&
     !item.needs_user_confirmation &&
     (item.allowed_usage ?? []).includes("resume") &&
     hasExternalSafeDisclosure(item)
+  );
+}
+
+function canDeleteDraftEvidence(item: EvidenceCardItem) {
+  return (
+    !item.quarantined_at &&
+    item.status !== "approved" &&
+    !(item.allowed_usage ?? []).includes("resume")
   );
 }
 
@@ -8062,6 +8095,41 @@ function formatSourceQuotePreview(quote: string) {
 }
 
 function getEvidenceBlocker(item: EvidenceCardItem) {
+  const eligibility = item.resume_eligibility;
+  if (eligibility) {
+    const primaryBlocker = eligibility.blockers[0] ?? null;
+    if (eligibility.eligible) {
+      return {
+        action: "edit" as const,
+        label: "Edit",
+        reason: eligibility.summary,
+      };
+    }
+    if (primaryBlocker?.nextAction === "add_public_safe_summary") {
+      return {
+        action: "mark_external_safe" as const,
+        label: "Review external-safe wording",
+        reason: primaryBlocker.detail,
+      };
+    }
+    if (
+      primaryBlocker?.nextAction === "add_source_quote" ||
+      primaryBlocker?.nextAction === "replace_inferred_evidence"
+    ) {
+      return {
+        action: "edit" as const,
+        label: primaryBlocker.nextAction === "add_source_quote"
+          ? "Add source quote"
+          : "Replace inferred claim",
+        reason: primaryBlocker.detail,
+      };
+    }
+    return {
+      action: "approve_for_resume" as const,
+      label: primaryBlocker?.label ?? "Review claim",
+      reason: primaryBlocker?.detail ?? eligibility.summary,
+    };
+  }
   const allowedUsage = item.allowed_usage ?? [];
   if (item.status !== "approved") {
     return {
@@ -9006,12 +9074,7 @@ function EvidenceList({
   const counts = {
     all: visibleSourceItems.length,
     resume_ready: visibleSourceItems.filter(isResumeReadyEvidence).length,
-    needs_review: items.filter(
-      (item) =>
-        item.status !== "approved" ||
-        item.needs_user_confirmation ||
-        !(item.allowed_usage ?? []).includes("resume"),
-    ).length,
+    needs_review: items.filter((item) => !isResumeReadyEvidence(item)).length,
   };
   const visibleItems = showAll ? visibleSourceItems : visibleSourceItems.slice(0, 6);
   async function handleUpdate(
@@ -9401,19 +9464,21 @@ function EvidenceCard({
           >
             Reject
           </button>
-          <button
-            className="secondary-button secondary-button--danger"
-            disabled={isUpdating}
-            type="button"
-            onClick={() => {
-              const confirmed = window.confirm(
-                "Delete this Evidence Claim? Generated resume claims that used it will need review.",
-              );
-              if (confirmed) onUpdate(item, "delete");
-            }}
-          >
-            Delete
-          </button>
+          {canDeleteDraftEvidence(item) ? (
+            <button
+              className="secondary-button secondary-button--danger"
+              disabled={isUpdating}
+              type="button"
+              onClick={() => {
+                const confirmed = window.confirm(
+                  "Delete this draft Evidence Claim? Generated resume claims that used it will need review.",
+                );
+                if (confirmed) onUpdate(item, "delete");
+              }}
+            >
+              Delete draft
+            </button>
+          ) : null}
           <button
             className="secondary-button"
             disabled={isUpdating}
@@ -9428,9 +9493,7 @@ function EvidenceCard({
           >
             Review external-safe wording
           </button>
-          {item.status !== "approved" ||
-          item.needs_user_confirmation ||
-          !(item.allowed_usage ?? []).includes("resume") ? (
+          {!isResumeReadyEvidence(item) ? (
             <button
               className="secondary-button"
               disabled={isUpdating}

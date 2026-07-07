@@ -429,6 +429,46 @@ export const sourceChunks = pgTable(
   }),
 );
 
+export const sourceCleanupEvents = pgTable(
+  "source_cleanup_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    resumeSourceVersionId: uuid("resume_source_version_id").references(
+      () => resumeSourceVersions.id,
+      { onDelete: "set null" },
+    ),
+    sourceDocumentId: uuid("source_document_id").references(
+      () => sourceDocuments.id,
+      { onDelete: "set null" },
+    ),
+    cleanupMode: varchar("cleanup_mode", { length: 80 }).notNull(),
+    initiator: varchar("initiator", { length: 80 }).notNull().default("user"),
+    dryRun: integer("dry_run").notNull().default(0),
+    impactJson: jsonb("impact_json").$type<Record<string, unknown>>().notNull().default({}),
+    resultJson: jsonb("result_json").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    resumeSourceIdx: index("source_cleanup_events_resume_source_idx").on(
+      table.resumeSourceVersionId,
+      table.createdAt,
+    ),
+    sourceDocumentIdx: index("source_cleanup_events_source_document_idx").on(
+      table.sourceDocumentId,
+      table.createdAt,
+    ),
+    workspaceCreatedIdx: index("source_cleanup_events_workspace_created_idx").on(
+      table.workspaceId,
+      table.createdAt,
+    ),
+  }),
+);
+
 export const jobs = pgTable(
   "jobs",
   {
@@ -709,6 +749,8 @@ export const evidenceItems = pgTable(
       { onDelete: "set null" },
     ),
     needsUserConfirmation: integer("needs_user_confirmation").notNull().default(0),
+    quarantinedAt: timestamp("quarantined_at", { withTimezone: true }),
+    quarantineReason: text("quarantine_reason"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -724,6 +766,10 @@ export const evidenceItems = pgTable(
     workspaceUpdatedIdx: index("evidence_items_workspace_updated_idx").on(
       table.workspaceId,
       table.updatedAt,
+    ),
+    workspaceQuarantinedIdx: index("evidence_items_workspace_quarantined_idx").on(
+      table.workspaceId,
+      table.quarantinedAt,
     ),
   }),
 );

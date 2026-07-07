@@ -8,6 +8,9 @@ export type EvidenceLibraryIaEvidenceClaim = {
   related_work_experience_id?: string | null;
   sensitivity_level: string;
   status: string;
+  resume_eligibility?: {
+    eligible: boolean;
+  };
 };
 
 export type EvidenceLibraryIaStoryTarget = {
@@ -141,6 +144,7 @@ export function collectQueuedStoryTargetWorkExperienceIds(
 }
 
 export function isResumeReadyEvidenceClaim(item: EvidenceLibraryIaEvidenceClaim) {
+  if (item.resume_eligibility) return item.resume_eligibility.eligible;
   return (
     item.status === "approved" &&
     !item.needs_user_confirmation &&

@@ -31,6 +31,8 @@ import {
   getLatestGeneratedMainResumeReadinessReview,
   getLatestGeneratedTailoredResumeReadinessReview,
 } from "./generated-resume-readiness-review";
+import { evaluateResumeEvidenceEligibility } from "./resume-evidence-eligibility";
+import { buildResumeReadinessWorklist } from "./resume-readiness-worklist";
 
 type DbHandle = ReturnType<typeof getDb>;
 
@@ -353,8 +355,10 @@ async function toMainResumeDto(
         eq(generatedClaims.workspaceId, resume.workspaceId),
         eq(generatedClaims.mainResumeVersionId, resume.id),
       ),
-    );
+  );
   const readinessReview = await getLatestGeneratedMainResumeReadinessReview(resume.id);
+  const evidenceEligibilityById = await getEvidenceEligibilityForClaims(db, resume.workspaceId, claims);
+  const claimDtos = claims.map(toFactGuardClaimReport);
   return {
     id: resume.id,
     title: resume.title,
@@ -372,19 +376,14 @@ async function toMainResumeDto(
     status: resume.status,
     updatedAt: resume.updatedAt.toISOString(),
     readiness_review: readinessReview,
-    claims: claims.map((claim) => ({
-      id: claim.id,
-      claim_text: claim.claimText,
-      section: claim.section,
-      primary_evidence_id: claim.evidenceIds[0] ?? null,
-      evidence_ids: claim.evidenceIds,
-      source_quotes: claim.sourceQuotes,
-      support_status: claim.supportStatus,
-      claim_status: claim.claimStatus,
-      risk_level: claim.riskLevel,
-      stale_reason: claim.staleReason,
-      last_validated_at: claim.lastValidatedAt?.toISOString() ?? null,
-    })),
+    readiness_worklist: buildResumeReadinessWorklist({
+      claims,
+      evidenceEligibilityById,
+      missingEvidenceQuestions: resume.missingEvidenceQuestions,
+      readinessReview,
+      resumeStatus: resume.status,
+    }),
+    claims: claimDtos,
   };
 }
 
@@ -429,8 +428,10 @@ async function toTailoredResumeDto(
         eq(generatedClaims.workspaceId, resume.workspaceId),
         eq(generatedClaims.resumeVersionId, resume.id),
       ),
-    );
+  );
   const readinessReview = await getLatestGeneratedTailoredResumeReadinessReview(resume.id);
+  const evidenceEligibilityById = await getEvidenceEligibilityForClaims(db, resume.workspaceId, claims);
+  const claimDtos = claims.map(toFactGuardClaimReport);
   return {
     id: resume.id,
     jobId: resume.jobId,
@@ -442,19 +443,14 @@ async function toTailoredResumeDto(
     status: resume.status,
     updatedAt: resume.updatedAt.toISOString(),
     readiness_review: readinessReview,
-    claims: claims.map((claim) => ({
-      id: claim.id,
-      claim_text: claim.claimText,
-      section: claim.section,
-      primary_evidence_id: claim.evidenceIds[0] ?? null,
-      evidence_ids: claim.evidenceIds,
-      source_quotes: claim.sourceQuotes,
-      support_status: claim.supportStatus,
-      claim_status: claim.claimStatus,
-      risk_level: claim.riskLevel,
-      stale_reason: claim.staleReason,
-      last_validated_at: claim.lastValidatedAt?.toISOString() ?? null,
-    })),
+    readiness_worklist: buildResumeReadinessWorklist({
+      claims,
+      evidenceEligibilityById,
+      missingEvidenceQuestions: resume.missingEvidenceQuestions,
+      readinessReview,
+      resumeStatus: resume.status,
+    }),
+    claims: claimDtos,
   };
 }
 
@@ -728,6 +724,35 @@ function toFactGuardClaimReport(
     stale_reason: claim.staleReason,
     last_validated_at: claim.lastValidatedAt?.toISOString() ?? null,
   };
+}
+
+async function getEvidenceEligibilityForClaims(
+  db: Pick<DbHandle, "select">,
+  workspaceId: string,
+  claims: Array<typeof generatedClaims.$inferSelect>,
+) {
+  const evidenceIds = Array.from(new Set(claims.flatMap((claim) => claim.evidenceIds)));
+  if (evidenceIds.length === 0) return new Map();
+  const rows = await db
+    .select()
+    .from(evidenceItems)
+    .where(and(eq(evidenceItems.workspaceId, workspaceId), inArray(evidenceItems.id, evidenceIds)));
+  return new Map(
+    rows.map((item) => [
+      item.id,
+      evaluateResumeEvidenceEligibility({
+        allowedUsage: item.allowedUsage,
+        evidenceType: item.evidenceType,
+        needsUserConfirmation: item.needsUserConfirmation === 1,
+        publicSafeSummary: item.publicSafeSummary,
+        quarantinedAt: item.quarantinedAt,
+        sensitivityLevel: item.sensitivityLevel,
+        sourceQuote: item.sourceQuote,
+        status: item.status,
+        text: item.text,
+      }),
+    ]),
+  );
 }
 
 function sanitizeWorkflowError(message: string) {

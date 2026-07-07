@@ -126,20 +126,21 @@ async function main() {
       `,
       [workspaceId, resumeSourceIds, sourceDocumentIds],
     );
-    const workExperienceIds = await ids(
+    const workExperienceRows = await rows(
       client,
       `
-        select id
+        select id, status
         from work_experiences
         where workspace_id = $1
           and source_document_id = any($2::uuid[])
       `,
       [workspaceId, sourceDocumentIds],
     );
-    const initiativeIds = await ids(
+    const workExperienceIds = workExperienceRows.map((row) => String(row.id));
+    const initiativeRows = await rows(
       client,
       `
-        select id
+        select id, status, work_experience_id
         from initiatives
         where workspace_id = $1
           and (
@@ -149,20 +150,29 @@ async function main() {
       `,
       [workspaceId, sourceDocumentIds, workExperienceIds],
     );
-    const portfolioProjectIds = await ids(
+    const initiativeIds = initiativeRows.map((row) => String(row.id));
+    const portfolioProjectRows = await rows(
       client,
       `
-        select id
+        select id, status
         from portfolio_projects
         where workspace_id = $1
           and source_document_id = any($2::uuid[])
       `,
       [workspaceId, sourceDocumentIds],
     );
+    const portfolioProjectIds = portfolioProjectRows.map((row) => String(row.id));
     const evidenceItems = await rows(
       client,
       `
-        select id, status, allowed_usage, text
+        select
+          id,
+          status,
+          allowed_usage,
+          text,
+          related_work_experience_id,
+          related_initiative_id,
+          related_portfolio_project_id
         from evidence_items
         where workspace_id = $1
           and (
@@ -175,7 +185,69 @@ async function main() {
       `,
       [workspaceId, sourceDocumentIds, workExperienceIds, initiativeIds, portfolioProjectIds],
     );
-    const evidenceItemIds = evidenceItems.map((row) => String(row.id));
+    const protectedEvidenceItems = evidenceItems.filter(isProtectedEvidence);
+    const draftEvidenceItems = evidenceItems.filter((row) => !isProtectedEvidence(row));
+    const evidenceItemIds = draftEvidenceItems.map((row) => String(row.id));
+    const protectedEvidenceItemIds = protectedEvidenceItems.map((row) => String(row.id));
+    const protectedWorkExperienceIdsFromStatus = protectedAssetIds(workExperienceRows);
+    const protectedInitiativeIdsFromStatus = protectedAssetIds(initiativeRows);
+    const protectedPortfolioProjectIdsFromStatus = protectedAssetIds(portfolioProjectRows);
+    const directlyProtectedWorkExperienceIds = unique([
+      ...protectedWorkExperienceIdsFromStatus,
+      ...protectedEvidenceItems
+        .map((row) => row.related_work_experience_id)
+        .filter((value): value is string => typeof value === "string"),
+    ]);
+    const protectedInitiativeIdsFromEvidence = unique(
+      protectedEvidenceItems
+        .map((row) => row.related_initiative_id)
+        .filter((value): value is string => typeof value === "string"),
+    );
+    const protectedInitiativeIds = unique([
+      ...protectedInitiativeIdsFromStatus,
+      ...protectedInitiativeIdsFromEvidence,
+    ]);
+    const protectedPortfolioProjectIds = unique([
+      ...protectedPortfolioProjectIdsFromStatus,
+      ...protectedEvidenceItems
+        .map((row) => row.related_portfolio_project_id)
+        .filter((value): value is string => typeof value === "string"),
+    ]);
+    const protectedInitiativeParentWorkExperienceIds = await getInitiativeParentWorkExperienceIds(
+      client,
+      workspaceId,
+      protectedInitiativeIds,
+    );
+    const protectedWorkExperienceIds = collectProtectedWorkExperienceIds({
+      directWorkExperienceIds: directlyProtectedWorkExperienceIds,
+      initiativeParentWorkExperienceIds: protectedInitiativeParentWorkExperienceIds,
+    });
+    const childInitiativeIdsForProtectedWorkExperiences = initiativeRows
+      .filter(
+        (row) =>
+          typeof row.work_experience_id === "string" &&
+          protectedWorkExperienceIds.includes(row.work_experience_id),
+      )
+      .map((row) => String(row.id));
+    const allProtectedInitiativeIds = unique([
+      ...protectedInitiativeIds,
+      ...childInitiativeIdsForProtectedWorkExperiences,
+    ]);
+    const draftWorkExperienceIds = draftAssetIds(workExperienceRows, protectedWorkExperienceIds);
+    const draftInitiativeIds = draftAssetIds(initiativeRows, allProtectedInitiativeIds);
+    const draftPortfolioProjectIds = draftAssetIds(
+      portfolioProjectRows,
+      protectedPortfolioProjectIds,
+    );
+    if (args.deleteSource && protectedEvidenceItemIds.length > 0) {
+      throw new Error(
+        [
+          "--delete-source is blocked because this source has approved or resume-allowed evidence.",
+          "Default cleanup can remove draft materials only. Use the future explicit quarantine flow for protected materials.",
+          `Protected evidence ids: ${protectedEvidenceItemIds.join(", ")}`,
+        ].join("\n"),
+      );
+    }
     const profileIds = await ids(
       client,
       `
@@ -223,9 +295,9 @@ async function main() {
         resumeSourceIds,
         resumeReviewReportIds,
         evidenceItemIds,
-        workExperienceIds,
-        initiativeIds,
-        portfolioProjectIds,
+        draftWorkExperienceIds,
+        draftInitiativeIds,
+        draftPortfolioProjectIds,
         sourceDocuments.map((row) => String(row.title)),
       ],
     );
@@ -254,15 +326,18 @@ async function main() {
         enrichmentTasks: enrichmentTaskIds,
         evidenceItems: evidenceItemIds,
         extractionRuns: extractionRunIds,
-        generatedClaims: generatedClaimIds,
-        initiatives: initiativeIds,
-        portfolioProjects: portfolioProjectIds,
+        initiatives: draftInitiativeIds,
+        portfolioProjects: draftPortfolioProjectIds,
         profileFactHistory: profileFactHistoryIds,
         profiles: profileIds,
+        protectedEvidenceItems: protectedEvidenceItemIds,
+        protectedInitiatives: allProtectedInitiativeIds,
+        protectedPortfolioProjects: protectedPortfolioProjectIds,
+        protectedWorkExperiences: protectedWorkExperienceIds,
         resumeReviewReports: args.deleteSource ? resumeReviewReportIds : [],
         resumeSources: args.deleteSource ? resumeSourceIds : [],
         sourceDocuments: args.deleteSource ? sourceDocumentIds : [],
-        workExperiences: workExperienceIds,
+        workExperiences: draftWorkExperienceIds,
         workflowRuns: workflowRunIds,
       },
       mode: args.apply ? "apply" : "dry-run",
@@ -288,9 +363,9 @@ async function main() {
     await markGeneratedClaimsStale(client, generatedClaimIds);
     await deleteByIds(client, "enrichment_tasks", enrichmentTaskIds);
     await deleteByIds(client, "evidence_items", evidenceItemIds);
-    await deleteByIds(client, "initiatives", initiativeIds);
-    await deleteByIds(client, "portfolio_projects", portfolioProjectIds);
-    await deleteByIds(client, "work_experiences", workExperienceIds);
+    await deleteByIds(client, "initiatives", draftInitiativeIds);
+    await deleteByIds(client, "portfolio_projects", draftPortfolioProjectIds);
+    await deleteByIds(client, "work_experiences", draftWorkExperienceIds);
     await deleteByIds(client, "profile_fact_history", profileFactHistoryIds);
     await deleteByIds(client, "profiles", profileIds);
     await deleteByIds(client, "profile_evidence_extraction_runs", extractionRunIds);
@@ -303,6 +378,42 @@ async function main() {
       await resetResumeSourcesForReExtraction(client, resumeSourceIds);
       await resetSourceDocumentsForReExtraction(client, sourceDocumentIds);
     }
+    await insertCleanupAuditEvent(client, {
+      cleanupMode: args.deleteSource
+        ? "script_remove_draft_materials_and_delete_source"
+        : "script_remove_draft_materials",
+      impact: plan,
+      result: {
+        deletedDraftIds: {
+          enrichmentTasks: enrichmentTaskIds,
+          evidenceItems: evidenceItemIds,
+          extractionRuns: extractionRunIds,
+          initiatives: draftInitiativeIds,
+          portfolioProjects: draftPortfolioProjectIds,
+          profileFactHistory: profileFactHistoryIds,
+          profiles: profileIds,
+          resumeReviewReports: args.deleteSource ? resumeReviewReportIds : [],
+          resumeSources: args.deleteSource ? resumeSourceIds : [],
+          sourceDocuments: args.deleteSource ? sourceDocumentIds : [],
+          workExperiences: draftWorkExperienceIds,
+          workflowRuns: workflowRunIds,
+        },
+        originalResumeSourceIds: resumeSourceIds,
+        originalSourceDocumentIds: sourceDocumentIds,
+        markedStaleIds: {
+          generatedClaims: generatedClaimIds,
+        },
+        protectedIds: {
+          evidenceItems: protectedEvidenceItemIds,
+          initiatives: allProtectedInitiativeIds,
+          portfolioProjects: protectedPortfolioProjectIds,
+          workExperiences: protectedWorkExperienceIds,
+        },
+      },
+      resumeSourceId: args.deleteSource ? null : resumeSourceIds[0] ?? null,
+      sourceDocumentId: args.deleteSource ? null : sourceDocumentIds[0] ?? null,
+      workspaceId,
+    });
 
     await client.query("commit");
     console.log(JSON.stringify(plan, null, 2));
@@ -350,17 +461,104 @@ async function findSourceDocuments(client: Client, args: Args) {
   );
 }
 
-function summarizeEvidence(evidenceItems: Row[]) {
+export function summarizeEvidence(evidenceItems: Row[]) {
   const approved = evidenceItems.filter((row) => row.status === "approved");
   const resumeReady = evidenceItems.filter((row) =>
     Array.isArray(row.allowed_usage) && row.allowed_usage.includes("resume"),
   );
+  const protectedByDefault = evidenceItems.filter(isProtectedEvidence);
   return {
     approved: approved.length,
+    draftDeletedByDefault: evidenceItems.length - protectedByDefault.length,
     pendingOrRejected: evidenceItems.length - approved.length,
+    protectedByDefault: protectedByDefault.length,
     resumeReady: resumeReady.length,
     total: evidenceItems.length,
   };
+}
+
+export function isProtectedEvidence(row: Row) {
+  return row.status === "approved" || (
+    Array.isArray(row.allowed_usage) && row.allowed_usage.includes("resume")
+  );
+}
+
+export function collectProtectedWorkExperienceIds(args: {
+  directWorkExperienceIds: string[];
+  initiativeParentWorkExperienceIds: string[];
+}) {
+  return unique([...args.directWorkExperienceIds, ...args.initiativeParentWorkExperienceIds]);
+}
+
+export function protectedAssetIds(assetRows: Row[]) {
+  return assetRows
+    .filter((row) => row.status === "approved")
+    .map((row) => String(row.id));
+}
+
+export function draftAssetIds(assetRows: Row[], protectedIds: string[]) {
+  return assetRows
+    .map((row) => String(row.id))
+    .filter((id) => !protectedIds.includes(id));
+}
+
+async function getInitiativeParentWorkExperienceIds(
+  client: Client,
+  workspaceId: string,
+  initiativeIds: string[],
+) {
+  if (initiativeIds.length === 0) return [];
+  const result = await client.query<{ work_experience_id: string | null }>(
+    `
+      select work_experience_id
+      from initiatives
+      where workspace_id = $1
+        and id = any($2::uuid[])
+        and work_experience_id is not null
+    `,
+    [workspaceId, initiativeIds],
+  );
+  return unique(
+    result.rows
+      .map((row) => row.work_experience_id)
+      .filter((value): value is string => typeof value === "string"),
+  );
+}
+
+async function insertCleanupAuditEvent(
+  client: Client,
+  args: {
+    cleanupMode: string;
+    impact: Record<string, unknown>;
+    result: Record<string, unknown>;
+    resumeSourceId: string | null;
+    sourceDocumentId: string | null;
+    workspaceId: string;
+  },
+) {
+  await client.query(
+    `
+      insert into source_cleanup_events (
+        workspace_id,
+        resume_source_version_id,
+        source_document_id,
+        cleanup_mode,
+        initiator,
+        dry_run,
+        impact_json,
+        result_json
+      )
+      values ($1, $2, $3, $4, 'script', 0, $5::jsonb, $6::jsonb)
+    `,
+    [
+      args.workspaceId,
+      args.resumeSourceId,
+      args.sourceDocumentId,
+      args.cleanupMode,
+      JSON.stringify(args.impact),
+      JSON.stringify(args.result),
+    ],
+  );
 }
 
 async function markGeneratedClaimsStale(client: Client, claimIds: string[]) {
@@ -424,7 +622,9 @@ function unique(values: string[]) {
   return Array.from(new Set(values));
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

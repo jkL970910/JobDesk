@@ -22,6 +22,7 @@ import {
   profileFactHistory,
   profiles,
   resumeSourceVersions,
+  sourceCleanupEvents,
   sourceDocuments,
   workExperiences,
 } from "../src/db/schema";
@@ -31,6 +32,7 @@ import {
   getRecentEvidenceLibrary,
   getResumeTailoringContext,
   getStarStoryBank,
+  deleteEvidenceItem,
   keepEvidenceOverlapSeparate,
   keepProjectOverlapSeparate,
   mergeEvidenceItems,
@@ -50,10 +52,14 @@ import { desc, eq } from "drizzle-orm";
 import { getCurrentWorkspace } from "../src/server/workspace-repository";
 import { getProfilePositioningContext } from "../src/server/profile-positioning-repository";
 import { registerUser, runWithAuthContext } from "../src/server/auth-service";
+import {
+  applyEvidenceAssetAction,
+  quarantineEvidenceAsset,
+} from "../src/server/evidence-asset-actions";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
 
-describe.skipIf(!runIntegration)("profile evidence repository integration", () => {
+describe.skipIf(!runIntegration)("profile evidence repository integration", { timeout: 45_000 }, () => {
   beforeAll(() => {
     loadDotEnv();
     if (!process.env.DATABASE_URL) {
@@ -161,9 +167,30 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       action: "answer",
       userAnswer: "Improved activation by 12% across three onboarding cohorts.",
     });
-    expect(metricAnswered.status).toBe("saved");
-    if (metricAnswered.status !== "saved") throw new Error("Expected metric answer saved.");
-    const metricProposal = metricAnswered.task.proposals.find(
+    expect(metricAnswered).toMatchObject({
+      status: "invalid",
+      reason: "target_required",
+    });
+    const [portfolioTarget] = await getDb()
+      .select({ id: portfolioProjects.id })
+      .from(portfolioProjects)
+      .where(eq(portfolioProjects.sourceDocumentId, result.sourceDocumentId))
+      .limit(1);
+    expect(portfolioTarget?.id).toBeDefined();
+    const metricLinked = await updateEnrichmentTask({
+      taskId: metricTask.id,
+      action: "link",
+      anchor: { portfolioProjectId: portfolioTarget!.id },
+    });
+    expect(metricLinked.status).toBe("saved");
+    const metricAnsweredAfterLink = await updateEnrichmentTask({
+      taskId: metricTask.id,
+      action: "answer",
+      userAnswer: "Improved activation by 12% across three onboarding cohorts.",
+    });
+    expect(metricAnsweredAfterLink.status).toBe("saved");
+    if (metricAnsweredAfterLink.status !== "saved") throw new Error("Expected metric answer saved.");
+    const metricProposal = metricAnsweredAfterLink.task.proposals.find(
       (proposal) => proposal.status === "pending_review",
     );
     if (!metricProposal) throw new Error("Expected metric proposal.");
@@ -200,7 +227,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     if (!aiTask) throw new Error("Expected AI extraction task.");
     expect(aiTask).toMatchObject({
       target_scope: "assign_later",
-      expected_outcome: "clarify_assignment",
+      expected_outcome: "route_answer",
       targets: [],
     });
     const aiAnswer = `Increased onboarding activation by 12% across three cohorts ${crypto.randomUUID()}.`;
@@ -242,14 +269,25 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       }),
     });
     expect(aiConverted).toMatchObject({
-      status: "invalid",
-      reason: "proposal_review_required",
+      status: "saved",
+      conversionMode: "ai_extraction",
+      evidenceCount: 1,
     });
     const aiEvidence = await getDb()
       .select()
       .from(evidenceItems)
-      .where(eq(evidenceItems.text, aiAnswer));
-    expect(aiEvidence).toHaveLength(0);
+      .where(eq(evidenceItems.sourceQuote, aiAnswer));
+    expect(aiEvidence).toHaveLength(1);
+    expect(aiEvidence[0]).toMatchObject({
+      allowedUsage: ["resume", "interview"],
+      evidenceType: "extracted",
+      needsUserConfirmation: 1,
+      sourceQuote: aiAnswer,
+      status: "pending",
+    });
+    expect(aiEvidence[0]?.metrics).toEqual([
+      { value: "12%", source_quote: "Increased onboarding activation by 12%" },
+    ]);
     await upsertEnrichmentTasks(getDb(), {
       workspaceId: result.workspaceId,
       tasks: [
@@ -268,7 +306,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     }
     const terminalTask = afterTerminalUpsert.tasks.find((task) => task.id === metricTask.id);
     expect(terminalTask).toMatchObject({
-      status: "answered",
+      status: "converted",
     });
 
     const library = await getRecentEvidenceLibrary(10);
@@ -879,10 +917,12 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       schema_version: "enrichment-proposal-v1",
     });
     expect(answered.task.proposals[0]?.proposed_patch_json).toMatchObject({
-      text: answer,
       evidence_type: "user_confirmed",
       status: "pending",
     });
+    expect(String(answered.task.proposals[0]?.proposed_patch_json.text)).toContain(
+      "Reduced manual QA review by 18 hours per week",
+    );
 
     const answerRows = await db
       .select()
@@ -1210,7 +1250,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       ],
     });
     const queue = await getEnrichmentTaskQueue({
-      limit: 20,
+      limit: 200,
       sourceType: "resume_review",
       statuses: ["open"],
     });
@@ -1238,10 +1278,12 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
     });
     expect(proposal.proposed_patch_json).toMatchObject({
       patch_type: "update_initiative",
-      context_patch: answer,
       target_id: initiative.id,
       target_kind: "initiative",
     });
+    expect(String(proposal.proposed_patch_json.context_patch)).toContain("event taxonomy cleanup");
+    expect(String(proposal.proposed_patch_json.context_patch)).toContain("metric definition");
+    expect(String(proposal.proposed_patch_json.context_patch)).toContain("rollout instrumentation");
 
     const accepted = await updateEnrichmentTask({
       taskId: task.id,
@@ -1263,7 +1305,9 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       .where(eq(initiatives.id, initiative.id))
       .limit(1);
     expect(updatedInitiative?.context).toContain("Owned checkout analytics instrumentation.");
-    expect(updatedInitiative?.context).toContain(answer);
+    expect(updatedInitiative?.context).toContain("event taxonomy cleanup");
+    expect(updatedInitiative?.context).toContain("metric definition");
+    expect(updatedInitiative?.context).toContain("rollout instrumentation");
   });
 
   it("saves profile context answers without creating evidence or proposals", async () => {
@@ -1921,6 +1965,18 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       eligible: true,
     });
     expect(eligible?.target_eligibility?.reason).toContain("Draft evidence");
+    expect(eligible?.resume_eligibility).toMatchObject({
+      eligible: false,
+      nextAction: "review_claim",
+    });
+    expect(eligible?.resume_eligibility?.blockers.map((item) => item.code)).toEqual(
+      expect.arrayContaining([
+        "approval_required",
+        "public_safe_required",
+        "user_confirmation_required",
+        "resume_usage_required",
+      ]),
+    );
     expect(rejected?.provenance).toMatchObject({
       kind: "manual_or_generated",
       source_document_id: null,
@@ -2569,6 +2625,504 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", () =
       claimStatus: "stale",
       staleReason: "Evidence text or summary was updated.",
       lastValidatedAt: null,
+    });
+  });
+
+  it("applies evidence-only asset actions through the action service", async () => {
+    const suffix = crypto.randomUUID();
+    const owner = await registerUser({
+      email: `evidence-asset-action-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected owner user.");
+
+    const result = await runWithAuthContext(owner.user.id, async () => {
+      const db = getDb();
+      const workspace = await getCurrentWorkspace(db);
+      const now = new Date();
+      const [role] = await db
+        .insert(workExperiences)
+        .values({
+          employer: `Action service employer ${suffix}`,
+          roleTitle: "Software Engineer",
+          status: "pending",
+          workspaceId: workspace.id,
+        })
+        .returning({ id: workExperiences.id });
+      if (!role) throw new Error("Expected role.");
+      const [initiative] = await db
+        .insert(initiatives)
+        .values({
+          actions: ["Built action service coverage."],
+          internalTitle: `Action service initiative ${suffix}`,
+          results: ["Centralized evidence action path."],
+          status: "pending",
+          technologies: ["TypeScript"],
+          workExperienceId: role.id,
+          workspaceId: workspace.id,
+        })
+        .returning({ id: initiatives.id });
+      if (!initiative) throw new Error("Expected initiative.");
+      const [evidence] = await db
+        .insert(evidenceItems)
+        .values({
+          allowedUsage: ["interview"],
+          evidenceType: "extracted",
+          relatedWorkExperienceId: role.id,
+          sensitivityLevel: "private",
+          sourceQuote: "Built action service coverage.",
+          status: "approved",
+          text: `Evidence action service claim ${suffix}`,
+          workspaceId: workspace.id,
+        })
+        .returning({ id: evidenceItems.id, sourceQuote: evidenceItems.sourceQuote });
+      if (!evidence) throw new Error("Expected evidence.");
+      const [claim] = await db
+        .insert(generatedClaims)
+        .values({
+          claimStatus: "supported",
+          claimText: "Generated claim linked to evidence action service claim.",
+          createdAt: now,
+          evidenceIds: [evidence.id],
+          lastValidatedAt: now,
+          riskLevel: "low",
+          section: "experience",
+          sourceQuotes: [evidence.sourceQuote],
+          supportStatus: "supported",
+          workspaceId: workspace.id,
+        })
+        .returning({ id: generatedClaims.id });
+
+      const linked = await applyEvidenceAssetAction({
+        action: "edit",
+        evidenceId: evidence.id,
+        relatedInitiativeId: initiative.id,
+        relatedPortfolioProjectId: null,
+        relatedProjectId: null,
+        relatedWorkExperienceId: null,
+      });
+      const afterLink = await db
+        .select()
+        .from(evidenceItems)
+        .where(eq(evidenceItems.id, evidence.id));
+      const claimRows = claim
+        ? await db.select().from(generatedClaims).where(eq(generatedClaims.id, claim.id))
+        : [];
+
+      const unlinked = await applyEvidenceAssetAction({
+        action: "edit",
+        evidenceId: evidence.id,
+        relatedInitiativeId: null,
+        relatedPortfolioProjectId: null,
+        relatedProjectId: null,
+        relatedWorkExperienceId: null,
+      });
+      const afterUnlink = await db
+        .select()
+        .from(evidenceItems)
+        .where(eq(evidenceItems.id, evidence.id));
+      return { afterLink, afterUnlink, claimRows, linked, unlinked };
+    });
+
+    expect(result.linked).toMatchObject({ status: "saved" });
+    expect(result.afterLink[0]).toMatchObject({
+      relatedInitiativeId: expect.any(String),
+      relatedWorkExperienceId: null,
+      needsUserConfirmation: 1,
+    });
+    expect(result.claimRows[0]).toMatchObject({
+      claimStatus: "stale",
+      staleReason: "Linked evidence was edited or reclassified.",
+      lastValidatedAt: null,
+    });
+    expect(result.unlinked).toMatchObject({ status: "saved" });
+    expect(result.afterUnlink[0]).toMatchObject({
+      relatedInitiativeId: null,
+      relatedPortfolioProjectId: null,
+      relatedWorkExperienceId: null,
+    });
+  });
+
+  it("quarantines approved source-derived evidence without physical deletion", async () => {
+    const suffix = crypto.randomUUID();
+    const owner = await registerUser({
+      email: `quarantine-approved-evidence-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected owner user.");
+
+    const result = await runWithAuthContext(owner.user.id, async () => {
+      const db = getDb();
+      const workspace = await getCurrentWorkspace(db);
+      const sourceText = `Approved evidence quarantine source ${suffix}`;
+      const [sourceDocument] = await db
+        .insert(sourceDocuments)
+        .values({
+          contentHash: crypto.createHash("sha256").update(sourceText).digest("hex"),
+          contentText: sourceText,
+          lifecycleStatus: "reviewed",
+          sourceType: "resume-review",
+          title: `Approved evidence quarantine source ${suffix}`,
+          workspaceId: workspace.id,
+        })
+        .returning({ id: sourceDocuments.id });
+      if (!sourceDocument) throw new Error("Expected source document.");
+      const now = new Date();
+      const [evidence] = await db
+        .insert(evidenceItems)
+        .values({
+          allowedUsage: ["resume", "interview"],
+          evidenceType: "extracted",
+          needsUserConfirmation: 0,
+          publicSafeSummary: "Public-safe quarantine evidence.",
+          sensitivityLevel: "public_safe",
+          sourceDocumentId: sourceDocument.id,
+          sourceQuote: "Approved quarantine evidence source quote.",
+          status: "approved",
+          text: `Approved quarantine evidence ${suffix}`,
+          workspaceId: workspace.id,
+        })
+        .returning({ id: evidenceItems.id, sourceQuote: evidenceItems.sourceQuote });
+      if (!evidence) throw new Error("Expected evidence.");
+      const [claim] = await db
+        .insert(generatedClaims)
+        .values({
+          claimStatus: "supported",
+          claimText: "Generated claim linked to quarantined evidence.",
+          createdAt: now,
+          evidenceIds: [evidence.id],
+          lastValidatedAt: now,
+          riskLevel: "low",
+          section: "experience",
+          sourceQuotes: [evidence.sourceQuote],
+          supportStatus: "supported",
+          workspaceId: workspace.id,
+        })
+        .returning({ id: generatedClaims.id });
+
+      const rejectedWithoutConfirmation = await quarantineEvidenceAsset({
+        confirmation: "wrong",
+        evidenceId: evidence.id,
+      });
+      const quarantined = await quarantineEvidenceAsset({
+        confirmation: "QUARANTINE_APPROVED_EVIDENCE",
+        evidenceId: evidence.id,
+        reason: "Reset bad resume import.",
+      });
+      const approveAfterQuarantine = await applyEvidenceAssetAction({
+        action: "approve_for_resume",
+        evidenceId: evidence.id,
+      });
+      const evidenceRows = await db
+        .select()
+        .from(evidenceItems)
+        .where(eq(evidenceItems.id, evidence.id));
+      const claimRows = claim
+        ? await db.select().from(generatedClaims).where(eq(generatedClaims.id, claim.id))
+        : [];
+      const cleanupEvents = await db
+        .select()
+        .from(sourceCleanupEvents)
+        .where(eq(sourceCleanupEvents.workspaceId, workspace.id))
+        .orderBy(desc(sourceCleanupEvents.createdAt))
+        .limit(1);
+      const deleted = await deleteEvidenceItem(evidence.id);
+      return {
+        cleanupEvents,
+        approveAfterQuarantine,
+        claimRows,
+        deleted,
+        evidenceRows,
+        quarantined,
+        rejectedWithoutConfirmation,
+      };
+    });
+
+    expect(result.rejectedWithoutConfirmation).toMatchObject({
+      reason: "quarantine_confirmation_required",
+      status: "invalid",
+    });
+    expect(result.quarantined).toMatchObject({
+      staleGeneratedClaims: 1,
+      status: "saved",
+    });
+    expect(result.approveAfterQuarantine).toMatchObject({
+      reason: "quarantined_evidence_requires_restore",
+      status: "invalid",
+    });
+    expect(result.evidenceRows).toHaveLength(1);
+    expect(result.evidenceRows[0]).toMatchObject({
+      allowedUsage: [],
+      needsUserConfirmation: 1,
+      quarantineReason: "Reset bad resume import.",
+      status: "rejected",
+    });
+    expect(result.evidenceRows[0]?.quarantinedAt).toBeTruthy();
+    expect(result.claimRows[0]).toMatchObject({
+      claimStatus: "stale",
+      supportStatus: "unvalidated",
+      staleReason: "Linked evidence was quarantined after source cleanup review.",
+      lastValidatedAt: null,
+    });
+    expect(result.cleanupEvents[0]).toMatchObject({
+      cleanupMode: "approved_material_quarantine",
+      dryRun: 0,
+    });
+    expect(result.cleanupEvents[0]?.resultJson).toMatchObject({
+      markedStaleIds: {
+        generatedClaims: [result.claimRows[0]?.id],
+      },
+      quarantinedEvidenceItemId: result.evidenceRows[0]?.id,
+    });
+    expect(result.deleted).toMatchObject({
+      reason: "quarantined_evidence_requires_cleanup_center",
+      status: "invalid",
+    });
+  });
+
+  it("deletes draft evidence and marks linked generated claims stale", async () => {
+    const suffix = crypto.randomUUID();
+    const owner = await registerUser({
+      email: `delete-draft-evidence-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected owner user.");
+
+    const result = await runWithAuthContext(owner.user.id, async () => {
+      const db = getDb();
+      const workspace = await getCurrentWorkspace(db);
+      const now = new Date();
+      const [evidence] = await db
+        .insert(evidenceItems)
+        .values({
+          allowedUsage: ["interview"],
+          createdAt: now,
+          evidenceType: "extracted",
+          sensitivityLevel: "private",
+          sourceQuote: "Draft evidence source quote.",
+          status: "pending",
+          text: `Draft evidence ${suffix}`,
+          updatedAt: now,
+          workspaceId: workspace.id,
+        })
+        .returning();
+      if (!evidence) throw new Error("Expected evidence.");
+      const [claim] = await db
+        .insert(generatedClaims)
+        .values({
+          claimStatus: "supported",
+          claimText: "Generated claim linked to draft evidence.",
+          createdAt: now,
+          evidenceIds: [evidence.id],
+          lastValidatedAt: now,
+          riskLevel: "low",
+          section: "experience",
+          sourceQuotes: [evidence.sourceQuote],
+          supportStatus: "supported",
+          workspaceId: workspace.id,
+        })
+        .returning({ id: generatedClaims.id });
+      await db.insert(enrichmentTasks).values({
+        createdAt: now,
+        dedupeKey: `delete-draft-evidence-${suffix}`,
+        evidenceItemId: evidence.id,
+        expectedOutcome: "update_evidence",
+        prompt: "Add draft evidence detail.",
+        sourceLabel: "Delete draft smoke",
+        sourceType: "user_input",
+        status: "open",
+        targetScope: "evidence_detail",
+        taskType: "metric",
+        updatedAt: now,
+        workspaceId: workspace.id,
+      });
+
+      const deleted = await deleteEvidenceItem(evidence.id);
+      const evidenceRows = await db
+        .select()
+        .from(evidenceItems)
+        .where(eq(evidenceItems.id, evidence.id));
+      const claimRows = claim
+        ? await db.select().from(generatedClaims).where(eq(generatedClaims.id, claim.id))
+        : [];
+      return { claimRows, deleted, evidenceRows };
+    });
+
+    expect(result.deleted).toMatchObject({
+      deletedEnrichmentTasks: 1,
+      staleGeneratedClaims: 1,
+      status: "deleted",
+    });
+    expect(result.evidenceRows).toHaveLength(0);
+    expect(result.claimRows[0]).toMatchObject({
+      claimStatus: "stale",
+      supportStatus: "unvalidated",
+      staleReason: "Linked evidence was deleted.",
+      lastValidatedAt: null,
+    });
+  });
+
+  it("rejects direct deletion of approved resume-ready evidence", async () => {
+    const suffix = crypto.randomUUID();
+    const owner = await registerUser({
+      email: `delete-approved-evidence-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected owner user.");
+
+    const result = await runWithAuthContext(owner.user.id, async () => {
+      const db = getDb();
+      const workspace = await getCurrentWorkspace(db);
+      const [evidence] = await db
+        .insert(evidenceItems)
+        .values({
+          allowedUsage: ["resume", "interview"],
+          evidenceType: "extracted",
+          needsUserConfirmation: 0,
+          publicSafeSummary: "Public-safe approved resume evidence.",
+          sensitivityLevel: "public_safe",
+          sourceQuote: "Approved evidence source quote.",
+          status: "approved",
+          text: `Approved evidence ${suffix}`,
+          workspaceId: workspace.id,
+        })
+        .returning({ id: evidenceItems.id });
+      if (!evidence) throw new Error("Expected evidence.");
+
+      const deleted = await deleteEvidenceItem(evidence.id);
+      const evidenceRows = await db
+        .select()
+        .from(evidenceItems)
+        .where(eq(evidenceItems.id, evidence.id));
+      return { deleted, evidenceRows };
+    });
+
+    expect(result.deleted).toMatchObject({
+      reason: "resume_ready_evidence_requires_quarantine",
+      status: "invalid",
+    });
+    expect(result.evidenceRows).toHaveLength(1);
+  });
+
+  it("rejects direct deletion of pending resume-usage evidence", async () => {
+    const suffix = crypto.randomUUID();
+    const owner = await registerUser({
+      email: `delete-pending-resume-evidence-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected owner user.");
+
+    const result = await runWithAuthContext(owner.user.id, async () => {
+      const db = getDb();
+      const workspace = await getCurrentWorkspace(db);
+      const [evidence] = await db
+        .insert(evidenceItems)
+        .values({
+          allowedUsage: ["resume"],
+          evidenceType: "extracted",
+          sensitivityLevel: "private",
+          sourceQuote: "Pending resume-usage evidence source quote.",
+          status: "pending",
+          text: `Pending resume usage evidence ${suffix}`,
+          workspaceId: workspace.id,
+        })
+        .returning({ id: evidenceItems.id });
+      if (!evidence) throw new Error("Expected evidence.");
+
+      const deleted = await deleteEvidenceItem(evidence.id);
+      const evidenceRows = await db
+        .select()
+        .from(evidenceItems)
+        .where(eq(evidenceItems.id, evidence.id));
+      return { deleted, evidenceRows };
+    });
+
+    expect(result.deleted).toMatchObject({
+      reason: "resume_usage_evidence_requires_quarantine",
+      status: "invalid",
+    });
+    expect(result.evidenceRows).toHaveLength(1);
+  });
+
+  it("dismisses target-row-only enrichment tasks when deleting draft evidence", async () => {
+    const suffix = crypto.randomUUID();
+    const owner = await registerUser({
+      email: `delete-target-only-task-${suffix}@example.com`,
+      password: "Password123!",
+    });
+    if (owner.status !== "created") throw new Error("Expected owner user.");
+
+    const result = await runWithAuthContext(owner.user.id, async () => {
+      const db = getDb();
+      const workspace = await getCurrentWorkspace(db);
+      const [evidence] = await db
+        .insert(evidenceItems)
+        .values({
+          allowedUsage: ["interview"],
+          evidenceType: "extracted",
+          sensitivityLevel: "private",
+          sourceQuote: "Target-only task evidence source quote.",
+          status: "pending",
+          text: `Target-only task evidence ${suffix}`,
+          workspaceId: workspace.id,
+        })
+        .returning({ id: evidenceItems.id });
+      if (!evidence) throw new Error("Expected evidence.");
+      const prompt = `Route target-only delete smoke ${suffix}`;
+      await upsertEnrichmentTasks(db, {
+        tasks: [
+          {
+            expectedOutcome: "route_answer",
+            prompt,
+            sourceLabel: "Target-only task delete smoke",
+            sourceType: "user_input",
+            targetScope: "assign_later",
+            taskType: "metric",
+          },
+        ],
+        workspaceId: workspace.id,
+      });
+      const queue = await getEnrichmentTaskQueue({
+        limit: 20,
+        sourceType: "user_input",
+        statuses: ["open"],
+      });
+      expect(queue.status).toBe("ready");
+      if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+      const task = queue.tasks.find((item) => item.prompt === prompt);
+      if (!task) throw new Error("Expected task.");
+      await db.insert(enrichmentTaskTargets).values({
+        confidence: "medium",
+        createdBy: "system",
+        reason: "Suggested by test.",
+        targetId: evidence.id,
+        targetKind: "evidence",
+        targetRole: "suggested",
+        taskId: task.id,
+        workspaceId: workspace.id,
+      });
+
+      const deleted = await deleteEvidenceItem(evidence.id);
+      const taskRows = await db
+        .select()
+        .from(enrichmentTasks)
+        .where(eq(enrichmentTasks.id, task.id));
+      const targetRows = await db
+        .select()
+        .from(enrichmentTaskTargets)
+        .where(eq(enrichmentTaskTargets.taskId, task.id));
+      return { deleted, targetRows, taskRows };
+    });
+
+    expect(result.deleted).toMatchObject({
+      deletedEnrichmentTaskTargets: 1,
+      dismissedTargetOnlyEnrichmentTasks: 1,
+      status: "deleted",
+    });
+    expect(result.targetRows).toHaveLength(0);
+    expect(result.taskRows[0]).toMatchObject({
+      resolutionKind: "dismissed",
+      status: "dismissed",
     });
   });
 

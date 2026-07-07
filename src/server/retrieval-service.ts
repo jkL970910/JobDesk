@@ -5,6 +5,7 @@ import { searchPersonalEmbeddings } from "./embedding-service";
 import type { EmbeddingSearchResult } from "./embedding-service";
 import { evidenceItems } from "../db/schema";
 import { hasResumeSafeDisclosure } from "./deidentification-service";
+import { evaluateResumeEvidenceEligibility } from "./resume-evidence-eligibility";
 import { getCurrentWorkspace } from "./workspace-repository";
 import {
   AllowedUsage,
@@ -33,6 +34,7 @@ export type EvidenceRetrievalCandidate = {
   sensitivity_level: SensitivityLevel;
   allowed_usage: AllowedUsage[];
   public_safe_summary: string | null;
+  quarantined_at?: string | null;
   status: string;
   needs_user_confirmation: boolean;
   updatedAt?: string;
@@ -249,6 +251,19 @@ export function isEvidenceEligible(
   candidate: EvidenceRetrievalCandidate,
   policy: EvidenceRetrievalPolicy,
 ) {
+  if (policy.id === "resume_generation") {
+    return evaluateResumeEvidenceEligibility({
+      allowedUsage: candidate.allowed_usage,
+      evidenceType: candidate.evidence_type,
+      needsUserConfirmation: candidate.needs_user_confirmation,
+      publicSafeSummary: candidate.public_safe_summary,
+      quarantinedAt: candidate.quarantined_at ?? null,
+      sensitivityLevel: candidate.sensitivity_level,
+      sourceQuote: candidate.source_quote,
+      status: candidate.status,
+      text: candidate.text,
+    }).eligible;
+  }
   if (policy.statusPolicy === "approved_only" && candidate.status !== "approved") {
     return false;
   }
@@ -552,6 +567,7 @@ function toRetrievalCandidate(
       AllowedUsage.options.includes(value as AllowedUsage),
     ),
     public_safe_summary: item.publicSafeSummary,
+    quarantined_at: item.quarantinedAt?.toISOString() ?? null,
     status: item.status,
     needs_user_confirmation: item.needsUserConfirmation === 1,
     updatedAt: item.updatedAt.toISOString(),

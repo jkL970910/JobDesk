@@ -99,6 +99,12 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
       claim_status: "unvalidated",
       risk_level: "low",
     });
+    expect(saved?.readiness_worklist.summary).toMatchObject({
+      readyForFinalExport: false,
+    });
+    expect(saved?.readiness_worklist.items.some(
+      (item) => item.type === "fact_guard_hard_blocker",
+    )).toBe(true);
 
     const guarded = await runFactGuardForResume(result.resumeVersionId);
     expect(guarded).toMatchObject({
@@ -137,6 +143,10 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
     expect(guardedResume?.claims[0]).toMatchObject({
       support_status: "supported",
       claim_status: "supported",
+    });
+    expect(guardedResume?.readiness_worklist.summary).toMatchObject({
+      blockerCount: 0,
+      readyForFinalExport: true,
     });
 
     const uncoveredResult = await persistTailoredResume({
@@ -199,6 +209,9 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
     expect(uncoveredResume?.claims[0]?.stale_reason).toContain(
       "resume bullet is not mapped",
     );
+    expect(uncoveredResume?.readiness_worklist.items.some(
+      (item) => item.type === "fact_guard_hard_blocker",
+    )).toBe(true);
 
     const mainResumeResult = await persistMainResume({
       draft: {
@@ -319,6 +332,11 @@ describe.skipIf(!runIntegration)("resume repository database integration", () =>
       status: "validated",
       supportedCount: 1,
       resumeStatus: "validated",
+    });
+    const guardedMainResume = await getMainResumeById(mainResumeResult.mainResumeVersionId);
+    expect(guardedMainResume?.readiness_worklist.summary).toMatchObject({
+      blockerCount: 0,
+      readyForFinalExport: true,
     });
 
     const publicSafeSummaryResult = await persistMainResume({

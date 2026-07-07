@@ -55,6 +55,18 @@ type EvidenceLibrarySummary = {
     related_work_experience_id?: string | null;
     related_initiative_id?: string | null;
     related_portfolio_project_id?: string | null;
+    resume_eligibility?: {
+      eligible: boolean;
+      blockers: Array<{
+        code: string;
+        detail: string;
+        label: string;
+        nextAction: string;
+      }>;
+      nextAction: string;
+      summary: string;
+      canUsePublicSafeSummary: boolean;
+    };
   }>;
   workExperiences: Array<{
     id: string;
@@ -1341,6 +1353,7 @@ function countResumeReadyClaims(
 }
 
 function isResumeReadyClaim(item: EvidenceLibrarySummary["evidenceItems"][number]) {
+  if (item.resume_eligibility) return item.resume_eligibility.eligible;
   return (
     item.status === "approved" &&
     item.allowed_usage.includes("resume") &&
