@@ -389,7 +389,7 @@ export function TailoredResumeWorkspace() {
       }
     : latestResume;
 
-  async function exportResume(resumeId: string, format: "markdown" | "json") {
+  async function exportResume(resumeId: string, format: "markdown" | "json" | "docx") {
     const response = await fetchJson(
       `/api/resumes/${resumeId}/export?format=${format}`,
     );
@@ -404,8 +404,31 @@ export function TailoredResumeWorkspace() {
     const disposition = response.headers.get("content-disposition") ?? "";
     const fileName =
       disposition.match(/filename="([^"]+)"/)?.[1] ??
-      `jobdesk-resume.${format === "json" ? "json" : "md"}`;
+      `jobdesk-resume.${format === "markdown" ? "md" : format}`;
     downloadBlob(fileName, blob);
+  }
+
+  async function openPrintableResume(resumeId: string) {
+    const response = await fetchJson(
+      `/api/resumes/${resumeId}/export?format=html`,
+    );
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      setError(payload?.error ?? "Printable resume export failed.");
+      return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    if (!opened) {
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const fileName =
+        disposition.match(/filename="([^"]+)"/)?.[1] ?? "jobdesk-tailored-resume.html";
+      downloadBlob(fileName, blob);
+    }
   }
 
   return (
@@ -511,6 +534,7 @@ export function TailoredResumeWorkspace() {
         {displayResume ? (
           <ResumeResult
             exportResume={exportResume}
+            openPrintableResume={openPrintableResume}
             isReadinessReviewPending={isReadinessReviewPending}
             resume={displayResume}
             reviewReadiness={() => void reviewGeneratedResumeReadiness()}
@@ -614,11 +638,13 @@ function buildGenerationStatus(payload: Extract<TailorResponse, { data: Tailored
 function ResumeResult({
   exportResume,
   isReadinessReviewPending,
+  openPrintableResume,
   resume,
   reviewReadiness,
 }: {
-  exportResume: (resumeId: string, format: "markdown" | "json") => Promise<void>;
+  exportResume: (resumeId: string, format: "markdown" | "json" | "docx") => Promise<void>;
   isReadinessReviewPending: boolean;
+  openPrintableResume: (resumeId: string) => Promise<void>;
   resume: {
     id?: string;
     title: string;
@@ -662,13 +688,31 @@ function ResumeResult({
           {resume.id ? (
             <>
               <button
+                className="primary-button"
+                type="button"
+                disabled={!isValidated}
+                onClick={() => void exportResume(resume.id!, "docx")}
+                title={isValidated ? "Export validated DOCX" : "Blocked until Fact Guard validates this resume"}
+              >
+                Export DOCX
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={!isValidated}
+                onClick={() => void openPrintableResume(resume.id!)}
+                title={isValidated ? "Open printable resume for browser PDF" : "Blocked until Fact Guard validates this resume"}
+              >
+                Print / Save PDF
+              </button>
+              <button
                 className="secondary-button"
                 type="button"
                 disabled={!isValidated}
                 onClick={() => void exportResume(resume.id!, "markdown")}
                 title={isValidated ? "Export validated Markdown" : "Blocked until Fact Guard validates this resume"}
               >
-                Export Markdown
+                Markdown
               </button>
               <button
                 className="secondary-button secondary-button--quiet"
@@ -682,7 +726,7 @@ function ResumeResult({
         </div>
         {!isValidated ? (
           <p className="requirement__quote">
-            Draft only. Final Markdown export unlocks after Fact Guard validates every generated claim.
+            Draft only. Final DOCX, printable, and Markdown exports unlock after Fact Guard validates every generated claim.
             Use JSON audit for review data.
           </p>
         ) : null}

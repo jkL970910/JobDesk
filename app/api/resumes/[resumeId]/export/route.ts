@@ -2,13 +2,19 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getResumeFinalExportBlocker } from "../../../../../src/server/main-resume-export-policy";
+import {
+  parseResumeExportFormat,
+  parseResumeExportTemplate,
+  parseResumePagePolicy,
+  renderResumeExportResponse,
+} from "../../../../../src/server/resume-export-renderer";
 import { getTailoredResumeById } from "../../../../../src/server/resume-repository";
+
+export const runtime = "nodejs";
 
 const paramsSchema = z.object({
   resumeId: z.string().uuid(),
 });
-
-const formatSchema = z.enum(["markdown", "json"]).default("markdown");
 
 export async function GET(
   request: Request,
@@ -23,8 +29,8 @@ export async function GET(
   }
 
   const url = new URL(request.url);
-  const format = formatSchema.safeParse(url.searchParams.get("format") ?? undefined);
-  if (!format.success) {
+  const format = parseResumeExportFormat(url.searchParams.get("format") ?? "markdown");
+  if (!format) {
     return NextResponse.json(
       { error: "Unsupported export format.", kind: "unsupported_format" },
       { status: 400 },
@@ -39,37 +45,29 @@ export async function GET(
     );
   }
   const exportBlocker = getResumeFinalExportBlocker({
-    format: format.data,
+    format,
     status: resume.status,
   });
   if (exportBlocker) {
     return NextResponse.json(exportBlocker, { status: 409 });
   }
 
-  const filename = makeExportFilename(resume.title, format.data);
-  if (format.data === "json") {
-    return new NextResponse(JSON.stringify(resume, null, 2), {
-      headers: {
-        "Content-Disposition": `attachment; filename="${filename}"`,
-        "Content-Type": "application/json; charset=utf-8",
-      },
-    });
-  }
-
-  return new NextResponse(resume.resume_markdown, {
+  const template = parseResumeExportTemplate(url.searchParams.get("template"));
+  const pagePolicy = parseResumePagePolicy(url.searchParams.get("pagePolicy"));
+  const exported = await renderResumeExportResponse({
+    format,
+    jsonBody: resume,
+    pagePolicy,
+    resumeJson: resume.resume_json,
+    resumeMarkdown: resume.resume_markdown,
+    template,
+    title: resume.title,
+  });
+  return new NextResponse(exported.body, {
     headers: {
-      "Content-Disposition": `attachment; filename="${filename}"`,
-      "Content-Type": "text/markdown; charset=utf-8",
+      "Content-Disposition": exported.contentDisposition,
+      "Content-Type": exported.contentType,
+      ...exported.headers,
     },
   });
-}
-
-function makeExportFilename(title: string, format: "markdown" | "json") {
-  const safeTitle =
-    title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 80) || "tailored-resume";
-  return `${safeTitle}.${format === "markdown" ? "md" : "json"}`;
 }

@@ -16,6 +16,13 @@ export type ResumeExportInput = {
   resumeMarkdown: string;
 };
 
+export type ResumeExportResponseInput = ResumeExportInput & {
+  format: ResumeExportFormat;
+  jsonBody?: unknown;
+  pagePolicy?: ResumePagePolicy;
+  template?: ResumeExportTemplate;
+};
+
 export type ResumeExportSection = {
   title: string;
   body: string[];
@@ -147,6 +154,56 @@ export function makeResumeTrimHeaders(trim: ResumeExportTrimMetadata) {
     "X-Resume-Export-Hidden-Sections": String(trim.hiddenSections),
     "X-Resume-Export-Page-Policy": trim.pagePolicy,
     "X-Resume-Export-Trimmed": trim.wasTrimmed ? "true" : "false",
+  };
+}
+
+export async function renderResumeExportResponse(args: ResumeExportResponseInput) {
+  const filename = makeResumeExportFilename(args.title, args.format);
+  if (args.format === "json") {
+    return {
+      body: JSON.stringify(args.jsonBody ?? {
+        resume_json: args.resumeJson,
+        resume_markdown: args.resumeMarkdown,
+        title: args.title,
+      }, null, 2),
+      contentDisposition: `attachment; filename="${filename}"`,
+      contentType: getResumeExportContentType(args.format),
+      headers: {},
+    };
+  }
+
+  if (args.format === "markdown") {
+    return {
+      body: args.resumeMarkdown,
+      contentDisposition: `attachment; filename="${filename}"`,
+      contentType: getResumeExportContentType(args.format),
+      headers: {},
+    };
+  }
+
+  const viewModel = buildResumeExportViewModel({
+    resumeJson: args.resumeJson,
+    resumeMarkdown: args.resumeMarkdown,
+    title: args.title,
+  });
+  const pagePolicy = args.pagePolicy ?? defaultPagePolicy;
+  const template = args.template ?? defaultTemplate;
+  const { trim } = applyResumePagePolicy(viewModel, pagePolicy);
+  const headers = makeResumeTrimHeaders(trim);
+  if (args.format === "html") {
+    return {
+      body: renderPlainAtsHtml({ pagePolicy, template, viewModel }),
+      contentDisposition: `inline; filename="${filename}"`,
+      contentType: getResumeExportContentType(args.format),
+      headers,
+    };
+  }
+
+  return {
+    body: new Uint8Array(await renderPlainAtsDocx({ pagePolicy, template, viewModel })),
+    contentDisposition: `attachment; filename="${filename}"`,
+    contentType: getResumeExportContentType(args.format),
+    headers,
   };
 }
 

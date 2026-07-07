@@ -3,16 +3,10 @@ import { z } from "zod";
 
 import { getMainResumeExportBlocker } from "../../../../../src/server/main-resume-export-policy";
 import {
-  applyResumePagePolicy,
-  buildResumeExportViewModel,
-  getResumeExportContentType,
-  makeResumeTrimHeaders,
-  makeResumeExportFilename,
   parseResumeExportFormat,
   parseResumeExportTemplate,
   parseResumePagePolicy,
-  renderPlainAtsDocx,
-  renderPlainAtsHtml,
+  renderResumeExportResponse,
 } from "../../../../../src/server/resume-export-renderer";
 import { getMainResumeById } from "../../../../../src/server/resume-repository";
 
@@ -61,51 +55,22 @@ export async function GET(
     );
   }
 
-  const filename = makeResumeExportFilename(resume.title, format);
-  if (format === "json") {
-    return new NextResponse(JSON.stringify(resume, null, 2), {
-      headers: {
-        "Content-Disposition": `attachment; filename="${filename}"`,
-        "Content-Type": getResumeExportContentType(format),
-      },
-    });
-  }
-
-  if (format === "markdown") {
-    return new NextResponse(resume.resume_markdown, {
-      headers: {
-        "Content-Disposition": `attachment; filename="${filename}"`,
-        "Content-Type": getResumeExportContentType(format),
-      },
-    });
-  }
-
   const template = parseResumeExportTemplate(url.searchParams.get("template"));
   const pagePolicy = parseResumePagePolicy(url.searchParams.get("pagePolicy"));
-  const viewModel = buildResumeExportViewModel({
+  const exported = await renderResumeExportResponse({
+    format,
+    jsonBody: resume,
+    pagePolicy,
     resumeJson: resume.resume_json,
     resumeMarkdown: resume.resume_markdown,
+    template,
     title: resume.title,
   });
-  const { trim } = applyResumePagePolicy(viewModel, pagePolicy);
-  const trimHeaders = makeResumeTrimHeaders(trim);
-
-  if (format === "html") {
-    return new NextResponse(renderPlainAtsHtml({ pagePolicy, template, viewModel }), {
-      headers: {
-        "Content-Disposition": `inline; filename="${filename}"`,
-        "Content-Type": getResumeExportContentType(format),
-        ...trimHeaders,
-      },
-    });
-  }
-
-  const buffer = await renderPlainAtsDocx({ pagePolicy, template, viewModel });
-  return new NextResponse(new Uint8Array(buffer), {
+  return new NextResponse(exported.body, {
     headers: {
-      "Content-Disposition": `attachment; filename="${filename}"`,
-      "Content-Type": getResumeExportContentType(format),
-      ...trimHeaders,
+      "Content-Disposition": exported.contentDisposition,
+      "Content-Type": exported.contentType,
+      ...exported.headers,
     },
   });
 }
