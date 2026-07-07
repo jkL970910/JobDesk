@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-07
 Baseline commit: ce44458 `Build local MVP workflow baseline`
-Latest implementation commit: 79dff3e `feat: expose target eligibility metadata`
+Latest implementation commit: 4819df7 `test: add resume core loop qa suite`
 Production URL: https://jobdesk-tau.vercel.app
 Final UI reference: Figma Make `Si82hetJamO8bUqHOacgv9` — signed off as **JobDesk Final Project Reference UI v1**
 
@@ -197,8 +197,8 @@ Integration tests use the configured JobDesk database and write temporary workfl
 
 | Priority | Task | Status |
 |----------|------|--------|
-| P0 | Keep this status file updated with every implementation step | Active |
-| P0 | Freeze new workflow/module work until the Resume Core Loop is hardened | Active |
+| P0 | Keep this status file updated with every implementation step | Done for current P0 hardening batch |
+| P0 | Freeze new workflow/module work until the Resume Core Loop is hardened | Done, local; ready for review |
 | P0 | P0.1a Source impact preview, draft-material cleanup, and cleanup audit event | Done, local |
 | P0 | P0.2 Unified resume evidence eligibility policy computed by backend and returned through API DTOs | Done, local |
 | P0 | P0.3a Evidence-only Asset Action Service for edit/approve/reject/approve-for-resume/link/unlink/stale-claim handling | Done, local |
