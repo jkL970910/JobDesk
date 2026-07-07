@@ -12,6 +12,7 @@
     "test": "vitest --run",
     "test:integration": "JOBDESK_RUN_DB_INTEGRATION=true vitest --run --fileParallelism=false tests/*.integration.test.ts",
     "verify:local": "npm run typecheck && npm test && npm run test:integration",
+    "verify:resume-core": "tsx scripts/verify-resume-core-loop.ts",
     "gen:jsonschema": "tsx scripts/generate-json-schema.ts",
     "ai:smoke:jd": "tsx scripts/smoke-jd-analysis.ts",
     "db:generate": "drizzle-kit generate",

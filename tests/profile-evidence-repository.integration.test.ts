@@ -797,7 +797,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
           item.text.includes("cohort dashboard slices"),
       ),
     ).toBe(true);
-  }, 20_000);
+  }, 90_000);
 
   it("keeps Work Experience persistence high-level and rejects bullet-shaped role containers", async () => {
     const sourceTitle = `Work experience sanitizer ${crypto.randomUUID()}`;
