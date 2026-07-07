@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-07
 Baseline commit: ce44458 `Build local MVP workflow baseline`
-Latest implementation commit: 4819df7 `test: add resume core loop qa suite`
+Latest reviewed local commit: 81cb54f `docs: mark resume core p0 ready for review`
 Production URL: https://jobdesk-tau.vercel.app
 Final UI reference: Figma Make `Si82hetJamO8bUqHOacgv9` — signed off as **JobDesk Final Project Reference UI v1**
 
@@ -167,6 +167,7 @@ Last verified on 2026-06-24:
 | Generated Resume Readiness Review | Implemented locally for the P1 quality loop; `generated_resume_readiness_reviews` stores generated-draft readiness reviews separately from original source Resume Review. Main Resume UI can manually run "Review generated resume", display scoped before/after readiness, show Fact Guard/export hard-gate state, and route findings to Evidence Library, Resume Builder polish, or Profile Positioning. Main Resume polish findings can build an explicit Resume Builder proposal; applying it creates a new generated main-resume version, reruns Fact Guard, and stores a fresh readiness review. Tailored resume readiness persistence/API support and Job Workspace UI review controls are wired for generated tailored drafts. Review findings do not automatically create Work Queue tasks. Full accept/reject/revise history and richer editable diff review remain future work. |
 | Tailored Resume DOCX/HTML export parity | Implemented locally; Tailored Resume export now reuses the shared ATS export renderer, supports DOCX and printable HTML with the same Fact Guard final-export gate as Main Resume, and keeps JSON audit export available before validation. Focused route and renderer tests pass. |
 | Resume Core Loop QA suite | Implemented locally; `npm run verify:resume-core` runs the targeted source cleanup, evidence eligibility/action, readiness, export, retrieval, and Resume Review run tests plus typecheck/build. `npm run verify:resume-core -- --integration` adds the database-backed integration suite. Manual QA checklist lives in `docs/resume-core-loop-qa.md`. |
+| Resume Core Loop P0 review signoff | Passed locally; latest reviewed commits are `4819df7` and `81cb54f`. Review found no new blockers. `npm run verify:resume-core`, `npm run verify:resume-core -- --integration`, and `git diff --check` passed; working tree was clean after signoff. Non-blocking follow-ups: pg SSL/client.query warnings and stale export roadmap wording. |
 | Production deployment for async extraction worker trigger | Partially complete; `CRON_SECRET` is set in Vercel Production and deployment `dpl_CCEa4cnDXtX3d5qL1iG5mTC3YQts` is aliased to `https://jobdesk-tau.vercel.app`. Remote smoke from the local shell is blocked by outbound connectivity timeouts to Vercel before function logs appear, while deployment inspection reports `READY`. Do not mark production signoff until the user-triggered queued-run flow and manual/admin endpoint are smoked from a working network/client |
 
 Integration tests use the configured JobDesk database and write temporary workflow rows.
@@ -198,7 +199,7 @@ Integration tests use the configured JobDesk database and write temporary workfl
 | Priority | Task | Status |
 |----------|------|--------|
 | P0 | Keep this status file updated with every implementation step | Done for current P0 hardening batch |
-| P0 | Freeze new workflow/module work until the Resume Core Loop is hardened | Done, local; ready for review |
+| P0 | Freeze new workflow/module work until the Resume Core Loop is hardened | Done, local; review signed off |
 | P0 | P0.1a Source impact preview, draft-material cleanup, and cleanup audit event | Done, local |
 | P0 | P0.2 Unified resume evidence eligibility policy computed by backend and returned through API DTOs | Done, local |
 | P0 | P0.3a Evidence-only Asset Action Service for edit/approve/reject/approve-for-resume/link/unlink/stale-claim handling | Done, local |
@@ -210,7 +211,7 @@ Integration tests use the configured JobDesk database and write temporary workfl
 | P0 | Improve claim review UX so `unvalidated` resumes show exactly which claims need attention | Done, MVP |
 | P0 | Add Skills Registry audit metadata and workflow diagnostics | Done, MVP |
 | P0 | Implement runtime SKILL.md loader / prompt composer with frontmatter version checks | Done, MVP |
-| P1 | Add resume export path, likely Markdown first, then PDF/DOCX | Tailored and Main Resume Markdown/JSON done; PDF/DOCX not started |
+| P1 | Keep resume export docs/UI aligned with current Main/Tailored export capability | Main and Tailored support Markdown/JSON audit; Tailored also supports DOCX/printable HTML through the shared export renderer. Follow-up: make docs and UI copy consistently distinguish final exports, printable HTML, and JSON audit. |
 | P1 | Build Evidence Library Builder for project notes, project cards, and richer resume retrieval context | Done, MVP with computed STAR story bank and local embedding index |
 | P1 | Add evidence/project merge-dedupe and de-identification workflow UI | Done, MVP with deterministic blocked-term guard |
 | P1 | Replace prompt-based card edits with inline or drawer editing for project/evidence review | Evidence inline edit done; project inline/drawer edit pending |
@@ -221,8 +222,9 @@ Integration tests use the configured JobDesk database and write temporary workfl
 | P1 | Add source chunk indexing and explainable retrieval | Done, MVP |
 | P1 | Split enrichment routing into profile context, profile facts, imported notes, assign-later routing, and targeted proposals | Done, MVP |
 | P1 | Add suggested targets, route-aware target gating, and target eligibility metadata | Done, MVP |
-| P1 | Add user-triggered async extraction processing for production | Implemented locally; deployed build has `CRON_SECRET`, but remote smoke of user-triggered processing and manual/admin endpoint is still pending before production signoff |
-| P1 | Redeploy latest baseline to Vercel and re-run production smoke | Pending for latest UI reference refactor |
+| P1 | Deploy current signed-off P0 baseline and run production remote smoke | Next; deploy current local `master` and verify Resume Review upload, Create library items, user-triggered extraction processing/retry, Main Resume generation, Tailored Resume generation, Fact Guard, and Markdown/HTML/DOCX/JSON export gates on `https://jobdesk-tau.vercel.app` |
+| P1 | Execute manual Resume Core Loop browser QA | Next; run `docs/resume-core-loop-qa.md` against a real browser session and confirm UI state, button copy, handoff notices, readiness categories, and export gates match the automated contracts |
+| P1 | Add user-triggered async extraction processing for production | Implemented locally; production remote smoke of user-triggered processing and manual/admin endpoint is still pending before production signoff |
 | P2 | Start interview preparation workflow | Done, MVP |
 | P2 | Start manual application tracking workflow | Done, MVP |
 | P2 | Start daily job recommendation workflow | Not started |
