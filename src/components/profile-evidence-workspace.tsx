@@ -3239,6 +3239,7 @@ export function ProfileEvidenceWorkspace({
               onReviewStory={updateStoryTargetReview}
               portfolioProjects={roleFilteredQueuedPortfolioProjects}
               storyTargets={roleFilteredQueuedInitiatives}
+              strengthenEvidenceCount={roleFilteredAnswerTasks.length}
               workExperiences={workExperiences}
             />
           ) : null}
@@ -8860,6 +8861,7 @@ function StarStoryQueue({
   onReviewStory,
   portfolioProjects,
   storyTargets,
+  strengthenEvidenceCount,
   workExperiences,
 }: {
   evidenceItems: EvidenceCardItem[];
@@ -8871,6 +8873,7 @@ function StarStoryQueue({
   ) => Promise<{ ok: boolean; message: string }>;
   portfolioProjects: PortfolioProjectItem[];
   storyTargets: InitiativeItem[];
+  strengthenEvidenceCount: number;
   workExperiences: WorkExperienceItem[];
 }) {
   const [pendingReviewKey, setPendingReviewKey] = useState<string | null>(null);
@@ -8902,7 +8905,7 @@ function StarStoryQueue({
         <div className="section-block__top">
           <div>
             <h3>Build Story Targets</h3>
-            <p>Story Targets appear here while they need context, evidence, assignment, or review.</p>
+            <p>Story Targets are larger reusable work stories. Smaller resume facts stay in Strengthen Evidence and Evidence Claims.</p>
           </div>
           <button className="secondary-button" type="button" onClick={onRefresh}>
             Refresh stories
@@ -8920,16 +8923,27 @@ function StarStoryQueue({
       <div className="section-block__top">
         <div>
           <h3>Build Story Targets</h3>
-          <p>Add context, ownership, actions, results, metrics, and evidence links to Work Initiatives and Portfolio Projects.</p>
+          <p>Story Targets are larger reusable work stories. Smaller resume facts stay in Strengthen Evidence and Evidence Claims.</p>
         </div>
         <button className="secondary-button" type="button" onClick={onRefresh}>
           Refresh stories
         </button>
       </div>
+      <div className="story-target-coverage" aria-label="Story Target coverage">
+        <span>
+          <strong>{rawStoryTargets.length}</strong>
+          Story Targets need work
+        </span>
+        <span>
+          <strong>{strengthenEvidenceCount}</strong>
+          Evidence prompts cover smaller resume facts
+        </span>
+      </div>
       <div className="review-queue__cards">
         {rawStoryTargets.map(({ kind, story, title, type }) => {
           const missingFields = getStoryMissingFields(story);
           const visibleMissingFields = missingFields.slice(0, 5);
+          const readiness = getStoryReadiness(story);
           const target: StoryEnrichmentTarget | null = story.id
             ? {
                 actions: story.actions,
@@ -8967,15 +8981,13 @@ function StarStoryQueue({
             }
           }
           return (
-            <article className="requirement-card" key={key}>
-              <div className="requirement-card__header">
-                <div>
-                  <span className="requirement-card__eyebrow">Story Target</span>
+            <article className="requirement-card story-target-work-card" data-readiness={readiness.state} key={key}>
+              <div className="story-target-work-card__header">
+                <div className="story-target-work-card__title">
+                  <span className="story-target-work-card__eyebrow">Story Target</span>
                   <strong>{title}</strong>
                 </div>
-                <em data-readiness={getStoryReadiness(story).state}>
-                  {getStoryReadiness(story).label}
-                </em>
+                <em data-readiness={readiness.state}>{readiness.label}</em>
               </div>
               <div className="merge-review__facts">
                 <span>{kind}</span>
