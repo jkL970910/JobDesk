@@ -28,9 +28,13 @@ export type EvidenceLibraryIaStoryTarget = {
 };
 
 export type EvidenceLibraryIaWorkExperience = {
+  end_date?: string | null;
   employer?: string | null;
+  location?: string | null;
   role_title?: string | null;
+  start_date?: string | null;
   summary?: string | null;
+  team?: string | null;
   status: string;
 };
 
@@ -71,6 +75,52 @@ export function shouldReviewWorkExperienceAsset(experience: EvidenceLibraryIaWor
   );
 }
 
+export function getWorkExperienceReviewFocus(experience: EvidenceLibraryIaWorkExperience) {
+  const required = [];
+  const recommended = [];
+  const employer = experience.employer?.trim() ?? "";
+  const roleTitle = experience.role_title?.trim() ?? "";
+  const summary = experience.summary?.trim() ?? "";
+
+  if (!employer || isUnsafeWorkExperienceLabel(employer)) required.push("employer");
+  if (!roleTitle || isUnsafeWorkExperienceLabel(roleTitle)) required.push("title");
+  if (!((experience.start_date ?? "").trim() || (experience.end_date ?? "").trim())) {
+    required.push("date range");
+  }
+  if (summary && isUnsafeWorkExperienceSummary(summary)) {
+    required.push("summary is too bullet-shaped");
+  }
+  if (!(experience.location ?? "").trim()) recommended.push("location");
+  if (!(experience.team ?? "").trim()) recommended.push("team");
+  if (!summary) recommended.push("high-level summary");
+
+  if (required.length > 0) {
+    return {
+      severity: "required" as const,
+      label: `Review required: ${formatReviewFocusList(required)}`,
+      nextAction: "Edit the missing or unsafe fields, then mark reviewed.",
+      required,
+      recommended,
+    };
+  }
+  if (recommended.length > 0) {
+    return {
+      severity: "recommended" as const,
+      label: `Optional context: ${formatReviewFocusList(recommended)}`,
+      nextAction: "Add context if useful, or mark reviewed now.",
+      required,
+      recommended,
+    };
+  }
+  return {
+    severity: "ready" as const,
+    label: "Ready to confirm",
+    nextAction: "Mark reviewed to remove it from the Work Queue.",
+    required,
+    recommended,
+  };
+}
+
 export function hasUnsafeWorkExperienceFields(experience: EvidenceLibraryIaWorkExperience) {
   return (
     isUnsafeWorkExperienceLabel(experience.employer) ||
@@ -99,6 +149,11 @@ function isUnsafeWorkExperienceSummary(value?: string | null) {
     /^[-*•]/.test(normalized) ||
     /\b(increased|reduced|improved|built|launched|delivered|implemented|optimized|scaled)\b/i.test(normalized)
   );
+}
+
+function formatReviewFocusList(items: string[]) {
+  if (items.length <= 2) return items.join(" and ");
+  return `${items.slice(0, 2).join(", ")} +${items.length - 2}`;
 }
 
 export function getStoryTargetReadinessState(target: EvidenceLibraryIaStoryTarget) {

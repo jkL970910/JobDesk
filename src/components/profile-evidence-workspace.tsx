@@ -27,6 +27,7 @@ import {
   canMarkStoryTargetReady,
   collectQueuedStoryTargetWorkExperienceIds,
   filterCanonicalLibraryAssets,
+  getWorkExperienceReviewFocus,
   getStoryTargetReadinessState,
   isCanonicalLibraryAsset,
   isResumeReadyEvidenceClaim,
@@ -9881,6 +9882,7 @@ function WorkExperienceRow({
   const canMarkNeedsUpdate = experience.status !== "pending" && experience.status !== "rejected";
   const canRejectRole = experience.status !== "rejected";
   const completeness = getWorkExperienceCompleteness(experience);
+  const reviewFocus = getWorkExperienceReviewFocus(experience);
   const displayEmployer = formatWorkExperienceDisplayEmployer(experience.employer);
   const displayRoleTitle = formatWorkExperienceDisplayRoleTitle(experience.role_title);
 
@@ -9900,12 +9902,18 @@ function WorkExperienceRow({
         <small>{initiatives.length} Story Targets · {directEvidence.length} direct Evidence Claims</small>
       </div>
       {reviewMode ? (
-        <div className="work-experience-row__checklist">
-          {completeness.checks.map((check) => (
-            <span data-complete={check.complete} key={check.key}>
-              {check.complete ? "✓" : "•"} {check.label}
-            </span>
-          ))}
+        <div className="work-experience-row__review-panel" data-severity={reviewFocus.severity}>
+          <div>
+            <strong>{reviewFocus.label}</strong>
+            <p>{reviewFocus.nextAction}</p>
+          </div>
+          <div className="work-experience-row__checklist">
+            {completeness.checks.map((check) => (
+              <span data-complete={check.complete} key={check.key}>
+                {check.complete ? "✓" : "•"} {check.label}
+              </span>
+            ))}
+          </div>
         </div>
       ) : null}
       <div className="work-experience-row__links">
@@ -10017,8 +10025,21 @@ function WorkExperienceRow({
       ) : null}
       {reviewMode ? (
         <div className="work-experience-row__actions">
+          <span>Review decision</span>
+          {reviewFocus.severity === "required" ? (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => {
+                setIsEditing(true);
+                setMessage(null);
+              }}
+            >
+              Edit required fields
+            </button>
+          ) : null}
           <button
-            className="secondary-button"
+            className={reviewFocus.severity === "required" ? "secondary-button secondary-button--quiet" : "secondary-button"}
             disabled={isSaving || !canMarkReviewed}
             type="button"
             onClick={() => void updateRoleReview("mark_reviewed")}

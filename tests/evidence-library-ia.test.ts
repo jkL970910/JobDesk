@@ -5,6 +5,7 @@ import {
   canMarkStoryTargetReady,
   collectQueuedStoryTargetWorkExperienceIds,
   filterCanonicalLibraryAssets,
+  getWorkExperienceReviewFocus,
   isCanonicalLibraryAsset,
   shouldApproveEvidenceClaim,
   shouldBuildStoryTarget,
@@ -134,6 +135,48 @@ describe("Evidence Library IA semantics", () => {
         status: "approved",
       }),
     ).toBe(true);
+  });
+
+  it("explains why a Work Experience is in review", () => {
+    expect(
+      getWorkExperienceReviewFocus({
+        employer: "",
+        role_title: "Worked on a visualization platform using React and TypeScript.",
+        status: "pending",
+      }),
+    ).toMatchObject({
+      severity: "required",
+      required: ["employer", "title", "date range"],
+      nextAction: "Edit the missing or unsafe fields, then mark reviewed.",
+    });
+
+    expect(
+      getWorkExperienceReviewFocus({
+        employer: "Amazon",
+        role_title: "Software Development Engineer",
+        start_date: "2023",
+        status: "pending",
+      }),
+    ).toMatchObject({
+      severity: "recommended",
+      recommended: ["location", "team", "high-level summary"],
+      nextAction: "Add context if useful, or mark reviewed now.",
+    });
+
+    expect(
+      getWorkExperienceReviewFocus({
+        employer: "Amazon",
+        location: "Toronto",
+        role_title: "Software Development Engineer",
+        start_date: "2023",
+        status: "pending",
+        summary: "Last Mile delivery platform role.",
+        team: "Last Mile",
+      }),
+    ).toMatchObject({
+      severity: "ready",
+      nextAction: "Mark reviewed to remove it from the Work Queue.",
+    });
   });
 
   it("filters rejected child assets before Library rows calculate linked children", () => {

@@ -10487,6 +10487,16 @@ span > .help-hint {
   padding: 10px 14px;
 }
 
+.work-experience-row__actions > span {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  margin-right: 2px;
+  text-transform: uppercase;
+}
+
 .work-experience-row__actions .secondary-button {
   min-height: 32px;
   padding: 6px 10px;
@@ -10555,12 +10565,42 @@ span > .help-hint {
   min-width: 240px;
 }
 
-.work-experience-row__checklist {
+.work-experience-row__review-panel {
+  align-items: start;
   border-top: 1px solid rgba(255, 255, 255, 0.055);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.4fr);
+  padding: 10px 14px;
+}
+
+.work-experience-row__review-panel strong {
+  color: var(--ink);
+  display: block;
+  font-size: 0.86rem;
+  font-weight: 780;
+  line-height: 1.35;
+}
+
+.work-experience-row__review-panel p {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.42;
+  margin: 3px 0 0;
+}
+
+.work-experience-row__review-panel[data-severity="required"] {
+  background: rgba(247, 185, 85, 0.055);
+}
+
+.work-experience-row__review-panel[data-severity="ready"] {
+  background: rgba(87, 199, 133, 0.045);
+}
+
+.work-experience-row__checklist {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 10px 14px 0;
 }
 
 .work-experience-row__checklist span {
@@ -12097,6 +12137,7 @@ span > .help-hint {
   }
 
   .story-target-work-card__header,
+  .work-experience-row__review-panel,
   .story-target-work-card .merge-review__facts {
     grid-template-columns: 1fr;
   }
