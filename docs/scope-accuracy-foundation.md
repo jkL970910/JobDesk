@@ -445,7 +445,7 @@ Acceptance:
 | Phase 2 | Complete, first slice | Deterministic classifier and early failure fixtures added as pure modules/tests. |
 | Phase 3 | In progress, first slice | Work Experience extraction drafts now pass through a pre-save scope guardrail; invalid role-container candidates are routed to imported material review notes instead of canonical Work Experience rows. |
 | Phase 4 | Complete, first slice | Same-role initiative fragment consolidation is isolated in `initiative-consolidation.ts` with fixtures for AWS CDK/cache/latency merging and cross-role non-merge. |
-| Phase 5 | Not started | Full fixture suite pending. |
+| Phase 5 | Complete, first slice | `scope-accuracy-regression-fixtures.test.ts` locks the seven signed-off failure families across classifier, guardrail, consolidation, and imported-note routing. |
 | Phase 6 | Partially complete | Create missing Story Target from enrichment question exists; remaining correction actions pending. |
 | Phase 7 | Not started | Post-save validators/routing pending. |
 | Phase 8 | Not started | Observability pending. |

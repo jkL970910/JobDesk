@@ -35,7 +35,7 @@ Current phase status:
 | Phase 2: Deterministic Scope Classifier | Complete, first slice | `scope-classifier.ts` added with pure fixtures for bullet-shaped Work Experience rejection, Technical Skills profile-context routing, AWS CDK/cache/latency clustering, project-only portfolio routing, same-company multi-role separation, atomic evidence, and imported observations. |
 | Phase 3: Pre-Save Persistence Guardrail | In progress, first slice | Work Experience extraction drafts now pass through a pre-save scope guardrail; invalid role-container candidates are routed to imported material review notes instead of canonical Work Experience rows. |
 | Phase 4: Initiative Consolidation | Complete, first slice | Same-role initiative fragment consolidation is isolated in `initiative-consolidation.ts` with fixtures for AWS CDK/cache/latency merging and cross-role non-merge. |
-| Phase 5: Regression Fixture Suite | Not started | Full known-failure fixture coverage after classifier/consolidation seams exist. |
+| Phase 5: Regression Fixture Suite | Complete, first slice | `scope-accuracy-regression-fixtures.test.ts` locks the seven signed-off failure families across classifier, guardrail, consolidation, and imported-note routing. |
 | Phase 6: User Correction Workflow | Partially complete | Creating a missing Story Target from an enrichment question is implemented; change scope/reassign/merge/keep separate/unassign remain. |
 | Phase 7: Post-Save Validators And Work Queue Routing | Not started | Validators and fix-surface routing pending. |
 | Phase 8: Observability And Admin Diagnostics | Not started | Accuracy diagnostics pending. |
