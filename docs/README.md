@@ -11,6 +11,7 @@ Use this document set for implementation planning:
 | `architecture.md` | Diagram-first architecture companion | Signoff candidate |
 | `build-and-learn.md` | Component-by-component build plan, schemas, benchmarks, and sequencing | Signoff candidate |
 | `evidence-library-product-language.md` | Evidence Library / Work Queue product language, IA, entity boundaries, Figma copy, and implementation mapping | Active product boundary |
+| `scope-accuracy-foundation.md` | Long-term milestone plan for extracted candidate scope classification, consolidation, correction workflow, validators, observability, and AI enhancements | Active milestone plan |
 | `local-model-setup.md` | Local provider setup note for Ollama/LM Studio | Implementation note |
 | `development-status.md` | Living implementation progress, workflow coverage, verification, and next tasks, including latest RAG/source-chunk, enrichment-routing, imported-note, profile-provenance, and target-gating work | Active status log |
 

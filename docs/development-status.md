@@ -1,12 +1,45 @@
 # JobDesk Development Status
 
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 Baseline commit: ce44458 `Build local MVP workflow baseline`
-Latest reviewed local commit: 81cb54f `docs: mark resume core p0 ready for review`
+Latest reviewed local commit: 1539bfb `feat: close work queue story target loop`
 Production URL: https://jobdesk-tau.vercel.app
 Final UI reference: Figma Make `Si82hetJamO8bUqHOacgv9` — signed off as **JobDesk Final Project Reference UI v1**
 
 This is the living implementation status file. Every future code change should update this file before the related commit when it changes scope, workflow coverage, verification status, known risks, or next-task priority.
+
+## Active Milestone: Scope Accuracy Foundation + Correction Workflow
+
+Milestone document: `docs/scope-accuracy-foundation.md`
+
+Goal:
+
+```text
+Raw source
+  -> Extracted candidates
+  -> Scope classification
+  -> Consolidation / dedupe
+  -> User review and correction
+  -> Canonical Evidence Library
+  -> Resume generation
+```
+
+Principle: extractors propose candidate material, but deterministic scope decisions, consolidation, user correction, validators, and resume eligibility gates decide what can become trusted reusable material.
+
+Current phase status:
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 0: Product Contract And Terminology | Complete | Milestone plan created and Evidence Library terms synchronized. |
+| Phase 1: Candidate And Scope Contract | Complete | `extracted-asset-candidate.ts` and `scope-decision.ts` added as pure modules with unit tests. |
+| Phase 2: Deterministic Scope Classifier | Complete, first slice | `scope-classifier.ts` added with pure fixtures for bullet-shaped Work Experience rejection, Technical Skills profile-context routing, AWS CDK/cache/latency clustering, project-only portfolio routing, same-company multi-role separation, atomic evidence, and imported observations. |
+| Phase 3: Pre-Save Persistence Guardrail | Not started | Planned gate before canonical persistence. |
+| Phase 4: Initiative Consolidation | Not started | Planned consolidation for same-role/source/domain fragments. |
+| Phase 5: Regression Fixture Suite | Not started | Full known-failure fixture coverage after classifier/consolidation seams exist. |
+| Phase 6: User Correction Workflow | Partially complete | Creating a missing Story Target from an enrichment question is implemented; change scope/reassign/merge/keep separate/unassign remain. |
+| Phase 7: Post-Save Validators And Work Queue Routing | Not started | Validators and fix-surface routing pending. |
+| Phase 8: Observability And Admin Diagnostics | Not started | Accuracy diagnostics pending. |
+| Phase 9: Intelligence Layer | Deferred | AI enhancements wait until deterministic guardrails are stable. |
 
 ## Workflow Count
 

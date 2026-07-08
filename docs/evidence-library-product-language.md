@@ -13,6 +13,10 @@ Do not make assets disappear from Library just because they are incomplete. Use 
 
 The Evidence Library remains the factual source of truth. Generated resumes, cover letters, interview answers, and positioning reports are derived outputs.
 
+Extractors propose candidate material. They do not decide canonical truth. Extracted material must pass scope classification, consolidation/dedupe, and user review/correction before it can become trusted reusable library material.
+
+Resume generation must only consume approved, public-safe, source-backed canonical evidence. Pending stories, pending evidence, profile context, imported notes, and low-confidence or needs-scope-review candidates must stay out of final resume retrieval.
+
 ## Core Product Model
 
 ### Source Material
@@ -31,6 +35,22 @@ User-facing copy:
 
 > Source material is where facts come from. It is not reusable until JobDesk turns it into reviewed library assets.
 
+### Extraction Candidate
+
+Proposed material from Source Material before canonical acceptance.
+
+An extraction candidate can propose a Work Experience, Work Initiative, Portfolio Project, Evidence Claim, Profile Context item, imported note, or enrichment question. It is not canonical until scope classification and review rules allow it to persist.
+
+Use this label internally and in diagnostic surfaces:
+
+- Extraction Candidate
+
+Avoid in user-facing primary Library UI:
+
+- Final asset
+- Confirmed evidence
+- Resume-ready material
+
 ### Work Experience
 
 A role container.
@@ -45,6 +65,14 @@ Contains:
 - High-level scope
 - Linked story targets
 - Linked evidence claim count
+
+Must not be:
+
+- A project
+- A technical action
+- A metric
+- A bullet-shaped result
+- A pure technology phrase
 
 Use this label:
 
@@ -80,6 +108,10 @@ User-facing copy:
 
 > Story targets organize your projects and achievements. Evidence claims prove the details.
 
+Work Initiative means a project, achievement, responsibility, or story under a specific Work Experience. It should have role context plus a project/story signal such as problem, action, outcome, business goal, ownership, service/domain, or responsibility.
+
+Portfolio Project means non-employer work such as personal, academic, open-source, freelance, or hackathon work. Employer-internal work should default to Work Initiative or unassigned review, not Portfolio Project.
+
 ### Evidence Claim
 
 The smallest factual proof unit.
@@ -92,6 +124,14 @@ Contains:
 - Linked Work Experience or Story Target
 - Approval status
 - Allowed usage, such as resume, interview, or cover letter
+
+Must be atomic:
+
+- One fact
+- One metric
+- One tight action-result pair
+
+It should not be a broad project/story container.
 
 Use this label:
 
@@ -115,12 +155,32 @@ User-facing copy:
 
 > Interview stories are generated from ready story targets. They are not a separate source of truth.
 
+### Enrichment Question
+
+A prompt asking the user to fill missing context.
+
+It is not an Evidence Claim and not a Story Target. An answer may later create or update evidence/story material after target selection and review.
+
+### Profile Context
+
+Preference, positioning guidance, target role direction, emphasis, or de-emphasis.
+
+Profile Context is not factual proof and cannot enter resume claims.
+
+### Scope Decision
+
+The system/user decision describing what an Extraction Candidate is, why, with what confidence, and whether it can persist.
+
+Every candidate must receive a Scope Decision before it enters canonical persistence.
+
 ## Relationship Model
 
 Use this relationship consistently:
 
 ```text
 Source Material
+  -> Extraction Candidates
+      -> Scope Decisions
   -> Work Experience
       -> Story Targets
           -> Evidence Claims
