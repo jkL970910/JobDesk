@@ -8818,6 +8818,18 @@ span > .help-hint {
   line-height: 1.35;
 }
 
+.enrichment-route-gate__suggestion .actions {
+  gap: 8px;
+}
+
+.enrichment-route-gate__hint {
+  color: var(--primary-strong);
+  font-size: 0.82rem;
+  font-weight: 760;
+  line-height: 1.4;
+  margin: 0;
+}
+
 .enrichment-route-gate__routes {
   display: flex;
   flex-wrap: wrap;
@@ -8970,7 +8982,9 @@ span > .help-hint {
 }
 
 .primary-button,
+.primary-action,
 .secondary-button,
+.ghost-button,
 .secondary-link-button {
   align-items: center;
   border-radius: 12px;
@@ -8981,21 +8995,30 @@ span > .help-hint {
   padding: 9px 13px;
 }
 
-.primary-button {
+.primary-button,
+.primary-action {
   background: var(--primary);
   color: white;
 }
 
-.primary-button:hover:not(:disabled) {
+.primary-button:hover:not(:disabled),
+.primary-action:hover:not(:disabled) {
   background: var(--primary-strong);
   color: #090c14;
 }
 
 .secondary-button,
+.ghost-button,
 .secondary-link-button {
   background: rgba(255, 255, 255, 0.045);
   border: 1px solid var(--line);
   color: var(--ink-soft);
+}
+
+.ghost-button {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.075);
+  color: var(--muted);
 }
 
 .secondary-button--quiet {
@@ -9011,6 +9034,7 @@ span > .help-hint {
 }
 
 .secondary-button:hover:not(:disabled),
+.ghost-button:hover:not(:disabled),
 .secondary-link-button:hover {
   background: var(--primary-soft);
   border-color: rgba(79, 140, 255, 0.28);

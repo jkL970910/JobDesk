@@ -172,6 +172,7 @@ Last verified on 2026-06-24:
 | Build Story Targets QA polish | Implemented locally after manual QA; the queue now explains that Story Targets are larger reusable work stories while smaller resume facts stay in Strengthen Evidence / Evidence Claims, and the target rows use a clearer flat boundary, separated title/status layout, and mobile-safe wrapping without nested card styling. |
 | Review Work Experience QA polish | Implemented locally after manual QA; Work Experience rows now show the concrete review focus, required/recommended missing fields, next action copy, and an explicit Edit required fields / Mark reviewed decision area so `Needs review` is actionable instead of ambiguous. |
 | Library to Work Queue action navigation | Implemented locally after manual QA; clickable Library status badges now route Work Experiences to Review Work Experience, Story Targets to Build Story Targets, and Evidence Claims to Link Evidence or Approve Evidence as appropriate, then scroll and highlight the matching Work Queue row. |
+| Strengthen Evidence target chooser QA polish | Implemented locally after manual QA; target-gate buttons now use the standard button system, and `Choose another` opens the appropriate target picker instead of only showing a status message. |
 
 Integration tests use the configured JobDesk database and write temporary workflow rows.
 

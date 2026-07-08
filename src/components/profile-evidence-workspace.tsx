@@ -6454,6 +6454,21 @@ function RouteAwareTargetGate({
   const suggestedTargets = task.targets.filter(
     (target) => target.target_role === "suggested" && !target.rejected_at,
   );
+  const [isChoosingDifferentTarget, setIsChoosingDifferentTarget] = useState(false);
+  useEffect(() => {
+    setIsChoosingDifferentTarget(false);
+  }, [task.id]);
+  function chooseRoute(nextRoute: EnrichmentTargetRoute) {
+    setIsChoosingDifferentTarget(false);
+    onRouteChange(nextRoute);
+    onChangeWorkflowRoute(nextRoute);
+  }
+  function chooseAnotherTarget() {
+    const nextRoute = getInitialTargetRoute(task) ?? "update_story";
+    setIsChoosingDifferentTarget(true);
+    onRouteChange(nextRoute);
+    onChooseDifferentTarget();
+  }
   return (
     <div className="enrichment-route-gate">
       {suggestedTargets.length > 0 ? (
@@ -6473,10 +6488,13 @@ function RouteAwareTargetGate({
               <small>Confidence: {target.confidence}</small>
               <div className="actions actions--compact">
                 <button
-                  className="primary-action"
+                  className="primary-button"
                   disabled={disabled}
                   type="button"
-                  onClick={() => onAcceptSuggestedTarget(target.target_id)}
+                  onClick={() => {
+                    setIsChoosingDifferentTarget(false);
+                    onAcceptSuggestedTarget(target.target_id);
+                  }}
                 >
                   Use this target
                 </button>
@@ -6484,12 +6502,12 @@ function RouteAwareTargetGate({
                   className="secondary-button secondary-button--quiet"
                   disabled={disabled}
                   type="button"
-                  onClick={onChooseDifferentTarget}
+                  onClick={chooseAnotherTarget}
                 >
                   Choose another
                 </button>
                 <button
-                  className="ghost-button"
+                  className="secondary-button secondary-button--quiet"
                   disabled={disabled}
                   type="button"
                   onClick={() => onRejectSuggestedTarget(target.target_id)}
@@ -6501,60 +6519,52 @@ function RouteAwareTargetGate({
           ))}
         </div>
       ) : null}
+      {isChoosingDifferentTarget ? (
+        <p className="enrichment-route-gate__hint">
+          Choose the correct existing asset below, then answer the question for that target.
+        </p>
+      ) : null}
       <div className="enrichment-route-gate__routes">
         <button
-          className={route === "create_evidence" ? "primary-action" : "secondary-button"}
+          className={route === "create_evidence" ? "primary-button" : "secondary-button"}
           disabled={disabled}
           type="button"
           onClick={() => {
-            onRouteChange("create_evidence");
-            onChangeWorkflowRoute("create_evidence");
+            chooseRoute("create_evidence");
             onCreateLibraryItems();
           }}
         >
           Create new evidence
         </button>
         <button
-          className={route === "update_evidence" ? "primary-action" : "secondary-button"}
+          className={route === "update_evidence" ? "primary-button" : "secondary-button"}
           disabled={disabled}
           type="button"
-          onClick={() => {
-            onRouteChange("update_evidence");
-            onChangeWorkflowRoute("update_evidence");
-          }}
+          onClick={() => chooseRoute("update_evidence")}
         >
           Update existing claim
         </button>
         <button
-          className={route === "update_story" ? "primary-action" : "secondary-button"}
+          className={route === "update_story" ? "primary-button" : "secondary-button"}
           disabled={disabled}
           type="button"
-          onClick={() => {
-            onRouteChange("update_story");
-            onChangeWorkflowRoute("update_story");
-          }}
+          onClick={() => chooseRoute("update_story")}
         >
           Attach to story
         </button>
         <button
-          className={route === "update_role" ? "primary-action" : "secondary-button"}
+          className={route === "update_role" ? "primary-button" : "secondary-button"}
           disabled={disabled}
           type="button"
-          onClick={() => {
-            onRouteChange("update_role");
-            onChangeWorkflowRoute("update_role");
-          }}
+          onClick={() => chooseRoute("update_role")}
         >
           Attach to role
         </button>
         <button
-          className={route === "profile_context" ? "primary-action" : "secondary-button"}
+          className={route === "profile_context" ? "primary-button" : "secondary-button"}
           disabled={disabled}
           type="button"
-          onClick={() => {
-            onRouteChange("profile_context");
-            onChangeWorkflowRoute("profile_context");
-          }}
+          onClick={() => chooseRoute("profile_context")}
         >
           Save as profile context
         </button>
