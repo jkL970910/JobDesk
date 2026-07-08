@@ -174,7 +174,7 @@ export function guardEvidenceDraftsForPersistence(
       sourceSection: "Evidence Claim",
       sourceQuote: draft.source_quote,
     });
-    const disposition = isReviewableEvidenceDraft(draft)
+    const disposition = isReviewableEvidenceDraft(draft, classification)
       ? "accepted"
       : dispositionFromPolicy(classification);
     decisions.push({ draft, classification, disposition });
@@ -195,7 +195,14 @@ export function guardEvidenceDraftsForPersistence(
 
 function isReviewableEvidenceDraft(
   draft: ProfileEvidenceExtraction["evidence_items"][number],
+  classification: ScopeClassificationResult,
 ) {
+  if (
+    classification.decision.acceptedScope !== "evidence_claim" ||
+    classification.decision.canonicalLinkPolicy !== "can_persist_to_canonical_pending"
+  ) {
+    return false;
+  }
   const wordCount = draft.text.trim().split(/\s+/).filter(Boolean).length;
   const broadStoryMarkers = (draft.text.match(/\b(across|planning|coordination|enablement|strategy|roadmap)\b/gi) ?? []).length;
   return Boolean(draft.source_quote.trim()) && wordCount <= 14 && broadStoryMarkers < 2;

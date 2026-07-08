@@ -969,6 +969,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
     });
     expect(result.status).toBe("saved");
     if (result.status !== "saved") throw new Error("Expected saved extraction.");
+    expect(result.evidenceCount).toBe(0);
 
     const db = getDb();
     const [savedInitiative] = await db

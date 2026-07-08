@@ -235,7 +235,7 @@ function classifyEvidenceCandidate(
   candidate: NormalizedExtractedAssetCandidate,
   signals: string[],
 ): ScopeClassificationResult {
-  if (isAtomicFact(candidate.content)) {
+  if (isAtomicFact(candidate.content) || isShortSourcedEvidencePhrase(candidate)) {
     return result(candidate, signals, pendingCanonicalScopeDecision({
       acceptedScope: "evidence_claim",
       confidence: candidate.sourceQuote ? "high" : "medium",
@@ -251,6 +251,12 @@ function classifyEvidenceCandidate(
     possibleAlternatives: ["work_initiative"],
     reason: "Candidate is broader than an atomic evidence claim.",
   }));
+}
+
+function isShortSourcedEvidencePhrase(candidate: NormalizedExtractedAssetCandidate) {
+  const wordCount = candidate.content.trim().split(/\s+/).filter(Boolean).length;
+  const broadStoryMarkers = (candidate.content.match(/\b(across|planning|coordination|enablement|strategy|roadmap)\b/gi) ?? []).length;
+  return Boolean(candidate.sourceQuote?.trim()) && wordCount <= 14 && broadStoryMarkers < 2;
 }
 
 function result(

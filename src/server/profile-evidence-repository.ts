@@ -552,7 +552,7 @@ export async function persistProfileEvidenceExtraction(args: {
       workspaceId: workspace.id,
       profileId: profile.id,
       sourceDocumentId: sourceDocument.id,
-      evidenceCount: args.extraction.evidence_items.length,
+      evidenceCount: evidenceDrafts.length,
       projectCount: args.extraction.project_cards.length,
       workExperienceCount: workExperienceDrafts.length,
       initiativeCount: initiativeDrafts.length,

@@ -144,6 +144,26 @@ describe("extraction scope persistence guardrails", () => {
     });
     expect(result.reviewNotes[0]).toContain("was not saved as a Evidence Claim");
   });
+
+  it("does not let profile-context skills bypass the classifier as short Evidence Claims", () => {
+    const result = guardEvidenceDraftsForPersistence([
+      buildEvidenceDraft({
+        text: "Technical Skills: Java React AWS Redis",
+        source_quote: "Technical Skills: Java React AWS Redis",
+      }),
+    ]);
+
+    expect(result.accepted).toHaveLength(0);
+    expect(result.decisions[0]).toMatchObject({
+      disposition: "review_queue_only",
+      classification: {
+        decision: {
+          acceptedScope: "profile_context",
+          canonicalLinkPolicy: "review_queue_only",
+        },
+      },
+    });
+  });
 });
 
 function buildWorkExperienceDraft(
