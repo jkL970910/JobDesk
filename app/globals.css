@@ -7207,6 +7207,19 @@ select:focus {
   letter-spacing: 0.02em;
 }
 
+.theme-select[data-hide-label="true"] {
+  gap: 0;
+}
+
+.theme-select[data-hide-label="true"] > span {
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
 .theme-select__trigger {
   align-items: center;
   background:

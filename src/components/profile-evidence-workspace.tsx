@@ -4415,11 +4415,13 @@ function EvidenceClaimsLibraryView({
 }
 
 function ThemeSelect({
+  hideLabel = false,
   label,
   onChange,
   options,
   value,
 }: {
+  hideLabel?: boolean;
   label: string;
   onChange: (value: string) => void;
   options: Array<{ label: string; value: string }>;
@@ -4429,9 +4431,10 @@ function ThemeSelect({
   const selected = options.find((option) => option.value === value) ?? options[0];
   const listboxId = `theme-select-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
-    <div className="theme-select">
+    <div className="theme-select" data-hide-label={hideLabel || undefined}>
       <span>{label}</span>
       <button
+        aria-label={label}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-controls={listboxId}
@@ -10372,6 +10375,7 @@ function WorkQueueRoleFilter({
     <section className="work-queue-filter" aria-label="Work Queue role filter">
       <span>Filter by Work Experience</span>
       <ThemeSelect
+        hideLabel
         label="Work Experience"
         value={value}
         options={[{ label: "All work experiences", value: "all" }, ...options]}
