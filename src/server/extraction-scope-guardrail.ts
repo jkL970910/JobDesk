@@ -10,6 +10,15 @@ export type WorkExperienceScopeGuardrailResult = {
     classification: ScopeClassificationResult;
     disposition: "accepted" | "review_queue_only" | "rejected";
   }>;
+  summary: WorkExperienceScopeGuardrailSummary;
+};
+
+export type WorkExperienceScopeGuardrailSummary = {
+  acceptedCount: number;
+  rejectedCount: number;
+  reviewQueueOnlyCount: number;
+  totalCount: number;
+  reasonCounts: Record<string, number>;
 };
 
 export function guardWorkExperienceDraftsForPersistence(
@@ -45,7 +54,7 @@ export function guardWorkExperienceDraftsForPersistence(
     reviewNotes.push(buildScopeReviewNote(draft, classification, args.sourceTitle));
   }
 
-  return { accepted, reviewNotes, decisions };
+  return { accepted, reviewNotes, decisions, summary: summarizeGuardrailDecisions(decisions) };
 }
 
 function buildWorkExperienceCandidateText(
@@ -80,4 +89,25 @@ function buildScopeReviewNote(
     `Reason: ${classification.decision.reason}`,
     "Review the source and save it as the correct scope before using it in resumes.",
   ].join(" ");
+}
+
+function summarizeGuardrailDecisions(
+  decisions: WorkExperienceScopeGuardrailResult["decisions"],
+): WorkExperienceScopeGuardrailSummary {
+  const reasonCounts: Record<string, number> = {};
+  for (const decision of decisions) {
+    const reason = normalizeReasonForDiagnostics(decision.classification.decision.reason);
+    reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1;
+  }
+  return {
+    acceptedCount: decisions.filter((decision) => decision.disposition === "accepted").length,
+    rejectedCount: decisions.filter((decision) => decision.disposition === "rejected").length,
+    reviewQueueOnlyCount: decisions.filter((decision) => decision.disposition === "review_queue_only").length,
+    totalCount: decisions.length,
+    reasonCounts,
+  };
+}
+
+function normalizeReasonForDiagnostics(reason: string) {
+  return reason.replace(/\s+/g, " ").trim().slice(0, 180) || "unspecified";
 }

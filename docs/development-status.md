@@ -38,7 +38,7 @@ Current phase status:
 | Phase 5: Regression Fixture Suite | Complete, first slice | `scope-accuracy-regression-fixtures.test.ts` locks the seven signed-off failure families across classifier, guardrail, consolidation, and imported-note routing. |
 | Phase 6: User Correction Workflow | In progress, second slice | Creating a missing Story Target from an enrichment question is implemented; Evidence Cards now expose explicit Remove story link. Change scope/reassign/merge/keep separate remain staged. |
 | Phase 7: Post-Save Validators And Work Queue Routing | In progress, first slice | Work Queue source-review pane now gives scope guardrail notes a dedicated scope-review action model; deeper validators remain staged. |
-| Phase 8: Observability And Admin Diagnostics | Not started | Accuracy diagnostics pending. |
+| Phase 8: Observability And Admin Diagnostics | In progress, first slice | Workflow metadata now records privacy-safe scope guardrail/consolidation counts; broader diagnostics dashboard remains staged. |
 | Phase 9: Intelligence Layer | Deferred | AI enhancements wait until deterministic guardrails are stable. |
 
 ## Workflow Count

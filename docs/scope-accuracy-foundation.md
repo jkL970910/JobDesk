@@ -448,5 +448,5 @@ Acceptance:
 | Phase 5 | Complete, first slice | `scope-accuracy-regression-fixtures.test.ts` locks the seven signed-off failure families across classifier, guardrail, consolidation, and imported-note routing. |
 | Phase 6 | In progress, second slice | Create missing Story Target from enrichment question exists; Evidence Cards now expose explicit Remove story link. Change scope/reassign/merge/keep separate remain staged. |
 | Phase 7 | In progress, first slice | Work Queue source-review pane now gives scope guardrail notes a dedicated scope-review action model; deeper validators remain staged. |
-| Phase 8 | Not started | Observability pending. |
+| Phase 8 | In progress, first slice | Workflow metadata now records privacy-safe scope guardrail/consolidation counts; broader diagnostics dashboard remains staged. |
 | Phase 9 | Not started | AI enhancements intentionally deferred. |

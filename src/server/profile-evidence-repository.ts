@@ -449,7 +449,14 @@ export async function persistProfileEvidenceExtraction(args: {
         status: "succeeded",
         provider: args.provider,
         model: args.model,
-        ...workflowSkillFields(args.skill),
+        ...withWorkflowMetadata(workflowSkillFields(args.skill), {
+          scopeAccuracy: {
+            workExperienceGuardrail: guardedWorkExperienceDrafts.summary,
+            initiativeConsolidation: {
+              mergedFragmentNoteCount: initiativeConsolidation.extractionNotes.length,
+            },
+          },
+        }),
         inputTokens: args.usage.inputTokens ?? null,
         outputTokens: args.usage.outputTokens ?? null,
         totalTokens: args.usage.totalTokens ?? null,
@@ -508,6 +515,19 @@ export async function persistProfileEvidenceExtraction(args: {
       workflowRunId: workflowRun.id,
     };
   });
+}
+
+function withWorkflowMetadata<T extends { skillMetadata: Record<string, unknown> }>(
+  fields: T,
+  metadata: Record<string, unknown>,
+): T {
+  return {
+    ...fields,
+    skillMetadata: {
+      ...fields.skillMetadata,
+      ...metadata,
+    },
+  };
 }
 
 function buildPublicSafeSummaryCandidate(

@@ -53,6 +53,24 @@ describe("extraction scope persistence guardrails", () => {
     expect(result.reviewNotes[0]).toContain("Scope review needed from Resume import");
     expect(result.reviewNotes[0]).toContain("was not saved as a Work Experience");
   });
+
+  it("summarizes guardrail diagnostics without raw candidate text", () => {
+    const result = guardWorkExperienceDraftsForPersistence([
+      buildWorkExperienceDraft({
+        employer: "Migrated confidential checkout service to region X",
+        role_title: "Reduced latency by 35%",
+      }),
+    ]);
+
+    expect(result.summary).toMatchObject({
+      acceptedCount: 0,
+      rejectedCount: 1,
+      reviewQueueOnlyCount: 0,
+      totalCount: 1,
+    });
+    expect(JSON.stringify(result.summary)).not.toContain("confidential checkout");
+    expect(Object.keys(result.summary.reasonCounts)[0]).toContain("Bullet-shaped action");
+  });
 });
 
 function buildWorkExperienceDraft(
