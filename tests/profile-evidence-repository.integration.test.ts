@@ -873,6 +873,25 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       roleTitle: "Software Engineer",
       summary: null,
     });
+    const queue = await getEnrichmentTaskQueue({
+      limit: 100,
+      sourceType: "extraction_note",
+      statuses: ["open", "answered"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const scopeReviewTask = queue.tasks.find(
+      (task) =>
+        task.source_label === sourceTitle &&
+        task.prompt.includes("Scope review needed") &&
+        task.prompt.includes("was not saved as a Work Experience"),
+    );
+    expect(scopeReviewTask).toMatchObject({
+      task_type: "source_section_review",
+      expected_outcome: "review_imported_material",
+      expected_action: "review_import",
+      target_scope: "source_material",
+    });
   });
 
   it("previews enrichment answers as proposals before committing canonical evidence", async () => {

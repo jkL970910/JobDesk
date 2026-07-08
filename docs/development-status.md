@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-08
 Baseline commit: ce44458 `Build local MVP workflow baseline`
-Latest reviewed local commit: 1539bfb `feat: close work queue story target loop`
+Latest reviewed local commit: 1602446 `feat: add scope accuracy foundation`
 Production URL: https://jobdesk-tau.vercel.app
 Final UI reference: Figma Make `Si82hetJamO8bUqHOacgv9` — signed off as **JobDesk Final Project Reference UI v1**
 
@@ -33,8 +33,8 @@ Current phase status:
 | Phase 0: Product Contract And Terminology | Complete | Milestone plan created and Evidence Library terms synchronized. |
 | Phase 1: Candidate And Scope Contract | Complete | `extracted-asset-candidate.ts` and `scope-decision.ts` added as pure modules with unit tests. |
 | Phase 2: Deterministic Scope Classifier | Complete, first slice | `scope-classifier.ts` added with pure fixtures for bullet-shaped Work Experience rejection, Technical Skills profile-context routing, AWS CDK/cache/latency clustering, project-only portfolio routing, same-company multi-role separation, atomic evidence, and imported observations. |
-| Phase 3: Pre-Save Persistence Guardrail | Not started | Planned gate before canonical persistence. |
-| Phase 4: Initiative Consolidation | Not started | Planned consolidation for same-role/source/domain fragments. |
+| Phase 3: Pre-Save Persistence Guardrail | In progress, first slice | Work Experience extraction drafts now pass through a pre-save scope guardrail; invalid role-container candidates are routed to imported material review notes instead of canonical Work Experience rows. |
+| Phase 4: Initiative Consolidation | Complete, first slice | Same-role initiative fragment consolidation is isolated in `initiative-consolidation.ts` with fixtures for AWS CDK/cache/latency merging and cross-role non-merge. |
 | Phase 5: Regression Fixture Suite | Not started | Full known-failure fixture coverage after classifier/consolidation seams exist. |
 | Phase 6: User Correction Workflow | Partially complete | Creating a missing Story Target from an enrichment question is implemented; change scope/reassign/merge/keep separate/unassign remain. |
 | Phase 7: Post-Save Validators And Work Queue Routing | Not started | Validators and fix-surface routing pending. |

@@ -11,7 +11,7 @@ import {
   isBroadProfilePositioningQuestion,
   normalizeReusableLibraryAnchorForTest,
 } from "../src/server/enrichment-task-repository";
-import { consolidateInitiativeDrafts } from "../src/server/profile-evidence-repository";
+import { consolidateInitiativeDrafts } from "../src/server/initiative-consolidation";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
 
 describe("Evidence Library Builder instructions", () => {
@@ -186,6 +186,24 @@ describe("Evidence Library Builder instructions", () => {
       prompt: "Add a concrete activation metric for the onboarding dashboard.",
     });
     expect(task).not.toHaveProperty("expectedOutcome", "review_imported_material");
+  });
+
+  it("routes scope guardrail notes to imported material review", () => {
+    const [task] = buildExtractionNoteEnrichmentTasks({
+      sourceTitle: "Resume import",
+      notes: [
+        'Scope review needed from Resume import: "Migrated service to region X · Reduced latency by 35%" was not saved as a Work Experience. Reason: Work Experience must be an employer/title/date/team container, not an action-result bullet. Review the source and save it as the correct scope before using it in resumes.',
+      ],
+    });
+
+    expect(task).toMatchObject({
+      taskType: "source_section_review",
+      sourceType: "extraction_note",
+      targetScope: "source_material",
+      expectedOutcome: "review_imported_material",
+      expectedAction: "review_import",
+      noteKind: "import_review",
+    });
   });
 
   it("does not route generic project description notes to role summary editing", () => {

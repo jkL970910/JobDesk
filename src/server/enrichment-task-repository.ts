@@ -365,6 +365,16 @@ function classifyExtractionNoteAction(note: string): {
   const baseReason =
     "This imported-source note is for review, not a missing-information answer.";
 
+  if (/\bscope review needed\b/.test(normalized)) {
+    return {
+      confidence: "high",
+      expectedAction: "review_import",
+      noteKind: "import_review",
+      reason: "This note reports a scope classification guardrail. Review the imported source before creating canonical material.",
+      targetField: null,
+    };
+  }
+
   if (looksLikeConcreteExtractionGap(normalized)) {
     return {
       confidence: "medium",
