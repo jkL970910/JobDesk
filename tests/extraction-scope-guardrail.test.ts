@@ -164,6 +164,26 @@ describe("extraction scope persistence guardrails", () => {
       },
     });
   });
+
+  it("routes naked technology phrases to review-only even when they are short and sourced", () => {
+    const result = guardEvidenceDraftsForPersistence([
+      buildEvidenceDraft({
+        text: "AWS CDK Redis cache",
+        source_quote: "AWS CDK Redis cache",
+      }),
+    ]);
+
+    expect(result.accepted).toHaveLength(0);
+    expect(result.decisions[0]).toMatchObject({
+      disposition: "review_queue_only",
+      classification: {
+        decision: {
+          acceptedScope: "unassigned",
+          canonicalLinkPolicy: "review_queue_only",
+        },
+      },
+    });
+  });
 });
 
 function buildWorkExperienceDraft(

@@ -256,7 +256,12 @@ function classifyEvidenceCandidate(
 function isShortSourcedEvidencePhrase(candidate: NormalizedExtractedAssetCandidate) {
   const wordCount = candidate.content.trim().split(/\s+/).filter(Boolean).length;
   const broadStoryMarkers = (candidate.content.match(/\b(across|planning|coordination|enablement|strategy|roadmap)\b/gi) ?? []).length;
-  return Boolean(candidate.sourceQuote?.trim()) && wordCount <= 14 && broadStoryMarkers < 2;
+  return (
+    Boolean(candidate.sourceQuote?.trim()) &&
+    wordCount <= 14 &&
+    broadStoryMarkers < 2 &&
+    !isPureTechnologyPhrase(candidate.content)
+  );
 }
 
 function result(

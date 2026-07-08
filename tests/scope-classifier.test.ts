@@ -116,6 +116,21 @@ describe("scope classifier failure fixtures", () => {
     });
   });
 
+  it("routes naked technology phrases to review instead of canonical Evidence Claim", () => {
+    const result = classifyExtractedAssetCandidate({
+      content: "AWS CDK Redis cache",
+      proposedScope: "evidence_claim",
+      sourceQuote: "AWS CDK Redis cache",
+      sourceSection: "Technical Skills",
+    });
+
+    expect(result.decision).toMatchObject({
+      acceptedScope: "profile_context",
+      canonicalLinkPolicy: "review_queue_only",
+    });
+    expect(result.signals).toEqual(expect.arrayContaining(["profile_context", "technology"]));
+  });
+
   it("routes imported observations to imported note review instead of enrichment proposal", () => {
     const result = classifyExtractedAssetCandidate({
       content: "No certifications found in the uploaded resume.",
