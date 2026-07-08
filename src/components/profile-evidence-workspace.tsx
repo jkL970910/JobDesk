@@ -642,6 +642,7 @@ type EvidenceUpdateAction =
   | "reject"
   | "edit"
   | "mark_external_safe"
+  | "unlink_story"
   | "delete";
 
 type EvidenceUpdatePatch = {
@@ -2291,6 +2292,14 @@ export function ProfileEvidenceWorkspace({
       body: JSON.stringify(
         action === "edit"
           ? { action, ...patch }
+          : action === "unlink_story"
+            ? {
+                action: "edit",
+                relatedProjectId: null,
+                relatedWorkExperienceId: null,
+                relatedInitiativeId: null,
+                relatedPortfolioProjectId: null,
+              }
           : action === "mark_external_safe"
             ? {
                 action: "edit",
@@ -7068,6 +7077,7 @@ function formatEvidenceActionMessage(
     | "reject"
     | "edit"
     | "mark_external_safe"
+    | "unlink_story"
     | "delete",
 ) {
   if (action === "approve") {
@@ -7081,6 +7091,9 @@ function formatEvidenceActionMessage(
   }
   if (action === "edit") {
     return "Evidence updated. Related resume claims may need another check.";
+  }
+  if (action === "unlink_story") {
+    return "Evidence link removed. Review it before using it in resume generation.";
   }
   if (action === "delete") {
     return "Evidence deleted. Related generated resume claims were marked for review.";
@@ -9705,6 +9718,12 @@ function EvidenceCard({
   const readiness = getEvidenceReadiness(item);
   const blocker = getEvidenceBlocker(item);
   const linkedTarget = formatEvidenceLinkedTarget(item, linkTargets, projects);
+  const hasStoryLink = Boolean(
+    item.related_initiative_id ||
+      item.related_portfolio_project_id ||
+      item.related_work_experience_id ||
+      item.related_project_id,
+  );
   const missingInfo = formatEvidenceMissingInfo(item);
   const safetyNote = getEvidenceSafetyNote(item);
   const publicSafeSummary = getPublicSafeSummaryCandidate(item);
@@ -9925,6 +9944,16 @@ function EvidenceCard({
           >
             {isEditing ? "Close edit" : "Edit"}
           </button>
+          {hasStoryLink ? (
+            <button
+              className="secondary-button"
+              disabled={isUpdating}
+              type="button"
+              onClick={() => onUpdate(item, "unlink_story")}
+            >
+              Remove story link
+            </button>
+          ) : null}
           <button
             className="secondary-button"
             disabled={isUpdating}
