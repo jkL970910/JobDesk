@@ -388,6 +388,24 @@ type EnrichmentTaskAnchorPatch = {
   workExperienceId?: string | null;
 };
 
+type EnrichmentStoryTargetCreatePayload =
+  | {
+      targetType: "initiative";
+      title: string;
+      workExperienceId: string;
+    }
+  | {
+      targetType: "portfolio_project";
+      title: string;
+      projectType:
+        | "personal_project"
+        | "academic_project"
+        | "open_source"
+        | "freelance"
+        | "hackathon"
+        | "general_project";
+    };
+
 type EnrichmentTargetRoute =
   | "create_evidence"
   | "update_evidence"
@@ -402,6 +420,7 @@ type EnrichmentTaskUpdatePayload =
   | { action: "reject_suggested_target"; targetId: string }
   | { action: "choose_different_target" }
   | { action: "change_workflow_route"; route: EnrichmentTargetRoute }
+  | { action: "create_story_target"; storyTarget: EnrichmentStoryTargetCreatePayload }
   | { action: "acknowledge" }
   | { action: "dismiss" }
   | { action: "mark_import_reviewed" }
@@ -2395,6 +2414,8 @@ export function ProfileEvidenceWorkspace({
         ? "Choose a different target."
       : payload.action === "change_workflow_route"
         ? "Updated target choice."
+      : payload.action === "create_story_target"
+        ? "Created and linked Story Target."
       : payload.action === "answer"
         ? task && isProfileContextTask(task)
           ? "Saved profile answer."
@@ -4755,6 +4776,12 @@ function EnrichmentTaskQueue({
                   route,
                 })
               }
+              onCreateStoryTarget={(storyTarget) =>
+                void handleUpdate(selectedTask, {
+                  action: "create_story_target",
+                  storyTarget,
+                })
+              }
               onChooseDifferentTarget={() =>
                 void handleUpdate(selectedTask, { action: "choose_different_target" })
               }
@@ -4811,7 +4838,8 @@ function getPendingEnrichmentAction(
     payload.action === "accept_suggested_target" ||
     payload.action === "reject_suggested_target" ||
     payload.action === "choose_different_target" ||
-    payload.action === "change_workflow_route"
+    payload.action === "change_workflow_route" ||
+    payload.action === "create_story_target"
   ) {
     return "other";
   }
@@ -4839,6 +4867,7 @@ function EnrichmentTaskFocusPane({
   onAcknowledge,
   onAcceptSuggestedTarget,
   onChangeWorkflowRoute,
+  onCreateStoryTarget,
   onChooseDifferentTarget,
   onConvertToQuestion,
   onCreateLibraryItems,
@@ -4875,6 +4904,7 @@ function EnrichmentTaskFocusPane({
   onAcknowledge: () => void;
   onAcceptSuggestedTarget: (targetId: string) => void;
   onChangeWorkflowRoute: (route: EnrichmentTargetRoute) => void;
+  onCreateStoryTarget: (storyTarget: EnrichmentStoryTargetCreatePayload) => void;
   onChooseDifferentTarget: () => void;
   onConvertToQuestion: () => void;
   onCreateLibraryItems: () => void;
@@ -4992,6 +5022,7 @@ function EnrichmentTaskFocusPane({
             onCreateLibraryItems={onCreateLibraryItems}
             onAcceptSuggestedTarget={onAcceptSuggestedTarget}
             onChangeWorkflowRoute={onChangeWorkflowRoute}
+            onCreateStoryTarget={onCreateStoryTarget}
             onChooseDifferentTarget={onChooseDifferentTarget}
             onLink={onLink}
             onRouteChange={setSelectedRoute}
@@ -6428,6 +6459,7 @@ function RouteAwareTargetGate({
   onChangeWorkflowRoute,
   onChooseDifferentTarget,
   onCreateLibraryItems,
+  onCreateStoryTarget,
   onLink,
   onRouteChange,
   onRejectSuggestedTarget,
@@ -6443,6 +6475,7 @@ function RouteAwareTargetGate({
   onChangeWorkflowRoute: (route: EnrichmentTargetRoute) => void;
   onChooseDifferentTarget: () => void;
   onCreateLibraryItems: () => void;
+  onCreateStoryTarget: (storyTarget: EnrichmentStoryTargetCreatePayload) => void;
   onLink: (anchor: EnrichmentTaskAnchorPatch) => void;
   onRouteChange: (route: EnrichmentTargetRoute) => void;
   onRejectSuggestedTarget: (targetId: string) => void;
@@ -6455,11 +6488,14 @@ function RouteAwareTargetGate({
     (target) => target.target_role === "suggested" && !target.rejected_at,
   );
   const [isChoosingDifferentTarget, setIsChoosingDifferentTarget] = useState(false);
+  const [isCreatingStoryTarget, setIsCreatingStoryTarget] = useState(false);
   useEffect(() => {
     setIsChoosingDifferentTarget(false);
+    setIsCreatingStoryTarget(false);
   }, [task.id]);
   function chooseRoute(nextRoute: EnrichmentTargetRoute) {
     setIsChoosingDifferentTarget(false);
+    setIsCreatingStoryTarget(false);
     onRouteChange(nextRoute);
     onChangeWorkflowRoute(nextRoute);
   }
@@ -6469,6 +6505,13 @@ function RouteAwareTargetGate({
     onRouteChange(nextRoute);
     onChooseDifferentTarget();
   }
+  function beginCreateStoryTarget() {
+    setIsChoosingDifferentTarget(false);
+    setIsCreatingStoryTarget(true);
+    onRouteChange("update_story");
+    onChangeWorkflowRoute("update_story");
+  }
+  const canCreateStoryTarget = canCreateStoryTargetFromTask(task);
   return (
     <div className="enrichment-route-gate">
       {suggestedTargets.length > 0 ? (
@@ -6582,17 +6625,42 @@ function RouteAwareTargetGate({
           workExperiences={workExperiences}
         />
       ) : route === "update_story" ? (
-        <EnrichmentTaskTargetPicker
-          disabled={disabled}
-          evidenceItems={evidenceItems}
-          initiatives={initiatives}
-          mode="story"
-          onLink={onLink}
-          preserveExisting={false}
-          portfolioProjects={portfolioProjects}
-          task={task}
-          workExperiences={workExperiences}
-        />
+        <>
+          <EnrichmentTaskTargetPicker
+            disabled={disabled}
+            evidenceItems={evidenceItems}
+            initiatives={initiatives}
+            mode="story"
+            onLink={onLink}
+            preserveExisting={false}
+            portfolioProjects={portfolioProjects}
+            task={task}
+            workExperiences={workExperiences}
+          />
+          {canCreateStoryTarget ? (
+            <div className="enrichment-route-gate__create">
+              <button
+                className="secondary-button secondary-button--quiet"
+                disabled={disabled}
+                type="button"
+                onClick={beginCreateStoryTarget}
+              >
+                Create new Story Target
+              </button>
+              {isCreatingStoryTarget ? (
+                <CreateStoryTargetInlineForm
+                  disabled={disabled}
+                  initiatives={initiatives}
+                  onCreate={onCreateStoryTarget}
+                  onLink={onLink}
+                  portfolioProjects={portfolioProjects}
+                  task={task}
+                  workExperiences={workExperiences}
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </>
       ) : route === "update_role" ? (
         <EnrichmentTaskTargetPicker
           disabled={disabled}
@@ -6606,6 +6674,157 @@ function RouteAwareTargetGate({
           workExperiences={workExperiences}
         />
       ) : null}
+    </div>
+  );
+}
+
+function CreateStoryTargetInlineForm({
+  disabled,
+  initiatives,
+  onCreate,
+  onLink,
+  portfolioProjects,
+  task,
+  workExperiences,
+}: {
+  disabled: boolean;
+  initiatives: InitiativeItem[];
+  onCreate: (storyTarget: EnrichmentStoryTargetCreatePayload) => void;
+  onLink: (anchor: EnrichmentTaskAnchorPatch) => void;
+  portfolioProjects: PortfolioProjectItem[];
+  task: EnrichmentTaskItem;
+  workExperiences: WorkExperienceItem[];
+}) {
+  const eligibleWorkExperiences = workExperiences.filter((item) => item.id && isEligibleTargetItem(item));
+  const [targetType, setTargetType] = useState<"initiative" | "portfolio_project">(
+    eligibleWorkExperiences.length > 0 ? "initiative" : "portfolio_project",
+  );
+  const [title, setTitle] = useState(() => inferStoryTargetTitle(task.prompt));
+  const [workExperienceId, setWorkExperienceId] = useState(task.work_experience_id ?? "");
+  const [projectType, setProjectType] =
+    useState<Extract<EnrichmentStoryTargetCreatePayload, { targetType: "portfolio_project" }>["projectType"]>(
+      "general_project",
+    );
+  const similarStories = findSimilarStoryTargets(title || task.prompt, initiatives, portfolioProjects);
+  const canCreate =
+    title.trim().length >= 2 &&
+    (targetType === "portfolio_project" || Boolean(workExperienceId));
+
+  return (
+    <div className="enrichment-route-gate__create-form">
+      <div className="enrichment-route-gate__create-header">
+        <strong>Create draft Story Target</strong>
+        <small>Use this when the right story does not exist yet.</small>
+      </div>
+      {similarStories.length > 0 ? (
+        <div className="enrichment-route-gate__similar">
+          <span>Similar existing stories</span>
+          {similarStories.map((story) => (
+            <button
+              className="secondary-button secondary-button--quiet"
+              disabled={disabled || !story.id}
+              key={`${story.kind}:${story.id}`}
+              type="button"
+              onClick={() =>
+                onLink(
+                  story.kind === "initiative"
+                    ? { initiativeId: story.id, workExperienceId: story.workExperienceId ?? null }
+                    : { portfolioProjectId: story.id },
+                )
+              }
+            >
+              Use {story.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className="enrichment-route-gate__create-grid">
+        <label className="source-field">
+          <span>Type</span>
+          <select
+            className="jd-input jd-input--compact"
+            disabled={disabled}
+            value={targetType}
+            onChange={(event) => setTargetType(event.target.value as "initiative" | "portfolio_project")}
+          >
+            <option value="initiative">Work initiative</option>
+            <option value="portfolio_project">Portfolio project</option>
+          </select>
+        </label>
+        {targetType === "initiative" ? (
+          <label className="source-field">
+            <span>Work Experience</span>
+            <select
+              className="jd-input jd-input--compact"
+              disabled={disabled}
+              value={workExperienceId}
+              onChange={(event) => setWorkExperienceId(event.target.value)}
+            >
+              <option value="">Choose Work Experience</option>
+              {eligibleWorkExperiences.map((experience) => (
+                <option key={experience.id} value={experience.id}>
+                  {experience.employer} · {experience.role_title}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <label className="source-field">
+            <span>Project type</span>
+            <select
+              className="jd-input jd-input--compact"
+              disabled={disabled}
+              value={projectType}
+              onChange={(event) =>
+                setProjectType(event.target.value as Extract<EnrichmentStoryTargetCreatePayload, { targetType: "portfolio_project" }>["projectType"])
+              }
+            >
+              <option value="general_project">General</option>
+              <option value="personal_project">Personal</option>
+              <option value="academic_project">Course / academic</option>
+              <option value="open_source">Open source</option>
+              <option value="freelance">Freelance</option>
+              <option value="hackathon">Hackathon</option>
+            </select>
+          </label>
+        )}
+        <label className="source-field enrichment-route-gate__create-title">
+          <span>Story title</span>
+          <input
+            className="jd-input jd-input--compact"
+            disabled={disabled}
+            maxLength={240}
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="e.g. Reporting automation initiative"
+          />
+        </label>
+      </div>
+      <div className="actions actions--compact">
+        <button
+          className="primary-button"
+          disabled={disabled || !canCreate}
+          type="button"
+          onClick={() => {
+            if (targetType === "initiative") {
+              if (!workExperienceId) return;
+              onCreate({
+                targetType: "initiative",
+                title: title.trim(),
+                workExperienceId,
+              });
+              return;
+            }
+            onCreate({
+              targetType: "portfolio_project",
+              title: title.trim(),
+              projectType,
+            });
+          }}
+        >
+          Create and link
+        </button>
+      </div>
     </div>
   );
 }
@@ -7178,6 +7397,31 @@ function isAssignLaterRoutingTask(task: EnrichmentTaskItem) {
   return task.target_scope === "assign_later" || task.expected_outcome === "route_answer";
 }
 
+function canCreateStoryTargetFromTask(task: EnrichmentTaskItem) {
+  if (
+    isSourceSectionReviewTask(task) ||
+    task.target_scope === "source_material" ||
+    task.target_scope === "profile_context" ||
+    task.target_scope === "profile_fact" ||
+    task.expected_outcome === "review_imported_material" ||
+    task.expected_outcome === "save_profile_answer" ||
+    task.expected_outcome === "update_profile_fact"
+  ) {
+    return false;
+  }
+  if (task.expected_action && task.expected_action !== "answer_enrichment_question") {
+    return false;
+  }
+  return (
+    task.target_scope === "story_context" ||
+    task.target_scope === "evidence_detail" ||
+    task.target_scope === "assign_later" ||
+    task.expected_outcome === "update_story" ||
+    task.expected_outcome === "update_evidence" ||
+    task.expected_outcome === "route_answer"
+  );
+}
+
 function isSourceSectionReviewTask(task: EnrichmentTaskItem) {
   return (
     Boolean(task.note_kind && task.expected_action !== "answer_enrichment_question") ||
@@ -7188,6 +7432,81 @@ function isSourceSectionReviewTask(task: EnrichmentTaskItem) {
       task.target_scope === "source_material" &&
       looksLikeSourceSectionNote(task.prompt))
   );
+}
+
+function inferStoryTargetTitle(prompt: string) {
+  const cleaned = prompt
+    .replace(/\b(please|add|clarify|provide|explain|describe|what|which|how|why|where|when)\b/gi, " ")
+    .replace(/[?:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  const words = cleaned.split(" ").slice(0, 9).join(" ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function findSimilarStoryTargets(
+  query: string,
+  initiatives: InitiativeItem[],
+  portfolioProjects: PortfolioProjectItem[],
+) {
+  const queryTokens = tokenizeStoryTitle(query);
+  if (queryTokens.size === 0) return [];
+  const candidates = [
+    ...initiatives
+      .filter((item) => item.id && isEligibleTargetItem(item))
+      .map((item) => ({
+        id: item.id,
+        kind: "initiative" as const,
+        label: item.external_safe_title ?? item.internal_title,
+        workExperienceId: item.work_experience_id ?? null,
+      })),
+    ...portfolioProjects
+      .filter((item) => item.id && isEligibleTargetItem(item))
+      .map((item) => ({
+        id: item.id,
+        kind: "portfolio_project" as const,
+        label: item.external_safe_title ?? item.title,
+        workExperienceId: null,
+      })),
+  ];
+  return candidates
+    .map((candidate) => ({
+      ...candidate,
+      score: scoreStoryTitleSimilarity(queryTokens, candidate.label),
+    }))
+    .filter((candidate) => candidate.score >= 2)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+}
+
+function tokenizeStoryTitle(value: string) {
+  const stopWords = new Set(["the", "and", "for", "with", "from", "into", "this", "that", "your", "about"]);
+  return new Set(
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 3 && !stopWords.has(token)),
+  );
+}
+
+function scoreStoryTitleSimilarity(queryTokens: Set<string>, title: string) {
+  const titleTokens = tokenizeStoryTitle(title);
+  let score = 0;
+  for (const token of queryTokens) {
+    if (titleTokens.has(token)) score += 2;
+  }
+  for (const titleToken of titleTokens) {
+    for (const queryToken of queryTokens) {
+      if (titleToken.includes(queryToken) || queryToken.includes(titleToken)) {
+        score += 1;
+        break;
+      }
+    }
+  }
+  return score;
 }
 
 function looksLikeImportedReviewNote(prompt: string) {

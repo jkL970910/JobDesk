@@ -164,6 +164,13 @@ type ReusableLibraryAnchor = {
   portfolioProjectId?: string | null;
 };
 
+type EnrichmentStoryTargetCreation = {
+  targetType: "initiative" | "portfolio_project";
+  title: string;
+  workExperienceId?: string | null;
+  projectType?: "personal_project" | "academic_project" | "open_source" | "freelance" | "hackathon" | "general_project";
+};
+
 type EnrichmentProposalDraft = {
   nextStepNote: string;
   patch: EnrichmentProposalPatch;
@@ -514,12 +521,14 @@ export async function updateEnrichmentTask(args: {
     | "reject_suggested_target"
     | "choose_different_target"
     | "change_workflow_route"
+    | "create_story_target"
     | "link"
     | "accept_proposal"
     | "reject_proposal"
     | "revise_proposal";
   userAnswer?: string;
   anchor?: ReusableLibraryAnchor;
+  storyTarget?: EnrichmentStoryTargetCreation;
   proposalId?: string;
   route?: "create_evidence" | "update_evidence" | "update_story" | "update_role" | "profile_context";
   targetId?: string;
@@ -635,6 +644,18 @@ export async function updateEnrichmentTask(args: {
     return changeWorkflowRoute(db, {
       now,
       route: args.route,
+      task: existing,
+      workspaceId: workspace.id,
+    });
+  }
+
+  if (args.action === "create_story_target") {
+    if (!args.storyTarget) {
+      return { status: "invalid" as const, reason: "missing_story_target" as const };
+    }
+    return createStoryTargetForTask(db, {
+      now,
+      storyTarget: args.storyTarget,
       task: existing,
       workspaceId: workspace.id,
     });
@@ -1152,13 +1173,23 @@ async function changeWorkflowRoute(
     return taskUpdateSavedPayload(db, updated);
   }
   const routeMetadata = workflowRouteMetadata(args.route);
+  const preservedAnchor =
+    args.route === "create_evidence" && (args.task.initiativeId || args.task.portfolioProjectId)
+      ? {
+          initiativeId: args.task.initiativeId,
+          portfolioProjectId: args.task.portfolioProjectId,
+          workExperienceId: args.task.workExperienceId,
+        }
+      : {
+          initiativeId: null,
+          portfolioProjectId: null,
+          workExperienceId: null,
+        };
   const [updated] = await db
     .update(enrichmentTasks)
     .set({
       evidenceItemId: null,
-      initiativeId: null,
-      portfolioProjectId: null,
-      workExperienceId: null,
+      ...preservedAnchor,
       ...routeMetadata,
       updatedAt: args.now,
     })
@@ -1188,6 +1219,20 @@ async function changeWorkflowRoute(
         eq(enrichmentTaskTargets.targetRole, "primary"),
       ),
     );
+  if (updated.initiativeId || updated.portfolioProjectId || updated.workExperienceId) {
+    await replaceTaskTargets(db, {
+      workspaceId: args.workspaceId,
+      taskId: updated.id,
+      anchor: {
+        initiativeId: updated.initiativeId,
+        portfolioProjectId: updated.portfolioProjectId,
+        workExperienceId: updated.workExperienceId,
+      },
+      reason: "User chose to create evidence for this Story Target.",
+      confidence: "high",
+      createdBy: "user",
+    });
+  }
   return taskUpdateSavedPayload(db, updated);
 }
 
@@ -1403,9 +1448,7 @@ async function convertEnrichmentTaskToEvidenceCandidate(
           allowedUsage: item.allowed_usage,
           publicSafeSummary: item.public_safe_summary,
           status: item.status,
-          relatedWorkExperienceId: args.task.workExperienceId,
-          relatedInitiativeId: args.task.initiativeId,
-          relatedPortfolioProjectId: args.task.portfolioProjectId,
+          ...buildEvidenceRelationForTask(args.task),
           needsUserConfirmation: guardrail.needsUserConfirmation ? 1 : 0,
           createdAt: args.now,
           updatedAt: args.now,
@@ -1645,6 +1688,124 @@ async function updateTaskPatch(
     : undefined;
 }
 
+async function createStoryTargetForTask(
+  db: DbHandle,
+  args: {
+    workspaceId: string;
+    task: typeof enrichmentTasks.$inferSelect;
+    storyTarget: EnrichmentStoryTargetCreation;
+    now: Date;
+  },
+) {
+  if (!canCreateStoryTargetFromTask(args.task)) {
+    return { status: "invalid" as const, reason: "unsupported_story_target_creation" as const };
+  }
+  const title = normalizeStoryTargetTitle(args.storyTarget.title);
+  if (!title) {
+    return { status: "invalid" as const, reason: "missing_story_target_title" as const };
+  }
+  if (args.storyTarget.targetType === "initiative" && !args.storyTarget.workExperienceId) {
+    return { status: "invalid" as const, reason: "missing_work_experience" as const };
+  }
+
+  return db.transaction(async (tx) => {
+    const context = `Created from enrichment question: ${args.task.prompt}`;
+    let anchor: ReusableLibraryAnchor;
+    if (args.storyTarget.targetType === "initiative") {
+      const [experience] = await tx
+        .select({ id: workExperiences.id })
+        .from(workExperiences)
+        .where(
+          and(
+            eq(workExperiences.workspaceId, args.workspaceId),
+            eq(workExperiences.id, args.storyTarget.workExperienceId ?? ""),
+            sql`${workExperiences.status} <> 'rejected'`,
+          ),
+        )
+        .limit(1);
+      if (!experience) {
+        return { status: "invalid" as const, reason: "work_experience_not_found" as const };
+      }
+      const [created] = await tx
+        .insert(initiatives)
+        .values({
+          workspaceId: args.workspaceId,
+          workExperienceId: experience.id,
+          internalTitle: title,
+          context,
+          status: "pending",
+          createdAt: args.now,
+          updatedAt: args.now,
+        })
+        .returning({ id: initiatives.id });
+      if (!created) throw new Error("Failed to create enrichment story target.");
+      anchor = {
+        initiativeId: created.id,
+        workExperienceId: experience.id,
+      };
+    } else {
+      const [created] = await tx
+        .insert(portfolioProjects)
+        .values({
+          workspaceId: args.workspaceId,
+          projectType: args.storyTarget.projectType ?? "general_project",
+          title,
+          context,
+          status: "pending",
+          createdAt: args.now,
+          updatedAt: args.now,
+        })
+        .returning({ id: portfolioProjects.id });
+      if (!created) throw new Error("Failed to create enrichment portfolio project.");
+      anchor = {
+        portfolioProjectId: created.id,
+      };
+    }
+
+    await rejectPendingProposals(tx, {
+      workspaceId: args.workspaceId,
+      taskId: args.task.id,
+      now: args.now,
+    });
+    const [updated] = await tx
+      .update(enrichmentTasks)
+      .set({
+        evidenceItemId: null,
+        workExperienceId: anchor.workExperienceId ?? null,
+        initiativeId: anchor.initiativeId ?? null,
+        portfolioProjectId: anchor.portfolioProjectId ?? null,
+        targetScope: "story_context",
+        targetConfidence: "high",
+        targetReason: "User created this Story Target from the enrichment question.",
+        expectedOutcome: "update_story",
+        updatedAt: args.now,
+      })
+      .where(and(eq(enrichmentTasks.workspaceId, args.workspaceId), eq(enrichmentTasks.id, args.task.id)))
+      .returning();
+    if (!updated) return { status: "not_found" as const };
+    await replaceTaskTargets(tx, {
+      workspaceId: args.workspaceId,
+      taskId: updated.id,
+      anchor,
+      reason: "User created this Story Target from the enrichment question.",
+      confidence: "high",
+      createdBy: "user",
+    });
+    const targetMap = await getTaskTargetMap(tx, [updated.id]);
+    const proposalMap = await getTaskProposalMap(tx, [updated.id]);
+    const revisionMap = await getTaskProposalRevisionMap(tx, [updated.id]);
+    return {
+      status: "saved" as const,
+      task: toEnrichmentTaskPayload(
+        updated,
+        targetMap.get(updated.id),
+        proposalMap.get(updated.id),
+        revisionMap.get(updated.id),
+      ),
+    };
+  });
+}
+
 async function canUseLegacyConvert(
   db: Pick<DbHandle, "select">,
   args: {
@@ -1751,9 +1912,7 @@ async function acceptEnrichmentProposal(
         allowedUsage: patch.allowed_usage,
         publicSafeSummary: patch.public_safe_summary,
         status: patch.status,
-        relatedWorkExperienceId: patch.related_work_experience_id,
-        relatedInitiativeId: patch.related_initiative_id,
-        relatedPortfolioProjectId: patch.related_portfolio_project_id,
+        ...buildEvidenceRelationForAcceptedProposal(args.task, patch),
         needsUserConfirmation: patch.needs_user_confirmation ? 1 : 0,
         createdAt: args.now,
         updatedAt: args.now,
@@ -2838,6 +2997,39 @@ function shouldSaveProfileContextAnswer(task: typeof enrichmentTasks.$inferSelec
   return task.targetScope === "profile_context" || task.expectedOutcome === "save_profile_answer";
 }
 
+function canCreateStoryTargetFromTask(task: typeof enrichmentTasks.$inferSelect) {
+  if (
+    task.taskType === "source_section_review" ||
+    task.targetScope === "source_material" ||
+    task.targetScope === "profile_context" ||
+    task.targetScope === "profile_fact" ||
+    task.expectedOutcome === "review_imported_material" ||
+    task.expectedOutcome === "save_profile_answer" ||
+    task.expectedOutcome === "update_profile_fact"
+  ) {
+    return false;
+  }
+  if (
+    task.expectedAction &&
+    task.expectedAction !== "answer_enrichment_question"
+  ) {
+    return false;
+  }
+  return (
+    task.targetScope === "story_context" ||
+    task.targetScope === "evidence_detail" ||
+    task.targetScope === "assign_later" ||
+    task.expectedOutcome === "update_story" ||
+    task.expectedOutcome === "update_evidence" ||
+    task.expectedOutcome === "route_answer"
+  );
+}
+
+function normalizeStoryTargetTitle(title: string) {
+  const normalized = title.trim().replace(/\s+/g, " ");
+  return normalized.length > 240 ? normalized.slice(0, 240).trim() : normalized;
+}
+
 function canSaveProfileContextRoute(task: typeof enrichmentTasks.$inferSelect) {
   if (shouldSaveProfileContextAnswer(task)) return true;
   if (task.targetScope !== "assign_later" && task.expectedOutcome !== "route_answer") {
@@ -3047,10 +3239,48 @@ function buildCreateEvidenceProposalPatch(
     allowed_usage: [],
     public_safe_summary: null,
     status: "pending",
-    related_work_experience_id: task.workExperienceId,
+    ...buildCreateEvidenceProposalRelationForTask(task),
+    needs_user_confirmation: true,
+  };
+}
+
+function buildCreateEvidenceProposalRelationForTask(task: typeof enrichmentTasks.$inferSelect) {
+  return {
+    related_work_experience_id:
+      task.initiativeId || task.portfolioProjectId ? null : task.workExperienceId,
     related_initiative_id: task.initiativeId,
     related_portfolio_project_id: task.portfolioProjectId,
-    needs_user_confirmation: true,
+  };
+}
+
+function buildEvidenceRelationForTask(task: typeof enrichmentTasks.$inferSelect) {
+  return {
+    relatedWorkExperienceId:
+      task.initiativeId || task.portfolioProjectId ? null : task.workExperienceId,
+    relatedInitiativeId: task.initiativeId,
+    relatedPortfolioProjectId: task.portfolioProjectId,
+  };
+}
+
+function buildEvidenceRelationForAcceptedProposal(
+  task: typeof enrichmentTasks.$inferSelect,
+  patch: CreateEvidenceProposalPatch,
+) {
+  const taskRelation = buildEvidenceRelationForTask(task);
+  if (
+    taskRelation.relatedWorkExperienceId ||
+    taskRelation.relatedInitiativeId ||
+    taskRelation.relatedPortfolioProjectId
+  ) {
+    return taskRelation;
+  }
+  return {
+    relatedWorkExperienceId:
+      patch.related_initiative_id || patch.related_portfolio_project_id
+        ? null
+        : patch.related_work_experience_id,
+    relatedInitiativeId: patch.related_initiative_id,
+    relatedPortfolioProjectId: patch.related_portfolio_project_id,
   };
 }
 

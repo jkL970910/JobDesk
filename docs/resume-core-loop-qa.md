@@ -52,15 +52,19 @@ Run this pass after the automated checks when changing source intake, evidence a
    - Edit, approve, reject, link/unlink, and approve-for-resume evidence.
    - Expected: stale generated claims are flagged when supporting evidence changes, public-safe disclosure is required before resume use, and approved material quarantine requires strong confirmation.
 
-5. Main Resume Readiness
+5. Work Queue Story Target Creation
+   - Open a Strengthen Evidence task whose correct story is missing, choose Attach to story, review similar existing stories, then create a Work initiative under a Work Experience or a standalone portfolio project.
+   - Expected: profile/import/source-note tasks do not show this create path; the new draft story appears in Build Story Targets, the task is bound to it, answering creates a story update proposal, and switching to Create new evidence preserves the story relation on the proposal/evidence.
+
+6. Main Resume Readiness
    - Generate or refresh a main resume and run Fact Guard.
    - Expected: readiness separates Fact Guard hard blockers, evidence eligibility blockers, stale claims, missing evidence, and polish-only findings.
 
-6. Tailored Resume Readiness
+7. Tailored Resume Readiness
    - Analyze a target JD, generate a tailored resume, and run Fact Guard.
    - Expected: tailored readiness uses the same blocker categories as Main Resume, with job-scoped missing evidence where relevant.
 
-7. Export Gates
+8. Export Gates
    - Try JSON audit export and final Markdown, HTML, and DOCX exports before and after validation.
    - Expected: JSON audit remains available for review; final Markdown/HTML/DOCX exports are blocked until Fact Guard validates the resume.
 

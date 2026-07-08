@@ -8836,6 +8836,57 @@ span > .help-hint {
   gap: 8px;
 }
 
+.enrichment-route-gate__create {
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.enrichment-route-gate__create-form {
+  background: rgba(255, 255, 255, 0.035);
+  border-left: 2px solid rgba(79, 140, 255, 0.32);
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.enrichment-route-gate__create-header strong,
+.enrichment-route-gate__similar > span {
+  color: var(--ink);
+  display: block;
+  font-size: 0.86rem;
+  font-weight: 820;
+}
+
+.enrichment-route-gate__create-header small {
+  color: var(--muted);
+  display: block;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin-top: 3px;
+}
+
+.enrichment-route-gate__similar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.enrichment-route-gate__similar > span {
+  flex-basis: 100%;
+}
+
+.enrichment-route-gate__create-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr) minmax(0, 1.4fr);
+}
+
+.enrichment-route-gate__create-title {
+  min-width: 0;
+}
+
 .enrichment-task-card__stage-actions {
   justify-content: flex-start;
 }
@@ -12362,6 +12413,10 @@ span > .help-hint {
   }
 
   .tracker-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .enrichment-route-gate__create-grid {
     grid-template-columns: 1fr;
   }
 

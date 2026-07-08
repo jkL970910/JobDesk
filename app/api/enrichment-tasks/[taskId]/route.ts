@@ -46,6 +46,30 @@ const requestSchema = z.discriminatedUnion("action", [
     ]),
   }),
   z.object({
+    action: z.literal("create_story_target"),
+    storyTarget: z.discriminatedUnion("targetType", [
+      z.object({
+        targetType: z.literal("initiative"),
+        title: z.string().trim().min(2).max(240),
+        workExperienceId: z.string().uuid(),
+      }),
+      z.object({
+        targetType: z.literal("portfolio_project"),
+        title: z.string().trim().min(2).max(240),
+        projectType: z
+          .enum([
+            "personal_project",
+            "academic_project",
+            "open_source",
+            "freelance",
+            "hackathon",
+            "general_project",
+          ])
+          .default("general_project"),
+      }),
+    ]),
+  }),
+  z.object({
     action: z.literal("accept_proposal"),
     proposalId: z.string().uuid(),
   }),
