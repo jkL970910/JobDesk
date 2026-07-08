@@ -27,6 +27,7 @@ import {
   canMarkStoryTargetReady,
   collectQueuedStoryTargetWorkExperienceIds,
   filterCanonicalLibraryAssets,
+  getEvidenceClaimWorkQueueDestination,
   getWorkExperienceReviewFocus,
   getStoryTargetReadinessState,
   isCanonicalLibraryAsset,
@@ -525,6 +526,18 @@ type EvidenceWorkQueueView =
   | "enrichment"
   | "claims"
   | "cleanup";
+type FocusedWorkQueueAsset = {
+  kind: "work_experience" | "story_target" | "evidence_claim";
+  id: string;
+  view: EvidenceWorkQueueView;
+} | null;
+type FocusWorkQueueAssetBinder = (
+  kind: Exclude<FocusedWorkQueueAsset, null>["kind"],
+  id?: string | null,
+) => {
+  "data-focused": true | undefined;
+  ref: (element: HTMLElement | null) => void;
+};
 type EvidenceLibraryFilters = {
   query: string;
   role: string;
@@ -687,6 +700,9 @@ export function ProfileEvidenceWorkspace({
     source: "all",
     story: "all",
   });
+  const [focusedWorkQueueAsset, setFocusedWorkQueueAsset] =
+    useState<FocusedWorkQueueAsset>(null);
+  const focusedWorkQueueAssetRef = useRef<HTMLElement | null>(null);
   const [sourceDrafts, setSourceDrafts] = useState<Record<"resume" | "jd", SourceDraft>>({
     jd: { text: "", title: "" },
     resume: { text: "", title: "" },
@@ -783,6 +799,18 @@ export function ProfileEvidenceWorkspace({
     setLibraryMode("work_queue");
     setWorkQueueView("enrichment");
   }, [initialFocusedTaskId]);
+
+  useEffect(() => {
+    if (!focusedWorkQueueAsset) return;
+    if (libraryMode !== "work_queue" || workQueueView !== focusedWorkQueueAsset.view) return;
+    const timer = window.setTimeout(() => {
+      focusedWorkQueueAssetRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [focusedWorkQueueAsset, libraryMode, workQueueView]);
 
   useEffect(() => {
     if (!initialProfileGap) return;
@@ -1944,6 +1972,63 @@ export function ProfileEvidenceWorkspace({
     setWorkQueueView(view);
   }
 
+  function focusWorkQueueAsset(asset: Exclude<FocusedWorkQueueAsset, null>) {
+    setActiveSection("review");
+    setLibraryMode("work_queue");
+    setWorkQueueView(asset.view);
+    setWorkQueueRoleFilter("all");
+    setEvidenceFocus(null);
+    setFocusedWorkQueueAsset(asset);
+  }
+
+  function openWorkExperienceQueueAction(experience: WorkExperienceItem) {
+    if (!experience.id) return;
+    focusWorkQueueAsset({
+      id: experience.id,
+      kind: "work_experience",
+      view: "roles",
+    });
+  }
+
+  function openStoryTargetQueueAction(story: InitiativeItem | PortfolioProjectItem) {
+    if (!story.id) return;
+    focusWorkQueueAsset({
+      id: story.id,
+      kind: "story_target",
+      view: "stories",
+    });
+  }
+
+  function openEvidenceQueueAction(item: EvidenceCardItem) {
+    if (!item.id) return;
+    focusWorkQueueAsset({
+      id: item.id,
+      kind: "evidence_claim",
+      view: getEvidenceClaimWorkQueueDestination(item),
+    });
+  }
+
+  function bindFocusedWorkQueueAsset(
+    kind: Exclude<FocusedWorkQueueAsset, null>["kind"],
+    id?: string | null,
+  ) {
+    const focused = Boolean(
+      id &&
+        focusedWorkQueueAsset?.kind === kind &&
+        focusedWorkQueueAsset.id === id,
+    );
+    return {
+      "data-focused": focused || undefined,
+      ref: (element: HTMLElement | null) => {
+        if (focused) {
+          focusedWorkQueueAssetRef.current = element;
+        } else if (focusedWorkQueueAssetRef.current === element) {
+          focusedWorkQueueAssetRef.current = null;
+        }
+      },
+    };
+  }
+
   function resetProjectMaterialDraft() {
     setProjectNoteText("");
     setProjectNoteTitle("");
@@ -3077,7 +3162,9 @@ export function ProfileEvidenceWorkspace({
               {libraryView === "work_experiences" ? (
                 <WorkExperienceList
                   evidenceItems={canonicalEvidenceItems}
+                  focusWorkQueueAsset={bindFocusedWorkQueueAsset}
                   initiatives={canonicalInitiatives}
+                  onOpenQueueAction={openWorkExperienceQueueAction}
                   onRefresh={() => refreshLibraryAfterMutation()}
                   pendingReviewCount={roleReviewItems.length}
                   workExperiences={canonicalWorkExperiences}
@@ -3087,9 +3174,11 @@ export function ProfileEvidenceWorkspace({
                 <WorkInitiativeList
                   evidenceItems={canonicalEvidenceItems}
                   initiatives={canonicalInitiatives}
+                  focusWorkQueueAsset={bindFocusedWorkQueueAsset}
                   onMergeStory={mergeStoryTargetsManually}
                   onAssignStory={updateStoryAssignment}
                   onEnrichStory={startProjectEnrichment}
+                  onOpenQueueAction={openStoryTargetQueueAction}
                   onOpenEvidenceClaims={openEvidenceClaimsForStory}
                   onReviewClaims={reviewClaimsForStory}
                   onReviewStarStory={reviewStarStoryForStory}
@@ -3104,6 +3193,7 @@ export function ProfileEvidenceWorkspace({
                   items={filteredEvidenceItems}
                   linkTargets={linkTargets}
                   onChangeFilters={setLibraryFilters}
+                  onOpenQueueAction={openEvidenceQueueAction}
                   onUpdate={updateEvidence}
                   projects={projectCards}
                 />
@@ -3226,6 +3316,7 @@ export function ProfileEvidenceWorkspace({
           {workQueueView === "roles" ? (
             <RoleReviewQueue
               directEvidence={evidenceItems}
+              focusWorkQueueAsset={bindFocusedWorkQueueAsset}
               initiatives={initiatives}
               onRefresh={() => refreshLibraryAfterMutation()}
               roleFilter={workQueueRoleFilter}
@@ -3235,6 +3326,7 @@ export function ProfileEvidenceWorkspace({
           {workQueueView === "stories" ? (
             <StarStoryQueue
               evidenceItems={canonicalEvidenceItems}
+              focusWorkQueueAsset={bindFocusedWorkQueueAsset}
               onImproveStory={startProjectEnrichment}
               onRefresh={() => void loadStarStories()}
               onReviewStory={updateStoryTargetReview}
@@ -3274,6 +3366,7 @@ export function ProfileEvidenceWorkspace({
                   : "All current Evidence Claims are approved and resume-ready."
               }
               items={evidenceFocus ? roleFilteredFocusedEvidenceItems : roleFilteredClaimReviewItems}
+              focusWorkQueueAsset={bindFocusedWorkQueueAsset}
               mode="review"
               onUpdate={updateEvidence}
               projects={projectCards}
@@ -3312,6 +3405,7 @@ export function ProfileEvidenceWorkspace({
                   : "All current Evidence Claims are attached to Story Targets."
               }
               items={evidenceFocus ? roleFilteredFocusedEvidenceItems : roleFilteredUnlinkedEvidenceItems}
+              focusWorkQueueAsset={bindFocusedWorkQueueAsset}
               mode="review"
               onUpdate={updateEvidence}
               projects={projectCards}
@@ -4234,6 +4328,7 @@ function EvidenceClaimsLibraryView({
   items,
   linkTargets,
   onChangeFilters,
+  onOpenQueueAction,
   onUpdate,
   projects,
 }: {
@@ -4246,6 +4341,7 @@ function EvidenceClaimsLibraryView({
   items: EvidenceCardItem[];
   linkTargets: EvidenceLinkTargets;
   onChangeFilters: (filters: EvidenceLibraryFilters) => void;
+  onOpenQueueAction?: (item: EvidenceCardItem) => void;
   onUpdate: (
     item: EvidenceCardItem,
     action: EvidenceUpdateAction,
@@ -4308,6 +4404,7 @@ function EvidenceClaimsLibraryView({
         emptyMessage="No evidence matches these filters."
         items={items}
         mode="library"
+        onOpenQueueAction={onOpenQueueAction}
         onUpdate={onUpdate}
         projects={projects}
         linkTargets={linkTargets}
@@ -8857,6 +8954,7 @@ function StarStoryPanel({
 
 function StarStoryQueue({
   evidenceItems,
+  focusWorkQueueAsset,
   onImproveStory,
   onRefresh,
   onReviewStory,
@@ -8866,6 +8964,7 @@ function StarStoryQueue({
   workExperiences,
 }: {
   evidenceItems: EvidenceCardItem[];
+  focusWorkQueueAsset?: FocusWorkQueueAssetBinder;
   onImproveStory: (project: ProjectCardItem) => void;
   onRefresh: () => void;
   onReviewStory: (
@@ -8982,7 +9081,12 @@ function StarStoryQueue({
             }
           }
           return (
-            <article className="requirement-card story-target-work-card" data-readiness={readiness.state} key={key}>
+            <article
+              className="requirement-card story-target-work-card"
+              data-readiness={readiness.state}
+              key={key}
+              {...focusWorkQueueAsset?.("story_target", story.id)}
+            >
               <div className="story-target-work-card__header">
                 <div className="story-target-work-card__title">
                   <span className="story-target-work-card__eyebrow">Story Target</span>
@@ -9058,17 +9162,21 @@ function StarStoryQueue({
 function EvidenceList({
   description = "Review Evidence Claims before using them in resumes or interviews.",
   emptyMessage = "No evidence has been created yet.",
+  focusWorkQueueAsset,
   items,
   linkTargets,
   mode = "review",
+  onOpenQueueAction,
   onUpdate,
   projects,
   title = "Evidence Claims",
 }: {
   description?: string;
   emptyMessage?: string;
+  focusWorkQueueAsset?: FocusWorkQueueAssetBinder;
   items: EvidenceCardItem[];
   mode?: "library" | "review";
+  onOpenQueueAction?: (item: EvidenceCardItem) => void;
   onUpdate: (
     item: EvidenceCardItem,
     action: EvidenceUpdateAction,
@@ -9154,10 +9262,12 @@ function EvidenceList({
           return (
             <EvidenceCard
               cardMessage={item.id ? cardMessages[item.id] : null}
+              focusProps={focusWorkQueueAsset?.("evidence_claim", item.id)}
               isUpdating={item.id ? pendingEvidenceId === item.id : false}
               item={item}
               key={item.id ?? `${item.source_quote}-${index}`}
               linkTargets={linkTargets}
+              onOpenQueueAction={onOpenQueueAction}
               onUpdate={handleUpdate}
               projects={projects}
             />
@@ -9237,16 +9347,20 @@ function toEvidenceTargetPatch(target: string, legacyProjectId = "") {
 
 function EvidenceCard({
   cardMessage,
+  focusProps,
   isUpdating,
   item,
   linkTargets,
+  onOpenQueueAction,
   onUpdate,
   projects = [],
   variant = "default",
 }: {
   cardMessage?: { ok: boolean; text: string } | null;
+  focusProps?: ReturnType<FocusWorkQueueAssetBinder>;
   isUpdating?: boolean;
   item: EvidenceCardItem;
+  onOpenQueueAction?: (item: EvidenceCardItem) => void;
   onUpdate: (
     item: EvidenceCardItem,
     action: EvidenceUpdateAction,
@@ -9382,13 +9496,23 @@ function EvidenceCard({
   }
 
   return (
-    <article className="evidence-row">
+    <article className="evidence-row" {...focusProps}>
       <div className="evidence-row__main">
         <div className="evidence-row__content">
           <span>{item.evidence_type}</span>
           <strong>{displayText}</strong>
           <div className="evidence-row__meta">
-            <span>{readiness.label}</span>
+            {onOpenQueueAction && readiness.state !== "resume_ready" ? (
+              <button
+                className="asset-status-link"
+                type="button"
+                onClick={() => onOpenQueueAction(item)}
+              >
+                {readiness.label}
+              </button>
+            ) : (
+              <span>{readiness.label}</span>
+            )}
             <small>For {linkedTarget}</small>
           </div>
           {hasPrivateSourceText ? (
@@ -9648,13 +9772,17 @@ function EvidenceCard({
 
 function WorkExperienceList({
   evidenceItems,
+  focusWorkQueueAsset,
   initiatives,
+  onOpenQueueAction,
   onRefresh,
   pendingReviewCount = 0,
   workExperiences,
 }: {
   evidenceItems: EvidenceCardItem[];
+  focusWorkQueueAsset?: FocusWorkQueueAssetBinder;
   initiatives: InitiativeItem[];
+  onOpenQueueAction?: (experience: WorkExperienceItem) => void;
   onRefresh: () => Promise<void>;
   pendingReviewCount?: number;
   workExperiences: WorkExperienceItem[];
@@ -9732,10 +9860,12 @@ function WorkExperienceList({
               (item) => item.related_work_experience_id === experience.id,
             )}
             experience={experience}
+            focusProps={focusWorkQueueAsset?.("work_experience", experience.id)}
             initiatives={initiatives.filter(
               (initiative) => initiative.work_experience_id === experience.id,
             )}
             key={experience.id ?? `${experience.employer}-${experience.role_title}`}
+            onOpenQueueAction={onOpenQueueAction}
             onRefresh={onRefresh}
             reassignTargets={workExperiences.filter(
               (target) => target.id && target.id !== experience.id && target.status !== "rejected",
@@ -9750,14 +9880,18 @@ function WorkExperienceList({
 function WorkExperienceRow({
   directEvidence,
   experience,
+  focusProps,
   initiatives,
+  onOpenQueueAction,
   onRefresh,
   reassignTargets = [],
   reviewMode = false,
 }: {
   directEvidence: EvidenceCardItem[];
   experience: WorkExperienceItem;
+  focusProps?: ReturnType<FocusWorkQueueAssetBinder>;
   initiatives: InitiativeItem[];
+  onOpenQueueAction?: (experience: WorkExperienceItem) => void;
   onRefresh: () => Promise<void>;
   reassignTargets?: WorkExperienceItem[];
   reviewMode?: boolean;
@@ -9887,7 +10021,7 @@ function WorkExperienceRow({
   const displayRoleTitle = formatWorkExperienceDisplayRoleTitle(experience.role_title);
 
   return (
-    <article className="story-group-row work-experience-row">
+    <article className="story-group-row work-experience-row" {...focusProps}>
       <div className="story-group-row__summary">
         <span>{reviewMode ? "Work Experience review" : "Work Experience"}</span>
         <div>
@@ -9898,7 +10032,17 @@ function WorkExperienceRow({
               .join(" · ") || "Work Experience details need review"}
           </p>
         </div>
-        <em>{formatWorkExperienceStatus(experience.status)}</em>
+        {onOpenQueueAction && shouldReviewWorkExperienceAsset(experience) ? (
+          <button
+            className="asset-status-link"
+            type="button"
+            onClick={() => onOpenQueueAction(experience)}
+          >
+            {formatWorkExperienceStatus(experience.status)}
+          </button>
+        ) : (
+          <em>{formatWorkExperienceStatus(experience.status)}</em>
+        )}
         <small>{initiatives.length} Story Targets · {directEvidence.length} direct Evidence Claims</small>
       </div>
       {reviewMode ? (
@@ -10156,12 +10300,14 @@ function isUnsafeWorkExperienceDisplayText(value: string) {
 
 function RoleReviewQueue({
   directEvidence,
+  focusWorkQueueAsset,
   initiatives,
   onRefresh,
   roleFilter,
   roles,
 }: {
   directEvidence: EvidenceCardItem[];
+  focusWorkQueueAsset?: FocusWorkQueueAssetBinder;
   initiatives: InitiativeItem[];
   onRefresh: () => Promise<void>;
   roleFilter: string;
@@ -10194,6 +10340,7 @@ function RoleReviewQueue({
                 (item) => item.related_work_experience_id === experience.id,
               )}
               experience={experience}
+              focusProps={focusWorkQueueAsset?.("work_experience", experience.id)}
               initiatives={initiatives.filter(
                 (initiative) => initiative.work_experience_id === experience.id,
               )}
@@ -10244,10 +10391,12 @@ function formatWorkExperienceReviewError(error?: string) {
 
 function WorkInitiativeList({
   evidenceItems,
+  focusWorkQueueAsset,
   initiatives,
   onAssignStory,
   onEnrichStory,
   onMergeStory,
+  onOpenQueueAction,
   onOpenEvidenceClaims,
   onReviewClaims,
   onReviewStarStory,
@@ -10255,6 +10404,7 @@ function WorkInitiativeList({
   workExperiences,
 }: {
   evidenceItems: EvidenceCardItem[];
+  focusWorkQueueAsset?: FocusWorkQueueAssetBinder;
   initiatives: InitiativeItem[];
   onAssignStory: (
     target: StoryEnrichmentTarget,
@@ -10265,6 +10415,7 @@ function WorkInitiativeList({
     primaryStoryId: string,
     duplicateStoryId: string,
   ) => Promise<{ ok: boolean; message: string }>;
+  onOpenQueueAction?: (story: InitiativeItem | PortfolioProjectItem) => void;
   onOpenEvidenceClaims: (target: StoryEnrichmentTarget) => void;
   onReviewClaims: (target: StoryEnrichmentTarget) => void;
   onReviewStarStory: (target: StoryEnrichmentTarget) => void;
@@ -10374,11 +10525,13 @@ function WorkInitiativeList({
             return (
               <StoryTargetRow
                 evidenceItems={linkedEvidenceItems}
+                focusProps={focusWorkQueueAsset?.("story_target", initiative.id)}
                 key={initiative.id ?? initiative.internal_title}
                 kind={formatInitiativeRoleChip(initiative, workExperiences)}
                 onAssignStory={onAssignStory}
                 onEnrichStory={onEnrichStory}
                 onMergeStory={onMergeStory}
+                onOpenQueueAction={onOpenQueueAction}
                 onOpenEvidenceClaims={onOpenEvidenceClaims}
                 onReviewClaims={onReviewClaims}
                 onReviewStarStory={onReviewStarStory}
@@ -10409,11 +10562,13 @@ function WorkInitiativeList({
             return (
               <StoryTargetRow
                 evidenceItems={linkedEvidenceItems}
+                focusProps={focusWorkQueueAsset?.("story_target", project.id)}
                 key={project.id ?? project.title}
                 kind={formatPortfolioProjectType(project.project_type)}
                 onAssignStory={onAssignStory}
                 onEnrichStory={onEnrichStory}
                 onMergeStory={onMergeStory}
+                onOpenQueueAction={onOpenQueueAction}
                 onOpenEvidenceClaims={onOpenEvidenceClaims}
                 onReviewClaims={onReviewClaims}
                 onReviewStarStory={onReviewStarStory}
@@ -10432,12 +10587,14 @@ function WorkInitiativeList({
 
 function StoryTargetRow({
   evidenceItems,
+  focusProps,
   kind,
   mergeOptions = [],
   mergeOptionEvidenceCounts,
   onAssignStory,
   onEnrichStory,
   onMergeStory,
+  onOpenQueueAction,
   onOpenEvidenceClaims,
   onReviewClaims,
   onReviewStarStory,
@@ -10447,6 +10604,7 @@ function StoryTargetRow({
   workExperiences,
 }: {
   evidenceItems: EvidenceCardItem[];
+  focusProps?: ReturnType<FocusWorkQueueAssetBinder>;
   kind: string;
   mergeOptions?: InitiativeItem[];
   mergeOptionEvidenceCounts?: Map<string, number>;
@@ -10459,6 +10617,7 @@ function StoryTargetRow({
     primaryStoryId: string,
     duplicateStoryId: string,
   ) => Promise<{ ok: boolean; message: string }>;
+  onOpenQueueAction?: (story: InitiativeItem | PortfolioProjectItem) => void;
   onOpenEvidenceClaims: (target: StoryEnrichmentTarget) => void;
   onReviewClaims: (target: StoryEnrichmentTarget) => void;
   onReviewStarStory: (target: StoryEnrichmentTarget) => void;
@@ -10597,7 +10756,7 @@ function StoryTargetRow({
     }
   }
   return (
-    <article className="story-target-row">
+    <article className="story-target-row" {...focusProps}>
       <div className="story-target-row__main">
         <div>
           <span className="story-target-row__eyebrow">
@@ -10660,7 +10819,18 @@ function StoryTargetRow({
           </span>
           <strong>{title}</strong>
         </div>
-        <em data-ready={readiness.state === "story_ready"}>{readiness.label}</em>
+        {onOpenQueueAction && shouldBuildStoryTarget(storyWithLinkedEvidenceCount) ? (
+          <button
+            className="asset-status-link"
+            data-ready={readiness.state === "story_ready"}
+            type="button"
+            onClick={() => onOpenQueueAction(story)}
+          >
+            {readiness.label}
+          </button>
+        ) : (
+          <em data-ready={readiness.state === "story_ready"}>{readiness.label}</em>
+        )}
         <small>{evidenceItems.length} Evidence Claims</small>
         <button
           className="story-target-row__action"

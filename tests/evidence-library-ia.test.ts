@@ -5,6 +5,7 @@ import {
   canMarkStoryTargetReady,
   collectQueuedStoryTargetWorkExperienceIds,
   filterCanonicalLibraryAssets,
+  getEvidenceClaimWorkQueueDestination,
   getWorkExperienceReviewFocus,
   isCanonicalLibraryAsset,
   shouldApproveEvidenceClaim,
@@ -117,6 +118,28 @@ describe("Evidence Library IA semantics", () => {
 
     expect(isCanonicalLibraryAsset({ status: "pending" })).toBe(true);
     expect(isCanonicalLibraryAsset({ status: "rejected" })).toBe(false);
+  });
+
+  it("routes Evidence Claim status links to the matching Work Queue action", () => {
+    expect(getEvidenceClaimWorkQueueDestination(evidenceClaim({ status: "pending" }))).toBe("unlinked");
+    expect(
+      getEvidenceClaimWorkQueueDestination(
+        evidenceClaim({
+          related_initiative_id: "initiative-1",
+          status: "pending",
+        }),
+      ),
+    ).toBe("claims");
+    expect(
+      getEvidenceClaimWorkQueueDestination(
+        evidenceClaim({
+          allowed_usage: ["resume"],
+          public_safe_summary: "External-safe summary.",
+          related_initiative_id: "initiative-1",
+          status: "approved",
+        }),
+      ),
+    ).toBe("claims");
   });
 
   it("returns polluted Work Experiences to review even after approval", () => {

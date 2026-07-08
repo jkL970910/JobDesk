@@ -10176,6 +10176,42 @@ span > .help-hint {
   color: var(--ink-soft);
 }
 
+.asset-status-link {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 999px;
+  color: var(--primary-strong);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 850;
+  line-height: 1;
+  padding: 6px 8px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.asset-status-link:hover,
+.asset-status-link:focus-visible {
+  background: var(--primary-soft);
+  border-color: rgba(79, 140, 255, 0.32);
+  color: var(--primary-strong);
+  outline: none;
+}
+
+.asset-status-link[data-ready="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.story-group-row[data-focused="true"],
+.story-target-row[data-focused="true"],
+.story-target-work-card[data-focused="true"],
+.evidence-row[data-focused="true"] {
+  border-color: rgba(79, 140, 255, 0.42);
+  box-shadow: 0 0 0 1px rgba(79, 140, 255, 0.18);
+}
+
 .story-group-row__summary small,
 .story-target-row__main small {
   color: var(--muted);
@@ -12144,6 +12180,12 @@ span > .help-hint {
 
   .story-target-work-card__header em {
     justify-self: start;
+  }
+
+  .asset-status-link {
+    justify-self: start;
+    max-width: 100%;
+    white-space: normal;
   }
 
   .journey-step {

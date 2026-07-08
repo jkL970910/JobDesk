@@ -222,6 +222,10 @@ export function shouldLinkEvidenceClaim(item: EvidenceLibraryIaEvidenceClaim) {
   );
 }
 
+export function getEvidenceClaimWorkQueueDestination(item: EvidenceLibraryIaEvidenceClaim) {
+  return shouldLinkEvidenceClaim(item) ? "unlinked" : "claims";
+}
+
 export function buildEvidenceLibraryIaCounts(input: EvidenceLibraryIaCountsInput) {
   const canonicalEvidenceClaims = input.evidenceClaims.filter(isCanonicalLibraryAsset);
   const canonicalStoryTargets = input.storyTargets.filter(isCanonicalLibraryAsset);
