@@ -35,6 +35,7 @@ import {
   initiatives,
   portfolioProjects,
   sourceDocuments,
+  resumeSourceVersions,
   workExperiences,
   workflowRuns,
   type enrichmentTaskSourceTypeEnum,
@@ -1720,6 +1721,10 @@ async function createStoryTargetForTask(
 
   return db.transaction(async (tx) => {
     const context = `Created from enrichment question: ${args.task.prompt}`;
+    const sourceDocumentId = await resolveTaskSourceDocumentId(tx, {
+      resumeSourceVersionId: args.task.resumeSourceVersionId,
+      workspaceId: args.workspaceId,
+    });
     let anchor: ReusableLibraryAnchor;
     if (args.storyTarget.targetType === "initiative") {
       const [experience] = await tx
@@ -1741,6 +1746,7 @@ async function createStoryTargetForTask(
         .values({
           workspaceId: args.workspaceId,
           workExperienceId: experience.id,
+          sourceDocumentId,
           internalTitle: title,
           context,
           status: "pending",
@@ -1758,6 +1764,7 @@ async function createStoryTargetForTask(
         .insert(portfolioProjects)
         .values({
           workspaceId: args.workspaceId,
+          sourceDocumentId,
           projectType: args.storyTarget.projectType ?? "general_project",
           title,
           context,
@@ -1814,6 +1821,27 @@ async function createStoryTargetForTask(
       ),
     };
   });
+}
+
+async function resolveTaskSourceDocumentId(
+  db: Pick<DbHandle, "select">,
+  args: {
+    resumeSourceVersionId?: string | null;
+    workspaceId: string;
+  },
+) {
+  if (!args.resumeSourceVersionId) return null;
+  const [resumeSource] = await db
+    .select({ sourceDocumentId: resumeSourceVersions.sourceDocumentId })
+    .from(resumeSourceVersions)
+    .where(
+      and(
+        eq(resumeSourceVersions.workspaceId, args.workspaceId),
+        eq(resumeSourceVersions.id, args.resumeSourceVersionId),
+      ),
+    )
+    .limit(1);
+  return resumeSource?.sourceDocumentId ?? null;
 }
 
 async function canUseLegacyConvert(

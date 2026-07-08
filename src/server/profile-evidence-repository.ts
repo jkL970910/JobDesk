@@ -54,7 +54,12 @@ import {
   type EvidenceAssetActionArgs,
 } from "./evidence-asset-actions";
 export { quarantineEvidenceAsset } from "./evidence-asset-actions";
-import { guardWorkExperienceDraftsForPersistence } from "./extraction-scope-guardrail";
+import {
+  guardEvidenceDraftsForPersistence,
+  guardInitiativeDraftsForPersistence,
+  guardPortfolioProjectDraftsForPersistence,
+  guardWorkExperienceDraftsForPersistence,
+} from "./extraction-scope-guardrail";
 import { consolidateInitiativeDrafts } from "./initiative-consolidation";
 
 export type ProfileEvidencePersistenceResult =
@@ -157,6 +162,12 @@ export async function persistProfileEvidenceExtraction(args: {
     const initiativeConsolidation = consolidateInitiativeDrafts(args.extraction.initiatives);
     const workExperienceIdByDraftId = new Map<string, string>();
     const workExperienceAnchorTexts = new Map<string, string>();
+    const workExperienceContextById = new Map<string, {
+      employer: string;
+      id: string;
+      roleTitle: string;
+      sourceSection?: string | null;
+    }>();
     for (const experience of workExperienceDrafts) {
       const [created] = await tx
         .insert(workExperiences)
@@ -190,21 +201,39 @@ export async function persistProfileEvidenceExtraction(args: {
             .filter(Boolean)
             .join(" "),
         );
+        workExperienceContextById.set(created.id, {
+          employer: experience.employer,
+          id: created.id,
+          roleTitle: experience.role_title,
+          sourceSection: buildWorkExperienceDraftKey(experience),
+        });
       }
     }
 
     const initiativeIdByDraftId = new Map<string, string>();
     const initiativeAnchorTexts = new Map<string, string>();
+    const resolveWorkExperienceContext = (workExperienceRef: string | null | undefined) => {
+      if (!workExperienceRef) return null;
+      const workExperienceId = workExperienceIdByDraftId.get(workExperienceRef);
+      if (!workExperienceId) return null;
+      return workExperienceContextById.get(workExperienceId) ?? null;
+    };
+    const guardedInitiativeDrafts = guardInitiativeDraftsForPersistence(
+      initiativeConsolidation.initiatives,
+      { resolveWorkExperienceContext, sourceTitle: title },
+    );
+    const initiativeDrafts = guardedInitiativeDrafts.accepted;
+
     if (enrichmentTarget?.targetType === "initiative") {
       await mergeSelectedInitiativeTarget(tx, {
-        drafts: initiativeConsolidation.initiatives,
+        drafts: initiativeDrafts,
         now,
         sourceDocumentId: sourceDocument.id,
         targetId: enrichmentTarget.targetId,
         targetTitle: args.target?.targetTitle,
         workspaceId: workspace.id,
       });
-      for (const initiative of initiativeConsolidation.initiatives) {
+      for (const initiative of initiativeDrafts) {
         initiativeIdByDraftId.set(initiative.internal_title, enrichmentTarget.targetId);
         if (initiative.external_safe_title) {
           initiativeIdByDraftId.set(initiative.external_safe_title, enrichmentTarget.targetId);
@@ -213,7 +242,7 @@ export async function persistProfileEvidenceExtraction(args: {
       }
       applyInitiativeDraftRedirects(initiativeIdByDraftId, initiativeConsolidation.draftRefRedirects);
     } else {
-      for (const initiative of initiativeConsolidation.initiatives) {
+      for (const initiative of initiativeDrafts) {
         const workExperienceId = initiative.work_experience_ref
           ? workExperienceIdByDraftId.get(initiative.work_experience_ref) ?? null
           : null;
@@ -254,16 +283,21 @@ export async function persistProfileEvidenceExtraction(args: {
 
     const portfolioProjectIdByDraftId = new Map<string, string>();
     const portfolioProjectAnchorTexts = new Map<string, string>();
+    const guardedPortfolioProjectDrafts = guardPortfolioProjectDraftsForPersistence(
+      args.extraction.portfolio_projects,
+      { sourceTitle: title },
+    );
+    const portfolioProjectDrafts = guardedPortfolioProjectDrafts.accepted;
     if (enrichmentTarget?.targetType === "portfolio_project") {
       await mergeSelectedPortfolioProjectTarget(tx, {
-        drafts: args.extraction.portfolio_projects,
+        drafts: portfolioProjectDrafts,
         now,
         sourceDocumentId: sourceDocument.id,
         targetId: enrichmentTarget.targetId,
         targetTitle: args.target?.targetTitle,
         workspaceId: workspace.id,
       });
-      for (const project of args.extraction.portfolio_projects) {
+      for (const project of portfolioProjectDrafts) {
         portfolioProjectIdByDraftId.set(project.title, enrichmentTarget.targetId);
         if (project.external_safe_title) {
           portfolioProjectIdByDraftId.set(project.external_safe_title, enrichmentTarget.targetId);
@@ -271,7 +305,7 @@ export async function persistProfileEvidenceExtraction(args: {
         portfolioProjectAnchorTexts.set(enrichmentTarget.targetId, buildPortfolioProjectAnchorText(project));
       }
     } else {
-      for (const project of args.extraction.portfolio_projects) {
+      for (const project of portfolioProjectDrafts) {
         const [created] = await tx
           .insert(portfolioProjects)
           .values({
@@ -364,9 +398,14 @@ export async function persistProfileEvidenceExtraction(args: {
       reconciliationAnchors.push({ portfolioProjectId: id, text });
     }
 
-    if (args.extraction.evidence_items.length > 0) {
+    const guardedEvidenceDrafts = guardEvidenceDraftsForPersistence(
+      args.extraction.evidence_items,
+      { sourceTitle: title },
+    );
+    const evidenceDrafts = guardedEvidenceDrafts.accepted;
+    if (evidenceDrafts.length > 0) {
       const insertedEvidence = await tx.insert(evidenceItems).values(
-        args.extraction.evidence_items.map((item) => {
+        evidenceDrafts.map((item) => {
           const guardrail = evaluateEvidenceGuardrails(item, args.sourceText);
           const mappedProjectId = item.related_project_id
             ? projectIdByDraftId.get(item.related_project_id) ?? null
@@ -455,6 +494,9 @@ export async function persistProfileEvidenceExtraction(args: {
             initiativeConsolidation: {
               mergedFragmentNoteCount: initiativeConsolidation.extractionNotes.length,
             },
+            initiativeGuardrail: guardedInitiativeDrafts.summary,
+            portfolioProjectGuardrail: guardedPortfolioProjectDrafts.summary,
+            evidenceGuardrail: guardedEvidenceDrafts.summary,
           },
         }),
         inputTokens: args.usage.inputTokens ?? null,
@@ -477,6 +519,9 @@ export async function persistProfileEvidenceExtraction(args: {
         notes: [
           ...args.extraction.extraction_notes,
           ...guardedWorkExperienceDrafts.reviewNotes,
+          ...guardedInitiativeDrafts.reviewNotes,
+          ...guardedPortfolioProjectDrafts.reviewNotes,
+          ...guardedEvidenceDrafts.reviewNotes,
           ...initiativeConsolidation.extractionNotes,
         ],
       }),
@@ -510,8 +555,8 @@ export async function persistProfileEvidenceExtraction(args: {
       evidenceCount: args.extraction.evidence_items.length,
       projectCount: args.extraction.project_cards.length,
       workExperienceCount: workExperienceDrafts.length,
-      initiativeCount: initiativeConsolidation.initiatives.length,
-      portfolioProjectCount: args.extraction.portfolio_projects.length,
+      initiativeCount: initiativeDrafts.length,
+      portfolioProjectCount: portfolioProjectDrafts.length,
       workflowRunId: workflowRun.id,
     };
   });

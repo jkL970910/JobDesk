@@ -33,12 +33,12 @@ Current phase status:
 | Phase 0: Product Contract And Terminology | Complete | Milestone plan created and Evidence Library terms synchronized. |
 | Phase 1: Candidate And Scope Contract | Complete | `extracted-asset-candidate.ts` and `scope-decision.ts` added as pure modules with unit tests. |
 | Phase 2: Deterministic Scope Classifier | Complete, first slice | `scope-classifier.ts` added with pure fixtures for bullet-shaped Work Experience rejection, Technical Skills profile-context routing, AWS CDK/cache/latency clustering, project-only portfolio routing, same-company multi-role separation, atomic evidence, and imported observations. |
-| Phase 3: Pre-Save Persistence Guardrail | In progress, first slice | Work Experience extraction drafts now pass through a pre-save scope guardrail; invalid role-container candidates are routed to imported material review notes instead of canonical Work Experience rows. |
-| Phase 4: Initiative Consolidation | Complete, first slice | Same-role initiative fragment consolidation is isolated in `initiative-consolidation.ts` with fixtures for AWS CDK/cache/latency merging and cross-role non-merge. |
+| Phase 3: Pre-Save Persistence Guardrail | Complete, first generalized slice | Work Experience, Work Initiative, Portfolio Project, and Evidence Claim extraction drafts now pass through pre-save scope guardrails; wrong-scope candidates route to imported material review notes instead of canonical tables. |
+| Phase 4: Initiative Consolidation | Complete, second slice | Initiative consolidation is isolated in `initiative-consolidation.ts` with fixtures for AWS CDK/cache/latency merging, ambiguous/unassigned fragment merging, and cross-role non-merge. |
 | Phase 5: Regression Fixture Suite | Complete, first slice | `scope-accuracy-regression-fixtures.test.ts` locks the seven signed-off failure families across classifier, guardrail, consolidation, and imported-note routing. |
 | Phase 6: User Correction Workflow | In progress, second slice | Creating a missing Story Target from an enrichment question is implemented; Evidence Cards now expose explicit Remove story link. Change scope/reassign/merge/keep separate remain staged. |
 | Phase 7: Post-Save Validators And Work Queue Routing | In progress, first slice | Work Queue source-review pane now gives scope guardrail notes a dedicated scope-review action model; deeper validators remain staged. |
-| Phase 8: Observability And Admin Diagnostics | In progress, first slice | Workflow metadata now records privacy-safe scope guardrail/consolidation counts; broader diagnostics dashboard remains staged. |
+| Phase 8: Observability And Admin Diagnostics | In progress, second slice | Workflow metadata now records privacy-safe scope guardrail/consolidation counts for Work Experience, Initiative, Portfolio Project, and Evidence Claim candidates; broader diagnostics dashboard remains staged. |
 | Phase 9: Intelligence Layer | Deferred | AI enhancements wait until deterministic guardrails are stable. |
 
 ## Workflow Count

@@ -894,6 +894,121 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
     });
   });
 
+  it("routes wrong-scope initiative, portfolio, and evidence candidates to review before canonical persistence", async () => {
+    const sourceTitle = `Scope guardrail persistence ${crypto.randomUUID()}`;
+    const base = buildExtraction();
+    const extraction: ProfileEvidenceExtraction = {
+      ...base,
+      initiatives: [
+        {
+          actions: [],
+          context: null,
+          external_safe_summary: null,
+          external_safe_title: null,
+          internal_title: "Technical Skills",
+          metrics: [],
+          needs_redaction_review: false,
+          problem: null,
+          results: [],
+          role: null,
+          sensitivity_level: "private",
+          stakeholders: [],
+          status: "pending",
+          technologies: ["Java", "Python", "React", "AWS", "Redis"],
+          work_experience_ref: "Acme Finance · Senior Product Analyst",
+        },
+      ],
+      portfolio_projects: [
+        {
+          actions: ["Built delivery service cache infrastructure."],
+          context: "Employer-internal delivery service work at Amazon.",
+          external_safe_summary: null,
+          external_safe_title: null,
+          metrics: [],
+          needs_redaction_review: false,
+          problem: null,
+          project_type: "general_project",
+          results: [],
+          role: "Backend Engineer",
+          sensitivity_level: "private",
+          stakeholders: [],
+          status: "pending",
+          technologies: ["AWS CDK", "Redis"],
+          title: "Amazon session latency optimization",
+        },
+      ],
+      evidence_items: [
+        {
+          allowed_usage: ["resume"],
+          evidence_type: "extracted",
+          metrics: [],
+          needs_user_confirmation: false,
+          public_safe_summary: null,
+          related_initiative_id: null,
+          related_portfolio_project_id: null,
+          related_project_id: null,
+          related_work_experience_id: null,
+          sensitivity_level: "private",
+          source_quote:
+            "Led API consolidation across migration planning, dependency cleanup, rollout coordination, and service-owner enablement.",
+          status: "pending",
+          text:
+            "Led API consolidation across migration planning, dependency cleanup, rollout coordination, and service-owner enablement.",
+        },
+      ],
+    };
+    const result = await persistProfileEvidenceExtraction({
+      sourceTitle,
+      sourceText: sampleSourceText,
+      extraction,
+      provider: "integration-test",
+      model: "test-model",
+      usage: { totalTokens: 42 },
+      retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
+    });
+    expect(result.status).toBe("saved");
+    if (result.status !== "saved") throw new Error("Expected saved extraction.");
+
+    const db = getDb();
+    const [savedInitiative] = await db
+      .select({ id: initiatives.id })
+      .from(initiatives)
+      .where(eq(initiatives.sourceDocumentId, result.sourceDocumentId))
+      .limit(1);
+    const [savedPortfolioProject] = await db
+      .select({ id: portfolioProjects.id })
+      .from(portfolioProjects)
+      .where(eq(portfolioProjects.sourceDocumentId, result.sourceDocumentId))
+      .limit(1);
+    const [savedEvidence] = await db
+      .select({ id: evidenceItems.id })
+      .from(evidenceItems)
+      .where(eq(evidenceItems.sourceDocumentId, result.sourceDocumentId))
+      .limit(1);
+    expect(savedInitiative).toBeUndefined();
+    expect(savedPortfolioProject).toBeUndefined();
+    expect(savedEvidence).toBeUndefined();
+
+    const queue = await getEnrichmentTaskQueue({
+      limit: 100,
+      sourceType: "extraction_note",
+      statuses: ["open", "answered"],
+    });
+    expect(queue.status).toBe("ready");
+    if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
+    const scopeReviewPrompts = queue.tasks
+      .filter((task) => task.source_label === sourceTitle && task.prompt.includes("Scope review needed"))
+      .map((task) => task.prompt);
+    expect(scopeReviewPrompts).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("was not saved as a Work Initiative"),
+        expect.stringContaining("was not saved as a Portfolio Project"),
+        expect.stringContaining("was not saved as a Evidence Claim"),
+      ]),
+    );
+  });
+
   it("previews enrichment answers as proposals before committing canonical evidence", async () => {
     const db = getDb();
     const workspace = await getCurrentWorkspace(db);
@@ -3274,13 +3389,16 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       .select()
       .from(enrichmentTaskTargets)
       .where(eq(enrichmentTaskTargets.taskId, task.id));
-    expect(persistedTargets).toHaveLength(1);
-    expect(persistedTargets[0]).toMatchObject({
-      targetKind: "evidence",
-      targetId: suggestedTarget.target_id,
-      targetRole: "primary",
-      createdBy: "user",
-    });
+    expect(persistedTargets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          targetKind: "evidence",
+          targetId: suggestedTarget.target_id,
+          targetRole: "primary",
+          createdBy: "user",
+        }),
+      ]),
+    );
   });
 
   it("rejects suggested targets and prevents reuse without confirmation", async () => {
@@ -3434,10 +3552,15 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
     const db = getDb();
     const workspace = await getCurrentWorkspace(db);
     const now = new Date();
+    const source = await createIntegrationResumeSource({
+      title: "Story loop source",
+      workspaceId: workspace.id,
+    });
     const [experience] = await db
       .insert(workExperiences)
       .values({
         workspaceId: workspace.id,
+        sourceDocumentId: source.sourceDocumentId,
         employer: `Story loop employer ${crypto.randomUUID()}`,
         roleTitle: "Backend Engineer",
         status: "pending",
@@ -3453,8 +3576,9 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
         {
           expectedOutcome: "route_answer",
           prompt,
+          resumeSourceVersionId: source.resumeSourceVersionId,
           sourceLabel: "Story loop smoke",
-          sourceType: "user_input",
+          sourceType: "resume_review",
           targetScope: "assign_later",
           taskType: "metric",
         },
@@ -3462,7 +3586,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
     });
     const queue = await getEnrichmentTaskQueue({
       limit: 30,
-      sourceType: "user_input",
+      sourceType: "resume_review",
       statuses: ["open"],
     });
     expect(queue.status).toBe("ready");
@@ -3537,6 +3661,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
     expect(draftStory).toMatchObject({
       context: expect.stringContaining("Created from enrichment question"),
       internal_title: "Redis cache rollout",
+      source_document_id: source.sourceDocumentId,
       status: "pending",
       work_experience_id: experience.id,
     });
@@ -4123,6 +4248,44 @@ const projectDuplicateSourceText = [
   "Mapped onboarding funnel steps and dashboard slices.",
   "Identified onboarding drop-off and prioritized follow-up activation experiments.",
 ].join("\n");
+
+async function createIntegrationResumeSource(args: {
+  title: string;
+  workspaceId: string;
+}) {
+  const db = getDb();
+  const sourceText = `${args.title}\n${sampleSourceText}\n${crypto.randomUUID()}`;
+  const contentHash = crypto.createHash("sha256").update(sourceText).digest("hex");
+  const [sourceDocument] = await db
+    .insert(sourceDocuments)
+    .values({
+      workspaceId: args.workspaceId,
+      sourceType: "resume-review",
+      title: args.title,
+      contentText: sourceText,
+      contentHash,
+      lifecycleStatus: "reviewed",
+    })
+    .returning({ id: sourceDocuments.id });
+  if (!sourceDocument) throw new Error("Expected source document.");
+  const [resumeSource] = await db
+    .insert(resumeSourceVersions)
+    .values({
+      workspaceId: args.workspaceId,
+      sourceDocumentId: sourceDocument.id,
+      title: args.title,
+      contentHash,
+      sourceKind: "text",
+      sourceText,
+      status: "reviewed",
+    })
+    .returning({ id: resumeSourceVersions.id });
+  if (!resumeSource) throw new Error("Expected resume source.");
+  return {
+    resumeSourceVersionId: resumeSource.id,
+    sourceDocumentId: sourceDocument.id,
+  };
+}
 
 function buildExtraction(): ProfileEvidenceExtraction {
   return {

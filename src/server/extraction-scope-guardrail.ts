@@ -13,13 +13,38 @@ export type WorkExperienceScopeGuardrailResult = {
   summary: WorkExperienceScopeGuardrailSummary;
 };
 
-export type WorkExperienceScopeGuardrailSummary = {
+export type ExtractionScopeGuardrailSummary = {
   acceptedCount: number;
   rejectedCount: number;
   reviewQueueOnlyCount: number;
   totalCount: number;
   reasonCounts: Record<string, number>;
 };
+
+export type WorkExperienceScopeGuardrailSummary = ExtractionScopeGuardrailSummary;
+
+type GuardrailDisposition = "accepted" | "review_queue_only" | "rejected";
+
+type DraftScopeGuardrailResult<TDraft> = {
+  accepted: TDraft[];
+  reviewNotes: string[];
+  decisions: Array<{
+    draft: TDraft;
+    classification: ScopeClassificationResult;
+    disposition: GuardrailDisposition;
+  }>;
+  summary: ExtractionScopeGuardrailSummary;
+};
+
+export type InitiativeScopeGuardrailResult = DraftScopeGuardrailResult<
+  ProfileEvidenceExtraction["initiatives"][number]
+>;
+export type PortfolioProjectScopeGuardrailResult = DraftScopeGuardrailResult<
+  ProfileEvidenceExtraction["portfolio_projects"][number]
+>;
+export type EvidenceScopeGuardrailResult = DraftScopeGuardrailResult<
+  ProfileEvidenceExtraction["evidence_items"][number]
+>;
 
 export function guardWorkExperienceDraftsForPersistence(
   drafts: ProfileEvidenceExtraction["work_experiences"],
@@ -39,22 +64,141 @@ export function guardWorkExperienceDraftsForPersistence(
       sourceSection: args.sourceSection ?? "Work Experience",
       sourceQuote: draft.summary ?? buildWorkExperienceLabel(draft),
     });
-    const policy = classification.decision.canonicalLinkPolicy;
-    const disposition =
-      policy === "reject_as_invalid_scope"
-        ? "rejected"
-        : policy === "review_queue_only"
-          ? "review_queue_only"
-          : "accepted";
+    const disposition = dispositionFromPolicy(classification);
     decisions.push({ draft, classification, disposition });
     if (disposition === "accepted") {
       accepted.push(draft);
       continue;
     }
-    reviewNotes.push(buildScopeReviewNote(draft, classification, args.sourceTitle));
+    reviewNotes.push(buildScopeReviewNote({
+      label: buildWorkExperienceLabel(draft) || "Untitled Work Experience candidate",
+      classification,
+      sourceTitle: args.sourceTitle,
+      rejectedScope: "Work Experience",
+    }));
   }
 
   return { accepted, reviewNotes, decisions, summary: summarizeGuardrailDecisions(decisions) };
+}
+
+export function guardInitiativeDraftsForPersistence(
+  drafts: ProfileEvidenceExtraction["initiatives"],
+  args: {
+    resolveWorkExperienceContext?: (workExperienceRef: string | null | undefined) => {
+      employer: string;
+      id?: string;
+      roleTitle: string;
+      sourceSection?: string | null;
+    } | null;
+    sourceTitle?: string | null;
+  } = {},
+): InitiativeScopeGuardrailResult {
+  const accepted: ProfileEvidenceExtraction["initiatives"] = [];
+  const reviewNotes: string[] = [];
+  const decisions: InitiativeScopeGuardrailResult["decisions"] = [];
+
+  for (const draft of drafts) {
+    const classification = classifyExtractedAssetCandidate({
+      proposedScope: "work_initiative",
+      content: buildInitiativeCandidateText(draft),
+      sourceSection: draft.work_experience_ref ?? "Work Initiative",
+      sourceQuote: buildInitiativeCandidateText(draft),
+    }, {
+      linkedWorkExperience: args.resolveWorkExperienceContext?.(draft.work_experience_ref) ?? null,
+    });
+    const disposition = dispositionFromPolicy(classification);
+    decisions.push({ draft, classification, disposition });
+    if (disposition === "accepted") {
+      accepted.push(draft);
+      continue;
+    }
+    reviewNotes.push(buildScopeReviewNote({
+      label: draft.internal_title || draft.external_safe_title || "Untitled Work Initiative candidate",
+      classification,
+      sourceTitle: args.sourceTitle,
+      rejectedScope: "Work Initiative",
+    }));
+  }
+
+  return { accepted, reviewNotes, decisions, summary: summarizeGuardrailDecisions(decisions) };
+}
+
+export function guardPortfolioProjectDraftsForPersistence(
+  drafts: ProfileEvidenceExtraction["portfolio_projects"],
+  args: {
+    sourceTitle?: string | null;
+  } = {},
+): PortfolioProjectScopeGuardrailResult {
+  const accepted: ProfileEvidenceExtraction["portfolio_projects"] = [];
+  const reviewNotes: string[] = [];
+  const decisions: PortfolioProjectScopeGuardrailResult["decisions"] = [];
+
+  for (const draft of drafts) {
+    const classification = classifyExtractedAssetCandidate({
+      proposedScope: "portfolio_project",
+      content: buildPortfolioProjectCandidateText(draft),
+      sourceSection: "Portfolio Project",
+      sourceQuote: buildPortfolioProjectCandidateText(draft),
+    });
+    const disposition = dispositionFromPolicy(classification);
+    decisions.push({ draft, classification, disposition });
+    if (disposition === "accepted") {
+      accepted.push(draft);
+      continue;
+    }
+    reviewNotes.push(buildScopeReviewNote({
+      label: draft.title || draft.external_safe_title || "Untitled Portfolio Project candidate",
+      classification,
+      sourceTitle: args.sourceTitle,
+      rejectedScope: "Portfolio Project",
+    }));
+  }
+
+  return { accepted, reviewNotes, decisions, summary: summarizeGuardrailDecisions(decisions) };
+}
+
+export function guardEvidenceDraftsForPersistence(
+  drafts: ProfileEvidenceExtraction["evidence_items"],
+  args: {
+    sourceTitle?: string | null;
+  } = {},
+): EvidenceScopeGuardrailResult {
+  const accepted: ProfileEvidenceExtraction["evidence_items"] = [];
+  const reviewNotes: string[] = [];
+  const decisions: EvidenceScopeGuardrailResult["decisions"] = [];
+
+  for (const draft of drafts) {
+    const classification = classifyExtractedAssetCandidate({
+      proposedScope: "evidence_claim",
+      content: draft.text,
+      sourceSection: "Evidence Claim",
+      sourceQuote: draft.source_quote,
+    });
+    const disposition = isReviewableEvidenceDraft(draft)
+      ? "accepted"
+      : dispositionFromPolicy(classification);
+    decisions.push({ draft, classification, disposition });
+    if (disposition === "accepted") {
+      accepted.push(draft);
+      continue;
+    }
+    reviewNotes.push(buildScopeReviewNote({
+      label: draft.text,
+      classification,
+      sourceTitle: args.sourceTitle,
+      rejectedScope: "Evidence Claim",
+    }));
+  }
+
+  return { accepted, reviewNotes, decisions, summary: summarizeGuardrailDecisions(decisions) };
+}
+
+function isReviewableEvidenceDraft(
+  draft: ProfileEvidenceExtraction["evidence_items"][number],
+) {
+  const wordCount = draft.text.trim().split(/\s+/).filter(Boolean).length;
+  const broadStoryMarkers = (draft.text.match(/\b(across|planning|coordination|enablement|strategy|roadmap)\b/gi) ?? []).length;
+  return Boolean(draft.source_quote.trim()) && wordCount <= 14 && broadStoryMarkers < 2;
 }
 
 function buildWorkExperienceCandidateText(
@@ -77,22 +221,69 @@ function buildWorkExperienceLabel(
   return [draft.employer, draft.role_title].filter(Boolean).join(" · ");
 }
 
-function buildScopeReviewNote(
-  draft: ProfileEvidenceExtraction["work_experiences"][number],
-  classification: ScopeClassificationResult,
-  sourceTitle?: string | null,
+function buildInitiativeCandidateText(
+  draft: ProfileEvidenceExtraction["initiatives"][number],
 ) {
-  const label = buildWorkExperienceLabel(draft) || "Untitled Work Experience candidate";
+  return [
+    draft.internal_title,
+    draft.external_safe_title,
+    draft.context,
+    draft.problem,
+    draft.role,
+    ...draft.actions,
+    ...draft.results,
+    ...draft.technologies,
+    ...(draft.stakeholders ?? []),
+    draft.external_safe_summary,
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" ");
+}
+
+function buildPortfolioProjectCandidateText(
+  draft: ProfileEvidenceExtraction["portfolio_projects"][number],
+) {
+  return [
+    draft.title,
+    draft.external_safe_title,
+    draft.context,
+    draft.problem,
+    draft.role,
+    ...draft.actions,
+    ...draft.results,
+    ...draft.technologies,
+    ...(draft.stakeholders ?? []),
+    draft.external_safe_summary,
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" ");
+}
+
+function buildScopeReviewNote(args: {
+  label: string;
+  classification: ScopeClassificationResult;
+  sourceTitle?: string | null;
+  rejectedScope: string;
+}) {
+  const label = args.label || `Untitled ${args.rejectedScope} candidate`;
+  const sourceTitle = args.sourceTitle;
   const source = sourceTitle?.trim() ? ` from ${sourceTitle.trim()}` : "";
   return [
-    `Scope review needed${source}: "${label}" was not saved as a Work Experience.`,
-    `Reason: ${classification.decision.reason}`,
+    `Scope review needed${source}: "${label}" was not saved as a ${args.rejectedScope}.`,
+    `Reason: ${args.classification.decision.reason}`,
     "Review the source and save it as the correct scope before using it in resumes.",
   ].join(" ");
 }
 
-function summarizeGuardrailDecisions(
-  decisions: WorkExperienceScopeGuardrailResult["decisions"],
+function dispositionFromPolicy(classification: ScopeClassificationResult): GuardrailDisposition {
+  const policy = classification.decision.canonicalLinkPolicy;
+  if (policy === "reject_as_invalid_scope") return "rejected";
+  if (policy === "review_queue_only") return "review_queue_only";
+  return "accepted";
+}
+
+function summarizeGuardrailDecisions<TDraft>(
+  decisions: DraftScopeGuardrailResult<TDraft>["decisions"],
 ): WorkExperienceScopeGuardrailSummary {
   const reasonCounts: Record<string, number> = {};
   for (const decision of decisions) {

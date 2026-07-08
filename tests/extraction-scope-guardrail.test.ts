@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { guardWorkExperienceDraftsForPersistence } from "../src/server/extraction-scope-guardrail";
+import {
+  guardEvidenceDraftsForPersistence,
+  guardInitiativeDraftsForPersistence,
+  guardPortfolioProjectDraftsForPersistence,
+  guardWorkExperienceDraftsForPersistence,
+} from "../src/server/extraction-scope-guardrail";
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
 
 describe("extraction scope persistence guardrails", () => {
@@ -71,6 +76,74 @@ describe("extraction scope persistence guardrails", () => {
     expect(JSON.stringify(result.summary)).not.toContain("confidential checkout");
     expect(Object.keys(result.summary.reasonCounts)[0]).toContain("Bullet-shaped action");
   });
+
+  it("routes Technical Skills initiative candidates to review instead of canonical persistence", () => {
+    const result = guardInitiativeDraftsForPersistence([
+      buildInitiativeDraft({
+        internal_title: "Technical Skills",
+        technologies: ["Java", "Python", "React", "AWS", "Redis"],
+      }),
+    ], {
+      resolveWorkExperienceContext: () => ({
+        employer: "Amazon",
+        roleTitle: "Software Engineer",
+      }),
+      sourceTitle: "Resume import",
+    });
+
+    expect(result.accepted).toHaveLength(0);
+    expect(result.decisions[0]).toMatchObject({
+      disposition: "review_queue_only",
+      classification: {
+        decision: {
+          acceptedScope: "profile_context",
+          canonicalLinkPolicy: "review_queue_only",
+        },
+      },
+    });
+    expect(result.reviewNotes[0]).toContain("was not saved as a Work Initiative");
+  });
+
+  it("keeps employer-context material out of Portfolio Projects", () => {
+    const result = guardPortfolioProjectDraftsForPersistence([
+      buildPortfolioProjectDraft({
+        title: "Amazon session latency optimization",
+        context: "Employer-internal delivery service work at Amazon.",
+      }),
+    ]);
+
+    expect(result.accepted).toHaveLength(0);
+    expect(result.decisions[0]).toMatchObject({
+      disposition: "review_queue_only",
+      classification: {
+        decision: {
+          acceptedScope: "unassigned",
+          canonicalLinkPolicy: "review_queue_only",
+        },
+      },
+    });
+  });
+
+  it("routes broad story material to review instead of Evidence Claim persistence", () => {
+    const result = guardEvidenceDraftsForPersistence([
+      buildEvidenceDraft({
+        text: "Led API consolidation across migration planning, dependency cleanup, rollout coordination, and service-owner enablement.",
+        source_quote: "Led API consolidation across migration planning, dependency cleanup, rollout coordination, and service-owner enablement.",
+      }),
+    ]);
+
+    expect(result.accepted).toHaveLength(0);
+    expect(result.decisions[0]).toMatchObject({
+      disposition: "review_queue_only",
+      classification: {
+        decision: {
+          acceptedScope: "unassigned",
+          canonicalLinkPolicy: "review_queue_only",
+        },
+      },
+    });
+    expect(result.reviewNotes[0]).toContain("was not saved as a Evidence Claim");
+  });
 });
 
 function buildWorkExperienceDraft(
@@ -85,6 +158,73 @@ function buildWorkExperienceDraft(
     end_date: "2021",
     summary: null,
     status: "pending",
+    ...overrides,
+  };
+}
+
+function buildInitiativeDraft(
+  overrides: Partial<ProfileEvidenceExtraction["initiatives"][number]>,
+): ProfileEvidenceExtraction["initiatives"][number] {
+  return {
+    actions: ["Built a scoped platform workflow."],
+    context: "Platform workflow",
+    external_safe_summary: null,
+    external_safe_title: null,
+    internal_title: "Platform workflow",
+    metrics: [],
+    needs_redaction_review: false,
+    problem: null,
+    results: [],
+    role: null,
+    sensitivity_level: "private",
+    stakeholders: [],
+    status: "pending",
+    technologies: [],
+    work_experience_ref: "Amazon · Software Engineer",
+    ...overrides,
+  };
+}
+
+function buildPortfolioProjectDraft(
+  overrides: Partial<ProfileEvidenceExtraction["portfolio_projects"][number]>,
+): ProfileEvidenceExtraction["portfolio_projects"][number] {
+  return {
+    actions: ["Built a project workflow."],
+    context: "Personal project",
+    external_safe_summary: null,
+    external_safe_title: null,
+    metrics: [],
+    needs_redaction_review: false,
+    problem: null,
+    project_type: "general_project",
+    results: [],
+    role: null,
+    sensitivity_level: "private",
+    stakeholders: [],
+    status: "pending",
+    technologies: [],
+    title: "Personal project",
+    ...overrides,
+  };
+}
+
+function buildEvidenceDraft(
+  overrides: Partial<ProfileEvidenceExtraction["evidence_items"][number]>,
+): ProfileEvidenceExtraction["evidence_items"][number] {
+  return {
+    allowed_usage: [],
+    evidence_type: "user_confirmed",
+    metrics: [],
+    needs_user_confirmation: true,
+    public_safe_summary: null,
+    related_initiative_id: null,
+    related_portfolio_project_id: null,
+    related_project_id: null,
+    related_work_experience_id: null,
+    sensitivity_level: "private",
+    source_quote: "Reduced API count from 20+ services to 10",
+    status: "pending",
+    text: "Reduced API count from 20+ services to 10",
     ...overrides,
   };
 }

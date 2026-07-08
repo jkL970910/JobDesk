@@ -310,6 +310,10 @@ function isPureTechnologyPhrase(text: string) {
 function isAtomicFact(text: string) {
   const normalized = text.trim();
   const sentenceCount = normalized.split(/[.!?]+/).filter((item) => item.trim()).length;
+  const actionCount = tokenize(text).filter((token) => ACTION_VERBS.has(token)).length;
+  const broadStoryMarkers = (normalized.match(/\b(across|planning|coordination|enablement|strategy|roadmap)\b/gi) ?? []).length;
+  const commaOrConjunctionCount = (normalized.match(/,|\band\b/gi) ?? []).length;
+  if (actionCount > 1 || broadStoryMarkers >= 2 || commaOrConjunctionCount >= 3) return false;
   return sentenceCount <= 1 && (hasOutcomeSignal(text) || hasActionSignal(text) || /\d/.test(text));
 }
 

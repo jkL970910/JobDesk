@@ -229,6 +229,7 @@ Minimal metadata:
 Acceptance:
 
 - Invalid Work Experience candidates do not create work experience rows.
+- Wrong-scope Initiative, Portfolio Project, and Evidence Claim candidates do not create canonical rows.
 - Ambiguous story candidates enter review queue.
 - Resume generation retrieval ignores needs-scope-review / unapproved evidence.
 - Existing extraction tests still pass.
@@ -443,10 +444,10 @@ Acceptance:
 | Phase 0 | Complete | Milestone plan created and product terminology synchronized in Evidence Library docs. |
 | Phase 1 | Complete | Candidate and Scope Decision contracts added as pure server modules with unit tests. |
 | Phase 2 | Complete, first slice | Deterministic classifier and early failure fixtures added as pure modules/tests. |
-| Phase 3 | In progress, first slice | Work Experience extraction drafts now pass through a pre-save scope guardrail; invalid role-container candidates are routed to imported material review notes instead of canonical Work Experience rows. |
-| Phase 4 | Complete, first slice | Same-role initiative fragment consolidation is isolated in `initiative-consolidation.ts` with fixtures for AWS CDK/cache/latency merging and cross-role non-merge. |
+| Phase 3 | Complete, first generalized slice | Work Experience, Work Initiative, Portfolio Project, and Evidence Claim extraction drafts now pass through pre-save scope guardrails; wrong-scope candidates route to imported material review notes instead of canonical tables. |
+| Phase 4 | Complete, second slice | Initiative consolidation is isolated in `initiative-consolidation.ts` with fixtures for AWS CDK/cache/latency merging, ambiguous/unassigned fragment merging, and cross-role non-merge. |
 | Phase 5 | Complete, first slice | `scope-accuracy-regression-fixtures.test.ts` locks the seven signed-off failure families across classifier, guardrail, consolidation, and imported-note routing. |
 | Phase 6 | In progress, second slice | Create missing Story Target from enrichment question exists; Evidence Cards now expose explicit Remove story link. Change scope/reassign/merge/keep separate remain staged. |
 | Phase 7 | In progress, first slice | Work Queue source-review pane now gives scope guardrail notes a dedicated scope-review action model; deeper validators remain staged. |
-| Phase 8 | In progress, first slice | Workflow metadata now records privacy-safe scope guardrail/consolidation counts; broader diagnostics dashboard remains staged. |
+| Phase 8 | In progress, second slice | Workflow metadata now records privacy-safe scope guardrail/consolidation counts for Work Experience, Initiative, Portfolio Project, and Evidence Claim candidates; broader diagnostics dashboard remains staged. |
 | Phase 9 | Not started | AI enhancements intentionally deferred. |

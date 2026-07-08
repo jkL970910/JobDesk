@@ -91,7 +91,7 @@ function scoreInitiativeMergeConfidence(
   first: InitiativeDraft,
   second: InitiativeDraft,
 ): "none" | "medium" | "high" {
-  if (!sameKnownWorkExperienceRef(first.work_experience_ref, second.work_experience_ref)) {
+  if (!compatibleWorkExperienceRef(first.work_experience_ref, second.work_experience_ref)) {
     return "none";
   }
   const firstTokens = initiativeSignalTokens(first);
@@ -212,9 +212,20 @@ function hasAny(values: Set<string>) {
   return values.size > 0;
 }
 
-function sameKnownWorkExperienceRef(first: string | null | undefined, second: string | null | undefined) {
-  if (!hasText(first) || !hasText(second)) return false;
-  return normalizeMatchText(first!) === normalizeMatchText(second!);
+function compatibleWorkExperienceRef(first: string | null | undefined, second: string | null | undefined) {
+  if (!hasText(first) || !hasText(second)) return true;
+  const normalizedFirst = normalizeMatchText(first!);
+  const normalizedSecond = normalizeMatchText(second!);
+  if (normalizedFirst === normalizedSecond) return true;
+  const firstTokens = new Set(tokenizeInitiativeText(normalizedFirst));
+  const secondTokens = new Set(tokenizeInitiativeText(normalizedSecond));
+  const sharedTokens = countSetOverlap(firstTokens, secondTokens);
+  return sharedTokens >= 2 && !hasConflictingRoleQualifier(firstTokens, secondTokens);
+}
+
+function hasConflictingRoleQualifier(first: Set<string>, second: Set<string>) {
+  const qualifiers = ["intern", "internship", "full", "time", "contract", "manager", "lead"];
+  return qualifiers.some((token) => first.has(token) !== second.has(token));
 }
 
 function pickMostCompleteTitle(cluster: InitiativeDraft[]) {

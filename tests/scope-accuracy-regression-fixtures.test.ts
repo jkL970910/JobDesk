@@ -67,6 +67,49 @@ describe("scope accuracy regression fixtures", () => {
     expect(result.extractionNotes[0]).toContain("These story fragments were merged");
   });
 
+  it("consolidates split initiative fragments even when role refs are omitted or slightly varied", () => {
+    const result = consolidateInitiativeDrafts([
+      buildInitiative({
+        internal_title: "AWS infrastructure provisioning with CDK",
+        actions: ["Provisioned cloud infrastructure using AWS CDK."],
+        technologies: ["AWS CDK"],
+        work_experience_ref: null,
+      }),
+      buildInitiative({
+        internal_title: "Session latency optimization with distributed caching",
+        results: ["Optimized session latency."],
+        technologies: ["distributed cache"],
+        work_experience_ref: "Amazon Software Engineer",
+      }),
+      buildInitiative({
+        internal_title: "Distributed cloud caching for high-scale delivery service",
+        context: "High-scale delivery service had session latency constraints.",
+        technologies: ["distributed cache"],
+        work_experience_ref: "Amazon · Software Engineer",
+      }),
+    ]);
+
+    expect(result.initiatives).toHaveLength(1);
+    expect(result.extractionNotes[0]).toContain("These story fragments were merged");
+  });
+
+  it("does not consolidate split fragments across clearly different same-company roles", () => {
+    const result = consolidateInitiativeDrafts([
+      buildInitiative({
+        internal_title: "Amazon internship cache metrics dashboard",
+        technologies: ["distributed cache"],
+        work_experience_ref: "Amazon internship",
+      }),
+      buildInitiative({
+        internal_title: "Amazon full-time cache metrics dashboard",
+        technologies: ["distributed cache"],
+        work_experience_ref: "Amazon full-time",
+      }),
+    ]);
+
+    expect(result.initiatives).toHaveLength(2);
+  });
+
   it("keeps bullet-shaped Work Experience candidates out of canonical role rows", () => {
     const result = guardWorkExperienceDraftsForPersistence(
       [
