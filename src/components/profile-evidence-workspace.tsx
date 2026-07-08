@@ -5628,6 +5628,18 @@ function SourceSectionReviewPane({
 
 function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: string | null) {
   const expectedAction = task.expected_action ?? "review_import";
+  if (isScopeReviewTask(task)) {
+    return {
+      description: "This item was blocked by scope classification before it could become canonical library material.",
+      eyebrow: "Scope review",
+      heading: "Review the material scope.",
+      primaryAction: "review_import" as const,
+      primaryLabel: "Review imported items",
+      recommendedAction:
+        "Check whether this belongs as a Work Experience, Story Target, Evidence Claim, Portfolio Project, or unassigned note. Do not answer it as an evidence question.",
+      title: "Scope classification review",
+    };
+  }
   if (expectedAction === "acknowledge") {
     return {
       description: "This review item came from imported material. Confirm it if the imported result is correct.",
@@ -5688,6 +5700,10 @@ function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: strin
     recommendedAction: "Review or dismiss this item. Do not answer it as a normal evidence question.",
     title: "Review item",
   };
+}
+
+function isScopeReviewTask(task: EnrichmentTaskItem) {
+  return /\bscope review needed\b/i.test(task.prompt);
 }
 
 function formatImportedNoteTargetField(field: string) {

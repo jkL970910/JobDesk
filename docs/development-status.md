@@ -37,7 +37,7 @@ Current phase status:
 | Phase 4: Initiative Consolidation | Complete, first slice | Same-role initiative fragment consolidation is isolated in `initiative-consolidation.ts` with fixtures for AWS CDK/cache/latency merging and cross-role non-merge. |
 | Phase 5: Regression Fixture Suite | Complete, first slice | `scope-accuracy-regression-fixtures.test.ts` locks the seven signed-off failure families across classifier, guardrail, consolidation, and imported-note routing. |
 | Phase 6: User Correction Workflow | In progress, second slice | Creating a missing Story Target from an enrichment question is implemented; Evidence Cards now expose explicit Remove story link. Change scope/reassign/merge/keep separate remain staged. |
-| Phase 7: Post-Save Validators And Work Queue Routing | Not started | Validators and fix-surface routing pending. |
+| Phase 7: Post-Save Validators And Work Queue Routing | In progress, first slice | Work Queue source-review pane now gives scope guardrail notes a dedicated scope-review action model; deeper validators remain staged. |
 | Phase 8: Observability And Admin Diagnostics | Not started | Accuracy diagnostics pending. |
 | Phase 9: Intelligence Layer | Deferred | AI enhancements wait until deterministic guardrails are stable. |
 
