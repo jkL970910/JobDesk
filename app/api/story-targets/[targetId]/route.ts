@@ -70,8 +70,10 @@ export async function PATCH(
   }
 
   const result = await applyStoryTargetCorrection({
-    ...body.data,
+    action: body.data.action,
     targetId: params.data.targetId,
+    targetType: body.data.targetType,
+    payload: buildStoryTargetCorrectionPayload(body.data),
   });
 
   if (result.status === "not_found") {
@@ -89,4 +91,29 @@ export async function PATCH(
 
   schedulePersonalEmbeddingsSync(`story_target_${body.data.action}`);
   return NextResponse.json({ data: result });
+}
+
+function buildStoryTargetCorrectionPayload(body: z.infer<typeof requestSchema>) {
+  switch (body.action) {
+    case "assign_work_experience":
+      return { workExperienceId: body.workExperienceId };
+    case "convert_to_initiative":
+      return { workExperienceId: body.workExperienceId };
+    case "convert_to_portfolio_project":
+      return { projectType: body.projectType };
+    case "create_work_experience_and_assign":
+      return {
+        employer: body.employer,
+        roleTitle: body.roleTitle,
+        team: body.team,
+        location: body.location,
+        startDate: body.startDate,
+        endDate: body.endDate,
+        summary: body.summary,
+      };
+    case "mark_reviewed":
+    case "mark_needs_update":
+    case "reject_story":
+      return undefined;
+  }
 }

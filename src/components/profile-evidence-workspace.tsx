@@ -5519,11 +5519,11 @@ function SourceSectionReviewPane({
                 <dd>{formatScopeReviewScope(scopeReviewCandidate.proposedScope)}</dd>
               </div>
               <div>
-                <dt>Classifier result</dt>
+                <dt>Review outcome</dt>
                 <dd>{formatScopeReviewScope(scopeReviewCandidate.classifierAcceptedScope)}</dd>
               </div>
               <div>
-                <dt>Guardrail reason</dt>
+                <dt>Why this needs review</dt>
                 <dd>{scopeReviewCandidate.guardrailReason}</dd>
               </div>
               <div>

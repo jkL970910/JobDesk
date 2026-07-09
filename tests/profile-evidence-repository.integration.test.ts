@@ -32,7 +32,6 @@ import {
   getRecentEvidenceLibrary,
   getResumeTailoringContext,
   getStarStoryBank,
-  convertInitiativeToPortfolioProject,
   convertPortfolioProjectToInitiative,
   deleteEvidenceItem,
   keepEvidenceOverlapSeparate,
@@ -58,6 +57,7 @@ import {
   applyEvidenceAssetAction,
   quarantineEvidenceAsset,
 } from "../src/server/evidence-asset-actions";
+import { applyStoryTargetCorrection } from "../src/server/story-target-correction";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
 
@@ -897,6 +897,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
         kind: "scope_review_candidate",
         proposedScope: "work_experience",
         classifierAcceptedScope: "unassigned",
+        sourceDocumentId: result.sourceDocumentId,
         sourceLabel: sourceTitle,
         suggestedAction: "review_scope",
         resolutionStatus: "open",
@@ -1019,6 +1020,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
           reviewPayload: expect.objectContaining({
             kind: "scope_review_candidate",
             proposedScope: "work_initiative",
+            sourceDocumentId: result.sourceDocumentId,
           }),
         }),
         expect.objectContaining({
@@ -1026,6 +1028,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
           reviewPayload: expect.objectContaining({
             kind: "scope_review_candidate",
             proposedScope: "portfolio_project",
+            sourceDocumentId: result.sourceDocumentId,
           }),
         }),
         expect.objectContaining({
@@ -1033,6 +1036,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
           reviewPayload: expect.objectContaining({
             kind: "scope_review_candidate",
             proposedScope: "evidence_claim",
+            sourceDocumentId: result.sourceDocumentId,
           }),
         }),
       ]),
@@ -4277,9 +4281,11 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       })
       .returning({ id: generatedClaims.id });
 
-    const converted = await convertInitiativeToPortfolioProject({
-      initiativeId: initiative.id,
-      projectType: "open_source",
+    const converted = await applyStoryTargetCorrection({
+      action: "convert_to_portfolio_project",
+      targetId: initiative.id,
+      targetType: "initiative",
+      payload: { projectType: "open_source" },
     });
     expect(converted).toMatchObject({
       status: "saved",
@@ -4287,7 +4293,9 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       movedEvidenceCount: 1,
       staleClaimCount: 1,
     });
-    if (converted.status !== "saved") throw new Error("Expected converted story target.");
+    if (converted.status !== "saved" || !("newPortfolioProjectId" in converted)) {
+      throw new Error("Expected converted portfolio project story target.");
+    }
     const [project] = await db
       .select()
       .from(portfolioProjects)

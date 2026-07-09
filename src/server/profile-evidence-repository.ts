@@ -156,7 +156,7 @@ export async function persistProfileEvidenceExtraction(args: {
     );
     const guardedWorkExperienceDrafts = guardWorkExperienceDraftsForPersistence(
       mergedWorkExperienceDrafts,
-      { sourceTitle: title },
+      { sourceDocumentId: sourceDocument.id, sourceTitle: title },
     );
     const workExperienceDrafts = sanitizeWorkExperienceDrafts(guardedWorkExperienceDrafts.accepted);
     const initiativeConsolidation = consolidateInitiativeDrafts(args.extraction.initiatives);
@@ -220,7 +220,7 @@ export async function persistProfileEvidenceExtraction(args: {
     };
     const guardedInitiativeDrafts = guardInitiativeDraftsForPersistence(
       initiativeConsolidation.initiatives,
-      { resolveWorkExperienceContext, sourceTitle: title },
+      { resolveWorkExperienceContext, sourceDocumentId: sourceDocument.id, sourceTitle: title },
     );
     const initiativeDrafts = guardedInitiativeDrafts.accepted;
 
@@ -285,7 +285,7 @@ export async function persistProfileEvidenceExtraction(args: {
     const portfolioProjectAnchorTexts = new Map<string, string>();
     const guardedPortfolioProjectDrafts = guardPortfolioProjectDraftsForPersistence(
       args.extraction.portfolio_projects,
-      { sourceTitle: title },
+      { sourceDocumentId: sourceDocument.id, sourceTitle: title },
     );
     const portfolioProjectDrafts = guardedPortfolioProjectDrafts.accepted;
     if (enrichmentTarget?.targetType === "portfolio_project") {
@@ -400,7 +400,7 @@ export async function persistProfileEvidenceExtraction(args: {
 
     const guardedEvidenceDrafts = guardEvidenceDraftsForPersistence(
       args.extraction.evidence_items,
-      { sourceTitle: title },
+      { sourceDocumentId: sourceDocument.id, sourceTitle: title },
     );
     const evidenceDrafts = guardedEvidenceDrafts.accepted;
     if (evidenceDrafts.length > 0) {
@@ -516,6 +516,13 @@ export async function persistProfileEvidenceExtraction(args: {
       now,
       tasks: buildExtractionNoteEnrichmentTasks({
         sourceTitle: title,
+        sourceDocumentId: sourceDocument.id,
+        reviewPayloads: [
+          ...guardedWorkExperienceDrafts.reviewCandidates,
+          ...guardedInitiativeDrafts.reviewCandidates,
+          ...guardedPortfolioProjectDrafts.reviewCandidates,
+          ...guardedEvidenceDrafts.reviewCandidates,
+        ],
         notes: [
           ...args.extraction.extraction_notes,
           ...guardedWorkExperienceDrafts.reviewNotes,

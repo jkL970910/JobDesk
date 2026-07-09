@@ -1,10 +1,15 @@
 import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
+import {
+  buildScopeReviewCandidatePayload,
+  type ScopeReviewCandidatePayload,
+} from "./scope-review-candidate";
 import { classifyExtractedAssetCandidate } from "./scope-classifier";
 import type { ScopeClassificationResult } from "./scope-classifier";
 
 export type WorkExperienceScopeGuardrailResult = {
   accepted: ProfileEvidenceExtraction["work_experiences"];
   reviewNotes: string[];
+  reviewCandidates: ScopeReviewCandidate[];
   decisions: Array<{
     draft: ProfileEvidenceExtraction["work_experiences"][number];
     classification: ScopeClassificationResult;
@@ -25,9 +30,15 @@ export type WorkExperienceScopeGuardrailSummary = ExtractionScopeGuardrailSummar
 
 type GuardrailDisposition = "accepted" | "review_queue_only" | "rejected";
 
+export type ScopeReviewCandidate = {
+  note: string;
+  payload: ScopeReviewCandidatePayload;
+};
+
 type DraftScopeGuardrailResult<TDraft> = {
   accepted: TDraft[];
   reviewNotes: string[];
+  reviewCandidates: ScopeReviewCandidate[];
   decisions: Array<{
     draft: TDraft;
     classification: ScopeClassificationResult;
@@ -51,10 +62,12 @@ export function guardWorkExperienceDraftsForPersistence(
   args: {
     sourceSection?: string | null;
     sourceTitle?: string | null;
+    sourceDocumentId?: string | null;
   } = {},
 ): WorkExperienceScopeGuardrailResult {
   const accepted: ProfileEvidenceExtraction["work_experiences"] = [];
   const reviewNotes: string[] = [];
+  const reviewCandidates: ScopeReviewCandidate[] = [];
   const decisions: WorkExperienceScopeGuardrailResult["decisions"] = [];
 
   for (const draft of drafts) {
@@ -70,15 +83,18 @@ export function guardWorkExperienceDraftsForPersistence(
       accepted.push(draft);
       continue;
     }
-    reviewNotes.push(buildScopeReviewNote({
-      label: buildWorkExperienceLabel(draft) || "Untitled Work Experience candidate",
+    addScopeReviewCandidate(reviewNotes, reviewCandidates, {
       classification,
-      sourceTitle: args.sourceTitle,
+      label: buildWorkExperienceLabel(draft) || "Untitled Work Experience candidate",
+      proposedScope: "work_experience",
       rejectedScope: "Work Experience",
-    }));
+      sourceDocumentId: args.sourceDocumentId,
+      sourceSection: args.sourceSection ?? "Work Experience",
+      sourceTitle: args.sourceTitle,
+    });
   }
 
-  return { accepted, reviewNotes, decisions, summary: summarizeGuardrailDecisions(decisions) };
+  return { accepted, reviewNotes, reviewCandidates, decisions, summary: summarizeGuardrailDecisions(decisions) };
 }
 
 export function guardInitiativeDraftsForPersistence(
@@ -91,10 +107,12 @@ export function guardInitiativeDraftsForPersistence(
       sourceSection?: string | null;
     } | null;
     sourceTitle?: string | null;
+    sourceDocumentId?: string | null;
   } = {},
 ): InitiativeScopeGuardrailResult {
   const accepted: ProfileEvidenceExtraction["initiatives"] = [];
   const reviewNotes: string[] = [];
+  const reviewCandidates: ScopeReviewCandidate[] = [];
   const decisions: InitiativeScopeGuardrailResult["decisions"] = [];
 
   for (const draft of drafts) {
@@ -112,25 +130,30 @@ export function guardInitiativeDraftsForPersistence(
       accepted.push(draft);
       continue;
     }
-    reviewNotes.push(buildScopeReviewNote({
-      label: draft.internal_title || draft.external_safe_title || "Untitled Work Initiative candidate",
+    addScopeReviewCandidate(reviewNotes, reviewCandidates, {
       classification,
-      sourceTitle: args.sourceTitle,
+      label: draft.internal_title || draft.external_safe_title || "Untitled Work Initiative candidate",
+      proposedScope: "work_initiative",
       rejectedScope: "Work Initiative",
-    }));
+      sourceDocumentId: args.sourceDocumentId,
+      sourceSection: draft.work_experience_ref ?? "Work Initiative",
+      sourceTitle: args.sourceTitle,
+    });
   }
 
-  return { accepted, reviewNotes, decisions, summary: summarizeGuardrailDecisions(decisions) };
+  return { accepted, reviewNotes, reviewCandidates, decisions, summary: summarizeGuardrailDecisions(decisions) };
 }
 
 export function guardPortfolioProjectDraftsForPersistence(
   drafts: ProfileEvidenceExtraction["portfolio_projects"],
   args: {
     sourceTitle?: string | null;
+    sourceDocumentId?: string | null;
   } = {},
 ): PortfolioProjectScopeGuardrailResult {
   const accepted: ProfileEvidenceExtraction["portfolio_projects"] = [];
   const reviewNotes: string[] = [];
+  const reviewCandidates: ScopeReviewCandidate[] = [];
   const decisions: PortfolioProjectScopeGuardrailResult["decisions"] = [];
 
   for (const draft of drafts) {
@@ -146,25 +169,30 @@ export function guardPortfolioProjectDraftsForPersistence(
       accepted.push(draft);
       continue;
     }
-    reviewNotes.push(buildScopeReviewNote({
-      label: draft.title || draft.external_safe_title || "Untitled Portfolio Project candidate",
+    addScopeReviewCandidate(reviewNotes, reviewCandidates, {
       classification,
-      sourceTitle: args.sourceTitle,
+      label: draft.title || draft.external_safe_title || "Untitled Portfolio Project candidate",
+      proposedScope: "portfolio_project",
       rejectedScope: "Portfolio Project",
-    }));
+      sourceDocumentId: args.sourceDocumentId,
+      sourceSection: "Portfolio Project",
+      sourceTitle: args.sourceTitle,
+    });
   }
 
-  return { accepted, reviewNotes, decisions, summary: summarizeGuardrailDecisions(decisions) };
+  return { accepted, reviewNotes, reviewCandidates, decisions, summary: summarizeGuardrailDecisions(decisions) };
 }
 
 export function guardEvidenceDraftsForPersistence(
   drafts: ProfileEvidenceExtraction["evidence_items"],
   args: {
     sourceTitle?: string | null;
+    sourceDocumentId?: string | null;
   } = {},
 ): EvidenceScopeGuardrailResult {
   const accepted: ProfileEvidenceExtraction["evidence_items"] = [];
   const reviewNotes: string[] = [];
+  const reviewCandidates: ScopeReviewCandidate[] = [];
   const decisions: EvidenceScopeGuardrailResult["decisions"] = [];
 
   for (const draft of drafts) {
@@ -182,15 +210,18 @@ export function guardEvidenceDraftsForPersistence(
       accepted.push(draft);
       continue;
     }
-    reviewNotes.push(buildScopeReviewNote({
-      label: draft.text,
+    addScopeReviewCandidate(reviewNotes, reviewCandidates, {
       classification,
-      sourceTitle: args.sourceTitle,
+      label: draft.text,
+      proposedScope: "evidence_claim",
       rejectedScope: "Evidence Claim",
-    }));
+      sourceDocumentId: args.sourceDocumentId,
+      sourceSection: "Evidence Claim",
+      sourceTitle: args.sourceTitle,
+    });
   }
 
-  return { accepted, reviewNotes, decisions, summary: summarizeGuardrailDecisions(decisions) };
+  return { accepted, reviewNotes, reviewCandidates, decisions, summary: summarizeGuardrailDecisions(decisions) };
 }
 
 function isReviewableEvidenceDraft(
@@ -264,6 +295,39 @@ function buildPortfolioProjectCandidateText(
   ]
     .filter((value): value is string => Boolean(value?.trim()))
     .join(" ");
+}
+
+function addScopeReviewCandidate(
+  reviewNotes: string[],
+  reviewCandidates: ScopeReviewCandidate[],
+  args: {
+    classification: ScopeClassificationResult;
+    label: string;
+    proposedScope: ScopeReviewCandidatePayload["proposedScope"];
+    rejectedScope: string;
+    sourceDocumentId?: string | null;
+    sourceSection?: string | null;
+    sourceTitle?: string | null;
+  },
+) {
+  const note = buildScopeReviewNote({
+    label: args.label,
+    classification: args.classification,
+    sourceTitle: args.sourceTitle,
+    rejectedScope: args.rejectedScope,
+  });
+  reviewNotes.push(note);
+  reviewCandidates.push({
+    note,
+    payload: buildScopeReviewCandidatePayload({
+      classification: args.classification,
+      label: args.label,
+      proposedScope: args.proposedScope,
+      sourceDocumentId: args.sourceDocumentId,
+      sourceLabel: args.sourceTitle ?? "Imported source",
+      sourceSection: args.sourceSection,
+    }),
+  });
 }
 
 function buildScopeReviewNote(args: {

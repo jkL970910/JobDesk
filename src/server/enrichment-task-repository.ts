@@ -54,6 +54,10 @@ import {
 } from "../db/schema";
 import { workflowSkillFields } from "./workflow-run-metadata";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
+import {
+  parseScopeReviewCandidatePayloadFromNote,
+  type ScopeReviewCandidatePayload,
+} from "./scope-review-candidate";
 
 type DbHandle = ReturnType<typeof getDb>;
 type DbExecutor = Pick<DbHandle, "select" | "update" | "insert">;
@@ -119,41 +123,6 @@ export type EnrichmentTaskTargetPayload = {
   created_by: string | null;
   reason: string | null;
   rejected_at: string | null;
-};
-
-export type ScopeReviewCandidatePayload = {
-  kind: "scope_review_candidate";
-  candidateId: string;
-  proposedScope:
-    | "work_experience"
-    | "work_initiative"
-    | "portfolio_project"
-    | "evidence_claim"
-    | "profile_context"
-    | "imported_note"
-    | "enrichment_question";
-  classifierAcceptedScope:
-    | "work_experience"
-    | "work_initiative"
-    | "portfolio_project"
-    | "evidence_claim"
-    | "profile_context"
-    | "imported_note"
-    | "unassigned";
-  guardrailReason: string;
-  sourceDocumentId?: string | null;
-  sourceLabel: string;
-  sourceQuote?: string | null;
-  sourceSection?: string | null;
-  sourceSnippet: string;
-  suggestedAction:
-    | "save_as_evidence"
-    | "save_as_work_initiative"
-    | "save_as_portfolio_project"
-    | "save_as_profile_context"
-    | "review_scope"
-    | "dismiss";
-  resolutionStatus: "open" | "resolved" | "dismissed";
 };
 
 export type EnrichmentTaskReviewPayload = ScopeReviewCandidatePayload;
@@ -369,14 +338,17 @@ export function buildExtractionNoteEnrichmentTasks(args: {
   sourceTitle: string;
   notes: string[];
   sourceDocumentId?: string | null;
+  reviewPayloads?: Array<{ note: string; payload: EnrichmentTaskReviewPayload }>;
 }) {
   return args.notes.map((note) => {
     const classification = classifyExtractionNoteAction(note);
-    const reviewPayload = buildScopeReviewCandidatePayload({
-      note,
-      sourceDocumentId: args.sourceDocumentId,
-      sourceLabel: args.sourceTitle,
-    });
+    const reviewPayload =
+      findScopeReviewPayloadForNote(args.reviewPayloads, note, args.sourceDocumentId) ??
+      parseScopeReviewCandidatePayloadFromNote({
+        note,
+        sourceDocumentId: args.sourceDocumentId,
+        sourceLabel: args.sourceTitle,
+      });
     if (classification.expectedAction !== "answer_enrichment_question") {
       return {
         taskType: "source_section_review" as const,
@@ -400,6 +372,17 @@ export function buildExtractionNoteEnrichmentTasks(args: {
       prompt: note,
     };
   });
+}
+
+function findScopeReviewPayloadForNote(
+  reviewPayloads: Array<{ note: string; payload: EnrichmentTaskReviewPayload }> | undefined,
+  note: string,
+  sourceDocumentId?: string | null,
+) {
+  const payload = reviewPayloads?.find((item) => item.note === note)?.payload;
+  if (!payload) return null;
+  if (payload.sourceDocumentId || !sourceDocumentId) return payload;
+  return { ...payload, sourceDocumentId };
 }
 
 function classifyExtractionNoteAction(note: string): {
@@ -513,86 +496,6 @@ function classifyExtractionNoteAction(note: string): {
     reason: baseReason,
     targetField: inferProfileTargetField(normalized),
   };
-}
-
-function buildScopeReviewCandidatePayload(args: {
-  note: string;
-  sourceDocumentId?: string | null;
-  sourceLabel: string;
-}): EnrichmentTaskReviewPayload | null {
-  const match = args.note.match(
-    /Scope review needed(?: from (?<source>.*?))?: "(?<snippet>.*?)" was not saved as a (?<scope>[^.]+)\. Reason: (?<reason>.*?) Review the source and save it as the correct scope before using it in resumes\./,
-  );
-  if (!match?.groups) return null;
-  const { reason, scope, snippet, source } = match.groups;
-  if (!reason || !scope || !snippet) return null;
-  const proposedScope = mapRejectedScopeLabel(scope);
-  const guardrailReason = reason.trim();
-  const sourceSnippet = snippet.trim();
-  return {
-    kind: "scope_review_candidate",
-    candidateId: `scope:${crypto.createHash("sha256").update(args.note).digest("hex").slice(0, 24)}`,
-    proposedScope,
-    classifierAcceptedScope: inferAcceptedScopeFromGuardrailReason(guardrailReason),
-    guardrailReason,
-    sourceDocumentId: args.sourceDocumentId ?? null,
-    sourceLabel: args.sourceLabel,
-    sourceQuote: sourceSnippet,
-    sourceSection: source?.trim() || args.sourceLabel,
-    sourceSnippet,
-    suggestedAction: suggestScopeReviewAction(proposedScope, guardrailReason),
-    resolutionStatus: "open",
-  };
-}
-
-function mapRejectedScopeLabel(scope: string): ScopeReviewCandidatePayload["proposedScope"] {
-  const normalized = scope.trim().toLowerCase();
-  if (normalized === "work experience") return "work_experience";
-  if (normalized === "work initiative") return "work_initiative";
-  if (normalized === "portfolio project") return "portfolio_project";
-  if (normalized === "evidence claim") return "evidence_claim";
-  return "imported_note";
-}
-
-function inferAcceptedScopeFromGuardrailReason(
-  reason: string,
-): ScopeReviewCandidatePayload["classifierAcceptedScope"] {
-  const normalized = reason.toLowerCase();
-  if (/\bprofile context\b|\bskills\b|\bprofile-positioning\b/.test(normalized)) {
-    return "profile_context";
-  }
-  if (/\bimported observation\b|\backnowledged\b|\bsource\/profile review\b/.test(normalized)) {
-    return "imported_note";
-  }
-  if (/\bmust\b|\brequires\b|\bneeds\b|\blacks\b|\bambiguous\b|\bnot\b/.test(normalized)) {
-    return "unassigned";
-  }
-  if (/\bevidence\b|\batomic\b|\btechnology\/action fragment\b/.test(normalized)) {
-    return "evidence_claim";
-  }
-  if (/\bwork initiative\b|\bstory\b|\bproject\/story\b/.test(normalized)) {
-    return "work_initiative";
-  }
-  if (/\bportfolio project\b|\bnon-employer\b/.test(normalized)) {
-    return "portfolio_project";
-  }
-  if (/\bwork experience\b|\brole-container\b/.test(normalized)) {
-    return "work_experience";
-  }
-  return "unassigned";
-}
-
-function suggestScopeReviewAction(
-  proposedScope: ScopeReviewCandidatePayload["proposedScope"],
-  reason: string,
-): ScopeReviewCandidatePayload["suggestedAction"] {
-  const acceptedScope = inferAcceptedScopeFromGuardrailReason(reason);
-  if (acceptedScope === "profile_context") return "save_as_profile_context";
-  if (acceptedScope === "evidence_claim") return "save_as_evidence";
-  if (acceptedScope === "work_initiative") return "save_as_work_initiative";
-  if (acceptedScope === "portfolio_project") return "save_as_portfolio_project";
-  if (proposedScope === "evidence_claim") return "review_scope";
-  return "review_scope";
 }
 
 function looksLikeConcreteExtractionGap(normalized: string) {
