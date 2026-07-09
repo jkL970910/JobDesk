@@ -32,6 +32,7 @@ import {
   getRecentEvidenceLibrary,
   getResumeTailoringContext,
   getStarStoryBank,
+  convertInitiativeToPortfolioProject,
   convertPortfolioProjectToInitiative,
   deleteEvidenceItem,
   keepEvidenceOverlapSeparate,
@@ -4138,6 +4139,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       .where(eq(portfolioProjects.id, project.id));
     const [movedEvidence] = await db
       .select({
+        relatedWorkExperienceId: evidenceItems.relatedWorkExperienceId,
         relatedInitiativeId: evidenceItems.relatedInitiativeId,
         relatedPortfolioProjectId: evidenceItems.relatedPortfolioProjectId,
       })
@@ -4162,6 +4164,138 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
     expect(movedEvidence).toMatchObject({
       relatedInitiativeId: converted.newInitiativeId,
       relatedPortfolioProjectId: null,
+    });
+    expect(staleClaim).toMatchObject({ claimStatus: "stale" });
+  });
+
+  it("converts a Work Initiative story target into a Portfolio Project and moves linked evidence", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const now = new Date();
+    const [sourceDocument] = await db
+      .insert(sourceDocuments)
+      .values({
+        workspaceId: workspace.id,
+        sourceType: "profile-evidence",
+        title: `Portfolio correction source ${crypto.randomUUID()}`,
+        contentText: "Personal OSS scheduler story.",
+        contentHash: crypto.randomUUID(),
+      })
+      .returning({ id: sourceDocuments.id });
+    const [experience] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: `Wrong employer ${crypto.randomUUID()}`,
+        roleTitle: "Software Engineer",
+        startDate: "2023",
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: workExperiences.id });
+    const [initiative] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        workExperienceId: experience?.id,
+        sourceDocumentId: sourceDocument?.id,
+        internalTitle: "OSS scheduler automation",
+        externalSafeTitle: "Scheduler automation",
+        context: "Open-source side project.",
+        problem: "Manual scheduling was slow.",
+        role: "Designed and shipped the workflow.",
+        actions: ["Built a scheduling automation service"],
+        results: ["Reduced manual planning time"],
+        metrics: [{ value: "5 hours saved weekly" }],
+        technologies: ["TypeScript", "Postgres"],
+        stakeholders: ["maintainers"],
+        externalSafeSummary: "Built open-source scheduling automation.",
+        sensitivityLevel: "private",
+        needsRedactionReview: 1,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: initiatives.id });
+    if (!sourceDocument || !experience || !initiative) throw new Error("Expected initiative rows.");
+    const [evidence] = await db
+      .insert(evidenceItems)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        text: "Built a scheduling automation service.",
+        sourceQuote: "Built a scheduling automation service.",
+        evidenceType: "extracted",
+        sensitivityLevel: "private",
+        relatedInitiativeId: initiative.id,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: evidenceItems.id });
+    if (!evidence) throw new Error("Expected linked initiative evidence.");
+    const [claim] = await db
+      .insert(generatedClaims)
+      .values({
+        workspaceId: workspace.id,
+        claimText: "Built a scheduling automation service.",
+        section: "projects",
+        evidenceIds: [evidence.id],
+        sourceQuotes: ["Built a scheduling automation service."],
+        supportStatus: "supported",
+        claimStatus: "supported",
+        riskLevel: "low",
+        createdAt: now,
+      })
+      .returning({ id: generatedClaims.id });
+
+    const converted = await convertInitiativeToPortfolioProject({
+      initiativeId: initiative.id,
+      projectType: "open_source",
+    });
+    expect(converted).toMatchObject({
+      status: "saved",
+      oldStoryId: initiative.id,
+      movedEvidenceCount: 1,
+      staleClaimCount: 1,
+    });
+    if (converted.status !== "saved") throw new Error("Expected converted story target.");
+    const [project] = await db
+      .select()
+      .from(portfolioProjects)
+      .where(eq(portfolioProjects.id, converted.newPortfolioProjectId));
+    const [oldInitiative] = await db
+      .select({ status: initiatives.status })
+      .from(initiatives)
+      .where(eq(initiatives.id, initiative.id));
+    const [movedEvidence] = await db
+      .select({
+        relatedWorkExperienceId: evidenceItems.relatedWorkExperienceId,
+        relatedInitiativeId: evidenceItems.relatedInitiativeId,
+        relatedPortfolioProjectId: evidenceItems.relatedPortfolioProjectId,
+      })
+      .from(evidenceItems)
+      .where(eq(evidenceItems.id, evidence.id));
+    const [staleClaim] = await db
+      .select({ claimStatus: generatedClaims.claimStatus })
+      .from(generatedClaims)
+      .where(eq(generatedClaims.id, claim?.id ?? ""));
+
+    expect(project).toMatchObject({
+      sourceDocumentId: sourceDocument.id,
+      projectType: "open_source",
+      title: "Scheduler automation",
+      actions: ["Built a scheduling automation service"],
+      results: ["Reduced manual planning time"],
+      technologies: ["TypeScript", "Postgres"],
+      status: "pending",
+    });
+    expect(oldInitiative).toMatchObject({ status: "rejected" });
+    expect(movedEvidence).toMatchObject({
+      relatedWorkExperienceId: null,
+      relatedInitiativeId: null,
+      relatedPortfolioProjectId: converted.newPortfolioProjectId,
     });
     expect(staleClaim).toMatchObject({ claimStatus: "stale" });
   });

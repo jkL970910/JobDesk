@@ -2246,6 +2246,110 @@ export async function convertPortfolioProjectToInitiative(args: {
   return conversion;
 }
 
+export async function convertInitiativeToPortfolioProject(args: {
+  initiativeId: string;
+  projectType?: "personal_project" | "academic_project" | "open_source" | "freelance" | "hackathon" | "general_project";
+}) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  const conversion = await getDb().transaction(async (tx) => {
+    const workspace = await getCurrentWorkspace(tx);
+    const [initiative] = await tx
+      .select()
+      .from(initiatives)
+      .where(
+        and(
+          eq(initiatives.workspaceId, workspace.id),
+          eq(initiatives.id, args.initiativeId),
+        ),
+      )
+      .limit(1);
+    if (!initiative) return { status: "not_found" as const };
+    if (initiative.status === "rejected") {
+      return { status: "invalid" as const, reason: "initiative_rejected" as const };
+    }
+
+    const now = new Date();
+    const [project] = await tx
+      .insert(portfolioProjects)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: initiative.sourceDocumentId,
+        projectType: args.projectType ?? "general_project",
+        title: initiative.externalSafeTitle ?? initiative.internalTitle,
+        externalSafeTitle: initiative.externalSafeTitle,
+        context: initiative.context,
+        problem: initiative.problem,
+        role: initiative.role,
+        actions: initiative.actions,
+        results: initiative.results,
+        metrics: initiative.metrics,
+        technologies: initiative.technologies,
+        stakeholders: initiative.stakeholders,
+        externalSafeSummary: initiative.externalSafeSummary,
+        sensitivityLevel: initiative.sensitivityLevel,
+        needsRedactionReview: initiative.needsRedactionReview,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: portfolioProjects.id });
+    if (!project) throw new Error("Failed to convert initiative to portfolio project.");
+
+    const movedEvidence = await tx
+      .update(evidenceItems)
+      .set({
+        relatedWorkExperienceId: null,
+        relatedInitiativeId: null,
+        relatedPortfolioProjectId: project.id,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(evidenceItems.workspaceId, workspace.id),
+          eq(evidenceItems.relatedInitiativeId, initiative.id),
+        ),
+      )
+      .returning({ id: evidenceItems.id });
+
+    await tx
+      .update(initiatives)
+      .set({
+        status: "rejected",
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(initiatives.workspaceId, workspace.id),
+          eq(initiatives.id, initiative.id),
+        ),
+      );
+
+    return {
+      status: "saved" as const,
+      oldStoryId: initiative.id,
+      newPortfolioProjectId: project.id,
+      movedEvidenceIds: movedEvidence.map((item) => item.id),
+      movedEvidenceCount: movedEvidence.length,
+    };
+  });
+
+  if (conversion.status === "saved" && conversion.movedEvidenceIds.length > 0) {
+    const staleResult = await markClaimsStaleForEvidenceIds(conversion.movedEvidenceIds).catch(() => ({
+      status: "skipped" as const,
+      reason: "stale_mark_failed" as const,
+    }));
+    return {
+      ...conversion,
+      staleClaimCount: staleResult.status === "saved" ? staleResult.staleCount : 0,
+    };
+  }
+
+  return conversion;
+}
+
 export async function mergeEvidenceItems(args: {
   primaryEvidenceId: string;
   duplicateEvidenceId: string;

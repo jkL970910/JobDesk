@@ -28,6 +28,7 @@ import {
   collectQueuedStoryTargetWorkExperienceIds,
   filterCanonicalLibraryAssets,
   getEvidenceClaimWorkQueueDestination,
+  getStoryTargetReviewFocus,
   getWorkExperienceReviewFocus,
   getStoryTargetReadinessState,
   isCanonicalLibraryAsset,
@@ -677,6 +678,14 @@ type StoryAssignmentPatch =
       action: "convert_to_initiative";
       targetType: "portfolio_project";
       workExperienceId: string;
+    }
+  | {
+      action: "convert_to_portfolio_project";
+      targetType: "initiative";
+      projectType?: Extract<
+        EnrichmentStoryTargetCreatePayload,
+        { targetType: "portfolio_project" }
+      >["projectType"];
     };
 
 export function ProfileEvidenceWorkspace({
@@ -2340,11 +2349,18 @@ export function ProfileEvidenceWorkspace({
     target: StoryEnrichmentTarget,
     patch: StoryAssignmentPatch,
   ): Promise<{ ok: boolean; message: string }> {
-    if (patch.action !== "convert_to_initiative" && target.targetType !== "initiative") {
+    if (
+      patch.action !== "convert_to_initiative" &&
+      patch.action !== "convert_to_portfolio_project" &&
+      target.targetType !== "initiative"
+    ) {
       return { ok: false, message: "Only Work Initiatives can be assigned to a Work Experience." };
     }
     if (patch.action === "convert_to_initiative" && target.targetType !== "portfolio_project") {
       return { ok: false, message: "Only Portfolio Projects can be moved under a Work Experience." };
+    }
+    if (patch.action === "convert_to_portfolio_project" && target.targetType !== "initiative") {
+      return { ok: false, message: "Only Work Initiatives can be moved to Portfolio Projects." };
     }
     const response = await fetchJson(`/api/story-targets/${target.targetId}`, {
       method: "PATCH",
@@ -2363,6 +2379,8 @@ export function ProfileEvidenceWorkspace({
     const message =
       patch.action === "convert_to_initiative"
         ? "Moved Portfolio Project to Work Initiatives."
+        : patch.action === "convert_to_portfolio_project"
+        ? "Moved Work Initiative to Portfolio Projects."
         : patch.action === "create_work_experience_and_assign"
         ? "Created Work Experience and assigned Story Target."
         : patch.workExperienceId
@@ -11025,6 +11043,10 @@ function StoryTargetRow({
   const [isMergingStory, setIsMergingStory] = useState(false);
   const [isMergeOpen, setIsMergeOpen] = useState(false);
   const [convertWorkExperienceId, setConvertWorkExperienceId] = useState("");
+  const [convertProjectType, setConvertProjectType] =
+    useState<Extract<EnrichmentStoryTargetCreatePayload, { targetType: "portfolio_project" }>["projectType"]>(
+      "general_project",
+    );
   const [isConvertingScope, setIsConvertingScope] = useState(false);
   const [newRoleDraft, setNewRoleDraft] = useState({
     employer: "",
@@ -11038,6 +11060,7 @@ function StoryTargetRow({
     linked_evidence_claim_count: evidenceItems.length,
   };
   const readiness = getStoryReadiness(storyWithLinkedEvidenceCount);
+  const reviewFocus = getStoryTargetReviewFocus(storyWithLinkedEvidenceCount, targetType);
   const metrics = story.metrics?.map((metric) => metric.value) ?? [];
   const linkedClaimsNeedReview = evidenceItems.some(
     (item) => getEvidenceReadiness(item).state !== "resume_ready",
@@ -11077,6 +11100,7 @@ function StoryTargetRow({
   const canAssignRole = targetType === "initiative" && Boolean(target);
   const canConvertPortfolioProject =
     targetType === "portfolio_project" && Boolean(target) && workExperiences.length > 0;
+  const canConvertInitiativeToPortfolioProject = targetType === "initiative" && Boolean(target);
   const canMergeStory = targetType === "initiative" && Boolean(story.id) && mergeOptions.length > 0;
   async function handleAssignExisting(workExperienceId: string) {
     if (!target || target.targetType !== "initiative") return;
@@ -11162,6 +11186,21 @@ function StoryTargetRow({
       });
       setAssignmentMessage({ ok: result.ok, text: result.message });
       if (result.ok) setConvertWorkExperienceId("");
+    } finally {
+      setIsConvertingScope(false);
+    }
+  }
+  async function handleConvertToPortfolioProject() {
+    if (!target || target.targetType !== "initiative") return;
+    setIsConvertingScope(true);
+    setAssignmentMessage({ ok: true, text: "Moving Work Initiative to Portfolio Projects..." });
+    try {
+      const result = await onAssignStory(target, {
+        action: "convert_to_portfolio_project",
+        targetType: "initiative",
+        projectType: convertProjectType,
+      });
+      setAssignmentMessage({ ok: result.ok, text: result.message });
     } finally {
       setIsConvertingScope(false);
     }
@@ -11275,6 +11314,10 @@ function StoryTargetRow({
         </button>
         <small>Use: {linkedUsage}</small>
         <small>Linked source document: {linkedSource}</small>
+        <small title={reviewFocus.nextAction}>Review focus: {reviewFocus.label}</small>
+        {reviewFocus.suggestedCorrection ? (
+          <small>Suggested: {reviewFocus.suggestedCorrection.label}</small>
+        ) : null}
         {story.needs_redaction_review ? <small>Redaction review</small> : null}
       </div>
       <div className="story-target-row__meta">
@@ -11479,6 +11522,52 @@ function StoryTargetRow({
           <SectionList title="Outcomes" items={story.results} />
           <SectionList title="Evidence-backed metrics" items={metrics} />
         </div>
+        {canConvertInitiativeToPortfolioProject ? (
+          <section className="story-detail-merge">
+            <div className="story-detail-merge__body">
+              <div>
+                <strong>Move to Portfolio Projects</strong>
+                <p>Use when this story is personal, academic, open-source, or freelance work instead of employer-owned work.</p>
+              </div>
+              <div className="story-assignment-control">
+                <label>
+                  <span>Project type</span>
+                  <select
+                    disabled={isConvertingScope}
+                    value={convertProjectType}
+                    onChange={(event) => {
+                      setConvertProjectType(
+                        event.target.value as Extract<
+                          EnrichmentStoryTargetCreatePayload,
+                          { targetType: "portfolio_project" }
+                        >["projectType"],
+                      );
+                      setAssignmentMessage(null);
+                    }}
+                  >
+                    <option value="general_project">General</option>
+                    <option value="personal_project">Personal</option>
+                    <option value="academic_project">Course / academic</option>
+                    <option value="open_source">Open source</option>
+                    <option value="freelance">Freelance</option>
+                    <option value="hackathon">Hackathon</option>
+                  </select>
+                </label>
+                <button
+                  className="secondary-button"
+                  disabled={isConvertingScope}
+                  type="button"
+                  onClick={() => void handleConvertToPortfolioProject()}
+                >
+                  {isConvertingScope ? "Moving..." : "Move to Portfolio Projects"}
+                </button>
+              </div>
+              {assignmentMessage ? (
+                <p className={assignmentMessage.ok ? "status" : "error"}>{assignmentMessage.text}</p>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
         {canMergeStory ? (
           <section className="story-detail-merge">
             <button

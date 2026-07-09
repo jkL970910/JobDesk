@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   assignInitiativeToWorkExperience,
+  convertInitiativeToPortfolioProject,
   convertPortfolioProjectToInitiative,
   createWorkExperienceAndAssignInitiative,
   updateStoryTargetReview,
@@ -35,6 +36,18 @@ const requestSchema = z.discriminatedUnion("action", [
     action: z.literal("convert_to_initiative"),
     targetType: z.literal("portfolio_project"),
     workExperienceId: z.string().uuid(),
+  }),
+  z.object({
+    action: z.literal("convert_to_portfolio_project"),
+    targetType: z.literal("initiative"),
+    projectType: z.enum([
+      "personal_project",
+      "academic_project",
+      "open_source",
+      "freelance",
+      "hackathon",
+      "general_project",
+    ]).optional(),
   }),
   z.object({
     action: z.literal("create_work_experience_and_assign"),
@@ -82,6 +95,11 @@ export async function PATCH(
     result = await convertPortfolioProjectToInitiative({
       portfolioProjectId: params.data.targetId,
       workExperienceId: body.data.workExperienceId,
+    });
+  } else if (body.data.action === "convert_to_portfolio_project") {
+    result = await convertInitiativeToPortfolioProject({
+      initiativeId: params.data.targetId,
+      projectType: body.data.projectType,
     });
   } else {
     result = await createWorkExperienceAndAssignInitiative({

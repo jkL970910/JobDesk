@@ -27,6 +27,35 @@ export type EvidenceLibraryIaStoryTarget = {
   work_experience_id?: string | null;
 };
 
+export type EvidenceLibraryIaStoryTargetType = "initiative" | "portfolio_project";
+
+export type EvidenceLibraryIaStoryReviewFocus = {
+  severity: "required" | "recommended" | "ready";
+  label: string;
+  nextAction: string;
+  reasons: Array<{
+    code:
+      | "missing_work_experience"
+      | "missing_story_context"
+      | "missing_linked_evidence"
+      | "missing_public_safe_summary"
+      | "scope_may_be_portfolio_project";
+    label: string;
+    nextAction: string;
+  }>;
+  suggestedCorrection:
+    | {
+        action:
+          | "attach_work_experience"
+          | "strengthen_story"
+          | "review_evidence"
+          | "write_public_safe_summary"
+          | "move_to_portfolio_project";
+        label: string;
+      }
+    | null;
+};
+
 export type EvidenceLibraryIaWorkExperience = {
   end_date?: string | null;
   employer?: string | null;
@@ -168,6 +197,117 @@ export function getStoryTargetReadinessState(target: EvidenceLibraryIaStoryTarge
     return "needs_context" as const;
   }
   return "thin" as const;
+}
+
+export function getStoryTargetReviewFocus(
+  target: EvidenceLibraryIaStoryTarget,
+  targetType: EvidenceLibraryIaStoryTargetType = "initiative",
+): EvidenceLibraryIaStoryReviewFocus {
+  const reasons: EvidenceLibraryIaStoryReviewFocus["reasons"] = [];
+  const readiness = getStoryTargetReadinessState(target);
+  const hasLinkedEvidence = hasLinkedEvidenceClaim(target);
+
+  if (targetType === "initiative" && !target.work_experience_id) {
+    reasons.push({
+      code: "missing_work_experience",
+      label: "Work Experience assignment missing",
+      nextAction: "Attach this story to a Work Experience or move it to Portfolio Projects.",
+    });
+  }
+  if (readiness !== "story_ready") {
+    reasons.push({
+      code: "missing_story_context",
+      label: readiness === "thin" ? "Story is still a thin signal" : "Story needs more context",
+      nextAction: "Add problem, ownership, actions, results, and metrics before marking it ready.",
+    });
+  }
+  if (!hasLinkedEvidence) {
+    reasons.push({
+      code: "missing_linked_evidence",
+      label: "No linked Evidence Claim",
+      nextAction: "Link or create a source-backed Evidence Claim for this story.",
+    });
+  }
+  if (!hasStoryTargetPublicSafeSummary(target)) {
+    reasons.push({
+      code: "missing_public_safe_summary",
+      label: "Public-safe wording missing",
+      nextAction: "Add external-safe wording before this story can be considered ready.",
+    });
+  }
+  if (
+    targetType === "initiative" &&
+    !target.work_experience_id &&
+    hasPersonalProjectSignal(target)
+  ) {
+    reasons.push({
+      code: "scope_may_be_portfolio_project",
+      label: "Scope may be Portfolio Project",
+      nextAction: "Move this story to Portfolio Projects if it is not employer-owned work.",
+    });
+  }
+
+  const required = reasons.filter((reason) =>
+    reason.code === "missing_work_experience" ||
+    reason.code === "missing_linked_evidence" ||
+    reason.code === "missing_public_safe_summary",
+  );
+  const suggestedCorrection = buildStoryTargetCorrectionSuggestion(reasons);
+  if (reasons.length === 0) {
+    return {
+      severity: "ready",
+      label: "Ready to confirm",
+      nextAction: "Mark reviewed when the wording and linked evidence look correct.",
+      reasons,
+      suggestedCorrection,
+    };
+  }
+  return {
+    severity: required.length > 0 ? "required" : "recommended",
+    label: `Needs review: ${formatReviewFocusList(reasons.map((reason) => reason.label))}`,
+    nextAction: suggestedCorrection?.label ?? reasons[0]?.nextAction ?? "Review this Story Target.",
+    reasons,
+    suggestedCorrection,
+  };
+}
+
+function buildStoryTargetCorrectionSuggestion(
+  reasons: EvidenceLibraryIaStoryReviewFocus["reasons"],
+): EvidenceLibraryIaStoryReviewFocus["suggestedCorrection"] {
+  if (reasons.some((reason) => reason.code === "scope_may_be_portfolio_project")) {
+    return { action: "move_to_portfolio_project", label: "Consider moving to Portfolio Projects." };
+  }
+  if (reasons.some((reason) => reason.code === "missing_work_experience")) {
+    return { action: "attach_work_experience", label: "Attach to a Work Experience or keep unassigned for review." };
+  }
+  if (reasons.some((reason) => reason.code === "missing_linked_evidence")) {
+    return { action: "review_evidence", label: "Link source-backed evidence." };
+  }
+  if (reasons.some((reason) => reason.code === "missing_public_safe_summary")) {
+    return { action: "write_public_safe_summary", label: "Add public-safe wording." };
+  }
+  if (reasons.some((reason) => reason.code === "missing_story_context")) {
+    return { action: "strengthen_story", label: "Strengthen the story details." };
+  }
+  return null;
+}
+
+function hasPersonalProjectSignal(target: EvidenceLibraryIaStoryTarget) {
+  const normalized = [
+    target.context,
+    target.problem,
+    target.role,
+    target.external_safe_summary,
+    target.public_safe_summary,
+    ...target.actions,
+    ...target.results,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return /\b(personal|academic|course|open[-\s]?source|freelance|hackathon|side project|portfolio)\b/.test(
+    normalized,
+  );
 }
 
 export function shouldBuildStoryTarget(target: EvidenceLibraryIaStoryTarget) {

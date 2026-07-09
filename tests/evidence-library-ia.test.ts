@@ -6,6 +6,7 @@ import {
   collectQueuedStoryTargetWorkExperienceIds,
   filterCanonicalLibraryAssets,
   getEvidenceClaimWorkQueueDestination,
+  getStoryTargetReviewFocus,
   getWorkExperienceReviewFocus,
   isCanonicalLibraryAsset,
   shouldApproveEvidenceClaim,
@@ -249,6 +250,57 @@ describe("Evidence Library IA semantics", () => {
       ),
     ).toBe(false);
   });
+
+  it("explains Story Target review reasons and correction suggestions", () => {
+    expect(
+      getStoryTargetReviewFocus(
+        storyTarget({ status: "pending", complete: false, linked_evidence_claim_count: 0 }),
+        "initiative",
+      ),
+    ).toMatchObject({
+      severity: "required",
+      reasons: expect.arrayContaining([
+        expect.objectContaining({ code: "missing_work_experience" }),
+        expect.objectContaining({ code: "missing_linked_evidence" }),
+        expect.objectContaining({ code: "missing_public_safe_summary" }),
+      ]),
+      suggestedCorrection: {
+        action: "attach_work_experience",
+      },
+    });
+
+    expect(
+      getStoryTargetReviewFocus(
+        storyTarget({
+          complete: true,
+          context: "Open-source side project for scheduling automation",
+          linked_evidence_claim_count: 1,
+          status: "pending",
+        }),
+        "initiative",
+      ),
+    ).toMatchObject({
+      suggestedCorrection: {
+        action: "move_to_portfolio_project",
+      },
+    });
+
+    expect(
+      getStoryTargetReviewFocus(
+        storyTarget({
+          complete: true,
+          linked_evidence_claim_count: 1,
+          status: "pending",
+          work_experience_id: "work-1",
+        }),
+        "initiative",
+      ),
+    ).toMatchObject({
+      severity: "ready",
+      reasons: [],
+      suggestedCorrection: null,
+    });
+  });
 });
 
 function evidenceClaim(
@@ -266,12 +318,14 @@ function evidenceClaim(
 
 function storyTarget({
   complete,
+  context,
   external_safe_summary = "Built onboarding reporting.",
   linked_evidence_claim_count,
   status,
   work_experience_id = null,
 }: {
   complete: boolean;
+  context?: string | null;
   external_safe_summary?: string | null;
   linked_evidence_claim_count?: number;
   status: string;
@@ -280,7 +334,7 @@ function storyTarget({
   return complete
     ? {
         actions: ["Led implementation"],
-        context: "Customer onboarding reporting",
+        context: context ?? "Customer onboarding reporting",
         external_safe_summary,
         linked_evidence_claim_count,
         metrics: [{ value: "6 hours saved weekly" }],

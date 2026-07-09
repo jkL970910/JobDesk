@@ -265,6 +265,25 @@ type SystemDiagnostics = {
     failedCount: number;
     lastFinishedAt: string | null;
   };
+  scopeAccuracy: {
+    latestProfileExtractionRuns: Array<{
+      id: string;
+      finishedAt: string | null;
+      acceptedCount: number;
+      rejectedCount: number;
+      reviewQueueOnlyCount: number;
+      totalCount: number;
+      mergedFragmentNoteCount: number;
+    }>;
+    totals: {
+      acceptedCount: number;
+      rejectedCount: number;
+      reviewQueueOnlyCount: number;
+      totalCount: number;
+      mergedFragmentNoteCount: number;
+    };
+    lastFinishedAt: string | null;
+  };
 };
 
 type InterviewPrepSummary = {
@@ -4026,6 +4045,42 @@ function SettingsReferenceView() {
                   label="Last activity"
                   value={formatDateTime(diagnostics.workflows.lastFinishedAt)}
                 />
+                <DiagnosticMetric
+                  label="Scope review"
+                  value={`${diagnostics.scopeAccuracy.totals.reviewQueueOnlyCount + diagnostics.scopeAccuracy.totals.rejectedCount}/${diagnostics.scopeAccuracy.totals.totalCount}`}
+                  tone={
+                    diagnostics.scopeAccuracy.totals.reviewQueueOnlyCount + diagnostics.scopeAccuracy.totals.rejectedCount > 0
+                      ? "warning"
+                      : "ready"
+                  }
+                />
+              </div>
+              <div className="diagnostics-detail">
+                <div>
+                  <h4>Scope accuracy</h4>
+                  <p>
+                    Latest profile extraction runs: {diagnostics.scopeAccuracy.latestProfileExtractionRuns.length}
+                  </p>
+                  <ul>
+                    <li>
+                      <strong>Accepted</strong>
+                      <span>{diagnostics.scopeAccuracy.totals.acceptedCount}</span>
+                      <small>Candidate assets allowed into pending canonical review.</small>
+                    </li>
+                    <li>
+                      <strong>Review / rejected</strong>
+                      <span>
+                        {diagnostics.scopeAccuracy.totals.reviewQueueOnlyCount} review · {diagnostics.scopeAccuracy.totals.rejectedCount} rejected
+                      </span>
+                      <small>Candidate assets stopped before ready material.</small>
+                    </li>
+                    <li>
+                      <strong>Merged fragments</strong>
+                      <span>{diagnostics.scopeAccuracy.totals.mergedFragmentNoteCount}</span>
+                      <small>Initiative fragments consolidated or routed to review.</small>
+                    </li>
+                  </ul>
+                </div>
               </div>
             </>
           ) : null}
