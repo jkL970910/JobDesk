@@ -239,6 +239,13 @@
       "when": 1783612800000,
       "tag": "0033_evidence_quarantine_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1783616400000,
+      "tag": "0034_scope_review_candidate_payload",
+      "breakpoints": true
     }
   ]
 }

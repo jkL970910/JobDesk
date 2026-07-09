@@ -1270,6 +1270,7 @@ export const enrichmentTasks = pgTable(
     noteKind: enrichmentTaskNoteKindEnum("note_kind"),
     expectedAction: enrichmentTaskExpectedActionEnum("expected_action"),
     targetField: varchar("target_field", { length: 120 }),
+    reviewPayloadJson: jsonb("review_payload_json").$type<Record<string, unknown> | null>(),
     evidenceItemId: uuid("evidence_item_id").references(() => evidenceItems.id, {
       onDelete: "set null",
     }),

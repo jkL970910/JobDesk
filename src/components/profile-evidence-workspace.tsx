@@ -306,6 +306,7 @@ type EnrichmentTaskItem = {
     | "answer_enrichment_question"
     | null;
   target_field: string | null;
+  review_payload: ScopeReviewCandidatePayload | null;
   targets: Array<{
     target_kind: "evidence" | "initiative" | "portfolio_project" | "work_experience";
     target_id: string;
@@ -371,6 +372,41 @@ type EnrichmentTaskItem = {
     | "rerun_requested"
     | "converted_to_enrichment_question"
     | null;
+};
+
+type ScopeReviewCandidatePayload = {
+  kind: "scope_review_candidate";
+  candidateId: string;
+  proposedScope:
+    | "work_experience"
+    | "work_initiative"
+    | "portfolio_project"
+    | "evidence_claim"
+    | "profile_context"
+    | "imported_note"
+    | "enrichment_question";
+  classifierAcceptedScope:
+    | "work_experience"
+    | "work_initiative"
+    | "portfolio_project"
+    | "evidence_claim"
+    | "profile_context"
+    | "imported_note"
+    | "unassigned";
+  guardrailReason: string;
+  sourceDocumentId?: string | null;
+  sourceLabel: string;
+  sourceQuote?: string | null;
+  sourceSection?: string | null;
+  sourceSnippet: string;
+  suggestedAction:
+    | "save_as_evidence"
+    | "save_as_work_initiative"
+    | "save_as_portfolio_project"
+    | "save_as_profile_context"
+    | "review_scope"
+    | "dismiss";
+  resolutionStatus: "open" | "resolved" | "dismissed";
 };
 
 type EnrichmentPendingAction =
@@ -5390,6 +5426,8 @@ function SourceSectionReviewPane({
   const [isSavingRoleField, setIsSavingRoleField] = useState(false);
   const sectionName = extractSourceSectionName(task.prompt);
   const actionModel = getImportedNoteActionModel(task, sectionName);
+  const scopeReviewCandidate =
+    task.review_payload?.kind === "scope_review_candidate" ? task.review_payload : null;
   const showRoleFieldEditor = task.expected_action === "edit_role_field";
   const roleFieldKey = normalizeImportedRoleTargetField(task.target_field);
   const roleFieldConfig = getRoleFieldEditorConfig(roleFieldKey);
@@ -5470,6 +5508,30 @@ function SourceSectionReviewPane({
           </strong>
         </div>
         <dl className="source-section-review__meta">
+          {scopeReviewCandidate ? (
+            <>
+              <div>
+                <dt>Candidate</dt>
+                <dd>{scopeReviewCandidate.sourceSnippet}</dd>
+              </div>
+              <div>
+                <dt>Proposed scope</dt>
+                <dd>{formatScopeReviewScope(scopeReviewCandidate.proposedScope)}</dd>
+              </div>
+              <div>
+                <dt>Classifier result</dt>
+                <dd>{formatScopeReviewScope(scopeReviewCandidate.classifierAcceptedScope)}</dd>
+              </div>
+              <div>
+                <dt>Guardrail reason</dt>
+                <dd>{scopeReviewCandidate.guardrailReason}</dd>
+              </div>
+              <div>
+                <dt>Suggested action</dt>
+                <dd>{formatScopeReviewSuggestedAction(scopeReviewCandidate.suggestedAction)}</dd>
+              </div>
+            </>
+          ) : null}
           <div>
             <dt>Note</dt>
             <dd>{task.prompt}</dd>
@@ -5731,7 +5793,33 @@ function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: strin
 }
 
 function isScopeReviewTask(task: EnrichmentTaskItem) {
-  return /\bscope review needed\b/i.test(task.prompt);
+  return task.review_payload?.kind === "scope_review_candidate" || /\bscope review needed\b/i.test(task.prompt);
+}
+
+function formatScopeReviewScope(scope: ScopeReviewCandidatePayload["proposedScope"] | ScopeReviewCandidatePayload["classifierAcceptedScope"]) {
+  const labels: Record<typeof scope, string> = {
+    evidence_claim: "Evidence Claim",
+    enrichment_question: "Enrichment Question",
+    imported_note: "Imported Note",
+    portfolio_project: "Portfolio Project",
+    profile_context: "Profile Context",
+    unassigned: "Unassigned review",
+    work_experience: "Work Experience",
+    work_initiative: "Work Initiative",
+  };
+  return labels[scope] ?? formatFilterLabel(scope);
+}
+
+function formatScopeReviewSuggestedAction(action: ScopeReviewCandidatePayload["suggestedAction"]) {
+  const labels: Record<ScopeReviewCandidatePayload["suggestedAction"], string> = {
+    dismiss: "Dismiss candidate",
+    review_scope: "Review scope before saving",
+    save_as_evidence: "Save as pending Evidence Claim",
+    save_as_portfolio_project: "Save as pending Portfolio Project",
+    save_as_profile_context: "Save as Profile Context",
+    save_as_work_initiative: "Save as pending Work Initiative",
+  };
+  return labels[action];
 }
 
 function formatImportedNoteTargetField(field: string) {

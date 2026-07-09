@@ -1,14 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import {
-  assignInitiativeToWorkExperience,
-  convertInitiativeToPortfolioProject,
-  convertPortfolioProjectToInitiative,
-  createWorkExperienceAndAssignInitiative,
-  updateStoryTargetReview,
-} from "../../../../src/server/profile-evidence-repository";
 import { schedulePersonalEmbeddingsSync } from "../../../../src/server/embedding-service";
+import { applyStoryTargetCorrection } from "../../../../src/server/story-target-correction";
 
 const paramsSchema = z.object({
   targetId: z.string().uuid(),
@@ -75,44 +69,10 @@ export async function PATCH(
     );
   }
 
-  let result;
-  if (
-    body.data.action === "mark_reviewed" ||
-    body.data.action === "mark_needs_update" ||
-    body.data.action === "reject_story"
-  ) {
-    result = await updateStoryTargetReview({
-      action: body.data.action,
-      targetId: params.data.targetId,
-      targetType: body.data.targetType,
-    });
-  } else if (body.data.action === "assign_work_experience") {
-    result = await assignInitiativeToWorkExperience({
-      initiativeId: params.data.targetId,
-      workExperienceId: body.data.workExperienceId,
-    });
-  } else if (body.data.action === "convert_to_initiative") {
-    result = await convertPortfolioProjectToInitiative({
-      portfolioProjectId: params.data.targetId,
-      workExperienceId: body.data.workExperienceId,
-    });
-  } else if (body.data.action === "convert_to_portfolio_project") {
-    result = await convertInitiativeToPortfolioProject({
-      initiativeId: params.data.targetId,
-      projectType: body.data.projectType,
-    });
-  } else {
-    result = await createWorkExperienceAndAssignInitiative({
-      initiativeId: params.data.targetId,
-      employer: body.data.employer,
-      roleTitle: body.data.roleTitle,
-      team: body.data.team,
-      location: body.data.location,
-      startDate: body.data.startDate,
-      endDate: body.data.endDate,
-      summary: body.data.summary,
-    });
-  }
+  const result = await applyStoryTargetCorrection({
+    ...body.data,
+    targetId: params.data.targetId,
+  });
 
   if (result.status === "not_found") {
     return NextResponse.json(

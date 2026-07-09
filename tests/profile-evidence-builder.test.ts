@@ -204,6 +204,19 @@ describe("Evidence Library Builder instructions", () => {
       expectedAction: "review_import",
       noteKind: "import_review",
     });
+    expect(task).toMatchObject({
+      reviewPayload: {
+        kind: "scope_review_candidate",
+        proposedScope: "work_experience",
+        classifierAcceptedScope: "unassigned",
+        guardrailReason: "Work Experience must be an employer/title/date/team container, not an action-result bullet.",
+        sourceLabel: "Resume import",
+        sourceSnippet: "Migrated service to region X · Reduced latency by 35%",
+        suggestedAction: "review_scope",
+        resolutionStatus: "open",
+      },
+    });
+    expect(task?.reviewPayload).toHaveProperty("candidateId");
   });
 
   it("does not route generic project description notes to role summary editing", () => {

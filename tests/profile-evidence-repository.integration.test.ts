@@ -893,7 +893,16 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       expected_outcome: "review_imported_material",
       expected_action: "review_import",
       target_scope: "source_material",
+      review_payload: {
+        kind: "scope_review_candidate",
+        proposedScope: "work_experience",
+        classifierAcceptedScope: "unassigned",
+        sourceLabel: sourceTitle,
+        suggestedAction: "review_scope",
+        resolutionStatus: "open",
+      },
     });
+    expect(scopeReviewTask?.review_payload).toHaveProperty("candidateId");
   });
 
   it("routes wrong-scope initiative, portfolio, and evidence candidates to review before canonical persistence", async () => {
@@ -1002,12 +1011,30 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
     if (queue.status !== "ready") throw new Error("Expected enrichment queue.");
     const scopeReviewPrompts = queue.tasks
       .filter((task) => task.source_label === sourceTitle && task.prompt.includes("Scope review needed"))
-      .map((task) => task.prompt);
+      .map((task) => ({ prompt: task.prompt, reviewPayload: task.review_payload }));
     expect(scopeReviewPrompts).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("was not saved as a Work Initiative"),
-        expect.stringContaining("was not saved as a Portfolio Project"),
-        expect.stringContaining("was not saved as a Evidence Claim"),
+        expect.objectContaining({
+          prompt: expect.stringContaining("was not saved as a Work Initiative"),
+          reviewPayload: expect.objectContaining({
+            kind: "scope_review_candidate",
+            proposedScope: "work_initiative",
+          }),
+        }),
+        expect.objectContaining({
+          prompt: expect.stringContaining("was not saved as a Portfolio Project"),
+          reviewPayload: expect.objectContaining({
+            kind: "scope_review_candidate",
+            proposedScope: "portfolio_project",
+          }),
+        }),
+        expect.objectContaining({
+          prompt: expect.stringContaining("was not saved as a Evidence Claim"),
+          reviewPayload: expect.objectContaining({
+            kind: "scope_review_candidate",
+            proposedScope: "evidence_claim",
+          }),
+        }),
       ]),
     );
   });
