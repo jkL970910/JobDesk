@@ -452,3 +452,379 @@ Acceptance:
 | Phase 7 | In progress, third slice | Work Queue source-review pane gives scope guardrail notes a dedicated scope-review action model; scope-review candidates now persist structured review payloads and display proposed scope, classifier result, source snippet, guardrail reason, and suggested action. Saving candidates as pending canonical assets remains the next slice. |
 | Phase 8 | In progress, third slice | Workflow metadata records privacy-safe scope guardrail/consolidation counts, and Settings diagnostics now summarizes accepted/review/rejected scope candidates and merged initiative fragments. |
 | Phase 9 | In progress, first deterministic slice | Guardrail-bound suggestions now recommend attach-role, strengthen-story, link-evidence, public-safe wording, or move-to-portfolio-project without using AI to decide canonical truth. Broader AI-assisted automation remains deferred. |
+
+## P1 Implementation Plan After Reviewer Feedback
+
+Status: conditional signoff. The direction is approved, but implementation must start with a structured candidate lifecycle before increasing story extraction recall.
+
+### Revised Execution Order
+
+1. Candidate Review Queue data model and actions
+2. Guided Story Target Creation
+3. Work Queue routing and correction entry
+4. Merge / keep separate / split UX
+5. Source provenance drilldown
+6. Correction audit trail
+7. Better Story Seeding
+8. Manual QA SOP
+
+Reason: JobDesk must first be able to digest, resolve, or dismiss candidates safely. Better Story Seeding intentionally comes after the review/correction pipeline because higher extractor recall will create more candidates.
+
+### P1.1 Candidate Review Queue Data Model And Actions
+
+Goal: convert guardrail-blocked material from note-like review text into a structured candidate lifecycle.
+
+Model requirement:
+
+```ts
+type ScopeReviewCandidate = {
+  id: string;
+  workspaceId: string;
+  sourceDocumentId: string | null;
+  sourceType: "profile-evidence" | "project-note" | "jd-gap-note" | "resume-review" | "user_input";
+  sourceSection: string | null;
+  sourceQuote: string | null;
+  rawCandidateText: string;
+  proposedScope:
+    | "work_experience"
+    | "work_initiative"
+    | "portfolio_project"
+    | "evidence_claim"
+    | "profile_context"
+    | "imported_note"
+    | "enrichment_question";
+  classifierScope:
+    | "work_experience"
+    | "work_initiative"
+    | "portfolio_project"
+    | "evidence_claim"
+    | "profile_context"
+    | "imported_note"
+    | "unassigned";
+  guardrailDecision:
+    | "can_persist_to_canonical_pending"
+    | "persist_unassigned_pending"
+    | "review_queue_only"
+    | "reject_as_invalid_scope";
+  guardrailReason: string;
+  confidence: "low" | "medium" | "high";
+  suggestedAction:
+    | "save_as_evidence"
+    | "save_as_work_initiative"
+    | "save_as_portfolio_project"
+    | "save_as_profile_context"
+    | "review_scope"
+    | "dismiss";
+  status: "open" | "resolved" | "dismissed";
+  resolvedAsTargetId?: string | null;
+  resolvedAsTargetType?: "evidence" | "work_initiative" | "portfolio_project" | "profile_context" | "unassigned" | null;
+};
+```
+
+Persistence decision:
+
+- Preferred: add a first-class `scope_review_candidates` table and let enrichment tasks reference it.
+- Acceptable transitional slice: keep typed metadata on `enrichment_tasks.review_payload_json`, but the payload must be built from classifier/guardrail decisions, not parsed from `prompt`.
+- Prompt text is display copy only. It must not be the source of truth for candidate identity, scope, or provenance.
+
+Deep module:
+
+```ts
+applyCandidateReviewAction({
+  candidateId,
+  action,
+  payload,
+  actor,
+})
+```
+
+Actions:
+
+- `save_as_evidence`
+- `save_as_work_initiative`
+- `save_as_portfolio_project`
+- `save_as_profile_context`
+- `save_as_unassigned`
+- `dismiss`
+
+Hard rules:
+
+- Every save action creates pending/review material only.
+- `save_as_evidence` requires an atomic factual claim and source quote or explicit source review.
+- Broad story text cannot be directly saved as Evidence.
+- Profile Context cannot be saved as Evidence.
+- Dismissed candidates cannot be consumed by resume generation.
+- Resolution must update candidate status and link the created target id when applicable.
+
+Acceptance:
+
+- Candidate ids do not come from prompt parsing.
+- Candidate Review Queue can render and act on structured candidate records.
+- Wrong-scope candidates do not create canonical assets until a user action resolves them.
+- Repository integration tests cover each save/dismiss action.
+
+### P1.2 Guided Story Target Creation
+
+Goal: replace title-only story creation with a structured, source-grounded creation flow.
+
+Flow:
+
+1. User opens a Work Queue task that needs a Story Target.
+2. User selects an existing target or chooses `Create new Story Target`.
+3. UI shows deterministic similar story suggestions before creation.
+4. User chooses target type:
+   - under a Work Experience -> Work Initiative
+   - non-employer project -> Portfolio Project
+5. User edits a structured draft:
+   - title
+   - context / business goal
+   - problem
+   - role
+   - actions
+   - results / metrics
+   - technologies
+   - source quote/snippet
+6. User saves the draft.
+7. Backend creates pending story target, preserves provenance, binds the current task, and updates normalized task targets plus legacy anchor fields.
+
+Deep modules:
+
+```ts
+buildStoryTargetDraftFromTask({
+  taskId,
+  targetType,
+  workExperienceId,
+  sourceSnippet,
+  userAnswer,
+})
+```
+
+Returns draft only. It must not write canonical tables.
+
+```ts
+createStoryTargetFromDraft({
+  taskId,
+  draft,
+  actor,
+})
+```
+
+Writes only after user confirmation.
+
+Result contract:
+
+```ts
+type CreateStoryTargetFromDraftResult = {
+  status: "created" | "needs_review" | "invalid";
+  storyTargetId?: string;
+  storyTargetType?: "work_initiative" | "portfolio_project";
+  blockers: string[];
+  linkedTaskId: string;
+};
+```
+
+AI draft boundary:
+
+- AI can draft a skeleton from task prompt, user answer, source snippet, selected Work Experience, and similar stories.
+- AI cannot invent facts or metrics.
+- Fields without source support must be marked user-provided / needs source.
+- AI cannot mark the story public-safe, approved, or resume-ready.
+- Saved story remains pending and needs review.
+
+Acceptance:
+
+- User is never forced to create a Story Target from a blank title field.
+- New story appears in Build Story Targets with source provenance.
+- Current task and future proposal/evidence accept paths inherit the confirmed story target.
+
+### P1.3 Work Queue Routing And Correction Entry
+
+Goal: make review states actionable and navigable.
+
+UI behavior:
+
+- Library `Needs review` affordances deep-link to the relevant Work Queue item.
+- Work Queue groups actions by user task type:
+  - Scope Review
+  - Build Story Targets
+  - Evidence Review
+  - Profile Fact Review
+  - Source Import Review
+- Each item shows why it needs review, source, recommended next action, and linked role/story/evidence.
+
+Routing contract:
+
+- `focusTaskId`
+- `sourceDocumentId`
+- `targetId`
+- `candidateId`
+
+Acceptance:
+
+- User can click from Library to the exact Work Queue card.
+- Imported observations do not appear as answer prompts.
+- Rejected targets and resolved candidates are not active blockers.
+
+### P1.4 Merge / Keep Separate / Split UX
+
+Goal: let users correct duplicate or over-broad Story Targets.
+
+MVP actions:
+
+- merge story targets
+- keep separate
+- split story target
+- move selected evidence claims to another story
+
+Split MVP:
+
+1. Select source story.
+2. Create or choose destination Story Target.
+3. Select evidence claims to move.
+4. Save.
+5. Source and destination stories remain pending/review.
+6. Affected generated claims become stale.
+
+Correction module:
+
+Extend `applyStoryTargetCorrection({ action, targetId, payload })` with:
+
+- `merge_story_targets`
+- `keep_separate`
+- `split_story_target`
+- `move_evidence_to_story`
+
+Guardrails:
+
+- Never auto-merge across Work Experiences.
+- Same technology alone is not enough to merge.
+- Every relation move stales generated claims.
+- Keep-separate decisions suppress future duplicate suggestions.
+
+Acceptance:
+
+- AWS CDK/cache/latency fragments can be merged into one story.
+- Wrong merge suggestions can be marked keep separate.
+- Split moves selected evidence and preserves provenance.
+
+### P1.5 Source Provenance Drilldown
+
+Goal: every candidate/story/evidence can answer where it came from.
+
+UI:
+
+- Source document title
+- source section / nearby heading
+- quote/snippet
+- import date
+- source context drawer with nearby text
+
+Rules:
+
+- Raw source remains discovery only.
+- Missing provenance is visible and blocks resume eligibility.
+- Cleanup/quarantine shows affected candidates, stories, and evidence.
+
+Acceptance:
+
+- Scope Review Candidate, Story Target, Evidence Claim, enrichment task, and generated claim support all expose provenance where available.
+- A user can inspect source context before saving candidate material.
+
+### P1.6 Correction Audit Trail
+
+Goal: make scope/relation changes traceable without storing raw private text.
+
+Suggested table:
+
+```ts
+type ScopeCorrectionEvent = {
+  id: string;
+  workspaceId: string;
+  actor: "user" | "system" | "ai";
+  action: string;
+  subjectType: "candidate" | "story_target" | "evidence" | "work_experience";
+  subjectId: string;
+  beforeJson: Record<string, unknown> | null;
+  afterJson: Record<string, unknown> | null;
+  sourceDocumentId?: string | null;
+  createdAt: Date;
+};
+```
+
+Events:
+
+- candidate saved as scope
+- story target created from task
+- initiative -> portfolio
+- portfolio -> initiative
+- reassigned role
+- merged
+- split
+- keep separate
+- dismissed
+
+Constraints:
+
+- Do not store large raw source text.
+- Prefer ids, scopes, short snippets, and action metadata.
+- Audit write should be transactional with canonical relation changes where needed.
+
+Acceptance:
+
+- Each candidate/story correction writes an event.
+- Diagnostics can explain who changed scope/relation and when.
+
+### P1.7 Better Story Seeding
+
+Goal: improve automatic Story Target coverage only after the candidate/correction pipeline is stable.
+
+Extraction behavior:
+
+- Segment extraction by Work Experience.
+- Cluster bullets by domain/service, technology, action chain, outcome/metric, and nearby heading.
+- Emit `StorySeedCandidate`, not trusted canonical truth.
+
+Rules:
+
+- High-confidence story seeds must still pass `scope-classifier` and `extraction-scope-guardrail`.
+- High-confidence seeds may become pending Story Targets only with source quote/section and needs review.
+- Medium/low confidence seeds enter Candidate Review Queue.
+- Extractor confidence never replaces deterministic guardrails.
+- No story seed becomes approved, public-safe, or resume-ready automatically.
+
+Acceptance fixtures:
+
+- Same company multiple roles do not cross-bind.
+- AWS CDK/cache/latency fragments become one candidate cluster.
+- Technical Skills does not become a Story Target.
+- Project-only material becomes Portfolio Project candidate or unassigned.
+- Each role with project/accomplishment bullets has either a story candidate or an explicit uncovered-source review item.
+
+### P1.8 Manual QA SOP
+
+Goal: make the full correction loop reviewable by a human.
+
+Update:
+
+- `docs/resume-core-loop-qa.md`
+- `docs/scope-accuracy-foundation.md`
+- `docs/development-status.md`
+
+QA coverage:
+
+1. Add Material story coverage
+2. Candidate Review Queue actions
+3. Guided Story Target Creation
+4. Strengthen Evidence -> create story -> answer -> accept proposal
+5. Initiative <-> Portfolio correction
+6. Merge / split / keep separate
+7. Source provenance drilldown
+8. Resume generation safety
+9. Fact Guard / export gates
+10. rejected/moved-away target picker exclusion
+
+Acceptance:
+
+- Every P1 feature has manual steps and expected results.
+- Automated tests map to manual QA cases.
+- Reviewers can validate the end-to-end loop without reading implementation code.

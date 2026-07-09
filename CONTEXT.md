@@ -14,7 +14,7 @@
 
 **Evidence Claim** - The smallest source-backed factual proof unit. Evidence Claims are the only unit that can be approved for resume use.
 
-**Scope Review Candidate** - Extracted material blocked by scope guardrails before canonical persistence. A Scope Review Candidate records the proposed scope, classifier result, source snippet, guardrail reason, and suggested action so the user can decide whether to save it as pending Evidence, a Story Target, Profile Context, or dismiss it. It is not resume-usable evidence.
+**Scope Review Candidate** - Structured extracted material blocked by scope guardrails before canonical persistence. A Scope Review Candidate records source provenance, raw candidate text, proposed scope, classifier scope, guardrail decision/reason, confidence, suggested action, and resolution status so the user can decide whether to save it as pending Evidence, a Story Target, Profile Context, unassigned review material, or dismiss it. It is not resume-usable evidence.
 
 **Interview Story** - A derived STAR-style output generated from a ready Story Target and approved Evidence Claims. Interview Stories are not a source of truth.
 
