@@ -513,6 +513,7 @@ type ScopeReviewCandidate = {
     | "save_as_work_initiative"
     | "save_as_portfolio_project"
     | "save_as_profile_context"
+    | "save_as_unassigned"
     | "review_scope"
     | "dismiss";
   status: "open" | "resolved" | "dismissed";
@@ -525,6 +526,7 @@ Persistence decision:
 
 - Preferred: add a first-class `scope_review_candidates` table and let enrichment tasks reference it.
 - Acceptable transitional slice: keep typed metadata on `enrichment_tasks.review_payload_json`, but the payload must be built from classifier/guardrail decisions, not parsed from `prompt`.
+- Transitional `review_payload_json` must still behave like a durable candidate record. It must include stable `candidateId`, `status`, provenance, proposed/classifier scope, guardrail decision/reason, suggested action, and the resolved target id/type once resolved. It is not acceptable for this field to be only UI metadata or display copy.
 - Prompt text is display copy only. It must not be the source of truth for candidate identity, scope, or provenance.
 
 Deep module:
@@ -744,10 +746,18 @@ type ScopeCorrectionEvent = {
   action: string;
   subjectType: "candidate" | "story_target" | "evidence" | "work_experience";
   subjectId: string;
-  beforeJson: Record<string, unknown> | null;
-  afterJson: Record<string, unknown> | null;
+  beforeJson: ScopeCorrectionEventSnapshot | null;
+  afterJson: ScopeCorrectionEventSnapshot | null;
   sourceDocumentId?: string | null;
   createdAt: Date;
+};
+
+type ScopeCorrectionEventSnapshot = {
+  scope?: string | null;
+  status?: string | null;
+  relationIds?: Record<string, string | null>;
+  counts?: Record<string, number>;
+  shortLabel?: string | null;
 };
 ```
 
@@ -766,7 +776,8 @@ Events:
 Constraints:
 
 - Do not store large raw source text.
-- Prefer ids, scopes, short snippets, and action metadata.
+- Store only scope, relation ids, status, counts, short labels, and action metadata.
+- Do not store full asset snapshots, raw candidate text, full source quotes, full user answers, or full source chunks in `beforeJson` / `afterJson`.
 - Audit write should be transactional with canonical relation changes where needed.
 
 Acceptance:
