@@ -321,6 +321,7 @@ Actions:
 - Save as unassigned
 - Save as profile context where appropriate
 - Change scope
+- Move Portfolio Project to Work Initiative under a selected Work Experience
 - Attach to another Work Experience
 - Mark as Portfolio Project
 - Merge stories
@@ -447,7 +448,7 @@ Acceptance:
 | Phase 3 | Complete, first generalized slice | Work Experience, Work Initiative, Portfolio Project, and Evidence Claim extraction drafts now pass through pre-save scope guardrails; wrong-scope candidates route to imported material review notes instead of canonical tables. |
 | Phase 4 | Complete, second slice | Initiative consolidation is isolated in `initiative-consolidation.ts` with fixtures for AWS CDK/cache/latency merging, ambiguous/unassigned fragment merging, and cross-role non-merge. |
 | Phase 5 | Complete, first slice | `scope-accuracy-regression-fixtures.test.ts` locks the seven signed-off failure families across classifier, guardrail, consolidation, and imported-note routing. |
-| Phase 6 | In progress, second slice | Create missing Story Target from enrichment question exists; Evidence Cards now expose explicit Remove story link. Change scope/reassign/merge/keep separate remain staged. |
+| Phase 6 | In progress, third slice | Create missing Story Target from enrichment question exists; Evidence Cards expose Remove story link; Portfolio Projects can now be moved to Work Initiatives under a selected Work Experience with linked evidence preserved. Reverse scope changes and broader keep-separate UI remain staged. |
 | Phase 7 | In progress, first slice | Work Queue source-review pane now gives scope guardrail notes a dedicated scope-review action model; deeper validators remain staged. |
 | Phase 8 | In progress, second slice | Workflow metadata now records privacy-safe scope guardrail/consolidation counts for Work Experience, Initiative, Portfolio Project, and Evidence Claim candidates; broader diagnostics dashboard remains staged. |
 | Phase 9 | Not started | AI enhancements intentionally deferred. |

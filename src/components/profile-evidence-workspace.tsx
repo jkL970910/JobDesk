@@ -672,6 +672,11 @@ type StoryAssignmentPatch =
       startDate?: string | null;
       endDate?: string | null;
       summary?: string | null;
+    }
+  | {
+      action: "convert_to_initiative";
+      targetType: "portfolio_project";
+      workExperienceId: string;
     };
 
 export function ProfileEvidenceWorkspace({
@@ -2335,8 +2340,11 @@ export function ProfileEvidenceWorkspace({
     target: StoryEnrichmentTarget,
     patch: StoryAssignmentPatch,
   ): Promise<{ ok: boolean; message: string }> {
-    if (target.targetType !== "initiative") {
+    if (patch.action !== "convert_to_initiative" && target.targetType !== "initiative") {
       return { ok: false, message: "Only Work Initiatives can be assigned to a Work Experience." };
+    }
+    if (patch.action === "convert_to_initiative" && target.targetType !== "portfolio_project") {
+      return { ok: false, message: "Only Portfolio Projects can be moved under a Work Experience." };
     }
     const response = await fetchJson(`/api/story-targets/${target.targetId}`, {
       method: "PATCH",
@@ -2353,7 +2361,9 @@ export function ProfileEvidenceWorkspace({
     }
     await refreshLibraryAfterMutation();
     const message =
-      patch.action === "create_work_experience_and_assign"
+      patch.action === "convert_to_initiative"
+        ? "Moved Portfolio Project to Work Initiatives."
+        : patch.action === "create_work_experience_and_assign"
         ? "Created Work Experience and assigned Story Target."
         : patch.workExperienceId
           ? "Assigned Story Target to selected Work Experience."
@@ -11014,6 +11024,8 @@ function StoryTargetRow({
   const [mergeTargetId, setMergeTargetId] = useState("");
   const [isMergingStory, setIsMergingStory] = useState(false);
   const [isMergeOpen, setIsMergeOpen] = useState(false);
+  const [convertWorkExperienceId, setConvertWorkExperienceId] = useState("");
+  const [isConvertingScope, setIsConvertingScope] = useState(false);
   const [newRoleDraft, setNewRoleDraft] = useState({
     employer: "",
     endDate: "",
@@ -11063,6 +11075,8 @@ function StoryTargetRow({
     ? workExperiences.find((experience) => experience.id === currentWorkExperienceId) ?? null
     : null;
   const canAssignRole = targetType === "initiative" && Boolean(target);
+  const canConvertPortfolioProject =
+    targetType === "portfolio_project" && Boolean(target) && workExperiences.length > 0;
   const canMergeStory = targetType === "initiative" && Boolean(story.id) && mergeOptions.length > 0;
   async function handleAssignExisting(workExperienceId: string) {
     if (!target || target.targetType !== "initiative") return;
@@ -11131,6 +11145,25 @@ function StoryTargetRow({
       }
     } finally {
       setIsMergingStory(false);
+    }
+  }
+  async function handleConvertToInitiative() {
+    if (!target || target.targetType !== "portfolio_project" || !convertWorkExperienceId) {
+      setAssignmentMessage({ ok: false, text: "Choose a Work Experience first." });
+      return;
+    }
+    setIsConvertingScope(true);
+    setAssignmentMessage({ ok: true, text: "Moving Portfolio Project to Work Initiatives..." });
+    try {
+      const result = await onAssignStory(target, {
+        action: "convert_to_initiative",
+        targetType: "portfolio_project",
+        workExperienceId: convertWorkExperienceId,
+      });
+      setAssignmentMessage({ ok: result.ok, text: result.message });
+      if (result.ok) setConvertWorkExperienceId("");
+    } finally {
+      setIsConvertingScope(false);
     }
   }
   return (
@@ -11373,6 +11406,45 @@ function StoryTargetRow({
             <p className={assignmentMessage.ok ? "status" : "error"}>
               {assignmentMessage.text}
             </p>
+          ) : null}
+        </div>
+      ) : null}
+      {canConvertPortfolioProject ? (
+        <div className="story-target-row__assignment" data-state="scope-correction">
+          <div className="story-target-row__assignment-summary">
+            <strong>Move to Work Initiatives</strong>
+            <p>Use when this story belongs under an employer role instead of the Portfolio Project list.</p>
+          </div>
+          <div className="story-assignment-control">
+            <label>
+              <span>Work Experience</span>
+              <select
+                disabled={isConvertingScope}
+                value={convertWorkExperienceId}
+                onChange={(event) => {
+                  setConvertWorkExperienceId(event.target.value);
+                  setAssignmentMessage(null);
+                }}
+              >
+                <option value="">Choose Work Experience</option>
+                {workExperiences.map((experience) => (
+                  <option key={experience.id} value={experience.id}>
+                    {formatWorkExperienceDisplayLabel(experience)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="secondary-button"
+              disabled={isConvertingScope || !convertWorkExperienceId}
+              type="button"
+              onClick={() => void handleConvertToInitiative()}
+            >
+              {isConvertingScope ? "Moving..." : "Move to Work Initiatives"}
+            </button>
+          </div>
+          {assignmentMessage ? (
+            <p className={assignmentMessage.ok ? "status" : "error"}>{assignmentMessage.text}</p>
           ) : null}
         </div>
       ) : null}

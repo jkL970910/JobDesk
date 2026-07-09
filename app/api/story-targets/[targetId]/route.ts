@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   assignInitiativeToWorkExperience,
+  convertPortfolioProjectToInitiative,
   createWorkExperienceAndAssignInitiative,
   updateStoryTargetReview,
 } from "../../../../src/server/profile-evidence-repository";
@@ -29,6 +30,11 @@ const requestSchema = z.discriminatedUnion("action", [
     action: z.literal("assign_work_experience"),
     targetType: z.literal("initiative"),
     workExperienceId: z.string().uuid().nullable(),
+  }),
+  z.object({
+    action: z.literal("convert_to_initiative"),
+    targetType: z.literal("portfolio_project"),
+    workExperienceId: z.string().uuid(),
   }),
   z.object({
     action: z.literal("create_work_experience_and_assign"),
@@ -70,6 +76,11 @@ export async function PATCH(
   } else if (body.data.action === "assign_work_experience") {
     result = await assignInitiativeToWorkExperience({
       initiativeId: params.data.targetId,
+      workExperienceId: body.data.workExperienceId,
+    });
+  } else if (body.data.action === "convert_to_initiative") {
+    result = await convertPortfolioProjectToInitiative({
+      portfolioProjectId: params.data.targetId,
       workExperienceId: body.data.workExperienceId,
     });
   } else {

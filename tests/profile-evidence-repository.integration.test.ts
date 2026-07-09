@@ -32,6 +32,7 @@ import {
   getRecentEvidenceLibrary,
   getResumeTailoringContext,
   getStarStoryBank,
+  convertPortfolioProjectToInitiative,
   deleteEvidenceItem,
   keepEvidenceOverlapSeparate,
   keepProjectOverlapSeparate,
@@ -4032,6 +4033,137 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       status: "invalid",
       reason: "work_experience_not_found",
     });
+  });
+
+  it("converts a Portfolio Project story target into a Work Initiative and moves linked evidence", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const now = new Date();
+    const [sourceDocument] = await db
+      .insert(sourceDocuments)
+      .values({
+        workspaceId: workspace.id,
+        sourceType: "profile-evidence",
+        title: `Scope correction source ${crypto.randomUUID()}`,
+        contentText: "Employer-internal cache infrastructure story.",
+        contentHash: crypto.randomUUID(),
+      })
+      .returning({ id: sourceDocuments.id });
+    const [experience] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument?.id,
+        employer: `Scope correction employer ${crypto.randomUUID()}`,
+        roleTitle: "Backend Engineer",
+        startDate: "2024",
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: workExperiences.id });
+    const [project] = await db
+      .insert(portfolioProjects)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument?.id,
+        projectType: "general_project",
+        title: "Employer cache infrastructure",
+        externalSafeTitle: "Cache infrastructure",
+        context: "Employer-internal service cache work.",
+        problem: "Session lookups were slow.",
+        actions: ["Provisioned Redis cache infrastructure"],
+        results: ["Improved session lookup latency"],
+        metrics: [{ value: "p95 420 ms to 180 ms" }],
+        technologies: ["Redis", "AWS CDK"],
+        stakeholders: ["service owners"],
+        externalSafeSummary: "Improved cache infrastructure.",
+        sensitivityLevel: "private",
+        needsRedactionReview: 1,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: portfolioProjects.id });
+    if (!sourceDocument || !experience || !project) throw new Error("Expected scope correction rows.");
+    const [evidence] = await db
+      .insert(evidenceItems)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        text: "Provisioned Redis cache infrastructure.",
+        sourceQuote: "Provisioned Redis cache infrastructure.",
+        evidenceType: "extracted",
+        sensitivityLevel: "private",
+        relatedPortfolioProjectId: project.id,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: evidenceItems.id });
+    if (!evidence) throw new Error("Expected linked evidence.");
+    const [claim] = await db
+      .insert(generatedClaims)
+      .values({
+        workspaceId: workspace.id,
+        claimText: "Provisioned Redis cache infrastructure.",
+        section: "experience",
+        evidenceIds: [evidence.id],
+        sourceQuotes: ["Provisioned Redis cache infrastructure."],
+        supportStatus: "supported",
+        claimStatus: "supported",
+        riskLevel: "low",
+        createdAt: now,
+      })
+      .returning({ id: generatedClaims.id });
+
+    const converted = await convertPortfolioProjectToInitiative({
+      portfolioProjectId: project.id,
+      workExperienceId: experience.id,
+    });
+    expect(converted).toMatchObject({
+      status: "saved",
+      oldStoryId: project.id,
+      movedEvidenceCount: 1,
+      staleClaimCount: 1,
+    });
+    if (converted.status !== "saved") throw new Error("Expected converted story target.");
+    const [initiative] = await db
+      .select()
+      .from(initiatives)
+      .where(eq(initiatives.id, converted.newInitiativeId));
+    const [oldProject] = await db
+      .select({ status: portfolioProjects.status })
+      .from(portfolioProjects)
+      .where(eq(portfolioProjects.id, project.id));
+    const [movedEvidence] = await db
+      .select({
+        relatedInitiativeId: evidenceItems.relatedInitiativeId,
+        relatedPortfolioProjectId: evidenceItems.relatedPortfolioProjectId,
+      })
+      .from(evidenceItems)
+      .where(eq(evidenceItems.id, evidence.id));
+    const [staleClaim] = await db
+      .select({ claimStatus: generatedClaims.claimStatus })
+      .from(generatedClaims)
+      .where(eq(generatedClaims.id, claim?.id ?? ""));
+
+    expect(initiative).toMatchObject({
+      workExperienceId: experience.id,
+      sourceDocumentId: sourceDocument.id,
+      internalTitle: "Employer cache infrastructure",
+      externalSafeTitle: "Cache infrastructure",
+      actions: ["Provisioned Redis cache infrastructure"],
+      results: ["Improved session lookup latency"],
+      technologies: ["Redis", "AWS CDK"],
+      status: "pending",
+    });
+    expect(oldProject).toMatchObject({ status: "rejected" });
+    expect(movedEvidence).toMatchObject({
+      relatedInitiativeId: converted.newInitiativeId,
+      relatedPortfolioProjectId: null,
+    });
+    expect(staleClaim).toMatchObject({ claimStatus: "stale" });
   });
 
   it("merges initiative story targets and moves linked evidence", async () => {

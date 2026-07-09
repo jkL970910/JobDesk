@@ -2125,6 +2125,127 @@ export async function mergeStoryTargets(args: {
   return mergeResult;
 }
 
+export async function convertPortfolioProjectToInitiative(args: {
+  portfolioProjectId: string;
+  workExperienceId: string;
+}) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+
+  const conversion = await getDb().transaction(async (tx) => {
+    const workspace = await getCurrentWorkspace(tx);
+    const [project] = await tx
+      .select()
+      .from(portfolioProjects)
+      .where(
+        and(
+          eq(portfolioProjects.workspaceId, workspace.id),
+          eq(portfolioProjects.id, args.portfolioProjectId),
+        ),
+      )
+      .limit(1);
+    if (!project) return { status: "not_found" as const };
+    if (project.status === "rejected") {
+      return { status: "invalid" as const, reason: "portfolio_project_rejected" as const };
+    }
+    const [experience] = await tx
+      .select({
+        id: workExperiences.id,
+        status: workExperiences.status,
+        workspaceId: workExperiences.workspaceId,
+      })
+      .from(workExperiences)
+      .where(
+        and(
+          eq(workExperiences.workspaceId, workspace.id),
+          eq(workExperiences.id, args.workExperienceId),
+        ),
+      )
+      .limit(1);
+    if (!experience) return { status: "invalid" as const, reason: "work_experience_not_found" as const };
+    if (experience.status === "rejected") {
+      return { status: "invalid" as const, reason: "work_experience_rejected" as const };
+    }
+
+    const now = new Date();
+    const [initiative] = await tx
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        workExperienceId: experience.id,
+        sourceDocumentId: project.sourceDocumentId,
+        internalTitle: project.title,
+        externalSafeTitle: project.externalSafeTitle,
+        context: project.context,
+        problem: project.problem,
+        role: project.role,
+        actions: project.actions,
+        results: project.results,
+        metrics: project.metrics,
+        technologies: project.technologies,
+        stakeholders: project.stakeholders,
+        externalSafeSummary: project.externalSafeSummary,
+        sensitivityLevel: project.sensitivityLevel,
+        needsRedactionReview: project.needsRedactionReview,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: initiatives.id });
+    if (!initiative) throw new Error("Failed to convert portfolio project to initiative.");
+
+    const movedEvidence = await tx
+      .update(evidenceItems)
+      .set({
+        relatedInitiativeId: initiative.id,
+        relatedPortfolioProjectId: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(evidenceItems.workspaceId, workspace.id),
+          eq(evidenceItems.relatedPortfolioProjectId, project.id),
+        ),
+      )
+      .returning({ id: evidenceItems.id });
+
+    await tx
+      .update(portfolioProjects)
+      .set({
+        status: "rejected",
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(portfolioProjects.workspaceId, workspace.id),
+          eq(portfolioProjects.id, project.id),
+        ),
+      );
+
+    return {
+      status: "saved" as const,
+      oldStoryId: project.id,
+      newInitiativeId: initiative.id,
+      movedEvidenceIds: movedEvidence.map((item) => item.id),
+      movedEvidenceCount: movedEvidence.length,
+    };
+  });
+
+  if (conversion.status === "saved" && conversion.movedEvidenceIds.length > 0) {
+    const staleResult = await markClaimsStaleForEvidenceIds(conversion.movedEvidenceIds).catch(() => ({
+      status: "skipped" as const,
+      reason: "stale_mark_failed" as const,
+    }));
+    return {
+      ...conversion,
+      staleClaimCount: staleResult.status === "saved" ? staleResult.staleCount : 0,
+    };
+  }
+
+  return conversion;
+}
+
 export async function mergeEvidenceItems(args: {
   primaryEvidenceId: string;
   duplicateEvidenceId: string;
