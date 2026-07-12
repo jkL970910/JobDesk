@@ -51,11 +51,25 @@ const requestSchema = z.discriminatedUnion("action", [
       z.object({
         targetType: z.literal("initiative"),
         title: z.string().trim().min(2).max(240),
+        actions: z.array(z.string().trim().min(1).max(500)).max(12).optional(),
+        context: z.string().trim().max(2000).nullable().optional(),
+        problem: z.string().trim().max(2000).nullable().optional(),
+        results: z.array(z.string().trim().min(1).max(500)).max(12).optional(),
+        role: z.string().trim().max(2000).nullable().optional(),
+        sourceQuote: z.string().trim().max(4000).nullable().optional(),
+        technologies: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
         workExperienceId: z.string().uuid(),
       }),
       z.object({
         targetType: z.literal("portfolio_project"),
         title: z.string().trim().min(2).max(240),
+        actions: z.array(z.string().trim().min(1).max(500)).max(12).optional(),
+        context: z.string().trim().max(2000).nullable().optional(),
+        problem: z.string().trim().max(2000).nullable().optional(),
+        results: z.array(z.string().trim().min(1).max(500)).max(12).optional(),
+        role: z.string().trim().max(2000).nullable().optional(),
+        sourceQuote: z.string().trim().max(4000).nullable().optional(),
+        technologies: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
         projectType: z
           .enum([
             "personal_project",

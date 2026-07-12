@@ -23,7 +23,7 @@ export function getDb() {
   const pool =
     globalThis.__jobdeskPgPool ??
     new Pool({
-      connectionString: databaseUrl,
+      connectionString: normalizeDatabaseUrlForPg(databaseUrl),
     });
 
   if (process.env.NODE_ENV !== "production") {
@@ -33,3 +33,15 @@ export function getDb() {
   return drizzle(pool, { schema });
 }
 
+export function normalizeDatabaseUrlForPg(databaseUrl: string) {
+  try {
+    const url = new URL(databaseUrl);
+    const sslMode = url.searchParams.get("sslmode");
+    if (sslMode === "prefer" || sslMode === "require" || sslMode === "verify-ca") {
+      url.searchParams.set("sslmode", "verify-full");
+    }
+    return url.toString();
+  } catch {
+    return databaseUrl;
+  }
+}

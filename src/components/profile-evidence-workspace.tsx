@@ -221,6 +221,10 @@ type EvidenceCardItem = {
   text: string;
   source_quote: string;
   source_document_id?: string | null;
+  source_document_title?: string | null;
+  source_document_type?: string | null;
+  source_document_created_at?: string | null;
+  source_context_preview?: string | null;
   related_project_id?: string | null;
   related_work_experience_id?: string | null;
   related_initiative_id?: string | null;
@@ -404,6 +408,7 @@ type ScopeReviewCandidatePayload = {
     | "save_as_work_initiative"
     | "save_as_portfolio_project"
     | "save_as_profile_context"
+    | "save_as_unassigned"
     | "review_scope"
     | "dismiss";
   resolutionStatus: "open" | "resolved" | "dismissed";
@@ -429,11 +434,25 @@ type EnrichmentStoryTargetCreatePayload =
   | {
       targetType: "initiative";
       title: string;
+      actions?: string[];
+      context?: string | null;
+      problem?: string | null;
+      results?: string[];
+      role?: string | null;
+      sourceQuote?: string | null;
+      technologies?: string[];
       workExperienceId: string;
     }
   | {
       targetType: "portfolio_project";
       title: string;
+      actions?: string[];
+      context?: string | null;
+      problem?: string | null;
+      results?: string[];
+      role?: string | null;
+      sourceQuote?: string | null;
+      technologies?: string[];
       projectType:
         | "personal_project"
         | "academic_project"
@@ -485,6 +504,11 @@ type WorkExperienceItem = {
   end_date?: string | null;
   summary?: string | null;
   status: string;
+  source_document_id?: string | null;
+  source_document_title?: string | null;
+  source_document_type?: string | null;
+  source_document_created_at?: string | null;
+  source_context_preview?: string | null;
   provenance?: LibraryItemProvenance;
   target_eligibility?: TargetEligibility;
 };
@@ -493,6 +517,10 @@ type InitiativeItem = {
   id?: string;
   work_experience_id?: string | null;
   source_document_id?: string | null;
+  source_document_title?: string | null;
+  source_document_type?: string | null;
+  source_document_created_at?: string | null;
+  source_context_preview?: string | null;
   internal_title: string;
   external_safe_title?: string | null;
   context: string | null;
@@ -514,6 +542,10 @@ type InitiativeItem = {
 type PortfolioProjectItem = {
   id?: string;
   source_document_id?: string | null;
+  source_document_title?: string | null;
+  source_document_type?: string | null;
+  source_document_created_at?: string | null;
+  source_context_preview?: string | null;
   project_type: string;
   title: string;
   external_safe_title?: string | null;
@@ -722,6 +754,25 @@ type StoryAssignmentPatch =
         EnrichmentStoryTargetCreatePayload,
         { targetType: "portfolio_project" }
       >["projectType"];
+    }
+  | {
+      action: "split_story";
+      targetType: "initiative";
+      destinationTargetId?: string | null;
+      splitTargetType?: "initiative" | "portfolio_project";
+      title?: string;
+      evidenceItemIds: string[];
+      workExperienceId?: string | null;
+      projectType?: Extract<
+        EnrichmentStoryTargetCreatePayload,
+        { targetType: "portfolio_project" }
+      >["projectType"];
+      context?: string | null;
+      problem?: string | null;
+      actions?: string[];
+      results?: string[];
+      technologies?: string[];
+      sourceDocumentId?: string | null;
     };
 
 export function ProfileEvidenceWorkspace({
@@ -2388,6 +2439,7 @@ export function ProfileEvidenceWorkspace({
     if (
       patch.action !== "convert_to_initiative" &&
       patch.action !== "convert_to_portfolio_project" &&
+      patch.action !== "split_story" &&
       target.targetType !== "initiative"
     ) {
       return { ok: false, message: "Only Work Initiatives can be assigned to a Work Experience." };
@@ -2397,6 +2449,9 @@ export function ProfileEvidenceWorkspace({
     }
     if (patch.action === "convert_to_portfolio_project" && target.targetType !== "initiative") {
       return { ok: false, message: "Only Work Initiatives can be moved to Portfolio Projects." };
+    }
+    if (patch.action === "split_story" && target.targetType !== "initiative") {
+      return { ok: false, message: "Only Work Initiatives can be split." };
     }
     const response = await fetchJson(`/api/story-targets/${target.targetId}`, {
       method: "PATCH",
@@ -2417,6 +2472,8 @@ export function ProfileEvidenceWorkspace({
         ? "Moved Portfolio Project to Work Initiatives."
         : patch.action === "convert_to_portfolio_project"
         ? "Moved Work Initiative to Portfolio Projects."
+        : patch.action === "split_story"
+        ? "Created split Story Target and moved selected Evidence Claims."
         : patch.action === "create_work_experience_and_assign"
         ? "Created Work Experience and assigned Story Target."
         : patch.workExperienceId
@@ -3313,7 +3370,7 @@ export function ProfileEvidenceWorkspace({
               type="button"
               onClick={() => openWorkQueueView("imported")}
             >
-              Import Review ({formatQueueCount(iaCounts.workQueue.importReview, roleFilteredImportedTasks.length, workQueueRoleFilter)})
+              Import & Scope Review ({formatQueueCount(iaCounts.workQueue.importReview, roleFilteredImportedTasks.length, workQueueRoleFilter)})
             </button>
             <button
               data-active={workQueueView === "roles"}
@@ -3764,7 +3821,7 @@ function buildExtractionProgressInfo(
   const stageSummaries = [] as string[];
   if (sectionText) stageSummaries[2] = sectionText;
   if (run.status === "validating") stageSummaries[3] = "combining section results";
-  if (run.status === "saving") stageSummaries[4] = "saving canonical items";
+  if (run.status === "saving") stageSummaries[4] = "saving library items";
   return {
     activeIndex,
     detail,
@@ -5424,6 +5481,13 @@ function SourceSectionReviewPane({
   const [selectedRoleId, setSelectedRoleId] = useState(() => taskWorkExperienceId);
   const [roleFieldValue, setRoleFieldValue] = useState("");
   const [isSavingRoleField, setIsSavingRoleField] = useState(false);
+  const [candidateReviewStatus, setCandidateReviewStatus] = useState<string | null>(null);
+  const [candidateStoryTitle, setCandidateStoryTitle] = useState("");
+  const [candidateProjectType, setCandidateProjectType] =
+    useState<Extract<EnrichmentStoryTargetCreatePayload, { targetType: "portfolio_project" }>["projectType"]>(
+      "general_project",
+    );
+  const [isSavingCandidateAction, setIsSavingCandidateAction] = useState(false);
   const sectionName = extractSourceSectionName(task.prompt);
   const actionModel = getImportedNoteActionModel(task, sectionName);
   const scopeReviewCandidate =
@@ -5435,6 +5499,9 @@ function SourceSectionReviewPane({
     setSelectedRoleId(taskWorkExperienceId);
     setRoleFieldValue("");
     setRoleEditStatus(null);
+    setCandidateReviewStatus(null);
+    setCandidateStoryTitle("");
+    setCandidateProjectType("general_project");
     setCustomizing(false);
   }, [task.id, taskWorkExperienceId]);
   const handlePrimaryAction =
@@ -5487,6 +5554,63 @@ function SourceSectionReviewPane({
       setIsSavingRoleField(false);
     }
   }
+  async function applyScopeReviewCandidateAction(
+    action:
+      | "save_as_evidence"
+      | "save_as_profile_context"
+      | "save_as_unassigned"
+      | "save_as_work_initiative"
+      | "save_as_portfolio_project"
+      | "dismiss",
+  ) {
+    if (!scopeReviewCandidate) return;
+    if (action === "save_as_work_initiative" && !selectedRoleId) {
+      setCandidateReviewStatus("Choose the matching Work Experience first.");
+      return;
+    }
+    setIsSavingCandidateAction(true);
+    setCandidateReviewStatus("Saving review decision...");
+    try {
+      const response = await fetchJson(`/api/scope-review-candidates/${encodeURIComponent(scopeReviewCandidate.candidateId)}`, {
+        body: JSON.stringify({
+          action,
+          evidenceText: scopeReviewCandidate.sourceSnippet,
+          profileContextText: scopeReviewCandidate.sourceSnippet,
+          projectType: candidateProjectType,
+          sourceQuote: scopeReviewCandidate.sourceQuote ?? undefined,
+          title: candidateStoryTitle.trim() || inferStoryTargetTitle(scopeReviewCandidate.sourceSnippet),
+          workExperienceId: selectedRoleId,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; kind?: string }
+        | null;
+      if (!response.ok) {
+        setCandidateReviewStatus(payload?.error ?? "Candidate review action failed.");
+        return;
+      }
+      const message =
+        action === "save_as_evidence"
+          ? "Saved as pending evidence."
+          : action === "save_as_profile_context"
+            ? "Saved as profile context."
+          : action === "save_as_work_initiative"
+            ? "Saved as pending Work Initiative."
+          : action === "save_as_portfolio_project"
+            ? "Saved as pending Portfolio Project."
+          : action === "save_as_unassigned"
+            ? "Saved for later assignment."
+            : "Dismissed candidate.";
+      setCandidateReviewStatus(message);
+      await onRoleFieldUpdated();
+    } catch (error) {
+      setCandidateReviewStatus(error instanceof Error ? error.message : "Candidate review action failed.");
+    } finally {
+      setIsSavingCandidateAction(false);
+    }
+  }
   return (
     <article className="enrichment-focus-pane enrichment-focus-pane--source-section">
       <div className="enrichment-focus-pane__top">
@@ -5515,16 +5639,16 @@ function SourceSectionReviewPane({
                 <dd>{scopeReviewCandidate.sourceSnippet}</dd>
               </div>
               <div>
-                <dt>Proposed scope</dt>
+                <dt>Imported as</dt>
                 <dd>{formatScopeReviewScope(scopeReviewCandidate.proposedScope)}</dd>
               </div>
               <div>
-                <dt>Review outcome</dt>
+                <dt>Best destination</dt>
                 <dd>{formatScopeReviewScope(scopeReviewCandidate.classifierAcceptedScope)}</dd>
               </div>
               <div>
-                <dt>Why this needs review</dt>
-                <dd>{scopeReviewCandidate.guardrailReason}</dd>
+                <dt>Review note</dt>
+                <dd>{formatScopeReviewReason(scopeReviewCandidate.guardrailReason)}</dd>
               </div>
               <div>
                 <dt>Suggested action</dt>
@@ -5599,6 +5723,114 @@ function SourceSectionReviewPane({
               {isSavingRoleField ? "Saving..." : `Save ${roleFieldConfig.shortLabel}`}
             </button>
             {roleEditStatus ? <span className="status">{roleEditStatus}</span> : null}
+          </div>
+        ) : null}
+        {scopeReviewCandidate ? (
+          <div className="source-section-review__customize">
+            <span>Resolve this candidate</span>
+            <div className="source-section-review__candidate-story">
+              <label className="source-field">
+                <span>Story title</span>
+                <input
+                  className="jd-input jd-input--compact"
+                  disabled={isPending || isSavingCandidateAction}
+                  placeholder={inferStoryTargetTitle(scopeReviewCandidate.sourceSnippet)}
+                  value={candidateStoryTitle}
+                  onChange={(event) => setCandidateStoryTitle(event.target.value)}
+                />
+              </label>
+              <label className="source-field">
+                <span>Work Experience</span>
+                <select
+                  className="jd-input jd-input--compact"
+                  disabled={isPending || isSavingCandidateAction}
+                  value={selectedRoleId}
+                  onChange={(event) => setSelectedRoleId(event.target.value)}
+                >
+                  <option value="">Choose Work Experience</option>
+                  {workExperiences.map((experience) => (
+                    <option key={experience.id} value={experience.id}>
+                      {formatWorkExperienceDisplayLabel(experience)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="source-field">
+                <span>Project type</span>
+                <select
+                  className="jd-input jd-input--compact"
+                  disabled={isPending || isSavingCandidateAction}
+                  value={candidateProjectType}
+                  onChange={(event) =>
+                    setCandidateProjectType(
+                      event.target.value as Extract<
+                        EnrichmentStoryTargetCreatePayload,
+                        { targetType: "portfolio_project" }
+                      >["projectType"],
+                    )
+                  }
+                >
+                  <option value="general_project">General</option>
+                  <option value="personal_project">Personal</option>
+                  <option value="academic_project">Course / academic</option>
+                  <option value="open_source">Open source</option>
+                  <option value="freelance">Freelance</option>
+                  <option value="hackathon">Hackathon</option>
+                </select>
+              </label>
+            </div>
+            <div className="actions actions--compact">
+              <button
+                className="secondary-button secondary-button--quiet"
+                disabled={isPending || isSavingCandidateAction || !scopeReviewCandidate.sourceQuote}
+                title={scopeReviewCandidate.sourceQuote ? undefined : "Evidence needs a source quote."}
+                type="button"
+                onClick={() => void applyScopeReviewCandidateAction("save_as_evidence")}
+              >
+                Save as pending evidence
+              </button>
+              <button
+                className="secondary-button secondary-button--quiet"
+                disabled={isPending || isSavingCandidateAction}
+                type="button"
+                onClick={() => void applyScopeReviewCandidateAction("save_as_profile_context")}
+              >
+                Save as profile context
+              </button>
+              <button
+                className="secondary-button secondary-button--quiet"
+                disabled={isPending || isSavingCandidateAction || !selectedRoleId}
+                type="button"
+                onClick={() => void applyScopeReviewCandidateAction("save_as_work_initiative")}
+              >
+                Save as pending Work Initiative
+              </button>
+              <button
+                className="secondary-button secondary-button--quiet"
+                disabled={isPending || isSavingCandidateAction}
+                type="button"
+                onClick={() => void applyScopeReviewCandidateAction("save_as_portfolio_project")}
+              >
+                Save as pending Portfolio Project
+              </button>
+              <button
+                className="secondary-button secondary-button--quiet"
+                disabled={isPending || isSavingCandidateAction}
+                type="button"
+                onClick={() => void applyScopeReviewCandidateAction("save_as_unassigned")}
+              >
+                Save for later assignment
+              </button>
+              <button
+                className="secondary-button secondary-button--quiet"
+                disabled={isPending || isSavingCandidateAction}
+                type="button"
+                onClick={() => void applyScopeReviewCandidateAction("dismiss")}
+              >
+                Dismiss candidate
+              </button>
+            </div>
+            {candidateReviewStatus ? <span className="status">{candidateReviewStatus}</span> : null}
           </div>
         ) : null}
         <div className="source-section-review__actions">
@@ -5720,14 +5952,14 @@ function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: strin
   const expectedAction = task.expected_action ?? "review_import";
   if (isScopeReviewTask(task)) {
     return {
-      description: "This item was blocked by scope classification before it could become canonical library material.",
-      eyebrow: "Scope review",
-      heading: "Review the material scope.",
+      description: "JobDesk was not confident where this imported material belongs. Choose the right library destination before using it.",
+      eyebrow: "Material review",
+      heading: "Choose where this material belongs.",
       primaryAction: "review_import" as const,
       primaryLabel: "Review imported items",
       recommendedAction:
         "Check whether this belongs as a Work Experience, Story Target, Evidence Claim, Portfolio Project, or unassigned note. Do not answer it as an evidence question.",
-      title: "Scope classification review",
+      title: "Material destination review",
     };
   }
   if (expectedAction === "acknowledge") {
@@ -5817,9 +6049,18 @@ function formatScopeReviewSuggestedAction(action: ScopeReviewCandidatePayload["s
     save_as_evidence: "Save as pending Evidence Claim",
     save_as_portfolio_project: "Save as pending Portfolio Project",
     save_as_profile_context: "Save as Profile Context",
+    save_as_unassigned: "Save for later assignment",
     save_as_work_initiative: "Save as pending Work Initiative",
   };
   return labels[action];
+}
+
+function formatScopeReviewReason(reason: string) {
+  return reason
+    .replace(/\bcanonical\b/gi, "library")
+    .replace(/\bguardrail\b/gi, "review rule")
+    .replace(/\bclassifier\b/gi, "review")
+    .replace(/\bscope\b/gi, "destination");
 }
 
 function formatImportedNoteTargetField(field: string) {
@@ -6841,6 +7082,13 @@ function CreateStoryTargetInlineForm({
     eligibleWorkExperiences.length > 0 ? "initiative" : "portfolio_project",
   );
   const [title, setTitle] = useState(() => inferStoryTargetTitle(task.prompt));
+  const [context, setContext] = useState(() => inferStoryTargetContext(task));
+  const [problem, setProblem] = useState("");
+  const [role, setRole] = useState("");
+  const [actions, setActions] = useState("");
+  const [results, setResults] = useState("");
+  const [technologies, setTechnologies] = useState("");
+  const [sourceQuote, setSourceQuote] = useState(() => task.user_answer || task.prompt);
   const [workExperienceId, setWorkExperienceId] = useState(task.work_experience_id ?? "");
   const [projectType, setProjectType] =
     useState<Extract<EnrichmentStoryTargetCreatePayload, { targetType: "portfolio_project" }>["projectType"]>(
@@ -6940,6 +7188,82 @@ function CreateStoryTargetInlineForm({
             placeholder="e.g. Reporting automation initiative"
           />
         </label>
+        <label className="source-field">
+          <span>Context / goal</span>
+          <textarea
+            className="jd-input jd-input--compact"
+            disabled={disabled}
+            rows={2}
+            value={context}
+            onChange={(event) => setContext(event.target.value)}
+            placeholder="What business, product, or technical goal did this story serve?"
+          />
+        </label>
+        <label className="source-field">
+          <span>Problem</span>
+          <textarea
+            className="jd-input jd-input--compact"
+            disabled={disabled}
+            rows={2}
+            value={problem}
+            onChange={(event) => setProblem(event.target.value)}
+            placeholder="What was broken, slow, risky, manual, or missing?"
+          />
+        </label>
+        <label className="source-field">
+          <span>My role</span>
+          <textarea
+            className="jd-input jd-input--compact"
+            disabled={disabled}
+            rows={2}
+            value={role}
+            onChange={(event) => setRole(event.target.value)}
+            placeholder="What did you personally own or contribute?"
+          />
+        </label>
+        <label className="source-field">
+          <span>Actions</span>
+          <textarea
+            className="jd-input jd-input--compact"
+            disabled={disabled}
+            rows={3}
+            value={actions}
+            onChange={(event) => setActions(event.target.value)}
+            placeholder="One action per line"
+          />
+        </label>
+        <label className="source-field">
+          <span>Results / metrics</span>
+          <textarea
+            className="jd-input jd-input--compact"
+            disabled={disabled}
+            rows={3}
+            value={results}
+            onChange={(event) => setResults(event.target.value)}
+            placeholder="One result per line. Only include metrics present in the source."
+          />
+        </label>
+        <label className="source-field">
+          <span>Technologies</span>
+          <input
+            className="jd-input jd-input--compact"
+            disabled={disabled}
+            value={technologies}
+            onChange={(event) => setTechnologies(event.target.value)}
+            placeholder="Comma-separated tools or technologies"
+          />
+        </label>
+        <label className="source-field">
+          <span>Source quote / snippet</span>
+          <textarea
+            className="jd-input jd-input--compact"
+            disabled={disabled}
+            rows={2}
+            value={sourceQuote}
+            onChange={(event) => setSourceQuote(event.target.value)}
+            placeholder="Source text that supports this story"
+          />
+        </label>
       </div>
       <div className="actions actions--compact">
         <button
@@ -6952,6 +7276,13 @@ function CreateStoryTargetInlineForm({
               onCreate({
                 targetType: "initiative",
                 title: title.trim(),
+                actions: splitStoryDraftLines(actions),
+                context: normalizeStoryDraftText(context),
+                problem: normalizeStoryDraftText(problem),
+                results: splitStoryDraftLines(results),
+                role: normalizeStoryDraftText(role),
+                sourceQuote: normalizeStoryDraftText(sourceQuote),
+                technologies: splitStoryDraftTags(technologies),
                 workExperienceId,
               });
               return;
@@ -6959,7 +7290,14 @@ function CreateStoryTargetInlineForm({
             onCreate({
               targetType: "portfolio_project",
               title: title.trim(),
+              actions: splitStoryDraftLines(actions),
+              context: normalizeStoryDraftText(context),
+              problem: normalizeStoryDraftText(problem),
               projectType,
+              results: splitStoryDraftLines(results),
+              role: normalizeStoryDraftText(role),
+              sourceQuote: normalizeStoryDraftText(sourceQuote),
+              technologies: splitStoryDraftTags(technologies),
             });
           }}
         >
@@ -6985,6 +7323,33 @@ function getEnrichmentTargetId(
         (target.target_role === "primary" || target.target_role === "parent"),
     )?.target_id ?? ""
   );
+}
+
+function inferStoryTargetContext(task: EnrichmentTaskItem) {
+  const answer = task.user_answer?.trim();
+  if (answer) return answer.slice(0, 1000);
+  return `Created from enrichment question: ${task.prompt}`.slice(0, 1000);
+}
+
+function normalizeStoryDraftText(value: string) {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  return normalized || null;
+}
+
+function splitStoryDraftLines(value: string) {
+  return value
+    .split(/\n+/)
+    .map((item) => item.trim().replace(/\s+/g, " "))
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function splitStoryDraftTags(value: string) {
+  return value
+    .split(/[,\n]+/)
+    .map((item) => item.trim().replace(/\s+/g, " "))
+    .filter(Boolean)
+    .slice(0, 20);
 }
 
 function IntakeStageHeader({
@@ -8668,6 +9033,15 @@ function formatSourceQuotePreview(quote: string) {
   const normalized = quote.replace(/\s+/g, " ").trim();
   if (!normalized) return "No source quote captured";
   return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
+}
+
+function formatSourceDocumentType(value?: string | null) {
+  if (!value) return "Source document";
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function getEvidenceBlocker(item: EvidenceCardItem) {
@@ -11033,6 +11407,12 @@ function WorkInitiativeList({
                 title={initiative.external_safe_title ?? initiative.internal_title}
                 targetType="initiative"
                 workExperiences={workExperiences}
+                splitDestinationInitiatives={initiatives.filter(
+                  (option) =>
+                    option.id &&
+                    option.id !== initiative.id,
+                )}
+                splitDestinationPortfolioProjects={portfolioProjects}
                 mergeOptions={initiatives.filter(
                   (option) =>
                     option.id &&
@@ -11070,6 +11450,10 @@ function WorkInitiativeList({
                 title={project.external_safe_title ?? project.title}
                 targetType="portfolio_project"
                 workExperiences={workExperiences}
+                splitDestinationInitiatives={initiatives}
+                splitDestinationPortfolioProjects={portfolioProjects.filter(
+                  (option) => option.id && option.id !== project.id,
+                )}
               />
             );
           })}
@@ -11093,6 +11477,8 @@ function StoryTargetRow({
   onReviewClaims,
   onReviewStarStory,
   story,
+  splitDestinationInitiatives = [],
+  splitDestinationPortfolioProjects = [],
   targetType,
   title,
   workExperiences,
@@ -11116,6 +11502,8 @@ function StoryTargetRow({
   onReviewClaims: (target: StoryEnrichmentTarget) => void;
   onReviewStarStory: (target: StoryEnrichmentTarget) => void;
   story: InitiativeItem | PortfolioProjectItem;
+  splitDestinationInitiatives?: InitiativeItem[];
+  splitDestinationPortfolioProjects?: PortfolioProjectItem[];
   targetType: Exclude<StoryEnrichmentTargetType, "legacy_project">;
   title: string;
   workExperiences: WorkExperienceItem[];
@@ -11136,6 +11524,25 @@ function StoryTargetRow({
       "general_project",
     );
   const [isConvertingScope, setIsConvertingScope] = useState(false);
+  const [isSplitOpen, setIsSplitOpen] = useState(false);
+  const [isSplittingStory, setIsSplittingStory] = useState(false);
+  const [splitMessage, setSplitMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [splitDraft, setSplitDraft] = useState({
+    actions: "",
+    context: "",
+    destination: "initiative" as "initiative" | "portfolio_project",
+    destinationMode: "new" as "new" | "existing",
+    destinationTargetId: "",
+    evidenceItemIds: [] as string[],
+    problem: "",
+    projectType: "general_project" as Extract<
+      EnrichmentStoryTargetCreatePayload,
+      { targetType: "portfolio_project" }
+    >["projectType"],
+    results: "",
+    technologies: "",
+    title: "",
+  });
   const [newRoleDraft, setNewRoleDraft] = useState({
     employer: "",
     endDate: "",
@@ -11190,6 +11597,10 @@ function StoryTargetRow({
     targetType === "portfolio_project" && Boolean(target) && workExperiences.length > 0;
   const canConvertInitiativeToPortfolioProject = targetType === "initiative" && Boolean(target);
   const canMergeStory = targetType === "initiative" && Boolean(story.id) && mergeOptions.length > 0;
+  const persistedEvidenceItems = evidenceItems.filter(
+    (item): item is EvidenceCardItem & { id: string } => Boolean(item.id),
+  );
+  const canSplitStory = targetType === "initiative" && Boolean(target) && persistedEvidenceItems.length > 1;
   async function handleAssignExisting(workExperienceId: string) {
     if (!target || target.targetType !== "initiative") return;
     setIsAssigning(true);
@@ -11291,6 +11702,62 @@ function StoryTargetRow({
       setAssignmentMessage({ ok: result.ok, text: result.message });
     } finally {
       setIsConvertingScope(false);
+    }
+  }
+  async function handleSplitStory() {
+    if (!target || target.targetType !== "initiative") return;
+    const title = splitDraft.title.trim();
+    if (splitDraft.evidenceItemIds.length === 0) {
+      setSplitMessage({ ok: false, text: "Choose at least one Evidence Claim." });
+      return;
+    }
+    if (splitDraft.destinationMode === "new" && !title) {
+      setSplitMessage({ ok: false, text: "Add a title for the new Story Target." });
+      return;
+    }
+    if (splitDraft.destinationMode === "existing" && !splitDraft.destinationTargetId) {
+      setSplitMessage({ ok: false, text: "Choose the destination Story Target." });
+      return;
+    }
+    setIsSplittingStory(true);
+    setSplitMessage({ ok: true, text: splitDraft.destinationMode === "new" ? "Creating split Story Target..." : "Moving selected Evidence Claims..." });
+    try {
+      const result = await onAssignStory(target, {
+        action: "split_story",
+        targetType: "initiative",
+        destinationTargetId: splitDraft.destinationMode === "existing" ? splitDraft.destinationTargetId : null,
+        splitTargetType: splitDraft.destination,
+        title: splitDraft.destinationMode === "new" ? title : undefined,
+        context: splitDraft.context.trim() || null,
+        problem: splitDraft.problem.trim() || null,
+        actions: splitStoryTextarea(splitDraft.actions),
+        results: splitStoryTextarea(splitDraft.results),
+        technologies: splitStoryTags(splitDraft.technologies),
+        evidenceItemIds: splitDraft.evidenceItemIds,
+        projectType: splitDraft.destination === "portfolio_project" ? splitDraft.projectType : undefined,
+        workExperienceId: currentWorkExperienceId || null,
+        sourceDocumentId:
+          persistedEvidenceItems.find((item) => splitDraft.evidenceItemIds.includes(item.id))?.source_document_id ?? null,
+      });
+      setSplitMessage({ ok: result.ok, text: result.message });
+      if (result.ok) {
+        setSplitDraft({
+          actions: "",
+          context: "",
+          destination: "initiative",
+          destinationMode: "new",
+          destinationTargetId: "",
+          evidenceItemIds: [],
+          problem: "",
+          projectType: "general_project",
+          results: "",
+          technologies: "",
+          title: "",
+        });
+        setIsSplitOpen(false);
+      }
+    } finally {
+      setIsSplittingStory(false);
     }
   }
   return (
@@ -11610,6 +12077,46 @@ function StoryTargetRow({
           <SectionList title="Outcomes" items={story.results} />
           <SectionList title="Evidence-backed metrics" items={metrics} />
         </div>
+        <section className="story-source-trail">
+          <strong>Source trail</strong>
+          <p>
+            Story source: {story.source_document_title || (story.source_document_id ? "Source document" : "Manual or user-created")}
+          </p>
+          {story.source_context_preview ? (
+            <details className="story-source-context">
+              <summary>Review source context</summary>
+              <div className="story-source-context__meta">
+                <span>{formatSourceDocumentType(story.source_document_type)}</span>
+                <span>Imported {formatRelativeDate(story.source_document_created_at)}</span>
+              </div>
+              <p>{story.source_context_preview}</p>
+              <small>Source context is for review only. Resume generation still requires approved Evidence Claims.</small>
+            </details>
+          ) : null}
+          {evidenceItems.length > 0 ? (
+            <div className="story-source-trail__quotes">
+              {evidenceItems.slice(0, 4).map((item) => (
+                <article key={item.id ?? item.source_quote}>
+                  <span>{item.source_document_title || (item.source_document_id ? "Source document" : "Manual source")}</span>
+                  <p>{formatSourceQuotePreview(item.source_quote)}</p>
+                  {item.source_context_preview ? (
+                    <details className="story-source-context story-source-context--claim">
+                      <summary>Nearby source</summary>
+                      <div className="story-source-context__meta">
+                        <span>{formatSourceDocumentType(item.source_document_type)}</span>
+                        <span>Imported {formatRelativeDate(item.source_document_created_at)}</span>
+                      </div>
+                      <p>{item.source_context_preview}</p>
+                    </details>
+                  ) : null}
+                </article>
+              ))}
+              {evidenceItems.length > 4 ? <small>+{evidenceItems.length - 4} more linked claims</small> : null}
+            </div>
+          ) : (
+            <small>No linked Evidence Claims yet.</small>
+          )}
+        </section>
         {canConvertInitiativeToPortfolioProject ? (
           <section className="story-detail-merge">
             <div className="story-detail-merge__body">
@@ -11710,6 +12217,227 @@ function StoryTargetRow({
             ) : null}
           </section>
         ) : null}
+        {canSplitStory ? (
+          <section className="story-detail-merge">
+            <button
+              className="secondary-button secondary-button--quiet story-detail-merge__toggle"
+              type="button"
+              onClick={() => setIsSplitOpen((value) => !value)}
+            >
+              {isSplitOpen ? "Hide split options" : "Split into new Story Target"}
+            </button>
+            {isSplitOpen ? (
+              <div className="story-detail-merge__body">
+                <div>
+                  <strong>Split into new Story Target</strong>
+                  <p>Select the Evidence Claims that belong in a separate story. New targets stay pending.</p>
+                </div>
+                <div className="story-new-role-form">
+                  <label>
+                    <span>Destination</span>
+                    <select
+                      disabled={isSplittingStory}
+                      value={splitDraft.destinationMode}
+                      onChange={(event) =>
+                        setSplitDraft((draft) => ({
+                          ...draft,
+                          destinationMode: event.target.value as "new" | "existing",
+                          destinationTargetId: "",
+                        }))
+                      }
+                    >
+                      <option value="new">Create new Story Target</option>
+                      <option value="existing">Move into existing Story Target</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Story Target type</span>
+                    <select
+                      disabled={isSplittingStory}
+                      value={splitDraft.destination}
+                      onChange={(event) =>
+                        setSplitDraft((draft) => ({
+                          ...draft,
+                          destination: event.target.value as "initiative" | "portfolio_project",
+                          destinationTargetId: "",
+                        }))
+                      }
+                    >
+                      <option value="initiative">Work Initiative under this role</option>
+                      <option value="portfolio_project">Portfolio Project</option>
+                    </select>
+                  </label>
+                  {splitDraft.destinationMode === "existing" ? (
+                    <label>
+                      <span>Existing Story Target</span>
+                      <select
+                        disabled={isSplittingStory}
+                        value={splitDraft.destinationTargetId}
+                        onChange={(event) =>
+                          setSplitDraft((draft) => ({
+                            ...draft,
+                            destinationTargetId: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Choose Story Target</option>
+                        {(splitDraft.destination === "portfolio_project"
+                          ? splitDestinationPortfolioProjects
+                          : splitDestinationInitiatives
+                        ).map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {splitDraft.destination === "portfolio_project"
+                              ? ("title" in option ? option.external_safe_title ?? option.title : "")
+                              : ("internal_title" in option ? option.external_safe_title ?? option.internal_title : "")}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  {splitDraft.destinationMode === "new" && splitDraft.destination === "portfolio_project" ? (
+                    <label>
+                      <span>Project type</span>
+                      <select
+                        disabled={isSplittingStory}
+                        value={splitDraft.projectType}
+                        onChange={(event) =>
+                          setSplitDraft((draft) => ({
+                            ...draft,
+                            projectType: event.target.value as Extract<
+                              EnrichmentStoryTargetCreatePayload,
+                              { targetType: "portfolio_project" }
+                            >["projectType"],
+                          }))
+                        }
+                      >
+                        <option value="general_project">General</option>
+                        <option value="personal_project">Personal</option>
+                        <option value="academic_project">Course / academic</option>
+                        <option value="open_source">Open source</option>
+                        <option value="freelance">Freelance</option>
+                        <option value="hackathon">Hackathon</option>
+                      </select>
+                    </label>
+                  ) : null}
+                  {splitDraft.destinationMode === "new" ? (
+                    <>
+                      <label>
+                        <span>New Story Target title</span>
+                        <input
+                          disabled={isSplittingStory}
+                          value={splitDraft.title}
+                          onChange={(event) =>
+                            setSplitDraft((draft) => ({ ...draft, title: event.target.value }))
+                          }
+                          placeholder="Distributed cache provisioning"
+                        />
+                      </label>
+                      <label>
+                        <span>Context</span>
+                        <textarea
+                          disabled={isSplittingStory}
+                          rows={2}
+                          value={splitDraft.context}
+                          onChange={(event) =>
+                            setSplitDraft((draft) => ({ ...draft, context: event.target.value }))
+                          }
+                          placeholder="Where this story happened"
+                        />
+                      </label>
+                      <label>
+                        <span>Problem</span>
+                        <textarea
+                          disabled={isSplittingStory}
+                          rows={2}
+                          value={splitDraft.problem}
+                          onChange={(event) =>
+                            setSplitDraft((draft) => ({ ...draft, problem: event.target.value }))
+                          }
+                          placeholder="What needed to change"
+                        />
+                      </label>
+                      <label>
+                        <span>Actions</span>
+                        <textarea
+                          disabled={isSplittingStory}
+                          rows={3}
+                          value={splitDraft.actions}
+                          onChange={(event) =>
+                            setSplitDraft((draft) => ({ ...draft, actions: event.target.value }))
+                          }
+                          placeholder="One action per line"
+                        />
+                      </label>
+                      <label>
+                        <span>Results</span>
+                        <textarea
+                          disabled={isSplittingStory}
+                          rows={3}
+                          value={splitDraft.results}
+                          onChange={(event) =>
+                            setSplitDraft((draft) => ({ ...draft, results: event.target.value }))
+                          }
+                          placeholder="One result per line"
+                        />
+                      </label>
+                      <label>
+                        <span>Technologies</span>
+                        <input
+                          disabled={isSplittingStory}
+                          value={splitDraft.technologies}
+                          onChange={(event) =>
+                            setSplitDraft((draft) => ({ ...draft, technologies: event.target.value }))
+                          }
+                          placeholder="AWS CDK, Redis, TypeScript"
+                        />
+                      </label>
+                    </>
+                  ) : null}
+                </div>
+                <div className="story-split-claims">
+                  {persistedEvidenceItems.map((item) => (
+                    <label className="story-split-claim" key={item.id}>
+                      <input
+                        checked={splitDraft.evidenceItemIds.includes(item.id)}
+                        disabled={isSplittingStory}
+                        type="checkbox"
+                        onChange={(event) =>
+                          setSplitDraft((draft) => ({
+                            ...draft,
+                            evidenceItemIds: event.target.checked
+                              ? [...draft.evidenceItemIds, item.id]
+                              : draft.evidenceItemIds.filter((id) => id !== item.id),
+                          }))
+                        }
+                      />
+                      <span>{item.text}</span>
+                    </label>
+                  ))}
+                </div>
+                <button
+                  className="secondary-button"
+                  disabled={
+                    isSplittingStory ||
+                    splitDraft.evidenceItemIds.length === 0 ||
+                    (splitDraft.destinationMode === "new" && !splitDraft.title.trim()) ||
+                    (splitDraft.destinationMode === "existing" && !splitDraft.destinationTargetId)
+                  }
+                  type="button"
+                  onClick={() => void handleSplitStory()}
+                >
+                  {isSplittingStory
+                    ? "Splitting..."
+                    : splitDraft.destinationMode === "new"
+                      ? "Create split Story Target"
+                      : "Move selected Evidence Claims"}
+                </button>
+                {splitMessage ? (
+                  <p className={splitMessage.ok ? "status" : "error"}>{splitMessage.text}</p>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
       </details>
     </article>
   );
@@ -11741,6 +12469,20 @@ function formatStoryEvidenceStatus(evidenceItems: EvidenceCardItem[]) {
   }
   if (evidenceItems.some((item) => item.status === "approved")) return "has approved evidence";
   return "needs review";
+}
+
+function splitStoryTextarea(value: string) {
+  return value
+    .split(/\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function splitStoryTags(value: string) {
+  return value
+    .split(/[,\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function formatStoryTargetStatus(status: string) {

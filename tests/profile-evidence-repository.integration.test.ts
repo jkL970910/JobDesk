@@ -22,6 +22,8 @@ import {
   profileFactHistory,
   profiles,
   resumeSourceVersions,
+  scopeReviewCandidates,
+  scopeCorrectionEvents,
   sourceCleanupEvents,
   sourceDocuments,
   workExperiences,
@@ -40,6 +42,7 @@ import {
   mergeProjectCards,
   mergeStoryTargets,
   persistProfileEvidenceExtraction,
+  splitInitiativeStoryTarget,
   updateEvidenceItem,
   updateProfileFacts,
   reviewWorkExperience,
@@ -49,7 +52,7 @@ import {
 import type { ProfileEvidenceExtraction } from "../src/schemas/profile-evidence-extraction";
 import { skillRegistry } from "../src/ai/skills-registry";
 import { expectWorkflowRunMetadata } from "./helpers/workflow-run-assertions";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { getCurrentWorkspace } from "../src/server/workspace-repository";
 import { getProfilePositioningContext } from "../src/server/profile-positioning-repository";
 import { registerUser, runWithAuthContext } from "../src/server/auth-service";
@@ -58,6 +61,7 @@ import {
   quarantineEvidenceAsset,
 } from "../src/server/evidence-asset-actions";
 import { applyStoryTargetCorrection } from "../src/server/story-target-correction";
+import { applyCandidateReviewAction } from "../src/server/scope-review-candidate";
 
 const runIntegration = process.env.JOBDESK_RUN_DB_INTEGRATION === "true";
 
@@ -378,7 +382,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       (project) => project.title === "Onboarding analytics",
     );
     expect(onboardingProject).toBeDefined();
-    const starStories = await getStarStoryBank(10);
+    const starStories = await getStarStoryBank(200);
     expect(starStories.status).toBe("ready");
     if (starStories.status !== "ready") throw new Error("Expected STAR story bank.");
     expect(
@@ -731,6 +735,26 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
           ),
       ),
     ).toBe(false);
+    if (projectKeepSeparate.status !== "saved") {
+      throw new Error("Expected project keep-separate result.");
+    }
+    const workspace = await getCurrentWorkspace(getDb());
+    const [keepSeparateAudit] = await getDb()
+      .select()
+      .from(scopeCorrectionEvents)
+      .where(
+        and(
+          eq(scopeCorrectionEvents.workspaceId, workspace.id),
+          eq(scopeCorrectionEvents.action, "keep_separate"),
+          eq(scopeCorrectionEvents.entityType, "project"),
+        ),
+      )
+      .orderBy(desc(scopeCorrectionEvents.createdAt))
+      .limit(1);
+    expect(keepSeparateAudit).toMatchObject({
+      action: "keep_separate",
+      entityType: "project",
+    });
 
     const mergeProjectA = await persistProfileEvidenceExtraction({
       sourceText: projectDuplicateSourceText,
@@ -1041,6 +1065,628 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
         }),
       ]),
     );
+
+    const candidates = await db
+      .select()
+      .from(scopeReviewCandidates)
+      .where(eq(scopeReviewCandidates.sourceDocumentId, result.sourceDocumentId));
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          proposedScope: "work_initiative",
+          sourceDocumentId: result.sourceDocumentId,
+          status: "open",
+        }),
+        expect.objectContaining({
+          proposedScope: "portfolio_project",
+          sourceDocumentId: result.sourceDocumentId,
+          status: "open",
+        }),
+        expect.objectContaining({
+          proposedScope: "evidence_claim",
+          sourceDocumentId: result.sourceDocumentId,
+          status: "open",
+        }),
+      ]),
+    );
+    const dismissedCandidate = candidates.find((candidate) => candidate.proposedScope === "work_initiative");
+    if (!dismissedCandidate?.taskId) throw new Error("Expected durable scope review candidate.");
+    const dismissed = await applyCandidateReviewAction({
+      action: "dismiss",
+      candidateId: dismissedCandidate.id,
+    });
+    expect(dismissed).toMatchObject({
+      status: "saved",
+      candidate: {
+        id: dismissedCandidate.id,
+        status: "dismissed",
+        resolvedAsTargetType: null,
+      },
+    });
+    const [dismissedTask] = await db
+      .select({ status: enrichmentTasks.status })
+      .from(enrichmentTasks)
+      .where(eq(enrichmentTasks.id, dismissedCandidate.taskId));
+    expect(dismissedTask).toMatchObject({ status: "dismissed" });
+    const [auditEvent] = await db
+      .select()
+      .from(scopeCorrectionEvents)
+      .where(eq(scopeCorrectionEvents.sourceCandidateId, dismissedCandidate.id));
+    expect(auditEvent).toMatchObject({
+      action: "dismiss",
+      entityType: "scope_review_candidate",
+      sourceTaskId: dismissedCandidate.taskId,
+    });
+    expect(auditEvent?.beforeJson).toMatchObject({
+      fromScope: "work_initiative",
+      sourceState: "linked",
+    });
+  });
+
+  it("prevents broad scope review candidates from being saved as Evidence Claims", async () => {
+    const sourceTitle = `Scope candidate action ${crypto.randomUUID()}`;
+    const base = buildExtraction();
+    const extraction: ProfileEvidenceExtraction = {
+      ...base,
+      evidence_items: [
+        {
+          allowed_usage: ["resume"],
+          evidence_type: "extracted",
+          metrics: [],
+          needs_user_confirmation: false,
+          public_safe_summary: null,
+          related_initiative_id: null,
+          related_portfolio_project_id: null,
+          related_project_id: null,
+          related_work_experience_id: null,
+          sensitivity_level: "private",
+          source_quote:
+            "Led platform roadmap planning, stakeholder coordination, service migration, rollout enablement, and adoption strategy.",
+          status: "pending",
+          text:
+            "Led platform roadmap planning, stakeholder coordination, service migration, rollout enablement, and adoption strategy.",
+        },
+      ],
+      initiatives: [],
+      portfolio_projects: [],
+    };
+    const result = await persistProfileEvidenceExtraction({
+      sourceTitle,
+      sourceText: sampleSourceText,
+      extraction,
+      provider: "integration-test",
+      model: "test-model",
+      usage: { totalTokens: 42 },
+      retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
+    });
+    expect(result.status).toBe("saved");
+    if (result.status !== "saved") throw new Error("Expected saved extraction.");
+    const db = getDb();
+    const [candidate] = await db
+      .select()
+      .from(scopeReviewCandidates)
+      .where(eq(scopeReviewCandidates.sourceDocumentId, result.sourceDocumentId));
+    if (!candidate) throw new Error("Expected scope review candidate.");
+
+    const saved = await applyCandidateReviewAction({
+      action: "save_as_evidence",
+      candidateId: candidate.id,
+    });
+    expect(saved).toMatchObject({
+      status: "invalid",
+      reason: "candidate_not_atomic_evidence",
+    });
+    const [evidence] = await db
+      .select({ id: evidenceItems.id })
+      .from(evidenceItems)
+      .where(eq(evidenceItems.sourceDocumentId, result.sourceDocumentId));
+    expect(evidence).toBeUndefined();
+  });
+
+  it("resolves scope review candidates as pending evidence, profile context, or unassigned material", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const now = new Date();
+    const [sourceDocument] = await db
+      .insert(sourceDocuments)
+      .values({
+        workspaceId: workspace.id,
+        sourceType: "profile-evidence",
+        title: `Candidate actions source ${crypto.randomUUID()}`,
+        contentText: "Built Redis cache for session lookup performance.",
+        contentHash: crypto.randomUUID(),
+      })
+      .returning({ id: sourceDocuments.id });
+    if (!sourceDocument) throw new Error("Expected source document.");
+    const seed = crypto.randomUUID();
+    await db.insert(scopeReviewCandidates).values([
+      {
+        id: `scope:evidence-${seed}`,
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        sourceType: "extraction_note",
+        sourceSection: "Experience",
+        sourceQuote: "Built Redis cache for session lookup performance.",
+        rawCandidateText: "Built Redis cache for session lookup performance.",
+        proposedScope: "evidence_claim",
+        classifierScope: "evidence_claim",
+        guardrailDecision: "review_queue_only",
+        guardrailReason: "Atomic claim needs user confirmation before reuse.",
+        confidence: "high",
+        suggestedAction: "save_as_evidence",
+        status: "open",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: `scope:profile-${seed}`,
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        sourceType: "extraction_note",
+        sourceSection: "Skills",
+        sourceQuote: "Prefers backend platform roles.",
+        rawCandidateText: "Prefers backend platform roles.",
+        proposedScope: "evidence_claim",
+        classifierScope: "profile_context",
+        guardrailDecision: "review_queue_only",
+        guardrailReason: "Profile preference can guide positioning but is not evidence.",
+        confidence: "medium",
+        suggestedAction: "save_as_profile_context",
+        status: "open",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: `scope:unassigned-${seed}`,
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        sourceType: "extraction_note",
+        sourceSection: "Experience",
+        sourceQuote: "Needs a matching story target.",
+        rawCandidateText: "Needs a matching story target.",
+        proposedScope: "work_initiative",
+        classifierScope: "unassigned",
+        guardrailDecision: "review_queue_only",
+        guardrailReason: "Candidate needs a target decision before reuse.",
+        confidence: "low",
+        suggestedAction: "save_as_unassigned",
+        status: "open",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    const evidenceResult = await applyCandidateReviewAction({
+      action: "save_as_evidence",
+      candidateId: `scope:evidence-${seed}`,
+    });
+    const profileResult = await applyCandidateReviewAction({
+      action: "save_as_profile_context",
+      candidateId: `scope:profile-${seed}`,
+    });
+    const unassignedResult = await applyCandidateReviewAction({
+      action: "save_as_unassigned",
+      candidateId: `scope:unassigned-${seed}`,
+    });
+
+    expect(evidenceResult).toMatchObject({
+      status: "saved",
+      candidate: { resolvedAsTargetType: "evidence", status: "resolved" },
+    });
+    expect(profileResult).toMatchObject({
+      status: "saved",
+      candidate: { resolvedAsTargetType: "profile_context", status: "resolved" },
+    });
+    expect(unassignedResult).toMatchObject({
+      status: "saved",
+      candidate: { resolvedAsTargetType: "unassigned", status: "open" },
+    });
+    const [evidence] = await db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.sourceDocumentId, sourceDocument.id));
+    expect(evidence).toMatchObject({
+      status: "pending",
+      needsUserConfirmation: 1,
+      sourceQuote: "Built Redis cache for session lookup performance.",
+    });
+    const [profileContext] = await db
+      .select()
+      .from(profileContextAnswers)
+      .where(eq(profileContextAnswers.workspaceId, workspace.id))
+      .orderBy(desc(profileContextAnswers.createdAt))
+      .limit(1);
+    expect(profileContext).toMatchObject({
+      answerText: "Prefers backend platform roles.",
+      status: "pending",
+    });
+    const auditEvents = await db
+      .select()
+      .from(scopeCorrectionEvents)
+      .where(eq(scopeCorrectionEvents.sourceCandidateId, `scope:evidence-${seed}`));
+    expect(auditEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "save_as_evidence",
+          entityType: "evidence",
+        }),
+      ]),
+    );
+  });
+
+  it("allows scope review candidates to be corrected to another valid pending destination", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const now = new Date();
+    const [sourceDocument] = await db
+      .insert(sourceDocuments)
+      .values({
+        workspaceId: workspace.id,
+        sourceType: "profile-evidence",
+        title: `Candidate correction source ${crypto.randomUUID()}`,
+        contentText: "Built Redis cache for session lookup performance. Shipped an open-source parser.",
+        contentHash: crypto.randomUUID(),
+      })
+      .returning({ id: sourceDocuments.id });
+    const [experience] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument?.id,
+        employer: `Correction employer ${crypto.randomUUID()}`,
+        roleTitle: "Software Engineer",
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: workExperiences.id });
+    if (!sourceDocument || !experience) throw new Error("Expected correction fixtures.");
+    const seed = crypto.randomUUID();
+    await db.insert(scopeReviewCandidates).values([
+      {
+        id: `scope:correct-evidence-${seed}`,
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        sourceType: "extraction_note",
+        sourceSection: "Skills",
+        sourceQuote: "Built Redis cache for session lookup performance.",
+        rawCandidateText: "Built Redis cache for session lookup performance.",
+        proposedScope: "profile_context",
+        classifierScope: "profile_context",
+        guardrailDecision: "review_queue_only",
+        guardrailReason: "Imported as profile context, but user can choose the right destination.",
+        confidence: "medium",
+        suggestedAction: "save_as_profile_context",
+        status: "open",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: `scope:correct-initiative-${seed}`,
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        sourceType: "extraction_note",
+        sourceSection: "Projects",
+        sourceQuote: "Built deployment automation for service rollout.",
+        rawCandidateText: "Built deployment automation for service rollout.",
+        proposedScope: "portfolio_project",
+        classifierScope: "portfolio_project",
+        guardrailDecision: "review_queue_only",
+        guardrailReason: "Imported as a portfolio project, but user can attach it to a role.",
+        confidence: "medium",
+        suggestedAction: "save_as_portfolio_project",
+        status: "open",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    const evidenceResult = await applyCandidateReviewAction({
+      action: "save_as_evidence",
+      candidateId: `scope:correct-evidence-${seed}`,
+    });
+    const initiativeResult = await applyCandidateReviewAction({
+      action: "save_as_work_initiative",
+      candidateId: `scope:correct-initiative-${seed}`,
+      payload: {
+        title: "Deployment automation",
+        workExperienceId: experience.id,
+      },
+    });
+
+    expect(evidenceResult).toMatchObject({
+      status: "saved",
+      candidate: { resolvedAsTargetType: "evidence", status: "resolved" },
+    });
+    expect(initiativeResult).toMatchObject({
+      status: "saved",
+      candidate: { resolvedAsTargetType: "work_initiative", status: "resolved" },
+    });
+    const [evidence] = await db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.sourceDocumentId, sourceDocument.id));
+    expect(evidence).toMatchObject({
+      sourceQuote: "Built Redis cache for session lookup performance.",
+      status: "pending",
+    });
+    const [initiative] = await db
+      .select()
+      .from(initiatives)
+      .where(eq(initiatives.workExperienceId, experience.id));
+    expect(initiative).toMatchObject({
+      internalTitle: "Deployment automation",
+      sourceDocumentId: sourceDocument.id,
+      status: "pending",
+    });
+  });
+
+  it("saves story-scope review candidates as pending Story Targets only after user action", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const now = new Date();
+    const [sourceDocument] = await db
+      .insert(sourceDocuments)
+      .values({
+        workspaceId: workspace.id,
+        sourceType: "profile-evidence",
+        title: `Candidate story action source ${crypto.randomUUID()}`,
+        contentText: "Built deployment automation and shipped an open-source parser.",
+        contentHash: crypto.randomUUID(),
+      })
+      .returning({ id: sourceDocuments.id });
+    const [experience] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument?.id,
+        employer: `Candidate employer ${crypto.randomUUID()}`,
+        roleTitle: "Software Engineer",
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: workExperiences.id });
+    if (!sourceDocument || !experience) throw new Error("Expected candidate story fixtures.");
+    const initiativeCandidateId = `candidate_${crypto.randomUUID()}`;
+    const portfolioCandidateId = `candidate_${crypto.randomUUID()}`;
+    await db.insert(scopeReviewCandidates).values([
+      {
+        id: initiativeCandidateId,
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        sourceType: "profile-evidence",
+        sourceSection: "Experience",
+        sourceQuote: "Built deployment automation.",
+        rawCandidateText: "Built deployment automation for service rollout.",
+        proposedScope: "work_initiative",
+        classifierScope: "work_initiative",
+        guardrailDecision: "can_persist_to_canonical_pending",
+        guardrailReason: "Work Initiative candidate with role context.",
+        confidence: "medium",
+        suggestedAction: "save_as_work_initiative",
+        status: "open",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: portfolioCandidateId,
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        sourceType: "profile-evidence",
+        sourceSection: "Projects",
+        sourceQuote: "Shipped an open-source parser.",
+        rawCandidateText: "Shipped an open-source parser for resume cleanup.",
+        proposedScope: "portfolio_project",
+        classifierScope: "portfolio_project",
+        guardrailDecision: "can_persist_to_canonical_pending",
+        guardrailReason: "Portfolio Project candidate with non-employer context.",
+        confidence: "medium",
+        suggestedAction: "save_as_portfolio_project",
+        status: "open",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    const initiativeSaved = await applyCandidateReviewAction({
+      action: "save_as_work_initiative",
+      candidateId: initiativeCandidateId,
+      payload: {
+        title: "Deployment automation",
+        workExperienceId: experience.id,
+      },
+    });
+    const projectSaved = await applyCandidateReviewAction({
+      action: "save_as_portfolio_project",
+      candidateId: portfolioCandidateId,
+      payload: {
+        title: "Open-source parser",
+        projectType: "open_source",
+      },
+    });
+
+    expect(initiativeSaved).toMatchObject({ status: "saved" });
+    expect(projectSaved).toMatchObject({ status: "saved" });
+    const [initiative] = await db
+      .select()
+      .from(initiatives)
+      .where(eq(initiatives.sourceDocumentId, sourceDocument.id));
+    const [project] = await db
+      .select()
+      .from(portfolioProjects)
+      .where(eq(portfolioProjects.sourceDocumentId, sourceDocument.id));
+    expect(initiative).toMatchObject({
+      internalTitle: "Deployment automation",
+      status: "pending",
+      workExperienceId: experience.id,
+      sourceDocumentId: sourceDocument.id,
+    });
+    expect(project).toMatchObject({
+      title: "Open-source parser",
+      projectType: "open_source",
+      status: "pending",
+      sourceDocumentId: sourceDocument.id,
+    });
+    const auditEvents = await db
+      .select()
+      .from(scopeCorrectionEvents)
+      .where(eq(scopeCorrectionEvents.workspaceId, workspace.id));
+    expect(auditEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "save_as_work_initiative",
+          sourceCandidateId: initiativeCandidateId,
+        }),
+        expect.objectContaining({
+          action: "save_as_portfolio_project",
+          sourceCandidateId: portfolioCandidateId,
+        }),
+      ]),
+    );
+  });
+
+  it("seeds pending Story Targets from parsed profile bullets when extractor misses initiatives", async () => {
+    const sourceTitle = `Story seed profile bullets ${crypto.randomUUID()}`;
+    const base = buildExtraction();
+    const extraction: ProfileEvidenceExtraction = {
+      ...base,
+      profile: {
+        ...base.profile,
+        experience: [
+          {
+            employer: simpleField("Nimbus Labs", "Nimbus Labs Software Engineer", 0.95),
+            title: simpleField("Software Engineer", "Nimbus Labs Software Engineer", 0.95),
+            start_date: simpleField("2024", "2024", 0.9),
+            end_date: null,
+            bullets: [
+              simpleField(
+                "Built Redis cache infrastructure that reduced session lookup latency.",
+                "Built Redis cache infrastructure that reduced session lookup latency.",
+                0.92,
+              ),
+              simpleField(
+                "Provisioned AWS CDK infrastructure for distributed cache dependencies.",
+                "Provisioned AWS CDK infrastructure for distributed cache dependencies.",
+                0.91,
+              ),
+              simpleField(
+                "Optimized session latency for the delivery service cache path.",
+                "Optimized session latency for the delivery service cache path.",
+                0.9,
+              ),
+              simpleField("Technical Skills: Java React AWS Redis", "Technical Skills: Java React AWS Redis", 0.9),
+            ],
+          },
+        ],
+      },
+      work_experiences: [],
+      initiatives: [],
+      portfolio_projects: [],
+      evidence_items: [],
+    };
+    const result = await persistProfileEvidenceExtraction({
+      sourceTitle,
+      sourceText: [
+        "Nimbus Labs Software Engineer",
+        "Built Redis cache infrastructure that reduced session lookup latency.",
+        "Provisioned AWS CDK infrastructure for distributed cache dependencies.",
+        "Optimized session latency for the delivery service cache path.",
+        "Technical Skills: Java React AWS Redis",
+      ].join("\n"),
+      extraction,
+      provider: "integration-test",
+      model: "test-model",
+      usage: { totalTokens: 42 },
+      retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
+    });
+    expect(result).toMatchObject({
+      status: "saved",
+      initiativeCount: 1,
+    });
+    if (result.status !== "saved") throw new Error("Expected saved story seed extraction.");
+    const db = getDb();
+    const [initiative] = await db
+      .select()
+      .from(initiatives)
+      .where(eq(initiatives.sourceDocumentId, result.sourceDocumentId));
+    expect(initiative).toMatchObject({
+      internalTitle: "Built Redis cache infrastructure that reduced session lookup latency",
+      status: "pending",
+      sourceDocumentId: result.sourceDocumentId,
+      actions: [
+        "Built Redis cache infrastructure that reduced session lookup latency.",
+        "Provisioned AWS CDK infrastructure for distributed cache dependencies.",
+        "Optimized session latency for the delivery service cache path.",
+      ],
+      technologies: expect.arrayContaining(["AWS", "CDK", "Redis"]),
+    });
+  });
+
+  it("routes ambiguous story seeds to Scope Review Candidates instead of canonical Story Targets", async () => {
+    const sourceTitle = `Ambiguous story seed ${crypto.randomUUID()}`;
+    const base = buildExtraction();
+    const extraction: ProfileEvidenceExtraction = {
+      ...base,
+      profile: {
+        ...base.profile,
+        experience: [
+          {
+            employer: simpleField("Nimbus Labs", "Nimbus Labs Software Engineer", 0.95),
+            title: simpleField("Software Engineer", "Nimbus Labs Software Engineer", 0.95),
+            start_date: simpleField("2024", "2024", 0.9),
+            end_date: null,
+            bullets: [
+              simpleField(
+                "Built internal tooling for service owners.",
+                "Built internal tooling for service owners.",
+                0.9,
+              ),
+            ],
+          },
+        ],
+      },
+      work_experiences: [],
+      initiatives: [],
+      portfolio_projects: [],
+      evidence_items: [],
+    };
+    const result = await persistProfileEvidenceExtraction({
+      sourceTitle,
+      sourceText: [
+        "Nimbus Labs Software Engineer",
+        "Built internal tooling for service owners.",
+      ].join("\n"),
+      extraction,
+      provider: "integration-test",
+      model: "test-model",
+      usage: { totalTokens: 42 },
+      retryCount: 0,
+      skill: skillRegistry.profileEvidenceExtractionResume,
+    });
+    expect(result).toMatchObject({
+      status: "saved",
+      initiativeCount: 0,
+    });
+    if (result.status !== "saved") throw new Error("Expected saved ambiguous story seed extraction.");
+    const db = getDb();
+    const [initiative] = await db
+      .select()
+      .from(initiatives)
+      .where(eq(initiatives.sourceDocumentId, result.sourceDocumentId));
+    const [candidate] = await db
+      .select()
+      .from(scopeReviewCandidates)
+      .where(eq(scopeReviewCandidates.sourceDocumentId, result.sourceDocumentId));
+    expect(initiative).toBeUndefined();
+    expect(candidate).toMatchObject({
+      proposedScope: "work_initiative",
+      classifierScope: "work_initiative",
+      status: "open",
+      suggestedAction: "save_as_work_initiative",
+    });
   });
 
   it("previews enrichment answers as proposals before committing canonical evidence", async () => {
@@ -3632,6 +4278,13 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       action: "create_story_target",
       taskId: task.id,
       storyTarget: {
+        actions: ["Provisioned Redis cache rollout"],
+        context: "Profile read traffic needed a faster cache path.",
+        problem: "Repeated profile reads were slow.",
+        results: ["Reduced repeated profile reads by 43%"],
+        role: "Owned backend rollout planning and implementation.",
+        sourceQuote: "The Redis rollout reduced repeated profile reads by 43%.",
+        technologies: ["Redis", "TypeScript"],
         targetType: "initiative",
         title: "Redis cache rollout",
         workExperienceId: experience.id,
@@ -3648,6 +4301,20 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
     if (created.status !== "saved") throw new Error("Expected created story target.");
     const initiativeId = created.task.initiative_id;
     expect(initiativeId).toBeTruthy();
+    const [createdInitiative] = await db
+      .select()
+      .from(initiatives)
+      .where(eq(initiatives.id, initiativeId ?? ""));
+    expect(createdInitiative).toMatchObject({
+      actions: ["Provisioned Redis cache rollout"],
+      problem: "Repeated profile reads were slow.",
+      results: ["Reduced repeated profile reads by 43%"],
+      role: "Owned backend rollout planning and implementation.",
+      technologies: ["Redis", "TypeScript"],
+      status: "pending",
+    });
+    expect(createdInitiative?.context).toContain("Profile read traffic needed a faster cache path.");
+    expect(createdInitiative?.context).toContain("The Redis rollout reduced repeated profile reads by 43%.");
     const targetRows = await db
       .select()
       .from(enrichmentTaskTargets)
@@ -3693,12 +4360,18 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
     const library = await getRecentEvidenceLibrary(50);
     const draftStory = library.initiatives.find((item) => item.id === initiativeId);
     expect(draftStory).toMatchObject({
-      context: expect.stringContaining("Created from enrichment question"),
+      actions: ["Provisioned Redis cache rollout"],
       internal_title: "Redis cache rollout",
+      problem: "Repeated profile reads were slow.",
+      results: ["Reduced repeated profile reads by 43%"],
+      role: "Owned backend rollout planning and implementation.",
       source_document_id: source.sourceDocumentId,
       status: "pending",
+      technologies: ["Redis", "TypeScript"],
       work_experience_id: experience.id,
     });
+    expect(draftStory?.context).toContain("Profile read traffic needed a faster cache path.");
+    expect(draftStory?.context).toContain("The Redis rollout reduced repeated profile reads by 43%.");
   });
 
   it("creates and binds a draft portfolio project from an enrichment question", async () => {
@@ -4067,6 +4740,174 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
     });
   });
 
+  it("stales generated claims when assigning Story Targets to Work Experiences", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const now = new Date();
+    const [sourceDocument] = await db
+      .insert(sourceDocuments)
+      .values({
+        workspaceId: workspace.id,
+        sourceType: "profile-evidence",
+        title: `Assign story source ${crypto.randomUUID()}`,
+        contentText: "Role assignment should stale generated claims.",
+        contentHash: crypto.randomUUID(),
+      })
+      .returning({ id: sourceDocuments.id });
+    const [experience] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: `Assign employer ${crypto.randomUUID()}`,
+        roleTitle: "Software Engineer",
+        startDate: "2024",
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: workExperiences.id });
+    const [initiative] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument?.id,
+        internalTitle: "Unassigned cache story",
+        context: "Cache story needs a role.",
+        actions: ["Built cache layer"],
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: initiatives.id });
+    if (!sourceDocument || !experience || !initiative) throw new Error("Expected assignment setup rows.");
+    const [evidence] = await db
+      .insert(evidenceItems)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        text: "Built cache layer.",
+        sourceQuote: "Built cache layer.",
+        evidenceType: "extracted",
+        sensitivityLevel: "private",
+        relatedInitiativeId: initiative.id,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: evidenceItems.id });
+    if (!evidence) throw new Error("Expected assignment evidence.");
+    const [claim] = await db
+      .insert(generatedClaims)
+      .values({
+        workspaceId: workspace.id,
+        claimText: "Built cache layer.",
+        section: "experience",
+        evidenceIds: [evidence.id],
+        sourceQuotes: ["Built cache layer."],
+        supportStatus: "supported",
+        claimStatus: "supported",
+        riskLevel: "low",
+        createdAt: now,
+      })
+      .returning({ id: generatedClaims.id });
+
+    const assigned = await applyStoryTargetCorrection({
+      action: "assign_work_experience",
+      targetId: initiative.id,
+      targetType: "initiative",
+      payload: { workExperienceId: experience.id },
+    });
+    expect(assigned).toMatchObject({
+      status: "saved",
+      staleClaimCount: 1,
+    });
+    const [staleClaim] = await db
+      .select({ claimStatus: generatedClaims.claimStatus })
+      .from(generatedClaims)
+      .where(eq(generatedClaims.id, claim?.id ?? ""));
+    expect(staleClaim).toMatchObject({ claimStatus: "stale" });
+  });
+
+  it("stales generated claims when creating a missing Work Experience for a Story Target", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const now = new Date();
+    const [sourceDocument] = await db
+      .insert(sourceDocuments)
+      .values({
+        workspaceId: workspace.id,
+        sourceType: "profile-evidence",
+        title: `Create role assignment source ${crypto.randomUUID()}`,
+        contentText: "Created role assignment should stale generated claims.",
+        contentHash: crypto.randomUUID(),
+      })
+      .returning({ id: sourceDocuments.id });
+    const [initiative] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument?.id,
+        internalTitle: "Missing role cache story",
+        context: "Cache story needs a new role.",
+        actions: ["Built cache layer"],
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: initiatives.id });
+    if (!sourceDocument || !initiative) throw new Error("Expected create-role setup rows.");
+    const [evidence] = await db
+      .insert(evidenceItems)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        text: "Built missing-role cache layer.",
+        sourceQuote: "Built missing-role cache layer.",
+        evidenceType: "extracted",
+        sensitivityLevel: "private",
+        relatedInitiativeId: initiative.id,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: evidenceItems.id });
+    if (!evidence) throw new Error("Expected create-role evidence.");
+    const [claim] = await db
+      .insert(generatedClaims)
+      .values({
+        workspaceId: workspace.id,
+        claimText: "Built missing-role cache layer.",
+        section: "experience",
+        evidenceIds: [evidence.id],
+        sourceQuotes: ["Built missing-role cache layer."],
+        supportStatus: "supported",
+        claimStatus: "supported",
+        riskLevel: "low",
+        createdAt: now,
+      })
+      .returning({ id: generatedClaims.id });
+
+    const assigned = await applyStoryTargetCorrection({
+      action: "create_work_experience_and_assign",
+      targetId: initiative.id,
+      targetType: "initiative",
+      payload: {
+        employer: `Created employer ${crypto.randomUUID()}`,
+        roleTitle: "Backend Engineer",
+        startDate: "2024",
+      },
+    });
+    expect(assigned).toMatchObject({
+      status: "saved",
+      staleClaimCount: 1,
+    });
+    const [staleClaim] = await db
+      .select({ claimStatus: generatedClaims.claimStatus })
+      .from(generatedClaims)
+      .where(eq(generatedClaims.id, claim?.id ?? ""));
+    expect(staleClaim).toMatchObject({ claimStatus: "stale" });
+  });
+
   it("converts a Portfolio Project story target into a Work Initiative and moves linked evidence", async () => {
     const db = getDb();
     const workspace = await getCurrentWorkspace(db);
@@ -4180,6 +5021,10 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       .select({ claimStatus: generatedClaims.claimStatus })
       .from(generatedClaims)
       .where(eq(generatedClaims.id, claim?.id ?? ""));
+    const [auditEvent] = await db
+      .select()
+      .from(scopeCorrectionEvents)
+      .where(eq(scopeCorrectionEvents.entityId, converted.newInitiativeId));
 
     expect(initiative).toMatchObject({
       workExperienceId: experience.id,
@@ -4197,6 +5042,10 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       relatedPortfolioProjectId: null,
     });
     expect(staleClaim).toMatchObject({ claimStatus: "stale" });
+    expect(auditEvent).toMatchObject({
+      action: "convert_to_initiative",
+      entityType: "work_initiative",
+    });
   });
 
   it("converts a Work Initiative story target into a Portfolio Project and moves linked evidence", async () => {
@@ -4316,6 +5165,10 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       .select({ claimStatus: generatedClaims.claimStatus })
       .from(generatedClaims)
       .where(eq(generatedClaims.id, claim?.id ?? ""));
+    const [auditEvent] = await db
+      .select()
+      .from(scopeCorrectionEvents)
+      .where(eq(scopeCorrectionEvents.entityId, converted.newPortfolioProjectId));
 
     expect(project).toMatchObject({
       sourceDocumentId: sourceDocument.id,
@@ -4333,6 +5186,508 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       relatedPortfolioProjectId: converted.newPortfolioProjectId,
     });
     expect(staleClaim).toMatchObject({ claimStatus: "stale" });
+    expect(auditEvent).toMatchObject({
+      action: "convert_to_portfolio_project",
+      entityType: "portfolio_project",
+    });
+  });
+
+  it("splits a Work Initiative into a new pending Story Target and moves selected evidence", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const now = new Date();
+    const [sourceDocument] = await db
+      .insert(sourceDocuments)
+      .values({
+        workspaceId: workspace.id,
+        sourceType: "profile-evidence",
+        title: `Split story source ${crypto.randomUUID()}`,
+        contentText: "Cache platform and API migration stories.",
+        contentHash: crypto.randomUUID(),
+      })
+      .returning({ id: sourceDocuments.id });
+    const [experience] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: `Split employer ${crypto.randomUUID()}`,
+        roleTitle: "Software Engineer",
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: workExperiences.id });
+    if (!sourceDocument || !experience) throw new Error("Expected split fixture base rows.");
+    const [initiative] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        workExperienceId: experience.id,
+        sourceDocumentId: sourceDocument.id,
+        internalTitle: "Platform modernization",
+        context: "Mixed platform work.",
+        actions: ["Built cache infrastructure", "Migrated API routes"],
+        results: ["Improved latency", "Simplified API maintenance"],
+        technologies: ["Redis", "Next.js"],
+        sensitivityLevel: "private",
+        status: "approved",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: initiatives.id });
+    if (!initiative) throw new Error("Expected initiative fixture.");
+    const evidenceRows = await db
+      .insert(evidenceItems)
+      .values([
+        {
+          workspaceId: workspace.id,
+          sourceDocumentId: sourceDocument.id,
+          text: "Built cache infrastructure.",
+          sourceQuote: "Built cache infrastructure.",
+          evidenceType: "extracted",
+          sensitivityLevel: "private",
+          relatedInitiativeId: initiative.id,
+          status: "pending",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          workspaceId: workspace.id,
+          sourceDocumentId: sourceDocument.id,
+          text: "Migrated API routes.",
+          sourceQuote: "Migrated API routes.",
+          evidenceType: "extracted",
+          sensitivityLevel: "private",
+          relatedInitiativeId: initiative.id,
+          status: "pending",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ])
+      .returning({ id: evidenceItems.id });
+    const movedEvidence = evidenceRows[1];
+    const portfolioEvidence = evidenceRows[0];
+    if (!movedEvidence) throw new Error("Expected selected evidence.");
+    if (!portfolioEvidence) throw new Error("Expected portfolio selected evidence.");
+    const [claim] = await db
+      .insert(generatedClaims)
+      .values({
+        workspaceId: workspace.id,
+        claimText: "Migrated API routes.",
+        section: "experience",
+        evidenceIds: [movedEvidence.id],
+        sourceQuotes: ["Migrated API routes."],
+        supportStatus: "supported",
+        claimStatus: "supported",
+        riskLevel: "low",
+        createdAt: now,
+      })
+      .returning({ id: generatedClaims.id });
+    const [portfolioClaim] = await db
+      .insert(generatedClaims)
+      .values({
+        workspaceId: workspace.id,
+        claimText: "Built cache infrastructure.",
+        section: "experience",
+        evidenceIds: [portfolioEvidence.id],
+        sourceQuotes: ["Built cache infrastructure."],
+        supportStatus: "supported",
+        claimStatus: "supported",
+        riskLevel: "low",
+        createdAt: now,
+      })
+      .returning({ id: generatedClaims.id });
+
+    const split = await splitInitiativeStoryTarget({
+      sourceInitiativeId: initiative.id,
+      title: "API route migration",
+      context: "Separated API modernization work.",
+      actions: ["Migrated API routes"],
+      results: ["Simplified API maintenance"],
+      technologies: ["Next.js"],
+      evidenceItemIds: [movedEvidence.id],
+    });
+    expect(split).toMatchObject({
+      status: "saved",
+      sourceInitiativeId: initiative.id,
+      movedEvidenceCount: 1,
+      staleClaimCount: 1,
+    });
+    if (split.status !== "saved" || !("newInitiativeId" in split)) {
+      throw new Error("Expected initiative split result.");
+    }
+    const [newStory] = await db
+      .select()
+      .from(initiatives)
+      .where(eq(initiatives.id, split.newInitiativeId));
+    const [sourceStory] = await db
+      .select({ status: initiatives.status })
+      .from(initiatives)
+      .where(eq(initiatives.id, initiative.id));
+    const [updatedEvidence] = await db
+      .select({ relatedInitiativeId: evidenceItems.relatedInitiativeId })
+      .from(evidenceItems)
+      .where(eq(evidenceItems.id, movedEvidence.id));
+    const [staleClaim] = await db
+      .select({ claimStatus: generatedClaims.claimStatus })
+      .from(generatedClaims)
+      .where(eq(generatedClaims.id, claim?.id ?? ""));
+    const [auditEvent] = await db
+      .select()
+      .from(scopeCorrectionEvents)
+      .where(eq(scopeCorrectionEvents.entityId, split.newInitiativeId));
+
+    expect(newStory).toMatchObject({
+      internalTitle: "API route migration",
+      sourceDocumentId: sourceDocument.id,
+      status: "pending",
+      workExperienceId: experience.id,
+      actions: ["Migrated API routes"],
+    });
+    expect(sourceStory).toMatchObject({ status: "pending" });
+    expect(updatedEvidence).toMatchObject({ relatedInitiativeId: split.newInitiativeId });
+    expect(staleClaim).toMatchObject({ claimStatus: "stale" });
+    expect(auditEvent).toMatchObject({
+      action: "split_story_target",
+      entityType: "initiative",
+    });
+    expect(auditEvent?.afterJson).toMatchObject({
+      claimCount: 1,
+      label: "API route migration",
+    });
+
+    const portfolioSplit = await splitInitiativeStoryTarget({
+      sourceInitiativeId: initiative.id,
+      targetType: "portfolio_project",
+      projectType: "open_source",
+      title: "Cache infrastructure",
+      context: "Separated cache infrastructure work.",
+      actions: ["Built cache infrastructure"],
+      results: ["Improved latency"],
+      technologies: ["Redis"],
+      evidenceItemIds: [portfolioEvidence.id],
+    });
+    expect(portfolioSplit).toMatchObject({
+      status: "saved",
+      sourceInitiativeId: initiative.id,
+      movedEvidenceCount: 1,
+      staleClaimCount: 1,
+    });
+    if (portfolioSplit.status !== "saved" || !("newPortfolioProjectId" in portfolioSplit)) {
+      throw new Error("Expected portfolio split result.");
+    }
+    const [newProject] = await db
+      .select()
+      .from(portfolioProjects)
+      .where(eq(portfolioProjects.id, portfolioSplit.newPortfolioProjectId));
+    const [portfolioEvidenceLink] = await db
+      .select({
+        relatedInitiativeId: evidenceItems.relatedInitiativeId,
+        relatedPortfolioProjectId: evidenceItems.relatedPortfolioProjectId,
+      })
+      .from(evidenceItems)
+      .where(eq(evidenceItems.id, portfolioEvidence.id));
+    const [portfolioStaleClaim] = await db
+      .select({ claimStatus: generatedClaims.claimStatus })
+      .from(generatedClaims)
+      .where(eq(generatedClaims.id, portfolioClaim?.id ?? ""));
+    expect(newProject).toMatchObject({
+      projectType: "open_source",
+      sourceDocumentId: sourceDocument.id,
+      status: "pending",
+      title: "Cache infrastructure",
+    });
+    expect(portfolioEvidenceLink).toMatchObject({
+      relatedInitiativeId: null,
+      relatedPortfolioProjectId: portfolioSplit.newPortfolioProjectId,
+    });
+    expect(portfolioStaleClaim).toMatchObject({ claimStatus: "stale" });
+  });
+
+  it("returns bounded source context for Story Target review drilldown", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const now = new Date();
+    const unique = crypto.randomUUID();
+    const [sourceDocument] = await db
+      .insert(sourceDocuments)
+      .values({
+        workspaceId: workspace.id,
+        sourceType: "profile-evidence",
+        title: `Source drilldown ${unique}`,
+        contentText:
+          "Earlier role context. Built a cache warmup workflow that reduced repeated profile reads by 43% during peak traffic. Later unrelated notes.",
+        contentHash: crypto.randomUUID(),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: sourceDocuments.id });
+    const [experience] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: `Source employer ${unique}`,
+        roleTitle: "Software Engineer",
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: workExperiences.id });
+    if (!sourceDocument || !experience) throw new Error("Expected source drilldown fixtures.");
+    const [initiative] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        workExperienceId: experience.id,
+        sourceDocumentId: sourceDocument.id,
+        internalTitle: `Cache warmup workflow ${unique}`,
+        context: "Built a cache warmup workflow.",
+        actions: ["Built a cache warmup workflow"],
+        results: ["Reduced repeated profile reads by 43%"],
+        technologies: ["Redis"],
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: initiatives.id });
+    const [evidence] = await db
+      .insert(evidenceItems)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        relatedInitiativeId: initiative?.id,
+        text: "Built a cache warmup workflow that reduced repeated profile reads by 43%.",
+        sourceQuote: "Built a cache warmup workflow that reduced repeated profile reads by 43%",
+        evidenceType: "extracted",
+        sensitivityLevel: "private",
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: evidenceItems.id });
+    if (!initiative || !evidence) throw new Error("Expected source drilldown initiative fixtures.");
+
+    const library = await getRecentEvidenceLibrary(80);
+    const story = library.initiatives.find((item) => item.id === initiative.id);
+    const claim = library.evidenceItems.find((item) => item.id === evidence.id);
+
+    expect(story).toMatchObject({
+      source_document_id: sourceDocument.id,
+      source_document_title: `Source drilldown ${unique}`,
+      source_document_type: "profile-evidence",
+      source_document_created_at: now.toISOString(),
+    });
+    expect(story?.source_context_preview).toContain("cache warmup workflow");
+    expect(claim?.source_context_preview).toContain("reduced repeated profile reads by 43%");
+    expect((claim?.source_context_preview ?? "").length).toBeLessThanOrEqual(920);
+  });
+
+  it("splits selected evidence into existing Story Targets", async () => {
+    const db = getDb();
+    const workspace = await getCurrentWorkspace(db);
+    const now = new Date();
+    const [sourceDocument] = await db
+      .insert(sourceDocuments)
+      .values({
+        workspaceId: workspace.id,
+        sourceType: "profile-evidence",
+        title: `Existing split destination ${crypto.randomUUID()}`,
+        contentText: "Split to existing story targets.",
+        contentHash: crypto.randomUUID(),
+      })
+      .returning({ id: sourceDocuments.id });
+    const [experience] = await db
+      .insert(workExperiences)
+      .values({
+        workspaceId: workspace.id,
+        employer: `Existing split employer ${crypto.randomUUID()}`,
+        roleTitle: "Software Engineer",
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: workExperiences.id });
+    if (!sourceDocument || !experience) throw new Error("Expected existing split fixture base rows.");
+    const [sourceInitiative] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        workExperienceId: experience.id,
+        sourceDocumentId: sourceDocument.id,
+        internalTitle: "Mixed story source",
+        context: "Contains work and standalone project evidence.",
+        status: "approved",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: initiatives.id });
+    const [destinationInitiative] = await db
+      .insert(initiatives)
+      .values({
+        workspaceId: workspace.id,
+        workExperienceId: experience.id,
+        sourceDocumentId: sourceDocument.id,
+        internalTitle: "Existing role story",
+        context: "Destination under same role.",
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: initiatives.id });
+    const [destinationProject] = await db
+      .insert(portfolioProjects)
+      .values({
+        workspaceId: workspace.id,
+        sourceDocumentId: sourceDocument.id,
+        projectType: "open_source",
+        title: "Existing portfolio story",
+        context: "Standalone destination.",
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: portfolioProjects.id });
+    if (!sourceInitiative || !destinationInitiative || !destinationProject) {
+      throw new Error("Expected existing split destination rows.");
+    }
+    const evidenceRows = await db
+      .insert(evidenceItems)
+      .values([
+        {
+          workspaceId: workspace.id,
+          sourceDocumentId: sourceDocument.id,
+          text: "Built role-bound API migration.",
+          sourceQuote: "Built role-bound API migration.",
+          evidenceType: "extracted",
+          sensitivityLevel: "private",
+          relatedInitiativeId: sourceInitiative.id,
+          status: "pending",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          workspaceId: workspace.id,
+          sourceDocumentId: sourceDocument.id,
+          text: "Shipped standalone open-source parser.",
+          sourceQuote: "Shipped standalone open-source parser.",
+          evidenceType: "extracted",
+          sensitivityLevel: "private",
+          relatedInitiativeId: sourceInitiative.id,
+          status: "pending",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ])
+      .returning({ id: evidenceItems.id });
+    const initiativeEvidence = evidenceRows[0];
+    const projectEvidence = evidenceRows[1];
+    if (!initiativeEvidence || !projectEvidence) throw new Error("Expected split evidence rows.");
+    const generatedClaimRows = await db
+      .insert(generatedClaims)
+      .values([
+        {
+          workspaceId: workspace.id,
+          claimText: "Built role-bound API migration.",
+          section: "experience",
+          evidenceIds: [initiativeEvidence.id],
+          sourceQuotes: ["Built role-bound API migration."],
+          supportStatus: "supported",
+          claimStatus: "supported",
+          riskLevel: "low",
+          createdAt: now,
+        },
+        {
+          workspaceId: workspace.id,
+          claimText: "Shipped standalone open-source parser.",
+          section: "projects",
+          evidenceIds: [projectEvidence.id],
+          sourceQuotes: ["Shipped standalone open-source parser."],
+          supportStatus: "supported",
+          claimStatus: "supported",
+          riskLevel: "low",
+          createdAt: now,
+        },
+      ])
+      .returning({ id: generatedClaims.id });
+
+    const initiativeSplit = await splitInitiativeStoryTarget({
+      sourceInitiativeId: sourceInitiative.id,
+      targetType: "initiative",
+      destinationTargetId: destinationInitiative.id,
+      evidenceItemIds: [initiativeEvidence.id],
+    });
+    const projectSplit = await splitInitiativeStoryTarget({
+      sourceInitiativeId: sourceInitiative.id,
+      targetType: "portfolio_project",
+      destinationTargetId: destinationProject.id,
+      evidenceItemIds: [projectEvidence.id],
+    });
+
+    expect(initiativeSplit).toMatchObject({
+      status: "saved",
+      destinationInitiativeId: destinationInitiative.id,
+      movedEvidenceCount: 1,
+      staleClaimCount: 1,
+    });
+    expect(projectSplit).toMatchObject({
+      status: "saved",
+      destinationPortfolioProjectId: destinationProject.id,
+      movedEvidenceCount: 1,
+      staleClaimCount: 1,
+    });
+    const [initiativeEvidenceLink] = await db
+      .select({
+        relatedInitiativeId: evidenceItems.relatedInitiativeId,
+        relatedPortfolioProjectId: evidenceItems.relatedPortfolioProjectId,
+        relatedWorkExperienceId: evidenceItems.relatedWorkExperienceId,
+      })
+      .from(evidenceItems)
+      .where(eq(evidenceItems.id, initiativeEvidence.id));
+    const [projectEvidenceLink] = await db
+      .select({
+        relatedInitiativeId: evidenceItems.relatedInitiativeId,
+        relatedPortfolioProjectId: evidenceItems.relatedPortfolioProjectId,
+        relatedWorkExperienceId: evidenceItems.relatedWorkExperienceId,
+      })
+      .from(evidenceItems)
+      .where(eq(evidenceItems.id, projectEvidence.id));
+    const staleClaims = await db
+      .select({ claimStatus: generatedClaims.claimStatus })
+      .from(generatedClaims)
+      .where(inArray(generatedClaims.id, generatedClaimRows.map((row) => row.id)));
+    const auditEvents = await db
+      .select()
+      .from(scopeCorrectionEvents)
+      .where(eq(scopeCorrectionEvents.workspaceId, workspace.id));
+
+    expect(initiativeEvidenceLink).toMatchObject({
+      relatedInitiativeId: destinationInitiative.id,
+      relatedPortfolioProjectId: null,
+      relatedWorkExperienceId: null,
+    });
+    expect(projectEvidenceLink).toMatchObject({
+      relatedInitiativeId: null,
+      relatedPortfolioProjectId: destinationProject.id,
+      relatedWorkExperienceId: null,
+    });
+    expect(staleClaims).toEqual([
+      expect.objectContaining({ claimStatus: "stale" }),
+      expect.objectContaining({ claimStatus: "stale" }),
+    ]);
+    expect(auditEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "split_story_target",
+          entityId: destinationInitiative.id,
+          entityType: "initiative",
+        }),
+        expect.objectContaining({
+          action: "split_story_target",
+          entityId: destinationProject.id,
+          entityType: "portfolio_project",
+        }),
+      ]),
+    );
   });
 
   it("merges initiative story targets and moves linked evidence", async () => {
@@ -4528,6 +5883,14 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       .from(generatedClaims)
       .where(eq(generatedClaims.workspaceId, workspace.id));
     expect(claims.some((claim) => claim.claimStatus === "stale")).toBe(true);
+    const [auditEvent] = await db
+      .select()
+      .from(scopeCorrectionEvents)
+      .where(eq(scopeCorrectionEvents.entityId, primary.id));
+    expect(auditEvent).toMatchObject({
+      action: "merge_story_targets",
+      entityType: "initiative",
+    });
   }, 20_000);
 });
 

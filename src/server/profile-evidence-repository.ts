@@ -38,6 +38,7 @@ import {
   reconcileResumeReviewEnrichmentTasksForSource,
   upsertEnrichmentTasks,
 } from "./enrichment-task-repository";
+import { recordScopeCorrectionEvent } from "./scope-correction-audit";
 import {
   buildRedactionReport,
   hasResumeSafeDisclosure,
@@ -61,6 +62,7 @@ import {
   guardWorkExperienceDraftsForPersistence,
 } from "./extraction-scope-guardrail";
 import { consolidateInitiativeDrafts } from "./initiative-consolidation";
+import { buildStorySeedCandidatesFromProfileExperiences } from "./story-seeding";
 
 export type ProfileEvidencePersistenceResult =
   | {
@@ -83,6 +85,7 @@ export type ProfileEvidencePersistenceResult =
 type SourceDocumentStore = Pick<ReturnType<typeof getDb>, "select" | "insert" | "update" | "delete">;
 type StoryTargetStore = Pick<ReturnType<typeof getDb>, "select">;
 type StoryTargetMergeStore = Pick<ReturnType<typeof getDb>, "select" | "update">;
+type StoryTargetSplitStore = Pick<ReturnType<typeof getDb>, "insert" | "select" | "update">;
 
 type CanonicalProfileJson = Record<string, unknown>;
 
@@ -159,7 +162,15 @@ export async function persistProfileEvidenceExtraction(args: {
       { sourceDocumentId: sourceDocument.id, sourceTitle: title },
     );
     const workExperienceDrafts = sanitizeWorkExperienceDrafts(guardedWorkExperienceDrafts.accepted);
-    const initiativeConsolidation = consolidateInitiativeDrafts(args.extraction.initiatives);
+    const storySeedResult = buildStorySeedCandidatesFromProfileExperiences(
+      args.extraction.profile.experience,
+      args.extraction.initiatives,
+      { sourceDocumentId: sourceDocument.id, sourceTitle: title },
+    );
+    const initiativeConsolidation = consolidateInitiativeDrafts([
+      ...args.extraction.initiatives,
+      ...storySeedResult.initiativeDrafts,
+    ]);
     const workExperienceIdByDraftId = new Map<string, string>();
     const workExperienceAnchorTexts = new Map<string, string>();
     const workExperienceContextById = new Map<string, {
@@ -522,6 +533,7 @@ export async function persistProfileEvidenceExtraction(args: {
           ...guardedInitiativeDrafts.reviewCandidates,
           ...guardedPortfolioProjectDrafts.reviewCandidates,
           ...guardedEvidenceDrafts.reviewCandidates,
+          ...storySeedResult.reviewCandidates,
         ],
         notes: [
           ...args.extraction.extraction_notes,
@@ -1088,6 +1100,30 @@ export async function getRecentEvidenceLibrary(limit = 8) {
     .where(and(eq(projectCards.workspaceId, workspace.id), ne(projectCards.status, "rejected")))
     .orderBy(desc(projectCards.updatedAt))
     .limit(limit);
+  const sourceDocumentIds = Array.from(
+    new Set(
+      [
+        ...evidence.map((item) => item.sourceDocumentId),
+        ...experiences.map((item) => item.sourceDocumentId),
+        ...initiativeRows.map((item) => item.sourceDocumentId),
+        ...portfolioProjectRows.map((item) => item.sourceDocumentId),
+      ].filter((id): id is string => Boolean(id)),
+    ),
+  );
+  const sourceDocumentRows =
+    sourceDocumentIds.length > 0
+      ? await db
+          .select({
+            id: sourceDocuments.id,
+            title: sourceDocuments.title,
+            sourceType: sourceDocuments.sourceType,
+            contentText: sourceDocuments.contentText,
+            createdAt: sourceDocuments.createdAt,
+          })
+          .from(sourceDocuments)
+          .where(and(eq(sourceDocuments.workspaceId, workspace.id), inArray(sourceDocuments.id, sourceDocumentIds)))
+      : [];
+  const sourceDocumentById = new Map(sourceDocumentRows.map((item) => [item.id, item]));
 
   return {
     profile: profile
@@ -1104,6 +1140,18 @@ export async function getRecentEvidenceLibrary(limit = 8) {
       text: item.text,
       source_quote: item.sourceQuote,
       source_document_id: item.sourceDocumentId,
+      source_document_title: item.sourceDocumentId
+        ? sourceDocumentById.get(item.sourceDocumentId)?.title ?? null
+        : null,
+      source_document_type: item.sourceDocumentId
+        ? sourceDocumentById.get(item.sourceDocumentId)?.sourceType ?? null
+        : null,
+      source_document_created_at: item.sourceDocumentId
+        ? sourceDocumentById.get(item.sourceDocumentId)?.createdAt.toISOString() ?? null
+        : null,
+      source_context_preview: item.sourceDocumentId
+        ? buildSourceContextPreview(sourceDocumentById.get(item.sourceDocumentId)?.contentText, item.sourceQuote)
+        : null,
       evidence_type: item.evidenceType,
       sensitivity_level: item.sensitivityLevel,
       allowed_usage: item.allowedUsage,
@@ -1144,6 +1192,22 @@ export async function getRecentEvidenceLibrary(limit = 8) {
       end_date: experience.endDate,
       summary: experience.summary,
       status: experience.status,
+      source_document_id: experience.sourceDocumentId,
+      source_document_title: experience.sourceDocumentId
+        ? sourceDocumentById.get(experience.sourceDocumentId)?.title ?? null
+        : null,
+      source_document_type: experience.sourceDocumentId
+        ? sourceDocumentById.get(experience.sourceDocumentId)?.sourceType ?? null
+        : null,
+      source_document_created_at: experience.sourceDocumentId
+        ? sourceDocumentById.get(experience.sourceDocumentId)?.createdAt.toISOString() ?? null
+        : null,
+      source_context_preview: experience.sourceDocumentId
+        ? buildSourceContextPreview(
+            sourceDocumentById.get(experience.sourceDocumentId)?.contentText,
+            experience.summary ?? experience.employer,
+          )
+        : null,
       provenance: buildLibraryItemProvenance({
         sourceDocumentId: experience.sourceDocumentId,
         sourceType: experience.sourceDocumentId ? "source_document" : "manual_or_generated",
@@ -1169,6 +1233,21 @@ export async function getRecentEvidenceLibrary(limit = 8) {
       needs_redaction_review: initiative.needsRedactionReview === 1,
       status: initiative.status,
       source_document_id: initiative.sourceDocumentId,
+      source_document_title: initiative.sourceDocumentId
+        ? sourceDocumentById.get(initiative.sourceDocumentId)?.title ?? null
+        : null,
+      source_document_type: initiative.sourceDocumentId
+        ? sourceDocumentById.get(initiative.sourceDocumentId)?.sourceType ?? null
+        : null,
+      source_document_created_at: initiative.sourceDocumentId
+        ? sourceDocumentById.get(initiative.sourceDocumentId)?.createdAt.toISOString() ?? null
+        : null,
+      source_context_preview: initiative.sourceDocumentId
+        ? buildSourceContextPreview(
+            sourceDocumentById.get(initiative.sourceDocumentId)?.contentText,
+            initiative.context ?? initiative.problem ?? initiative.internalTitle,
+          )
+        : null,
       provenance: buildLibraryItemProvenance({
         sourceDocumentId: initiative.sourceDocumentId,
         sourceType: initiative.sourceDocumentId ? "source_document" : "manual_or_generated",
@@ -1194,6 +1273,21 @@ export async function getRecentEvidenceLibrary(limit = 8) {
       needs_redaction_review: project.needsRedactionReview === 1,
       status: project.status,
       source_document_id: project.sourceDocumentId,
+      source_document_title: project.sourceDocumentId
+        ? sourceDocumentById.get(project.sourceDocumentId)?.title ?? null
+        : null,
+      source_document_type: project.sourceDocumentId
+        ? sourceDocumentById.get(project.sourceDocumentId)?.sourceType ?? null
+        : null,
+      source_document_created_at: project.sourceDocumentId
+        ? sourceDocumentById.get(project.sourceDocumentId)?.createdAt.toISOString() ?? null
+        : null,
+      source_context_preview: project.sourceDocumentId
+        ? buildSourceContextPreview(
+            sourceDocumentById.get(project.sourceDocumentId)?.contentText,
+            project.context ?? project.problem ?? project.title,
+          )
+        : null,
       provenance: buildLibraryItemProvenance({
         sourceDocumentId: project.sourceDocumentId,
         sourceType: project.sourceDocumentId ? "source_document" : "manual_or_generated",
@@ -1218,6 +1312,26 @@ export async function getRecentEvidenceLibrary(limit = 8) {
       updatedAt: project.updatedAt.toISOString(),
     })),
   };
+}
+
+function buildSourceContextPreview(sourceText?: string | null, anchor?: string | null) {
+  const normalizedSource = sourceText?.replace(/\s+/g, " ").trim();
+  if (!normalizedSource) return null;
+  const normalizedAnchor = anchor?.replace(/\s+/g, " ").trim();
+  const maxLength = 900;
+  if (!normalizedAnchor) {
+    return normalizedSource.length > maxLength ? `${normalizedSource.slice(0, maxLength - 3)}...` : normalizedSource;
+  }
+  const index = normalizedSource.toLowerCase().indexOf(normalizedAnchor.toLowerCase());
+  if (index < 0) {
+    return normalizedSource.length > maxLength ? `${normalizedSource.slice(0, maxLength - 3)}...` : normalizedSource;
+  }
+  const halfWindow = Math.floor((maxLength - Math.min(normalizedAnchor.length, 220)) / 2);
+  const start = Math.max(0, index - halfWindow);
+  const end = Math.min(normalizedSource.length, index + normalizedAnchor.length + halfWindow);
+  const prefix = start > 0 ? "... " : "";
+  const suffix = end < normalizedSource.length ? " ..." : "";
+  return `${prefix}${normalizedSource.slice(start, end).trim()}${suffix}`;
 }
 
 function buildLibraryItemProvenance(args: {
@@ -2104,6 +2218,28 @@ export async function mergeStoryTargets(args: {
       })
       .where(and(eq(initiatives.workspaceId, workspace.id), inArray(initiatives.id, duplicateIds)));
 
+    await recordScopeCorrectionEvent(tx, {
+      action: "merge_story_targets",
+      before: {
+        entityStatus: primary.status,
+        fromScope: "work_initiative",
+        label: "Merged duplicate Story Targets",
+        sourceState: primary.sourceDocumentId ? "linked" : "missing",
+        targetCount: duplicateIds.length + 1,
+        toScope: "work_initiative",
+      },
+      after: {
+        claimCount: movedEvidence.length + primaryEvidence.length,
+        entityStatus: "pending",
+        label: "Primary Story Target kept",
+        targetCount: 1,
+        toScope: "work_initiative",
+      },
+      entityId: primary.id,
+      entityType: "initiative",
+      workspaceId: workspace.id,
+    });
+
     return {
       status: "merged" as const,
       storyType: "initiative" as const,
@@ -2120,16 +2256,258 @@ export async function mergeStoryTargets(args: {
   });
 
   if (mergeResult.status === "merged" && mergeResult.impactedEvidenceIds.length > 0) {
-    const staleResult = await markClaimsStaleForEvidenceIds(mergeResult.impactedEvidenceIds).catch(() => ({
-      status: "skipped" as const,
-      reason: "stale_mark_failed" as const,
-    }));
+    const staleResult = await markClaimsStaleForEvidenceIds(mergeResult.impactedEvidenceIds);
     return {
       ...mergeResult,
       staleClaimCount: staleResult.status === "saved" ? staleResult.staleCount : 0,
     };
   }
   return mergeResult;
+}
+
+export async function splitInitiativeStoryTarget(args: {
+  actions?: string[];
+  context?: string | null;
+  destinationTargetId?: string | null;
+  evidenceItemIds: string[];
+  problem?: string | null;
+  projectType?: "personal_project" | "academic_project" | "open_source" | "freelance" | "hackathon" | "general_project";
+  results?: string[];
+  sourceDocumentId?: string | null;
+  targetType?: "initiative" | "portfolio_project";
+  technologies?: string[];
+  title?: string;
+  workExperienceId?: string | null;
+  sourceInitiativeId: string;
+}) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+  const evidenceIds = Array.from(new Set(args.evidenceItemIds));
+  if (evidenceIds.length === 0) {
+    return { status: "invalid" as const, reason: "missing_evidence_selection" as const };
+  }
+  const title = normalizeStoryTargetTitle(args.title ?? "");
+  if (!args.destinationTargetId && !title) {
+    return { status: "invalid" as const, reason: "missing_story_title" as const };
+  }
+
+  const splitResult = await getDb().transaction(async (tx) => {
+    const workspace = await getCurrentWorkspace(tx);
+    const [source] = await tx
+      .select()
+      .from(initiatives)
+      .where(and(eq(initiatives.workspaceId, workspace.id), eq(initiatives.id, args.sourceInitiativeId)))
+      .limit(1);
+    if (!source) return { status: "not_found" as const };
+    if (source.status === "rejected") {
+      return { status: "invalid" as const, reason: "rejected_story" as const };
+    }
+    const movedEvidence = await tx
+      .select({
+        id: evidenceItems.id,
+        sourceDocumentId: evidenceItems.sourceDocumentId,
+      })
+      .from(evidenceItems)
+      .where(
+        and(
+          eq(evidenceItems.workspaceId, workspace.id),
+          eq(evidenceItems.relatedInitiativeId, source.id),
+          inArray(evidenceItems.id, evidenceIds),
+        ),
+      );
+    if (movedEvidence.length !== evidenceIds.length) {
+      return { status: "invalid" as const, reason: "evidence_not_linked_to_story" as const };
+    }
+    const now = new Date();
+    const sourceDocumentId =
+      args.sourceDocumentId ??
+      source.sourceDocumentId ??
+      movedEvidence.find((item) => item.sourceDocumentId)?.sourceDocumentId ??
+      null;
+    const targetType = args.targetType ?? "initiative";
+    const destination = args.destinationTargetId
+      ? await findSplitDestination(tx, {
+          destinationTargetId: args.destinationTargetId,
+          targetType,
+          workspaceId: workspace.id,
+        })
+      : await createSplitDestination(tx, {
+          args,
+          now,
+          source,
+          sourceDocumentId,
+          targetType,
+          title,
+          workspaceId: workspace.id,
+        });
+    if (destination.status !== "found") return destination;
+
+    await tx
+      .update(evidenceItems)
+      .set({
+        relatedProjectId: null,
+        relatedInitiativeId: targetType === "initiative" ? destination.id : null,
+        relatedWorkExperienceId: null,
+        relatedPortfolioProjectId: targetType === "portfolio_project" ? destination.id : null,
+        updatedAt: now,
+      })
+      .where(and(eq(evidenceItems.workspaceId, workspace.id), inArray(evidenceItems.id, evidenceIds)));
+
+    await tx
+      .update(initiatives)
+      .set({ status: source.status === "approved" ? "pending" : source.status, updatedAt: now })
+      .where(and(eq(initiatives.workspaceId, workspace.id), eq(initiatives.id, source.id)));
+
+    await recordScopeCorrectionEvent(tx, {
+      action: "split_story_target",
+      before: {
+        claimCount: evidenceIds.length,
+        entityStatus: source.status,
+        fromScope: "work_initiative",
+        label: source.externalSafeTitle ?? source.internalTitle,
+        sourceState: source.sourceDocumentId ? "linked" : "missing",
+      },
+      after: {
+        claimCount: evidenceIds.length,
+        entityStatus: "pending",
+        label: destination.label,
+        targetCount: 1,
+        toScope: targetType === "portfolio_project" ? "portfolio_project" : "work_initiative",
+      },
+      entityId: destination.id,
+      entityType: targetType === "portfolio_project" ? "portfolio_project" : "initiative",
+      workspaceId: workspace.id,
+    });
+
+    return {
+      status: "saved" as const,
+      ...(destination.created && targetType === "portfolio_project"
+        ? { newPortfolioProjectId: destination.id }
+        : destination.created
+          ? { newInitiativeId: destination.id }
+          : targetType === "portfolio_project"
+            ? { destinationPortfolioProjectId: destination.id }
+            : { destinationInitiativeId: destination.id }),
+      sourceInitiativeId: source.id,
+      movedEvidenceCount: movedEvidence.length,
+      movedEvidenceIds: movedEvidence.map((item) => item.id),
+    };
+  });
+
+  if (splitResult.status === "saved" && splitResult.movedEvidenceIds.length > 0) {
+    const staleResult = await markClaimsStaleForEvidenceIds(splitResult.movedEvidenceIds);
+    return {
+      ...splitResult,
+      staleClaimCount: staleResult.status === "saved" ? staleResult.staleCount : 0,
+    };
+  }
+  return splitResult;
+}
+
+async function findSplitDestination(
+  tx: StoryTargetSplitStore,
+  args: {
+    destinationTargetId: string;
+    targetType: "initiative" | "portfolio_project";
+    workspaceId: string;
+  },
+) {
+  if (args.targetType === "portfolio_project") {
+    const [project] = await tx
+      .select({ id: portfolioProjects.id, status: portfolioProjects.status, title: portfolioProjects.title })
+      .from(portfolioProjects)
+      .where(and(eq(portfolioProjects.workspaceId, args.workspaceId), eq(portfolioProjects.id, args.destinationTargetId)))
+      .limit(1);
+    if (!project) return { status: "not_found" as const };
+    if (project.status === "rejected") return { status: "invalid" as const, reason: "rejected_destination_story" as const };
+    return { status: "found" as const, created: false, id: project.id, label: project.title };
+  }
+  const [initiative] = await tx
+    .select({ id: initiatives.id, internalTitle: initiatives.internalTitle, status: initiatives.status })
+    .from(initiatives)
+    .where(and(eq(initiatives.workspaceId, args.workspaceId), eq(initiatives.id, args.destinationTargetId)))
+    .limit(1);
+  if (!initiative) return { status: "not_found" as const };
+  if (initiative.status === "rejected") return { status: "invalid" as const, reason: "rejected_destination_story" as const };
+  return { status: "found" as const, created: false, id: initiative.id, label: initiative.internalTitle };
+}
+
+async function createSplitDestination(
+  tx: StoryTargetSplitStore,
+  args: {
+    args: Parameters<typeof splitInitiativeStoryTarget>[0];
+    now: Date;
+    source: typeof initiatives.$inferSelect;
+    sourceDocumentId: string | null;
+    targetType: "initiative" | "portfolio_project";
+    title: string;
+    workspaceId: string;
+  },
+) {
+  if (args.targetType === "portfolio_project") {
+    const [project] = await tx
+      .insert(portfolioProjects)
+      .values({
+        workspaceId: args.workspaceId,
+        sourceDocumentId: args.sourceDocumentId,
+        projectType: args.args.projectType ?? "general_project",
+        title: args.title,
+        context: normalizeNullableText(args.args.context) ?? args.source.context,
+        problem: normalizeNullableText(args.args.problem),
+        actions: normalizeStringList(args.args.actions),
+        results: normalizeStringList(args.args.results),
+        metrics: [],
+        technologies: normalizeStringList(args.args.technologies),
+        stakeholders: [],
+        sensitivityLevel: args.source.sensitivityLevel,
+        needsRedactionReview: args.source.needsRedactionReview,
+        status: "pending",
+        createdAt: args.now,
+        updatedAt: args.now,
+      })
+      .returning({ id: portfolioProjects.id, title: portfolioProjects.title });
+    if (!project) throw new Error("Failed to split Story Target.");
+    return { status: "found" as const, created: true, id: project.id, label: project.title };
+  }
+  const [initiative] = await tx
+    .insert(initiatives)
+    .values({
+      workspaceId: args.workspaceId,
+      workExperienceId: args.args.workExperienceId ?? args.source.workExperienceId,
+      sourceDocumentId: args.sourceDocumentId,
+      internalTitle: args.title,
+      context: normalizeNullableText(args.args.context) ?? args.source.context,
+      problem: normalizeNullableText(args.args.problem),
+      actions: normalizeStringList(args.args.actions),
+      results: normalizeStringList(args.args.results),
+      metrics: [],
+      technologies: normalizeStringList(args.args.technologies),
+      stakeholders: [],
+      sensitivityLevel: args.source.sensitivityLevel,
+      needsRedactionReview: args.source.needsRedactionReview,
+      status: "pending",
+      createdAt: args.now,
+      updatedAt: args.now,
+    })
+    .returning({ id: initiatives.id, internalTitle: initiatives.internalTitle });
+  if (!initiative) throw new Error("Failed to split Story Target.");
+  return { status: "found" as const, created: true, id: initiative.id, label: initiative.internalTitle };
+}
+
+function normalizeStoryTargetTitle(value: string) {
+  return value.trim().replace(/\s+/g, " ").slice(0, 240);
+}
+
+function normalizeNullableText(value: string | null | undefined) {
+  const normalized = value?.trim().replace(/\s+/g, " ") ?? "";
+  return normalized ? normalized.slice(0, 1200) : null;
+}
+
+function normalizeStringList(values: string[] | undefined) {
+  return Array.from(
+    new Set((values ?? []).map((value) => value.trim().replace(/\s+/g, " ")).filter(Boolean)),
+  ).slice(0, 12);
 }
 
 export async function convertPortfolioProjectToInitiative(args: {
@@ -2230,6 +2608,28 @@ export async function convertPortfolioProjectToInitiative(args: {
         ),
       );
 
+    await recordScopeCorrectionEvent(tx, {
+      action: "convert_to_initiative",
+      before: {
+        claimCount: movedEvidence.length,
+        entityStatus: project.status,
+        fromScope: "portfolio_project",
+        label: "Portfolio Project moved to Work Initiative",
+        sourceState: project.sourceDocumentId ? "linked" : "missing",
+        toScope: "work_initiative",
+      },
+      after: {
+        claimCount: movedEvidence.length,
+        entityStatus: "pending",
+        label: "Pending Work Initiative created",
+        sourceState: project.sourceDocumentId ? "linked" : "missing",
+        toScope: "work_initiative",
+      },
+      entityId: initiative.id,
+      entityType: "work_initiative",
+      workspaceId: workspace.id,
+    });
+
     return {
       status: "saved" as const,
       oldStoryId: project.id,
@@ -2240,10 +2640,7 @@ export async function convertPortfolioProjectToInitiative(args: {
   });
 
   if (conversion.status === "saved" && conversion.movedEvidenceIds.length > 0) {
-    const staleResult = await markClaimsStaleForEvidenceIds(conversion.movedEvidenceIds).catch(() => ({
-      status: "skipped" as const,
-      reason: "stale_mark_failed" as const,
-    }));
+    const staleResult = await markClaimsStaleForEvidenceIds(conversion.movedEvidenceIds);
     return {
       ...conversion,
       staleClaimCount: staleResult.status === "saved" ? staleResult.staleCount : 0,
@@ -2334,6 +2731,28 @@ export async function convertInitiativeToPortfolioProject(args: {
         ),
       );
 
+    await recordScopeCorrectionEvent(tx, {
+      action: "convert_to_portfolio_project",
+      before: {
+        claimCount: movedEvidence.length,
+        entityStatus: initiative.status,
+        fromScope: "work_initiative",
+        label: "Work Initiative moved to Portfolio Project",
+        sourceState: initiative.sourceDocumentId ? "linked" : "missing",
+        toScope: "portfolio_project",
+      },
+      after: {
+        claimCount: movedEvidence.length,
+        entityStatus: "pending",
+        label: "Pending Portfolio Project created",
+        sourceState: initiative.sourceDocumentId ? "linked" : "missing",
+        toScope: "portfolio_project",
+      },
+      entityId: project.id,
+      entityType: "portfolio_project",
+      workspaceId: workspace.id,
+    });
+
     return {
       status: "saved" as const,
       oldStoryId: initiative.id,
@@ -2344,10 +2763,7 @@ export async function convertInitiativeToPortfolioProject(args: {
   });
 
   if (conversion.status === "saved" && conversion.movedEvidenceIds.length > 0) {
-    const staleResult = await markClaimsStaleForEvidenceIds(conversion.movedEvidenceIds).catch(() => ({
-      status: "skipped" as const,
-      reason: "stale_mark_failed" as const,
-    }));
+    const staleResult = await markClaimsStaleForEvidenceIds(conversion.movedEvidenceIds);
     return {
       ...conversion,
       staleClaimCount: staleResult.status === "saved" ? staleResult.staleCount : 0,
@@ -2731,6 +3147,11 @@ export async function assignInitiativeToWorkExperience(args: {
     }
   }
 
+  const linkedEvidence = await db
+    .select({ id: evidenceItems.id })
+    .from(evidenceItems)
+    .where(and(eq(evidenceItems.workspaceId, workspace.id), eq(evidenceItems.relatedInitiativeId, initiative.id)));
+
   const [updated] = await db
     .update(initiatives)
     .set({
@@ -2743,9 +3164,33 @@ export async function assignInitiativeToWorkExperience(args: {
       workExperienceId: initiatives.workExperienceId,
     });
 
-  return updated
-    ? ({ status: "saved" as const, initiative: updated })
-    : ({ status: "not_found" as const });
+  if (!updated) return { status: "not_found" as const };
+  await recordScopeCorrectionEvent(db, {
+    action: "assign_work_experience",
+    before: {
+      entityStatus: initiative.status,
+      fromScope: "work_initiative",
+      label: "Work Initiative role assignment",
+      sourceState: "missing",
+      toScope: args.workExperienceId ? "role_bound_work_initiative" : "unassigned_work_initiative",
+    },
+    after: {
+      entityStatus: "pending",
+      label: args.workExperienceId ? "assigned to Work Experience" : "saved as unassigned",
+      toScope: args.workExperienceId ? "role_bound_work_initiative" : "unassigned_work_initiative",
+    },
+    entityId: updated.id,
+    entityType: "work_initiative",
+    workspaceId: workspace.id,
+  });
+  const staleResult = linkedEvidence.length > 0
+    ? await markClaimsStaleForEvidenceIds(linkedEvidence.map((item) => item.id))
+    : null;
+  return {
+    status: "saved" as const,
+    initiative: updated,
+    staleClaimCount: staleResult?.status === "saved" ? staleResult.staleCount : 0,
+  };
 }
 
 export async function createWorkExperienceAndAssignInitiative(args: {
@@ -2762,7 +3207,7 @@ export async function createWorkExperienceAndAssignInitiative(args: {
     return { status: "skipped" as const, reason: "missing_database_url" as const };
   }
 
-  return getDb().transaction(async (tx) => {
+  const result = await getDb().transaction(async (tx) => {
     const workspace = await getCurrentWorkspace(tx);
     const [initiative] = await tx
       .select({
@@ -2816,10 +3261,47 @@ export async function createWorkExperienceAndAssignInitiative(args: {
         workExperienceId: initiatives.workExperienceId,
       });
 
-    return updated
-      ? ({ status: "saved" as const, initiative: updated, workExperience: experience })
-      : ({ status: "not_found" as const });
+    if (!updated) return { status: "not_found" as const };
+    const linkedEvidence = await tx
+      .select({ id: evidenceItems.id })
+      .from(evidenceItems)
+      .where(and(eq(evidenceItems.workspaceId, workspace.id), eq(evidenceItems.relatedInitiativeId, initiative.id)));
+    await recordScopeCorrectionEvent(tx, {
+      action: "create_work_experience_and_assign",
+      before: {
+        entityStatus: initiative.status,
+        fromScope: "unassigned_work_initiative",
+        label: "Created missing Work Experience for Story Target",
+        sourceState: "missing",
+        toScope: "role_bound_work_initiative",
+      },
+      after: {
+        entityStatus: experience.status,
+        label: "Work Experience created and assigned",
+        targetCount: 1,
+        toScope: "role_bound_work_initiative",
+      },
+      entityId: updated.id,
+      entityType: "work_initiative",
+      workspaceId: workspace.id,
+    });
+
+    return {
+      status: "saved" as const,
+      initiative: updated,
+      linkedEvidenceIds: linkedEvidence.map((item) => item.id),
+      workExperience: experience,
+    };
   });
+  if (result.status !== "saved") return result;
+  const staleResult = result.linkedEvidenceIds.length > 0
+    ? await markClaimsStaleForEvidenceIds(result.linkedEvidenceIds)
+    : null;
+  const { linkedEvidenceIds: _linkedEvidenceIds, ...publicResult } = result;
+  return {
+    ...publicResult,
+    staleClaimCount: staleResult?.status === "saved" ? staleResult.staleCount : 0,
+  };
 }
 
 export async function updateStoryTargetReview(args: {
@@ -2888,9 +3370,28 @@ export async function updateStoryTargetReview(args: {
       workspaceId: table.workspaceId,
     });
 
-  return updated
-    ? ({ status: "saved" as const, storyTarget: updated, targetType: args.targetType })
-    : ({ status: "not_found" as const });
+  if (!updated) return { status: "not_found" as const };
+  await recordScopeCorrectionEvent(db, {
+    action: args.action,
+    before: {
+      claimCount: linkedEvidenceClaimCount,
+      entityStatus: current.status,
+      fromScope: args.targetType,
+      label: "Story Target review status",
+      sourceState: "missing",
+      toScope: args.targetType,
+    },
+    after: {
+      entityStatus: updated.status,
+      label: "Story Target review status updated",
+      toScope: args.targetType,
+    },
+    entityId: updated.id,
+    entityType: args.targetType,
+    workspaceId: workspace.id,
+  });
+
+  return { status: "saved" as const, storyTarget: updated, targetType: args.targetType };
 }
 
 async function countLinkedCanonicalEvidenceClaims(args: {
@@ -3664,6 +4165,25 @@ async function keepOverlapSeparate(args: {
         updatedAt: now,
       },
     });
+  await recordScopeCorrectionEvent(db, {
+    action: "keep_separate",
+    before: {
+      entityStatus: "active",
+      fromScope: args.entityType,
+      label: "Possible overlap reviewed",
+      targetCount: 2,
+      toScope: args.entityType,
+    },
+    after: {
+      entityStatus: "kept_separate",
+      label: "Overlap dismissed as separate material",
+      targetCount: 2,
+      toScope: args.entityType,
+    },
+    entityId: leftEntityId,
+    entityType: args.entityType,
+    workspaceId: left.workspaceId,
+  });
   return {
     status: "saved" as const,
     entityType: args.entityType,

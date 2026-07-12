@@ -4065,7 +4065,7 @@ function SettingsReferenceView() {
                     <li>
                       <strong>Accepted</strong>
                       <span>{diagnostics.scopeAccuracy.totals.acceptedCount}</span>
-                      <small>Candidate assets allowed into pending canonical review.</small>
+                      <small>Candidate assets allowed into pending library review.</small>
                     </li>
                     <li>
                       <strong>Review / rejected</strong>

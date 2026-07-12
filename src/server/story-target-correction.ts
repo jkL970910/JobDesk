@@ -3,6 +3,7 @@ import {
   convertInitiativeToPortfolioProject,
   convertPortfolioProjectToInitiative,
   createWorkExperienceAndAssignInitiative,
+  splitInitiativeStoryTarget,
   updateStoryTargetReview,
 } from "./profile-evidence-repository";
 
@@ -22,7 +23,8 @@ type StoryTargetCorrectionAction =
   | "assign_work_experience"
   | "convert_to_initiative"
   | "convert_to_portfolio_project"
-  | "create_work_experience_and_assign";
+  | "create_work_experience_and_assign"
+  | "split_story";
 
 export type StoryTargetCorrection = {
   action: StoryTargetCorrectionAction;
@@ -38,6 +40,16 @@ export type StoryTargetCorrection = {
     startDate?: string | null;
     endDate?: string | null;
     summary?: string | null;
+    actions?: string[];
+    context?: string | null;
+    destinationTargetId?: string | null;
+    evidenceItemIds?: string[];
+    problem?: string | null;
+    results?: string[];
+    sourceDocumentId?: string | null;
+    splitTargetType?: "initiative" | "portfolio_project";
+    technologies?: string[];
+    title?: string;
   };
 };
 
@@ -82,6 +94,28 @@ export async function applyStoryTargetCorrection(correction: StoryTargetCorrecti
         startDate: correction.payload.startDate,
         endDate: correction.payload.endDate,
         summary: correction.payload.summary,
+      });
+    case "split_story":
+      if (correction.targetType !== "initiative") {
+        return { status: "invalid" as const, reason: "Only Work Initiatives can be split." };
+      }
+      if (!correction.payload?.title || !correction.payload.evidenceItemIds?.length) {
+        return { status: "invalid" as const, reason: "Title and Evidence Claims are required for split." };
+      }
+      return splitInitiativeStoryTarget({
+        actions: correction.payload.actions,
+        context: correction.payload.context,
+        destinationTargetId: correction.payload.destinationTargetId,
+        evidenceItemIds: correction.payload.evidenceItemIds,
+        problem: correction.payload.problem,
+        projectType: correction.payload.projectType,
+        results: correction.payload.results,
+        sourceDocumentId: correction.payload.sourceDocumentId,
+        sourceInitiativeId: correction.targetId,
+        targetType: correction.payload.splitTargetType,
+        technologies: correction.payload.technologies,
+        title: correction.payload.title,
+        workExperienceId: correction.payload.workExperienceId,
       });
   }
 }

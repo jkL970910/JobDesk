@@ -448,14 +448,14 @@ Acceptance:
 | Phase 3 | Complete, first generalized slice | Work Experience, Work Initiative, Portfolio Project, and Evidence Claim extraction drafts now pass through pre-save scope guardrails; wrong-scope candidates route to imported material review notes instead of canonical tables. |
 | Phase 4 | Complete, second slice | Initiative consolidation is isolated in `initiative-consolidation.ts` with fixtures for AWS CDK/cache/latency merging, ambiguous/unassigned fragment merging, and cross-role non-merge. |
 | Phase 5 | Complete, first slice | `scope-accuracy-regression-fixtures.test.ts` locks the seven signed-off failure families across classifier, guardrail, consolidation, and imported-note routing. |
-| Phase 6 | In progress, fourth slice | Create missing Story Target from enrichment question exists; Evidence Cards expose Remove story link; Portfolio Projects can move to Work Initiatives and Work Initiatives can move to Portfolio Projects with linked evidence preserved and generated claims marked stale. Broader keep-separate UI remains staged. |
-| Phase 7 | In progress, third slice | Work Queue source-review pane gives scope guardrail notes a dedicated scope-review action model; scope-review candidates now persist structured review payloads and display proposed scope, classifier result, source snippet, guardrail reason, and suggested action. Saving candidates as pending canonical assets remains the next slice. |
-| Phase 8 | In progress, third slice | Workflow metadata records privacy-safe scope guardrail/consolidation counts, and Settings diagnostics now summarizes accepted/review/rejected scope candidates and merged initiative fragments. |
-| Phase 9 | In progress, first deterministic slice | Guardrail-bound suggestions now recommend attach-role, strengthen-story, link-evidence, public-safe wording, or move-to-portfolio-project without using AI to decide canonical truth. Broader AI-assisted automation remains deferred. |
+| Phase 6 | Complete, P1 local slice | Users can create missing Story Targets from enrichment questions, save structured Scope Review Candidates as pending material, move Portfolio Projects to Work Initiatives, move Work Initiatives to Portfolio Projects, split selected Evidence Claims into new or existing Work Initiatives / Portfolio Projects, merge duplicate stories, keep overlap suggestions separate, and stale affected generated claims when relations move. |
+| Phase 7 | Complete, P1 local slice | Work Queue source-review pane gives scope guardrail output a structured candidate review model with user-facing actions. Candidate save/dismiss actions resolve durable `scope_review_candidates`; wrong-scope candidates do not enter canonical tables until user action. |
+| Phase 8 | Complete, P1 local slice | Workflow metadata records scope guardrail/consolidation counts, and `scope_correction_events` records privacy-safe candidate/story correction events without raw source text or full quotes. |
+| Phase 9 | Complete, deterministic P1 slice | Story seeding improves coverage from parsed profile bullets only after consolidation and scope guardrails. Broader AI-assisted story expansion remains deferred. |
 
 ## P1 Implementation Plan After Reviewer Feedback
 
-Status: conditional signoff. The direction is approved, but implementation must start with a structured candidate lifecycle before increasing story extraction recall.
+Status: implemented locally for first review. The implementation starts with a structured candidate lifecycle before increasing story extraction recall.
 
 ### Revised Execution Order
 
@@ -565,6 +565,15 @@ Acceptance:
 - Wrong-scope candidates do not create canonical assets until a user action resolves them.
 - Repository integration tests cover each save/dismiss action.
 
+Local implementation:
+
+- `scope_review_candidates` stores the durable candidate lifecycle.
+- Guardrail-created enrichment tasks upsert source provenance, proposed/classifier scope, guardrail decision/reason, confidence, suggested action, and resolution status.
+- `applyCandidateReviewAction` resolves candidates by dismissing, saving as pending Profile Context, saving as pending canonical material, or keeping the candidate in review as unassigned.
+- Candidate actions support user correction beyond the suggested action. The chosen destination is rechecked with deterministic destination-specific guardrails before persistence.
+- `save_as_evidence` only succeeds for atomic Evidence Claims with a real source document and source quote.
+- Story-target candidate save actions only succeed when the selected destination passes the matching Story Target guardrail and create pending material.
+
 ### P1.2 Guided Story Target Creation
 
 Goal: replace title-only story creation with a structured, source-grounded creation flow.
@@ -639,6 +648,11 @@ Acceptance:
 - New story appears in Build Story Targets with source provenance.
 - Current task and future proposal/evidence accept paths inherit the confirmed story target.
 
+Local implementation:
+
+- The create flow captures title, context, problem, role, actions, results, technologies, and source quote.
+- Saved Story Targets remain pending and provenance-linked.
+
 ### P1.3 Work Queue Routing And Correction Entry
 
 Goal: make review states actionable and navigable.
@@ -666,6 +680,11 @@ Acceptance:
 - User can click from Library to the exact Work Queue card.
 - Imported observations do not appear as answer prompts.
 - Rejected targets and resolved candidates are not active blockers.
+
+Local implementation:
+
+- Scope Review candidates appear through the source review pane with structured actions.
+- Library status affordances continue to route to the corresponding Work Queue surface.
 
 ### P1.4 Merge / Keep Separate / Split UX
 
@@ -707,7 +726,14 @@ Acceptance:
 
 - AWS CDK/cache/latency fragments can be merged into one story.
 - Wrong merge suggestions can be marked keep separate.
-- Split moves selected evidence and preserves provenance.
+- Split moves selected evidence to a new or existing Story Target and preserves provenance.
+
+Local implementation:
+
+- Story overlap cleanup supports merge and keep-separate.
+- Build Story Targets detail supports split into a new or existing Work Initiative / Portfolio Project and moves selected linked Evidence Claims.
+- Split destination validation rejects rejected targets, cross-workspace targets, and evidence not linked to the source Work Initiative.
+- Split and merge mark impacted generated claims stale and record privacy-safe correction events.
 
 ### P1.5 Source Provenance Drilldown
 
@@ -716,10 +742,11 @@ Goal: every candidate/story/evidence can answer where it came from.
 UI:
 
 - Source document title
-- source section / nearby heading
+- source type
+- source section / nearby heading where available
 - quote/snippet
 - import date
-- source context drawer with nearby text
+- source context drawer with bounded nearby text
 
 Rules:
 
@@ -731,6 +758,11 @@ Acceptance:
 
 - Scope Review Candidate, Story Target, Evidence Claim, enrichment task, and generated claim support all expose provenance where available.
 - A user can inspect source context before saving candidate material.
+
+Local implementation:
+
+- Library DTOs expose source document titles, source type, import date, and bounded source context previews for Evidence, Work Experience, Work Initiative, and Portfolio Project rows.
+- Story Target details include a Source Trail with story source label, import date, bounded nearby source context, and linked Evidence Claim source quotes.
 
 ### P1.6 Correction Audit Trail
 
@@ -785,6 +817,11 @@ Acceptance:
 - Each candidate/story correction writes an event.
 - Diagnostics can explain who changed scope/relation and when.
 
+Local implementation:
+
+- `scope_correction_events` records candidate review, story review, assignment, conversion, split, merge, and keep-separate events with privacy-safe before/after snapshots.
+- Snapshots store short labels, status/scope, source state, and counts only.
+
 ### P1.7 Better Story Seeding
 
 Goal: improve automatic Story Target coverage only after the candidate/correction pipeline is stable.
@@ -810,6 +847,14 @@ Acceptance fixtures:
 - Technical Skills does not become a Story Target.
 - Project-only material becomes Portfolio Project candidate or unassigned.
 - Each role with project/accomplishment bullets has either a story candidate or an explicit uncovered-source review item.
+
+Local implementation:
+
+- Parsed profile experience bullets seed thin pending Work Initiatives when no extractor initiative exists for the same role.
+- Same-role seed bullets with overlapping technology, domain, and outcome signals are clustered into one pending Work Initiative so CDK/cache/latency fragments do not create separate stories.
+- Ambiguous single-bullet seeds route to structured Scope Review Candidates instead of silently creating canonical Story Targets.
+- Story seeds pass through initiative consolidation and scope guardrails before persistence.
+- Skills/profile-context bullets are filtered out of story seeding.
 
 ### P1.8 Manual QA SOP
 

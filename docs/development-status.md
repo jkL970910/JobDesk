@@ -1,6 +1,6 @@
 # JobDesk Development Status
 
-Last updated: 2026-07-08
+Last updated: 2026-07-10
 Baseline commit: ce44458 `Build local MVP workflow baseline`
 Latest reviewed local commit: 1602446 `feat: add scope accuracy foundation`
 Production URL: https://jobdesk-tau.vercel.app
@@ -36,10 +36,10 @@ Current phase status:
 | Phase 3: Pre-Save Persistence Guardrail | Complete, first generalized slice | Work Experience, Work Initiative, Portfolio Project, and Evidence Claim extraction drafts now pass through pre-save scope guardrails; wrong-scope candidates route to imported material review notes instead of canonical tables. |
 | Phase 4: Initiative Consolidation | Complete, second slice | Initiative consolidation is isolated in `initiative-consolidation.ts` with fixtures for AWS CDK/cache/latency merging, ambiguous/unassigned fragment merging, and cross-role non-merge. |
 | Phase 5: Regression Fixture Suite | Complete, first slice | `scope-accuracy-regression-fixtures.test.ts` locks the seven signed-off failure families across classifier, guardrail, consolidation, and imported-note routing. |
-| Phase 6: User Correction Workflow | In progress, fourth slice | Creating a missing Story Target from an enrichment question is implemented; Evidence Cards expose Remove story link; Portfolio Projects can move to Work Initiatives and Work Initiatives can move to Portfolio Projects with linked evidence preserved and generated claims marked stale. Broader keep-separate UI remains staged. |
-| Phase 7: Post-Save Validators And Work Queue Routing | In progress, third slice | Work Queue source-review pane gives scope guardrail notes a dedicated scope-review action model; scope-review candidates now persist structured review payloads and display proposed scope, classifier result, source snippet, guardrail reason, and suggested action. Saving candidates as pending canonical assets remains the next slice. |
-| Phase 8: Observability And Admin Diagnostics | In progress, third slice | Workflow metadata records privacy-safe scope guardrail/consolidation counts, and Settings diagnostics now summarizes accepted/review/rejected scope candidates and merged initiative fragments. |
-| Phase 9: Intelligence Layer | In progress, first deterministic slice | Guardrail-bound suggestions now recommend attach-role, strengthen-story, link-evidence, public-safe wording, or move-to-portfolio-project without using AI to decide canonical truth. Broader AI-assisted automation remains deferred. |
+| Phase 6: User Correction Workflow | Complete, P1 local slice | Missing Story Targets can be created from enrichment questions; Scope Review Candidates can be corrected beyond the suggested destination and saved as pending Evidence, Work Initiatives, Portfolio Projects, Profile Context, unassigned review material, or dismissed; Story Targets can move between Work Initiative and Portfolio Project, split selected Evidence Claims into a new or existing Work Initiative / Portfolio Project, merge duplicate stories, and keep overlap suggestions separate while stale generated claims are protected. |
+| Phase 7: Post-Save Validators And Work Queue Routing | Complete, P1 local slice | Work Queue source-review pane renders structured Scope Review Candidates with user-facing actions. Durable candidate rows preserve provenance, scope decision, suggested action, and resolution status; wrong-scope candidates do not enter canonical tables until explicit user action. |
+| Phase 8: Observability And Admin Diagnostics | Complete, P1 local slice | Workflow metadata records privacy-safe scope guardrail/consolidation counts, and `scope_correction_events` records candidate/story correction actions with short snapshots only. |
+| Phase 9: Intelligence Layer | Complete, deterministic P1 slice | Better Story Seeding creates pending Work Initiative seeds from parsed profile bullets only after same-role clustering, consolidation, and scope guardrails; ambiguous single-bullet seeds route to Scope Review Candidates. Broader AI-assisted expansion remains deferred until the correction pipeline is reviewed. |
 
 ## Workflow Count
 
@@ -260,7 +260,7 @@ Integration tests use the configured JobDesk database and write temporary workfl
 | P1 | Add source chunk indexing and explainable retrieval | Done, MVP |
 | P1 | Split enrichment routing into profile context, profile facts, imported notes, assign-later routing, and targeted proposals | Done, MVP |
 | P1 | Add suggested targets, route-aware target gating, and target eligibility metadata | Done, MVP |
-| P1 | Scope Accuracy Correction System | Active; reviewer gave conditional signoff. Next execution order is Candidate Review Queue structured lifecycle/actions, Guided Story Target Creation, Work Queue routing/correction entry, merge/keep-separate/split UX, source provenance drilldown, correction audit trail, Better Story Seeding, then QA SOP. Better Story Seeding is intentionally deferred until the review/correction pipeline can safely digest more candidates. |
+| P1 | Scope Accuracy Correction System | Implemented locally for review; durable `scope_review_candidates`, true candidate destination correction, structured guided Story Target creation, scope-review Work Queue actions, story merge/keep-separate/split to new or existing Work Initiative / Portfolio Project, source trail drilldown with import date and bounded nearby source context, privacy-safe `scope_correction_events`, and guardrail-bound clustered profile-bullet Story Seeding are in place. All save actions produce pending/review material only; resume generation still consumes only approved, public-safe, source-backed canonical evidence. |
 | P1 | Deploy current signed-off P0 baseline and run production remote smoke | Done; Vercel deployment `dpl_9mbLRh3rawgSA9aafA2HG3g6FRkq` is READY and aliased to `https://jobdesk-tau.vercel.app`; `smoke:resume-core` passed against production |
 | P1 | Execute manual Resume Core Loop browser QA | Next; run `docs/resume-core-loop-qa.md` against a real browser session and confirm UI state, button copy, handoff notices, readiness categories, and export gates match the automated contracts |
 | P1 | Add user-triggered async extraction processing for production | Implemented locally; production remote smoke of user-triggered processing and manual/admin endpoint is still pending before production signoff |

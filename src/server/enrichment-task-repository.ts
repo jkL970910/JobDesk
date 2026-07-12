@@ -55,8 +55,8 @@ import {
 import { workflowSkillFields } from "./workflow-run-metadata";
 import { getCurrentWorkspace, getOrCreateDefaultWorkspace } from "./workspace-repository";
 import {
-  parseScopeReviewCandidatePayloadFromNote,
   type ScopeReviewCandidatePayload,
+  upsertScopeReviewCandidateForTask,
 } from "./scope-review-candidate";
 
 type DbHandle = ReturnType<typeof getDb>;
@@ -175,6 +175,13 @@ type ReusableLibraryAnchor = {
 type EnrichmentStoryTargetCreation = {
   targetType: "initiative" | "portfolio_project";
   title: string;
+  actions?: string[];
+  context?: string | null;
+  problem?: string | null;
+  results?: string[];
+  role?: string | null;
+  sourceQuote?: string | null;
+  technologies?: string[];
   workExperienceId?: string | null;
   projectType?: "personal_project" | "academic_project" | "open_source" | "freelance" | "hackathon" | "general_project";
 };
@@ -300,6 +307,15 @@ export async function upsertEnrichmentTasks(
       .returning();
     if (row) inserted.push(row);
     if (row) {
+      if (task.reviewPayload?.kind === "scope_review_candidate") {
+        await upsertScopeReviewCandidateForTask(db, {
+          now,
+          payload: task.reviewPayload,
+          sourceType: task.sourceType,
+          taskId: row.id,
+          workspaceId: args.workspaceId,
+        });
+      }
       await replaceTaskTargets(db, {
         workspaceId: args.workspaceId,
         taskId: row.id,
@@ -340,15 +356,10 @@ export function buildExtractionNoteEnrichmentTasks(args: {
   sourceDocumentId?: string | null;
   reviewPayloads?: Array<{ note: string; payload: EnrichmentTaskReviewPayload }>;
 }) {
-  return args.notes.map((note) => {
+  const seenNotes = new Set(args.notes);
+  const noteTasks = args.notes.map((note) => {
     const classification = classifyExtractionNoteAction(note);
-    const reviewPayload =
-      findScopeReviewPayloadForNote(args.reviewPayloads, note, args.sourceDocumentId) ??
-      parseScopeReviewCandidatePayloadFromNote({
-        note,
-        sourceDocumentId: args.sourceDocumentId,
-        sourceLabel: args.sourceTitle,
-      });
+    const reviewPayload = findScopeReviewPayloadForNote(args.reviewPayloads, note, args.sourceDocumentId);
     if (classification.expectedAction !== "answer_enrichment_question") {
       return {
         taskType: "source_section_review" as const,
@@ -372,6 +383,28 @@ export function buildExtractionNoteEnrichmentTasks(args: {
       prompt: note,
     };
   });
+  const payloadTasks = (args.reviewPayloads ?? [])
+    .filter((item) => !seenNotes.has(item.note))
+    .map((item) => {
+      const payload = item.payload.sourceDocumentId || !args.sourceDocumentId
+        ? item.payload
+        : { ...item.payload, sourceDocumentId: args.sourceDocumentId };
+      return {
+        taskType: "source_section_review" as const,
+        sourceType: "extraction_note" as const,
+        sourceLabel: args.sourceTitle,
+        prompt: item.note,
+        targetScope: "source_material" as const,
+        targetConfidence: payload.confidence,
+        targetReason: payload.guardrailReason,
+        expectedOutcome: "review_imported_material" as const,
+        noteKind: "story_gap" as const,
+        expectedAction: "review_import" as const,
+        targetField: null,
+        reviewPayload: payload,
+      };
+    });
+  return [...noteTasks, ...payloadTasks];
 }
 
 function findScopeReviewPayloadForNote(
@@ -1750,7 +1783,16 @@ async function createStoryTargetForTask(
   }
 
   return db.transaction(async (tx) => {
-    const context = `Created from enrichment question: ${args.task.prompt}`;
+    const context = buildStoryTargetCreationContext({
+      prompt: args.task.prompt,
+      sourceQuote: args.storyTarget.sourceQuote,
+      userContext: args.storyTarget.context,
+    });
+    const problem = normalizeOptionalStoryField(args.storyTarget.problem);
+    const role = normalizeOptionalStoryField(args.storyTarget.role);
+    const actions = normalizeStoryFieldList(args.storyTarget.actions);
+    const results = normalizeStoryFieldList(args.storyTarget.results);
+    const technologies = normalizeStoryFieldList(args.storyTarget.technologies);
     const sourceDocumentId = await resolveTaskSourceDocumentId(tx, {
       resumeSourceVersionId: args.task.resumeSourceVersionId,
       workspaceId: args.workspaceId,
@@ -1779,6 +1821,11 @@ async function createStoryTargetForTask(
           sourceDocumentId,
           internalTitle: title,
           context,
+          problem,
+          role,
+          actions,
+          results,
+          technologies,
           status: "pending",
           createdAt: args.now,
           updatedAt: args.now,
@@ -1798,6 +1845,11 @@ async function createStoryTargetForTask(
           projectType: args.storyTarget.projectType ?? "general_project",
           title,
           context,
+          problem,
+          role,
+          actions,
+          results,
+          technologies,
           status: "pending",
           createdAt: args.now,
           updatedAt: args.now,
@@ -3096,6 +3148,32 @@ function canCreateStoryTargetFromTask(task: typeof enrichmentTasks.$inferSelect)
 function normalizeStoryTargetTitle(title: string) {
   const normalized = title.trim().replace(/\s+/g, " ");
   return normalized.length > 240 ? normalized.slice(0, 240).trim() : normalized;
+}
+
+function normalizeOptionalStoryField(value: string | null | undefined) {
+  const normalized = value?.trim().replace(/\s+/g, " ");
+  return normalized ? normalized.slice(0, 2000) : null;
+}
+
+function buildStoryTargetCreationContext(args: {
+  prompt: string;
+  sourceQuote?: string | null;
+  userContext?: string | null;
+}) {
+  const context = normalizeOptionalStoryField(args.userContext);
+  const sourceQuote = normalizeOptionalStoryField(args.sourceQuote);
+  const fallback = normalizeOptionalStoryField(`Created from enrichment question: ${args.prompt}`);
+  if (!sourceQuote) return context ?? fallback;
+  if (!context) return sourceQuote;
+  if (context.includes(sourceQuote)) return context;
+  return normalizeOptionalStoryField(`${context}\nSource context: ${sourceQuote}`) ?? context;
+}
+
+function normalizeStoryFieldList(values: string[] | null | undefined) {
+  return (values ?? [])
+    .map((value) => value.trim().replace(/\s+/g, " "))
+    .filter(Boolean)
+    .slice(0, 12);
 }
 
 function canSaveProfileContextRoute(task: typeof enrichmentTasks.$inferSelect) {

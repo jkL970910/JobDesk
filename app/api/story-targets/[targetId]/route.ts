@@ -54,6 +54,29 @@ const requestSchema = z.discriminatedUnion("action", [
     endDate: z.string().trim().max(80).nullable().optional(),
     summary: z.string().trim().max(1000).nullable().optional(),
   }),
+  z.object({
+    action: z.literal("split_story"),
+    targetType: z.literal("initiative"),
+    destinationTargetId: z.string().uuid().nullable().optional(),
+    splitTargetType: z.enum(["initiative", "portfolio_project"]).optional(),
+    title: z.string().trim().max(240).optional(),
+    evidenceItemIds: z.array(z.string().uuid()).min(1),
+    workExperienceId: z.string().uuid().nullable().optional(),
+    projectType: z.enum([
+      "personal_project",
+      "academic_project",
+      "open_source",
+      "freelance",
+      "hackathon",
+      "general_project",
+    ]).optional(),
+    context: z.string().trim().max(1200).nullable().optional(),
+    problem: z.string().trim().max(1200).nullable().optional(),
+    actions: z.array(z.string().trim().min(1).max(400)).max(12).optional(),
+    results: z.array(z.string().trim().min(1).max(400)).max(12).optional(),
+    technologies: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+    sourceDocumentId: z.string().uuid().nullable().optional(),
+  }),
 ]);
 
 export async function PATCH(
@@ -115,5 +138,20 @@ function buildStoryTargetCorrectionPayload(body: z.infer<typeof requestSchema>) 
     case "mark_needs_update":
     case "reject_story":
       return undefined;
+    case "split_story":
+      return {
+        actions: body.actions,
+        context: body.context,
+        destinationTargetId: body.destinationTargetId,
+        evidenceItemIds: body.evidenceItemIds,
+        problem: body.problem,
+        projectType: body.projectType,
+        results: body.results,
+        sourceDocumentId: body.sourceDocumentId,
+        splitTargetType: body.splitTargetType,
+        technologies: body.technologies,
+        title: body.title,
+        workExperienceId: body.workExperienceId,
+      };
   }
 }

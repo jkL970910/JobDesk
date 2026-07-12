@@ -246,6 +246,27 @@
       "when": 1783616400000,
       "tag": "0034_scope_review_candidate_payload",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1783620000000,
+      "tag": "0035_scope_review_candidates",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1783623600000,
+      "tag": "0036_scope_correction_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1783710000000,
+      "tag": "0037_profile_context_pending_status",
+      "breakpoints": true
     }
   ]
 }

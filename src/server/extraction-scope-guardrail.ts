@@ -89,6 +89,7 @@ export function guardWorkExperienceDraftsForPersistence(
       proposedScope: "work_experience",
       rejectedScope: "Work Experience",
       sourceDocumentId: args.sourceDocumentId,
+      sourceQuote: draft.summary ?? null,
       sourceSection: args.sourceSection ?? "Work Experience",
       sourceTitle: args.sourceTitle,
     });
@@ -136,6 +137,7 @@ export function guardInitiativeDraftsForPersistence(
       proposedScope: "work_initiative",
       rejectedScope: "Work Initiative",
       sourceDocumentId: args.sourceDocumentId,
+      sourceQuote: null,
       sourceSection: draft.work_experience_ref ?? "Work Initiative",
       sourceTitle: args.sourceTitle,
     });
@@ -175,6 +177,7 @@ export function guardPortfolioProjectDraftsForPersistence(
       proposedScope: "portfolio_project",
       rejectedScope: "Portfolio Project",
       sourceDocumentId: args.sourceDocumentId,
+      sourceQuote: null,
       sourceSection: "Portfolio Project",
       sourceTitle: args.sourceTitle,
     });
@@ -216,6 +219,7 @@ export function guardEvidenceDraftsForPersistence(
       proposedScope: "evidence_claim",
       rejectedScope: "Evidence Claim",
       sourceDocumentId: args.sourceDocumentId,
+      sourceQuote: draft.source_quote,
       sourceSection: "Evidence Claim",
       sourceTitle: args.sourceTitle,
     });
@@ -306,6 +310,7 @@ function addScopeReviewCandidate(
     proposedScope: ScopeReviewCandidatePayload["proposedScope"];
     rejectedScope: string;
     sourceDocumentId?: string | null;
+    sourceQuote?: string | null;
     sourceSection?: string | null;
     sourceTitle?: string | null;
   },
@@ -325,6 +330,7 @@ function addScopeReviewCandidate(
       proposedScope: args.proposedScope,
       sourceDocumentId: args.sourceDocumentId,
       sourceLabel: args.sourceTitle ?? "Imported source",
+      sourceQuote: args.sourceQuote,
       sourceSection: args.sourceSection,
     }),
   });

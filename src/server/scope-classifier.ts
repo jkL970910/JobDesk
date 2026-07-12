@@ -146,8 +146,10 @@ function classifyWorkExperienceCandidate(
   if (isBulletShaped(candidate.content) || isPureTechnologyPhrase(candidate.content)) {
     return result(candidate, signals, invalidScopeDecision("Bullet-shaped action or technology phrase cannot become a Work Experience."));
   }
-  const hasContainerSignal = hasEmployerLikeSignal(candidate.content) && hasRoleLikeSignal(candidate.content);
-  const hasDateOrTeamSignal = hasDateSignal(candidate.content) || /\b(team|org|organization|department|group)\b/i.test(candidate.content);
+  const hasDate = hasDateSignal(candidate.content);
+  const hasContainerSignal =
+    (hasEmployerLikeSignal(candidate.content) || hasDate) && hasRoleLikeSignal(candidate.content);
+  const hasDateOrTeamSignal = hasDate || /\b(team|org|organization|department|group)\b/i.test(candidate.content);
   if (!hasContainerSignal || !hasDateOrTeamSignal) {
     return result(candidate, signals, reviewQueueScopeDecision({
       acceptedScope: "unassigned",

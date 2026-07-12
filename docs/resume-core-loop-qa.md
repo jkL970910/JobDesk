@@ -56,15 +56,32 @@ Run this pass after the automated checks when changing source intake, evidence a
    - Open a Strengthen Evidence task whose correct story is missing, choose Attach to story, review similar existing stories, then create a Work initiative under a Work Experience or a standalone portfolio project.
    - Expected: profile/import/source-note tasks do not show this create path; the new draft story appears in Build Story Targets, the task is bound to it, answering creates a story update proposal, and switching to Create new evidence preserves the story relation on the proposal/evidence.
 
-6. Main Resume Readiness
+6. Scope Review Candidate Queue
+   - Import material that includes at least one wrong-scope item, such as a broad story proposed as Evidence or Technical Skills proposed as a Story Target.
+   - Expected: the item appears as a structured Scope Review candidate, shows proposed/best destination, source, and suggested action, and can be corrected to another valid destination, saved only as pending/review material, kept for later assignment, or dismissed.
+   - Expected: broad story text cannot be saved directly as Evidence; Profile Context cannot become Evidence.
+
+7. Story Target Correction
+   - In Build Story Targets, move a Work Initiative to Portfolio Projects, move a Portfolio Project under a Work Experience, merge a duplicate initiative, keep a wrong duplicate separate, and split one Work Initiative by moving selected Evidence Claims into a new or existing Work Initiative / Portfolio Project.
+   - Expected: moved/split/merged targets preserve source provenance, selected Evidence Claims move to the chosen target, generated claims linked to moved evidence become stale, and rejected/moved-away targets disappear from active pickers.
+
+8. Source Provenance Drilldown
+   - Open a Story Target detail after Add Material or after creating a story from a task.
+   - Expected: Source Trail shows the source document label, source type, import date, bounded nearby source context, and linked Evidence Claim source quotes when available. Missing source is visible and does not make material resume-ready.
+
+9. Better Story Seeding
+   - Import a resume section where a Work Experience has accomplishment bullets but the extractor returns no explicit Story Target.
+   - Expected: conservative pending Story Targets are seeded from qualifying bullets, related same-role CDK/cache/latency fragments are clustered into one Story Target, ambiguous single-bullet seeds enter Scope Review Candidate instead of canonical Story Target, Technical Skills are not seeded as stories, and all seeded stories remain pending/private/not resume-ready.
+
+10. Main Resume Readiness
    - Generate or refresh a main resume and run Fact Guard.
    - Expected: readiness separates Fact Guard hard blockers, evidence eligibility blockers, stale claims, missing evidence, and polish-only findings.
 
-7. Tailored Resume Readiness
+11. Tailored Resume Readiness
    - Analyze a target JD, generate a tailored resume, and run Fact Guard.
    - Expected: tailored readiness uses the same blocker categories as Main Resume, with job-scoped missing evidence where relevant.
 
-8. Export Gates
+12. Export Gates
    - Try JSON audit export and final Markdown, HTML, and DOCX exports before and after validation.
    - Expected: JSON audit remains available for review; final Markdown/HTML/DOCX exports are blocked until Fact Guard validates the resume.
 

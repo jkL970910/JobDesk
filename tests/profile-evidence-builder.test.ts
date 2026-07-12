@@ -188,7 +188,7 @@ describe("Evidence Library Builder instructions", () => {
     expect(task).not.toHaveProperty("expectedOutcome", "review_imported_material");
   });
 
-  it("routes scope guardrail notes to imported material review", () => {
+  it("routes legacy scope guardrail notes to imported material review without parsing candidate truth from text", () => {
     const [task] = buildExtractionNoteEnrichmentTasks({
       sourceTitle: "Resume import",
       notes: [
@@ -204,19 +204,49 @@ describe("Evidence Library Builder instructions", () => {
       expectedAction: "review_import",
       noteKind: "import_review",
     });
+    expect(task?.reviewPayload).toBeNull();
+  });
+
+  it("keeps structured scope review payloads as candidate truth", () => {
+    const note =
+      'Scope review needed from Resume import: "Mapped Redis cache dependency path" was not saved as a Work Initiative. Reason: Candidate needs a confirmed story target before reuse. Review the source and save it as the correct scope before using it in resumes.';
+    const [task] = buildExtractionNoteEnrichmentTasks({
+      sourceTitle: "Resume import",
+      sourceDocumentId: "00000000-0000-0000-0000-000000000001",
+      notes: [note],
+      reviewPayloads: [
+        {
+          note,
+          payload: {
+            kind: "scope_review_candidate",
+            candidateId: "scope:test-candidate",
+            proposedScope: "work_initiative",
+            classifierAcceptedScope: "work_initiative",
+            guardrailDecision: "review_queue_only",
+            guardrailReason: "Candidate needs a confirmed story target before reuse.",
+            confidence: "medium",
+            sourceDocumentId: null,
+            sourceLabel: "Resume import",
+            sourceQuote: "Mapped Redis cache dependency path",
+            sourceSection: "Experience",
+            rawCandidateText: "Mapped Redis cache dependency path",
+            sourceSnippet: "Mapped Redis cache dependency path",
+            suggestedAction: "save_as_work_initiative",
+            resolutionStatus: "open",
+          },
+        },
+      ],
+    });
+
     expect(task).toMatchObject({
+      taskType: "source_section_review",
       reviewPayload: {
+        candidateId: "scope:test-candidate",
         kind: "scope_review_candidate",
-        proposedScope: "work_experience",
-        classifierAcceptedScope: "unassigned",
-        guardrailReason: "Work Experience must be an employer/title/date/team container, not an action-result bullet.",
-        sourceLabel: "Resume import",
-        sourceSnippet: "Migrated service to region X · Reduced latency by 35%",
-        suggestedAction: "review_scope",
-        resolutionStatus: "open",
+        sourceDocumentId: "00000000-0000-0000-0000-000000000001",
+        suggestedAction: "save_as_work_initiative",
       },
     });
-    expect(task?.reviewPayload).toHaveProperty("candidateId");
   });
 
   it("does not route generic project description notes to role summary editing", () => {

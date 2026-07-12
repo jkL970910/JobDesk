@@ -229,6 +229,7 @@ export const profileContextTypeEnum = pgEnum("profile_context_type", [
 ]);
 export const profileContextStatusEnum = pgEnum("profile_context_status", [
   "active",
+  "pending",
   "archived",
 ]);
 export const profileFactSourceTypeEnum = pgEnum("profile_fact_source_type", [
@@ -1315,6 +1316,90 @@ export const enrichmentTasks = pgTable(
       table.workspaceId,
       table.dedupeKey,
     ),
+  }),
+);
+
+export const scopeReviewCandidates = pgTable(
+  "scope_review_candidates",
+  {
+    id: varchar("id", { length: 96 }).primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id").references(() => enrichmentTasks.id, {
+      onDelete: "set null",
+    }),
+    sourceDocumentId: uuid("source_document_id").references(
+      () => sourceDocuments.id,
+      { onDelete: "set null" },
+    ),
+    sourceType: varchar("source_type", { length: 40 }).notNull(),
+    sourceSection: text("source_section"),
+    sourceQuote: text("source_quote"),
+    rawCandidateText: text("raw_candidate_text").notNull(),
+    proposedScope: varchar("proposed_scope", { length: 60 }).notNull(),
+    classifierScope: varchar("classifier_scope", { length: 60 }).notNull(),
+    guardrailDecision: varchar("guardrail_decision", { length: 80 }).notNull(),
+    guardrailReason: text("guardrail_reason").notNull(),
+    confidence: enrichmentTaskTargetConfidenceEnum("confidence")
+      .notNull()
+      .default("low"),
+    suggestedAction: varchar("suggested_action", { length: 80 }).notNull(),
+    status: varchar("status", { length: 40 }).notNull().default("open"),
+    resolvedAsTargetId: uuid("resolved_as_target_id"),
+    resolvedAsTargetType: varchar("resolved_as_target_type", { length: 80 }),
+    resolutionPayloadJson: jsonb("resolution_payload_json")
+      .$type<Record<string, unknown> | null>(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    workspaceStatusIdx: index("scope_review_candidates_workspace_status_idx").on(
+      table.workspaceId,
+      table.status,
+      table.updatedAt,
+    ),
+    taskIdx: index("scope_review_candidates_task_idx").on(table.taskId),
+    sourceDocumentIdx: index("scope_review_candidates_source_document_idx").on(
+      table.sourceDocumentId,
+    ),
+  }),
+);
+
+export const scopeCorrectionEvents = pgTable(
+  "scope_correction_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    actorType: varchar("actor_type", { length: 40 }).notNull().default("user"),
+    action: varchar("action", { length: 80 }).notNull(),
+    entityType: varchar("entity_type", { length: 80 }).notNull(),
+    entityId: uuid("entity_id"),
+    sourceCandidateId: varchar("source_candidate_id", { length: 96 }).references(
+      () => scopeReviewCandidates.id,
+      { onDelete: "set null" },
+    ),
+    sourceTaskId: uuid("source_task_id").references(() => enrichmentTasks.id, {
+      onDelete: "set null",
+    }),
+    beforeJson: jsonb("before_json").$type<Record<string, unknown> | null>(),
+    afterJson: jsonb("after_json").$type<Record<string, unknown> | null>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    workspaceCreatedIdx: index("scope_correction_events_workspace_created_idx").on(
+      table.workspaceId,
+      table.createdAt,
+    ),
+    entityIdx: index("scope_correction_events_entity_idx").on(table.entityType, table.entityId),
+    candidateIdx: index("scope_correction_events_candidate_idx").on(table.sourceCandidateId),
   }),
 );
 
