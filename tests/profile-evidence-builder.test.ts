@@ -188,6 +188,26 @@ describe("Evidence Library Builder instructions", () => {
     expect(task).not.toHaveProperty("expectedOutcome", "review_imported_material");
   });
 
+  it("routes merged story fragment notes to imported story review", () => {
+    const [task] = buildExtractionNoteEnrichmentTasks({
+      sourceTitle: "Resume import",
+      notes: [
+        "These story fragments were merged; please review: NFC Check-In Platform / Cross-Team & Operational Excellence / Infrastructure Modernization.",
+      ],
+    });
+
+    expect(task).toMatchObject({
+      taskType: "source_section_review",
+      sourceType: "extraction_note",
+      targetScope: "source_material",
+      targetConfidence: "high",
+      expectedOutcome: "review_imported_material",
+      expectedAction: "review_import",
+      noteKind: "story_gap",
+    });
+    expect(task?.targetReason).toMatch(/merged story fragments/i);
+  });
+
   it("routes legacy scope guardrail notes to imported material review without parsing candidate truth from text", () => {
     const [task] = buildExtractionNoteEnrichmentTasks({
       sourceTitle: "Resume import",

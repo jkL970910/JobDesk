@@ -139,6 +139,29 @@ describe("scope accuracy regression fixtures", () => {
     expect(result.extractionNotes).toHaveLength(0);
   });
 
+  it("does not consolidate distinct titled stories that share only generic service platform vocabulary", () => {
+    const result = consolidateInitiativeDrafts([
+      buildInitiative({
+        internal_title: "Service Platform Workflow Modernization",
+        actions: ["Modernized service platform workflow for operations readiness."],
+        context: "Service platform workflow infrastructure supported migration planning.",
+        results: ["Improved operational readiness for one named modernization effort."],
+      }),
+      buildInitiative({
+        internal_title: "Service Platform Migration Workflow",
+        actions: ["Coordinated service platform migration workflow across operations teams."],
+        context: "Service platform workflow infrastructure supported migration planning.",
+        results: ["Improved migration planning for a separate named workflow effort."],
+      }),
+    ]);
+
+    expect(result.initiatives.map((initiative) => initiative.internal_title)).toEqual([
+      "Service Platform Workflow Modernization",
+      "Service Platform Migration Workflow",
+    ]);
+    expect(result.extractionNotes).toHaveLength(0);
+  });
+
   it("does not consolidate split fragments across clearly different same-company roles", () => {
     const result = consolidateInitiativeDrafts([
       buildInitiative({

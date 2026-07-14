@@ -39,6 +39,16 @@ const INITIATIVE_DOMAIN_TOKENS = new Set([
   "sql",
 ]);
 
+const GENERIC_MERGE_OVERLAP_TOKENS = new Set([
+  "infrastructure",
+  "migration",
+  "operation",
+  "operations",
+  "platform",
+  "service",
+  "workflow",
+]);
+
 export function consolidateInitiativeDrafts(
   drafts: InitiativeDraft[],
 ): InitiativeConsolidationResult {
@@ -97,9 +107,9 @@ function scoreInitiativeMergeConfidence(
   const firstTokens = initiativeSignalTokens(first);
   const secondTokens = initiativeSignalTokens(second);
   const sharedTokens = countSetOverlap(firstTokens.all, secondTokens.all);
-  const sharedDomainTokens = countSetOverlap(firstTokens.domain, secondTokens.domain);
+  const sharedDomainTokens = countRelevantSetOverlap(firstTokens.domain, secondTokens.domain);
   const sharedTechnologies = countSetOverlap(firstTokens.technologies, secondTokens.technologies);
-  const titleOverlap = countSetOverlap(firstTokens.title, secondTokens.title);
+  const titleOverlap = countRelevantSetOverlap(firstTokens.title, secondTokens.title);
   const infrastructurePerformancePair =
     (hasInfrastructureSignal(firstTokens) && hasPerformanceCacheSignal(secondTokens)) ||
     (hasInfrastructureSignal(secondTokens) && hasPerformanceCacheSignal(firstTokens));
@@ -211,8 +221,13 @@ function countSetOverlap(first: Set<string>, second: Set<string>) {
   return count;
 }
 
-function hasAny(values: Set<string>) {
-  return values.size > 0;
+function countRelevantSetOverlap(first: Set<string>, second: Set<string>) {
+  let count = 0;
+  for (const item of first) {
+    if (GENERIC_MERGE_OVERLAP_TOKENS.has(item)) continue;
+    if (second.has(item)) count += 1;
+  }
+  return count;
 }
 
 function compatibleWorkExperienceRef(first: string | null | undefined, second: string | null | undefined) {

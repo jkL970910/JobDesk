@@ -467,6 +467,16 @@ function classifyExtractionNoteAction(note: string): {
   const baseReason =
     "This imported-source note is for review, not a missing-information answer.";
 
+  if (looksLikeMergedStoryFragmentsNote(note)) {
+    return {
+      confidence: "high",
+      expectedAction: "review_import",
+      noteKind: "story_gap",
+      reason: "This note reports merged story fragments. Review the imported stories and split them if they should stay separate.",
+      targetField: null,
+    };
+  }
+
   if (/\bscope review needed\b/.test(normalized)) {
     return {
       confidence: "high",
