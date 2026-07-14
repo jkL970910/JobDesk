@@ -2343,15 +2343,8 @@ export async function mergeStoryTargets(args: {
           primary.sensitivityLevel,
           ...duplicates.map((duplicate) => duplicate.sensitivityLevel),
         ]),
-        needsRedactionReview:
-          primary.needsRedactionReview === 1 ||
-          duplicates.some((duplicate) => duplicate.needsRedactionReview === 1)
-            ? 1
-            : 0,
-        status:
-          primary.status === "approved" || duplicates.some((duplicate) => duplicate.status === "approved")
-            ? "approved"
-            : primary.status,
+        needsRedactionReview: 1,
+        status: "pending",
         updatedAt: now,
       })
       .where(and(eq(initiatives.workspaceId, workspace.id), eq(initiatives.id, primary.id)));

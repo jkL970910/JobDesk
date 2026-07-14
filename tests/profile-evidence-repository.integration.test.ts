@@ -5735,7 +5735,7 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
           technologies: ["distributed cache"],
           stakeholders: [],
           sensitivityLevel: "private",
-          needsRedactionReview: 1,
+          needsRedactionReview: 0,
           status: "approved",
           createdAt: now,
           updatedAt: now,
@@ -5860,7 +5860,8 @@ describe.skipIf(!runIntegration)("profile evidence repository integration", { ti
       expect.arrayContaining(["distributed cache", "AWS CDK", "session cache"]),
     );
     expect(updatedPrimary).toMatchObject({
-      status: "approved",
+      needsRedactionReview: 1,
+      status: "pending",
       workExperienceId: experience.id,
     });
     expect(
