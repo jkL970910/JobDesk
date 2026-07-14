@@ -103,15 +103,18 @@ function scoreInitiativeMergeConfidence(
   const infrastructurePerformancePair =
     (hasInfrastructureSignal(firstTokens) && hasPerformanceCacheSignal(secondTokens)) ||
     (hasInfrastructureSignal(secondTokens) && hasPerformanceCacheSignal(firstTokens));
-  const complementarySignals =
-    hasAny(firstTokens.technologies) !== hasAny(secondTokens.technologies) ||
-    hasAny(firstTokens.outcome) !== hasAny(secondTokens.outcome) ||
-    hasAny(firstTokens.action) !== hasAny(secondTokens.action);
+  const distinctNamedStories =
+    titleOverlap === 0 &&
+    firstTokens.title.size >= 2 &&
+    secondTokens.title.size >= 2 &&
+    !infrastructurePerformancePair;
+
+  if (distinctNamedStories) return "none";
 
   if (
     sharedDomainTokens >= 2 &&
     sharedTokens >= 4 &&
-    (sharedTechnologies >= 1 || titleOverlap >= 1 || complementarySignals)
+    (sharedTechnologies >= 1 || titleOverlap >= 1)
   ) {
     return "high";
   }
@@ -179,7 +182,7 @@ function hasInfrastructureSignal(tokens: ReturnType<typeof initiativeSignalToken
 }
 
 function hasPerformanceCacheSignal(tokens: ReturnType<typeof initiativeSignalTokens>) {
-  return ["cache", "caching", "delivery", "distributed", "latency", "service"].some((token) =>
+  return ["cache", "caching", "distributed", "latency", "redis", "session"].some((token) =>
     tokens.all.has(token),
   );
 }

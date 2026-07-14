@@ -594,6 +594,8 @@ function buildStoryEvidenceInstructions() {
     "Do not return profile, work_experiences, portfolio_projects, or project_cards in this call.",
     "Initiatives are coherent employer-internal project/story containers under a Work Experience.",
     "Create one initiative for each distinct titled project or coherent story in the section.",
+    "Do not merge unrelated named initiatives just because they share broad operations, service, workflow, infrastructure, or cross-team vocabulary.",
+    "Only merge fragments when they clearly describe the same system/project from different angles, such as technology, action, and result for the same work.",
     "Keep Work Experience as a high-level employer/role container; do not move section bullets into Work Experience fields.",
     "Use work_experience_ref matching a known_work_experiences ref when possible.",
     "Evidence items must be atomic reusable facts and must quote the source verbatim.",

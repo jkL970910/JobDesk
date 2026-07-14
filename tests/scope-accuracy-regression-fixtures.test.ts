@@ -93,6 +93,52 @@ describe("scope accuracy regression fixtures", () => {
     expect(result.extractionNotes[0]).toContain("These story fragments were merged");
   });
 
+  it("does not consolidate distinct named projects only because they share broad operations language", () => {
+    const result = consolidateInitiativeDrafts([
+      buildInitiative({
+        internal_title: "NFC Check-In Platform — Scaling Last Mile Network Rollout",
+        actions: ["Led cross-team service operations rollout across field teams."],
+        context: "Last-mile service operations required coordinated infrastructure and workflow delivery.",
+        results: ["Improved rollout readiness for a named NFC check-in platform."],
+        technologies: ["service operations workflow"],
+      }),
+      buildInitiative({
+        internal_title: "Cross-Team & Operational Excellence",
+        actions: ["Coordinated cross-team service operations improvements across stakeholders."],
+        context: "Last-mile service operations required coordinated infrastructure and workflow delivery.",
+        results: ["Improved operational review quality for a separate excellence initiative."],
+      }),
+      buildInitiative({
+        internal_title: "Infrastructure Modernization",
+        actions: ["Led infrastructure and service operations modernization work."],
+        context: "Last-mile service operations required coordinated infrastructure and workflow delivery.",
+        technologies: ["service operations workflow"],
+      }),
+      buildInitiative({
+        internal_title: "Package Return Workflow Enhancement",
+        actions: ["Improved package return service workflow across operations teams."],
+        context: "Last-mile service operations required coordinated infrastructure and workflow delivery.",
+        results: ["Improved package return workflow handling."],
+      }),
+      buildInitiative({
+        internal_title: "Business-Critical Service Region Migration — Design Lead",
+        actions: ["Led design planning for business-critical service region migration."],
+        context: "Last-mile service operations required coordinated infrastructure and workflow delivery.",
+        technologies: ["service operations workflow"],
+      }),
+    ]);
+
+    expect(result.initiatives.map((initiative) => initiative.internal_title)).toEqual([
+      "NFC Check-In Platform — Scaling Last Mile Network Rollout",
+      "Cross-Team & Operational Excellence",
+      "Infrastructure Modernization",
+      "Package Return Workflow Enhancement",
+      "Business-Critical Service Region Migration — Design Lead",
+    ]);
+    expect(result.draftRefRedirects.size).toBe(0);
+    expect(result.extractionNotes).toHaveLength(0);
+  });
+
   it("does not consolidate split fragments across clearly different same-company roles", () => {
     const result = consolidateInitiativeDrafts([
       buildInitiative({
