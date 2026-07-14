@@ -8,7 +8,11 @@ import { JobDeskAiError } from "../ai/errors";
 import { extractProfileEvidenceWithAi } from "../ai/profile-evidence-extraction";
 import { skillRegistry } from "../ai/skills-registry";
 import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
-import type { ProfileEvidenceSectionRetryPayload } from "../ai/profile-evidence-chunked-extraction";
+import {
+  buildSectionRetryPayloadForNoteFromStepRunnerState,
+  parseProfileEvidenceStepRunnerState,
+  type ProfileEvidenceSectionRetryPayload,
+} from "../ai/profile-evidence-chunked-extraction";
 import {
   type ClarifyAssignmentProposalPatch,
   type CreateEvidenceProposalPatch,
@@ -35,6 +39,7 @@ import {
   generatedClaims,
   initiatives,
   portfolioProjects,
+  profileEvidenceExtractionRuns,
   sourceDocuments,
   resumeSourceVersions,
   workExperiences,
@@ -428,6 +433,12 @@ function classifyReviewPayloadAction(payload: EnrichmentTaskReviewPayload): {
     noteKind: "story_gap",
     reason: payload.guardrailReason,
   };
+}
+
+function looksLikeTimedOutExtractionNote(note: string) {
+  return /\b(ai evidence extraction timed out|ai project extraction timed out|extraction timed out|timed out|timeout)\b/i.test(
+    note,
+  );
 }
 
 function findScopeReviewPayloadForNote(
@@ -1002,6 +1013,58 @@ export async function updateEnrichmentTask(args: {
         ),
       })
     : ({ status: "not_found" as const });
+}
+
+export async function resolveSectionRetryPayloadForTask(taskId: string) {
+  if (!hasDatabaseUrl()) {
+    return { status: "skipped" as const, reason: "missing_database_url" as const };
+  }
+  const db = getDb();
+  const workspace = await getCurrentWorkspace(db);
+  const [task] = await db
+    .select()
+    .from(enrichmentTasks)
+    .where(and(eq(enrichmentTasks.workspaceId, workspace.id), eq(enrichmentTasks.id, taskId)))
+    .limit(1);
+  if (!task) return { status: "not_found" as const };
+
+  const reviewPayload = task.reviewPayloadJson as EnrichmentTaskReviewPayload | null;
+  if (reviewPayload?.kind === "section_retry") {
+    return { status: "ready" as const, payload: reviewPayload };
+  }
+  if (!looksLikeTimedOutExtractionNote(task.prompt)) {
+    return { status: "not_retryable" as const };
+  }
+
+  const runs = await db
+    .select({
+      id: profileEvidenceExtractionRuns.id,
+      resultJson: profileEvidenceExtractionRuns.resultJson,
+      sourceDocumentId: profileEvidenceExtractionRuns.sourceDocumentId,
+      sourceTitle: profileEvidenceExtractionRuns.sourceTitle,
+    })
+    .from(profileEvidenceExtractionRuns)
+    .where(
+      and(
+        eq(profileEvidenceExtractionRuns.workspaceId, workspace.id),
+        eq(profileEvidenceExtractionRuns.sourceTitle, task.sourceLabel),
+      ),
+    )
+    .orderBy(desc(profileEvidenceExtractionRuns.createdAt))
+    .limit(8);
+
+  for (const run of runs) {
+    const state = parseProfileEvidenceStepRunnerState(run.resultJson);
+    if (!state) continue;
+    const payload = buildSectionRetryPayloadForNoteFromStepRunnerState(state, {
+      note: task.prompt,
+      sourceDocumentId: run.sourceDocumentId,
+      sourceLabel: run.sourceTitle,
+    });
+    if (payload) return { status: "ready" as const, payload };
+  }
+
+  return { status: "not_retryable" as const };
 }
 
 async function saveProfileContextAnswer(

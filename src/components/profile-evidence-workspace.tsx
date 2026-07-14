@@ -1402,6 +1402,31 @@ export function ProfileEvidenceWorkspace({
     });
   }
 
+  function retrySectionFromTask(task: EnrichmentTaskItem) {
+    const payload = task.review_payload?.kind === "section_retry" ? task.review_payload : null;
+    if (payload) {
+      retrySectionExtraction(task, payload);
+      return;
+    }
+    setError(null);
+    setStatus("Preparing section retry.");
+    void (async () => {
+      try {
+        const response = await fetchJson(`/api/enrichment-tasks/${task.id}/section-retry`);
+        const body = (await response.json().catch(() => null)) as
+          | { data?: { payload?: SectionRetryPayload }; error?: string; kind?: string }
+          | null;
+        if (!response.ok || !body?.data?.payload) {
+          setError(body?.error ?? "Could not find the timed-out source section for retry.");
+          return;
+        }
+        retrySectionExtraction(task, body.data.payload);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Could not prepare section retry.");
+      }
+    })();
+  }
+
   async function processExtractionRunUntilTerminal(runId: string): Promise<ExtractionRunProcessResult> {
     const startedAt = Date.now();
     const maxWaitMs = 12 * 60_000;
@@ -3380,19 +3405,16 @@ export function ProfileEvidenceWorkspace({
               Work Queue
             </button>
           </div>
-          <section className="library-mode-summary" data-mode={libraryMode}>
-            <span>{libraryMode === "library" ? "Library" : "Work Queue"}</span>
-            <strong>
-              {libraryMode === "library"
-                ? "Canonical career assets stay visible here."
-                : "Open review work lives here."}
-            </strong>
-            <p>
-              {libraryMode === "library"
-                ? "Browse and maintain Work Experiences, Story Targets, Evidence Claims, and Interview Stories. Incomplete assets stay visible; the Work Queue holds the next actions."
-                : "Resolve imported notes, missing context, links, and approvals before material is used in generated resumes or interview prep."}
-            </p>
-          </section>
+          {libraryMode === "library" ? (
+            <section className="library-mode-summary" data-mode={libraryMode}>
+              <span>Library</span>
+              <strong>Canonical career assets stay visible here.</strong>
+              <p>
+                Browse and maintain Work Experiences, Story Targets, Evidence Claims, and Interview Stories.
+                Incomplete assets stay visible; the Work Queue holds the next actions.
+              </p>
+            </section>
+          ) : null}
 
           {libraryMode === "library" ? (
             <>
@@ -3508,7 +3530,7 @@ export function ProfileEvidenceWorkspace({
               onRefresh={() => refreshLibraryAfterMutation()}
               onReviewImportedMaterial={openImportedMaterialReview}
               onReturnToIntake={() => setActiveSection("intake")}
-              onRetrySection={retrySectionExtraction}
+              onRetrySection={retrySectionFromTask}
               onUpdate={updateEnrichmentTask}
               portfolioProjects={portfolioProjects}
               queueStatus={enrichmentTaskQueueStatus}
@@ -3528,7 +3550,7 @@ export function ProfileEvidenceWorkspace({
               onRefresh={() => refreshLibraryAfterMutation()}
               onReviewImportedMaterial={openImportedMaterialReview}
               onReturnToIntake={() => setActiveSection("intake")}
-              onRetrySection={retrySectionExtraction}
+              onRetrySection={retrySectionFromTask}
               onUpdate={updateEnrichmentTask}
               portfolioProjects={portfolioProjects}
               queueStatus={enrichmentTaskQueueStatus}
@@ -4746,7 +4768,7 @@ function EnrichmentTaskQueue({
   onRefresh: () => Promise<void>;
   onReviewImportedMaterial: (task: EnrichmentTaskItem) => void;
   onReturnToIntake: () => void;
-  onRetrySection: (task: EnrichmentTaskItem, payload: SectionRetryPayload) => void;
+  onRetrySection: (task: EnrichmentTaskItem) => void;
   onUpdate: (
     taskId: string,
     payload: EnrichmentTaskUpdatePayload,
@@ -4953,7 +4975,7 @@ function EnrichmentTaskQueue({
               onCreateLibraryItems={() => onCreateLibraryItems(selectedTask)}
               onOpenProfileFact={() => onOpenProfileFact(selectedTask)}
               onReviewImportedMaterial={() => onReviewImportedMaterial(selectedTask)}
-              onRetrySection={(payload) => onRetrySection(selectedTask, payload)}
+              onRetrySection={() => onRetrySection(selectedTask)}
               onAcknowledge={() => void handleUpdate(selectedTask, { action: "acknowledge" })}
               onConvertToQuestion={() =>
                 void handleUpdate(selectedTask, { action: "convert_to_enrichment_question" })
@@ -5125,7 +5147,7 @@ function EnrichmentTaskFocusPane({
   onRejectProposal: (proposalId: string) => void;
   onRejectSuggestedTarget: (targetId: string) => void;
   onRequestRerun: () => void;
-  onRetrySection: (payload: SectionRetryPayload) => void;
+  onRetrySection: () => void;
   onReviseProposal: (
     proposalId: string,
     revision: { revisedText?: string; revisionInstruction?: string },
@@ -5548,7 +5570,7 @@ function SourceSectionReviewPane({
   onPrevious: () => void;
   onReviewImportedMaterial: () => void;
   onRequestRerun: () => void;
-  onRetrySection: (payload: SectionRetryPayload) => void;
+  onRetrySection: () => void;
   onRoleFieldUpdated: () => Promise<void>;
   task: EnrichmentTaskItem;
   taskIndex: number;
@@ -5575,6 +5597,7 @@ function SourceSectionReviewPane({
     task.review_payload?.kind === "scope_review_candidate" ? task.review_payload : null;
   const sectionRetryPayload =
     task.review_payload?.kind === "section_retry" ? task.review_payload : null;
+  const retrySectionTitle = sectionRetryPayload?.segmentTitle ?? extractTimedOutSectionName(task.prompt);
   const showRoleFieldEditor = task.expected_action === "edit_role_field";
   const roleFieldKey = normalizeImportedRoleTargetField(task.target_field);
   const roleFieldConfig = getRoleFieldEditorConfig(roleFieldKey);
@@ -5596,8 +5619,8 @@ function SourceSectionReviewPane({
         ? onOpenProfileFact
       : actionModel.primaryAction === "request_rerun"
         ? onRequestRerun
-      : actionModel.primaryAction === "retry_section" && sectionRetryPayload
-        ? () => onRetrySection(sectionRetryPayload)
+      : actionModel.primaryAction === "retry_section"
+        ? onRetrySection
         : onReviewImportedMaterial;
   async function saveRoleField() {
     if (!selectedRoleId) {
@@ -5741,16 +5764,18 @@ function SourceSectionReviewPane({
               </div>
             </>
           ) : null}
-          {sectionRetryPayload ? (
+          {retrySectionTitle ? (
             <>
               <div>
                 <dt>Retry section</dt>
-                <dd>{sectionRetryPayload.segmentTitle}</dd>
+                <dd>{retrySectionTitle}</dd>
               </div>
-              <div>
-                <dt>Source excerpt</dt>
-                <dd>{sectionRetryPayload.sourceSnippet}</dd>
-              </div>
+              {sectionRetryPayload ? (
+                <div>
+                  <dt>Source excerpt</dt>
+                  <dd>{sectionRetryPayload.sourceSnippet}</dd>
+                </div>
+              ) : null}
             </>
           ) : null}
           <div>
@@ -5970,9 +5995,9 @@ function SourceSectionReviewPane({
               className="secondary-button secondary-button--quiet"
               type="button"
               disabled={isPending}
-              onClick={sectionRetryPayload ? () => onRetrySection(sectionRetryPayload) : onRequestRerun}
+              onClick={actionModel.primaryAction === "retry_section" ? onRetrySection : onRequestRerun}
             >
-              {sectionRetryPayload ? "Retry this section" : "Review again"}
+              {actionModel.primaryAction === "retry_section" ? "Retry this section" : "Review again"}
             </button>
             <button
               className="secondary-button secondary-button--quiet"
@@ -6047,10 +6072,10 @@ function SourceSectionReviewPane({
 
 function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: string | null) {
   const expectedAction = task.expected_action ?? "review_import";
-  if (isSectionRetryTask(task)) {
+  if (isSectionRetryTask(task) || isTimedOutExtractionReviewTask(task)) {
     const sectionTitle = task.review_payload?.kind === "section_retry"
       ? task.review_payload.segmentTitle
-      : sectionName ?? "this section";
+      : extractTimedOutSectionName(task.prompt) ?? sectionName ?? "this section";
     return {
       description: "The AI extraction timed out for this section, so JobDesk saved conservative fallback drafts. Retry only this section to replace those drafts without rerunning the whole resume.",
       eyebrow: "Section retry",
@@ -6141,6 +6166,17 @@ function isScopeReviewTask(task: EnrichmentTaskItem) {
 
 function isSectionRetryTask(task: EnrichmentTaskItem) {
   return task.review_payload?.kind === "section_retry";
+}
+
+function isTimedOutExtractionReviewTask(task: EnrichmentTaskItem) {
+  return /\b(ai evidence extraction timed out|ai project extraction timed out|extraction timed out|timed out|timeout)\b/i.test(
+    task.prompt,
+  );
+}
+
+function extractTimedOutSectionName(note: string) {
+  const match = note.match(/timed out for\s+(.+?)(?:;|\.|$)/i);
+  return match?.[1]?.trim() || null;
 }
 
 function formatScopeReviewScope(scope: ScopeReviewCandidatePayload["proposedScope"] | ScopeReviewCandidatePayload["classifierAcceptedScope"]) {

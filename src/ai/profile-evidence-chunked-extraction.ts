@@ -367,6 +367,46 @@ export function buildSectionRetryPayloadsFromStepRunnerState(
   });
 }
 
+export function buildSectionRetryPayloadForNoteFromStepRunnerState(
+  state: ProfileEvidenceStepRunnerState,
+  args: {
+    note: string;
+    sourceDocumentId?: string | null;
+    sourceLabel: string;
+  },
+): ProfileEvidenceSectionRetryPayload | null {
+  const normalizedNote = normalizeRetryNote(args.note);
+  for (const segment of state.segments) {
+    if (segment.status !== "completed") continue;
+    const parsed = segment.kind === "work_experience"
+      ? StoryEvidenceExtraction.safeParse(segment.result)
+      : ProjectEvidenceExtraction.safeParse(segment.result);
+    if (!parsed.success) continue;
+    const hasMatchingNote = parsed.data.extraction_notes.some(
+      (note) => normalizeRetryNote(note) === normalizedNote,
+    );
+    if (!hasMatchingNote) continue;
+    return {
+      kind: "section_retry",
+      confidence: "high",
+      originalRunId: state.sourceId,
+      segmentId: segment.id,
+      segmentKind: segment.kind,
+      segmentText: segment.text,
+      segmentTextHash: hashSegmentText(segment.text),
+      segmentTitle: segment.title,
+      sourceDocumentId: args.sourceDocumentId ?? null,
+      sourceLabel: args.sourceLabel,
+      sourceSnippet: segment.text.replace(/\s+/g, " ").trim().slice(0, 420),
+    };
+  }
+  return null;
+}
+
+function normalizeRetryNote(value: string) {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
 export function segmentProfileEvidenceSource(sourceText: string): ProfileEvidenceSourceSegment[] {
   const normalized = normalizeSourceText(sourceText);
   if (!normalized) return [];

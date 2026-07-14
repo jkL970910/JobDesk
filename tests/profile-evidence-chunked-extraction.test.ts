@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { JobDeskAiError } from "../src/ai/errors";
 import {
+  buildSectionRetryPayloadForNoteFromStepRunnerState,
   buildSectionRetryPayloadsFromStepRunnerState,
   buildChunkedProfileEvidenceExtractionForTest,
   buildDeterministicProfileWorkHistoryForTest,
@@ -496,6 +497,55 @@ describe("chunked profile evidence extraction", () => {
         sourceDocumentId: "source-original",
       },
     });
+  });
+
+  it("resolves section retry payloads from legacy timeout notes without result mode", () => {
+    const profileResult = buildDeterministicProfileWorkHistoryForTest(
+      segmentProfileEvidenceSource("Jiekun Liu\n\nExperience\nAmazon\nSDE 2023 - Present\nBuilt validation infrastructure."),
+    );
+    const note =
+      "AI evidence extraction timed out for NFC rollout; JobDesk created partial conservative source-grounded drafts for review.";
+    const state = {
+      profileResult: {
+        extraction_notes: [],
+        profile: profileResult.profile,
+        work_experiences: [],
+      },
+      retryCount: 1,
+      segmentCount: 1,
+      segments: [
+        {
+          id: "work_experience-1",
+          kind: "work_experience" as const,
+          result: {
+            evidence_items: [],
+            extraction_notes: [note],
+            initiatives: [],
+          },
+          status: "completed" as const,
+          text: "NFC Check-In Platform\nBuilt validation infrastructure for station operators.",
+          title: "NFC rollout",
+        },
+      ],
+      sourceId: "legacy-run",
+      usage: {},
+      version: "profile-evidence-step-runner-v1" as const,
+    };
+
+    const payload = buildSectionRetryPayloadForNoteFromStepRunnerState(state, {
+      note,
+      sourceDocumentId: "source-original",
+      sourceLabel: "Jiekun Liu - Resume.docx",
+    });
+
+    expect(payload).toMatchObject({
+      kind: "section_retry",
+      originalRunId: "legacy-run",
+      segmentId: "work_experience-1",
+      segmentTitle: "NFC rollout",
+      sourceDocumentId: "source-original",
+    });
+    expect(payload?.segmentText).toContain("NFC Check-In Platform");
   });
 
   it("falls back to conservative drafts when a chunk returns invalid contract output", async () => {
