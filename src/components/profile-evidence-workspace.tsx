@@ -9881,14 +9881,6 @@ function StarStoryPanel({
         </button>
       </div>
       <section className="evidence-library-toolbar evidence-library-toolbar--local" aria-label="STAR story filters">
-        <label className="evidence-library-toolbar__search">
-          <span>Search STAR stories</span>
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search story, actions, results, metrics, or interview angle..."
-          />
-        </label>
         <div className="evidence-library-toolbar__filters">
           <ThemeSelect
             label="Work Experience"
@@ -9912,6 +9904,14 @@ function StarStoryPanel({
             ]}
             onChange={setAngleFilter}
           />
+          <label className="evidence-library-toolbar__search">
+            <span>Search STAR stories</span>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search story, actions, results, metrics, or interview angle..."
+            />
+          </label>
         </div>
       </section>
       {stories.length === 0 ? (
@@ -10949,14 +10949,16 @@ function WorkExperienceList({
         <span>{visibleWorkExperiences.length} work experiences</span>
       </div>
       <section className="evidence-library-toolbar evidence-library-toolbar--local" aria-label="Work experience filters">
-        <label className="evidence-library-toolbar__search">
-          <span>Search work experiences</span>
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search employer, title, team, location, or dates..."
-          />
-        </label>
+        <div className="evidence-library-toolbar__filters">
+          <label className="evidence-library-toolbar__search">
+            <span>Search work experiences</span>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search employer, title, team, location, or dates..."
+            />
+          </label>
+        </div>
       </section>
       {visibleWorkExperiences.length === 0 ? (
         <div className="empty-state-row">
@@ -11658,14 +11660,6 @@ function WorkInitiativeList({
       </div>
 
       <section className="evidence-library-toolbar evidence-library-toolbar--local" aria-label="Story target filters">
-        <label className="evidence-library-toolbar__search">
-          <span>Search story targets</span>
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search initiative title, context, metrics, technologies, or results..."
-          />
-        </label>
         <div className="evidence-library-toolbar__filters">
           <ThemeSelect
             label="Work Experience"
@@ -11680,6 +11674,14 @@ function WorkInitiativeList({
             ]}
             onChange={setRoleFilter}
           />
+          <label className="evidence-library-toolbar__search">
+            <span>Search story targets</span>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search initiative title, context, metrics, technologies, or results..."
+            />
+          </label>
         </div>
       </section>
 
