@@ -3409,17 +3409,6 @@ export function ProfileEvidenceWorkspace({
             </button>
           </div>
           {libraryMode === "library" ? (
-            <section className="library-mode-summary" data-mode={libraryMode}>
-              <span>Library</span>
-              <strong>Canonical career assets stay visible here.</strong>
-              <p>
-                Browse and maintain Work Experiences, Story Targets, Evidence Claims, and Interview Stories.
-                Incomplete assets stay visible; the Work Queue holds the next actions.
-              </p>
-            </section>
-          ) : null}
-
-          {libraryMode === "library" ? (
             <>
               <div className="review-switcher review-switcher--library" role="tablist" aria-label="Library asset views">
                 <button
