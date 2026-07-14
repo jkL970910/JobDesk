@@ -515,6 +515,7 @@ type EnrichmentTaskUpdatePayload =
   | { action: "choose_different_target" }
   | { action: "change_workflow_route"; route: EnrichmentTargetRoute }
   | { action: "create_story_target"; storyTarget: EnrichmentStoryTargetCreatePayload }
+  | { action: "split_merged_story_fragments"; fragments: string[]; workExperienceId: string }
   | { action: "acknowledge" }
   | { action: "dismiss" }
   | { action: "mark_import_reviewed" }
@@ -2686,6 +2687,8 @@ export function ProfileEvidenceWorkspace({
         ? "Updated target choice."
       : payload.action === "create_story_target"
         ? "Created and linked Story Target."
+      : payload.action === "split_merged_story_fragments"
+        ? "Created separate pending Story Targets from merged fragments."
       : payload.action === "answer"
         ? task && isProfileContextTask(task)
           ? "Saved profile answer."
@@ -4976,6 +4979,13 @@ function EnrichmentTaskQueue({
               onOpenProfileFact={() => onOpenProfileFact(selectedTask)}
               onReviewImportedMaterial={() => onReviewImportedMaterial(selectedTask)}
               onRetrySection={() => onRetrySection(selectedTask)}
+              onSplitMergedStories={(fragments, workExperienceId) =>
+                void handleUpdate(selectedTask, {
+                  action: "split_merged_story_fragments",
+                  fragments,
+                  workExperienceId,
+                })
+              }
               onAcknowledge={() => void handleUpdate(selectedTask, { action: "acknowledge" })}
               onConvertToQuestion={() =>
                 void handleUpdate(selectedTask, { action: "convert_to_enrichment_question" })
@@ -5067,7 +5077,8 @@ function getPendingEnrichmentAction(
     payload.action === "reject_suggested_target" ||
     payload.action === "choose_different_target" ||
     payload.action === "change_workflow_route" ||
-    payload.action === "create_story_target"
+    payload.action === "create_story_target" ||
+    payload.action === "split_merged_story_fragments"
   ) {
     return "other";
   }
@@ -5110,6 +5121,7 @@ function EnrichmentTaskFocusPane({
   onRejectSuggestedTarget,
   onRequestRerun,
   onRetrySection,
+  onSplitMergedStories,
   onReviseProposal,
   onRoleFieldUpdated,
   onSaveAnswer,
@@ -5148,6 +5160,7 @@ function EnrichmentTaskFocusPane({
   onRejectSuggestedTarget: (targetId: string) => void;
   onRequestRerun: () => void;
   onRetrySection: () => void;
+  onSplitMergedStories: (fragments: string[], workExperienceId: string) => void;
   onReviseProposal: (
     proposalId: string,
     revision: { revisedText?: string; revisionInstruction?: string },
@@ -5195,6 +5208,7 @@ function EnrichmentTaskFocusPane({
         onReviewImportedMaterial={onReviewImportedMaterial}
         onRequestRerun={onRequestRerun}
         onRetrySection={onRetrySection}
+        onSplitMergedStories={onSplitMergedStories}
         onRoleFieldUpdated={onRoleFieldUpdated}
         task={task}
         taskIndex={taskIndex}
@@ -5551,6 +5565,7 @@ function SourceSectionReviewPane({
   onRequestRerun,
   onRetrySection,
   onRoleFieldUpdated,
+  onSplitMergedStories,
   task,
   taskIndex,
   taskTotal,
@@ -5572,6 +5587,7 @@ function SourceSectionReviewPane({
   onRequestRerun: () => void;
   onRetrySection: () => void;
   onRoleFieldUpdated: () => Promise<void>;
+  onSplitMergedStories: (fragments: string[], workExperienceId: string) => void;
   task: EnrichmentTaskItem;
   taskIndex: number;
   taskTotal: number;
@@ -5591,6 +5607,8 @@ function SourceSectionReviewPane({
       "general_project",
     );
   const [isSavingCandidateAction, setIsSavingCandidateAction] = useState(false);
+  const mergedStoryFragments = parseMergedStoryFragments(task.prompt);
+  const [selectedMergedFragments, setSelectedMergedFragments] = useState<string[]>(mergedStoryFragments);
   const sectionName = extractSourceSectionName(task.prompt);
   const actionModel = getImportedNoteActionModel(task, sectionName);
   const scopeReviewCandidate =
@@ -5608,6 +5626,7 @@ function SourceSectionReviewPane({
     setCandidateReviewStatus(null);
     setCandidateStoryTitle("");
     setCandidateProjectType("general_project");
+    setSelectedMergedFragments(parseMergedStoryFragments(task.prompt));
     setCustomizing(false);
   }, [task.id, taskWorkExperienceId]);
   const handlePrimaryAction =
@@ -5621,6 +5640,8 @@ function SourceSectionReviewPane({
         ? onRequestRerun
       : actionModel.primaryAction === "retry_section"
         ? onRetrySection
+      : actionModel.primaryAction === "review_merged_stories"
+        ? () => setCustomizing(true)
         : onReviewImportedMaterial;
   async function saveRoleField() {
     if (!selectedRoleId) {
@@ -5845,6 +5866,57 @@ function SourceSectionReviewPane({
               {isSavingRoleField ? "Saving..." : `Save ${roleFieldConfig.shortLabel}`}
             </button>
             {roleEditStatus ? <span className="status">{roleEditStatus}</span> : null}
+          </div>
+        ) : null}
+        {actionModel.primaryAction === "review_merged_stories" && mergedStoryFragments.length > 0 ? (
+          <div className="source-section-review__customize">
+            <span>Split merged fragments</span>
+            <p className="panel__note">
+              Create separate pending Story Targets for the fragments that should stand alone. Evidence Claims can be moved later from each Story Target detail.
+            </p>
+            <label className="source-field">
+              <span>Work Experience</span>
+              <select
+                className="jd-input jd-input--compact"
+                disabled={isPending}
+                value={selectedRoleId}
+                onChange={(event) => setSelectedRoleId(event.target.value)}
+              >
+                <option value="">Choose Work Experience</option>
+                {workExperiences.map((experience) => (
+                  <option key={experience.id} value={experience.id}>
+                    {formatWorkExperienceDisplayLabel(experience)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="story-split-claims">
+              {mergedStoryFragments.map((fragment) => (
+                <label className="story-split-claim" key={fragment}>
+                  <input
+                    checked={selectedMergedFragments.includes(fragment)}
+                    disabled={isPending}
+                    type="checkbox"
+                    onChange={(event) =>
+                      setSelectedMergedFragments((current) =>
+                        event.target.checked
+                          ? [...current, fragment]
+                          : current.filter((item) => item !== fragment),
+                      )
+                    }
+                  />
+                  <span>{fragment}</span>
+                </label>
+              ))}
+            </div>
+            <button
+              className="primary-button"
+              disabled={isPending || !selectedRoleId || selectedMergedFragments.length === 0}
+              type="button"
+              onClick={() => onSplitMergedStories(selectedMergedFragments, selectedRoleId)}
+            >
+              Create separate Story Targets
+            </button>
           </div>
         ) : null}
         {scopeReviewCandidate ? (
@@ -6072,6 +6144,21 @@ function SourceSectionReviewPane({
 
 function getImportedNoteActionModel(task: EnrichmentTaskItem, sectionName: string | null) {
   const expectedAction = task.expected_action ?? "review_import";
+  if (isMergedStoryFragmentsReviewTask(task)) {
+    const fragments = parseMergedStoryFragments(task.prompt);
+    return {
+      description: "JobDesk merged several story fragments because they looked related. Review the list and split any fragment that should stand as its own Story Target.",
+      eyebrow: "Merged story review",
+      heading: "Review merged story fragments.",
+      primaryAction: "review_merged_stories" as const,
+      primaryLabel: "Review merged stories",
+      recommendedAction:
+        fragments.length > 0
+          ? "Create separate pending Story Targets for the fragments that should stand alone. Then move or review Evidence Claims from Story Target detail."
+          : "Review the merged Story Target in Library and split Evidence Claims if needed.",
+      title: "Merged stories need review",
+    };
+  }
   if (isSectionRetryTask(task) || isTimedOutExtractionReviewTask(task)) {
     const sectionTitle = task.review_payload?.kind === "section_retry"
       ? task.review_payload.segmentTitle
@@ -6166,6 +6253,26 @@ function isScopeReviewTask(task: EnrichmentTaskItem) {
 
 function isSectionRetryTask(task: EnrichmentTaskItem) {
   return task.review_payload?.kind === "section_retry";
+}
+
+function isMergedStoryFragmentsReviewTask(task: EnrichmentTaskItem) {
+  return /\bthese story fragments were merged\b/i.test(task.prompt);
+}
+
+function parseMergedStoryFragments(note: string) {
+  const match = note.match(/these story fragments were merged; please review:\s*(.+?)(?:\.\s*)?$/i);
+  if (!match?.[1]) return [];
+  const seen = new Set<string>();
+  return match[1]
+    .split(/\s+\/\s+/)
+    .map((item) => item.trim().replace(/\.$/, ""))
+    .filter(Boolean)
+    .filter((item) => {
+      const key = item.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 function isTimedOutExtractionReviewTask(task: EnrichmentTaskItem) {

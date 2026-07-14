@@ -441,6 +441,10 @@ function looksLikeTimedOutExtractionNote(note: string) {
   );
 }
 
+function looksLikeMergedStoryFragmentsNote(note: string) {
+  return /\bthese story fragments were merged\b/i.test(note);
+}
+
 function findScopeReviewPayloadForNote(
   reviewPayloads: Array<{ note: string; payload: EnrichmentTaskReviewPayload }> | undefined,
   note: string,
@@ -633,6 +637,7 @@ export async function updateEnrichmentTask(args: {
     | "choose_different_target"
     | "change_workflow_route"
     | "create_story_target"
+    | "split_merged_story_fragments"
     | "link"
     | "accept_proposal"
     | "reject_proposal"
@@ -640,6 +645,8 @@ export async function updateEnrichmentTask(args: {
   userAnswer?: string;
   anchor?: ReusableLibraryAnchor;
   storyTarget?: EnrichmentStoryTargetCreation;
+  mergedStoryFragments?: string[];
+  workExperienceId?: string | null;
   proposalId?: string;
   route?: "create_evidence" | "update_evidence" | "update_story" | "update_role" | "profile_context";
   targetId?: string;
@@ -768,6 +775,16 @@ export async function updateEnrichmentTask(args: {
       now,
       storyTarget: args.storyTarget,
       task: existing,
+      workspaceId: workspace.id,
+    });
+  }
+
+  if (args.action === "split_merged_story_fragments") {
+    return splitMergedStoryFragmentsForTask(db, {
+      fragments: args.mergedStoryFragments ?? [],
+      now,
+      task: existing,
+      workExperienceId: args.workExperienceId ?? null,
       workspaceId: workspace.id,
     });
   }
@@ -1992,6 +2009,152 @@ async function createStoryTargetForTask(
       ),
     };
   });
+}
+
+async function splitMergedStoryFragmentsForTask(
+  db: DbHandle,
+  args: {
+    fragments: string[];
+    now: Date;
+    task: typeof enrichmentTasks.$inferSelect;
+    workExperienceId: string | null;
+    workspaceId: string;
+  },
+) {
+  if (!canResolveImportedNote(args.task) || !looksLikeMergedStoryFragmentsNote(args.task.prompt)) {
+    return { status: "invalid" as const, reason: "unsupported_merged_story_split" as const };
+  }
+  if (!args.workExperienceId) {
+    return { status: "invalid" as const, reason: "missing_work_experience" as const };
+  }
+  const fragments = normalizeMergedStoryFragments(args.fragments);
+  if (fragments.length === 0) {
+    return { status: "invalid" as const, reason: "missing_story_fragments" as const };
+  }
+
+  return db.transaction(async (tx) => {
+    const [experience] = await tx
+      .select({ id: workExperiences.id })
+      .from(workExperiences)
+      .where(
+        and(
+          eq(workExperiences.workspaceId, args.workspaceId),
+          eq(workExperiences.id, args.workExperienceId ?? ""),
+          sql`${workExperiences.status} <> 'rejected'`,
+        ),
+      )
+      .limit(1);
+    if (!experience) {
+      return { status: "invalid" as const, reason: "work_experience_not_found" as const };
+    }
+    const sourceDocumentId = await resolveImportedTaskSourceDocumentId(tx, {
+      task: args.task,
+      workspaceId: args.workspaceId,
+    });
+    const existingRows = await tx
+      .select({ internalTitle: initiatives.internalTitle })
+      .from(initiatives)
+      .where(
+        and(
+          eq(initiatives.workspaceId, args.workspaceId),
+          eq(initiatives.workExperienceId, experience.id),
+          sql`${initiatives.status} <> 'rejected'`,
+        ),
+      );
+    const existingTitles = new Set(existingRows.map((row) => normalizeStoryTitleKey(row.internalTitle)));
+    const createdIds: string[] = [];
+    const skippedFragments: string[] = [];
+    for (const fragment of fragments) {
+      const titleKey = normalizeStoryTitleKey(fragment);
+      if (existingTitles.has(titleKey)) {
+        skippedFragments.push(fragment);
+        continue;
+      }
+      const [created] = await tx
+        .insert(initiatives)
+        .values({
+          workspaceId: args.workspaceId,
+          workExperienceId: experience.id,
+          sourceDocumentId,
+          internalTitle: fragment,
+          context: buildStoryTargetCreationContext({
+            prompt: args.task.prompt,
+            sourceQuote: `Merged story fragment: ${fragment}`,
+            userContext: `Created from merged import review for ${args.task.sourceLabel}.`,
+          }),
+          actions: [],
+          results: [],
+          metrics: [],
+          technologies: [],
+          stakeholders: [],
+          sensitivityLevel: "private",
+          needsRedactionReview: 1,
+          status: "pending",
+          createdAt: args.now,
+          updatedAt: args.now,
+        })
+        .returning({ id: initiatives.id });
+      if (created) {
+        createdIds.push(created.id);
+        existingTitles.add(titleKey);
+      }
+    }
+
+    const [updated] = await tx
+      .update(enrichmentTasks)
+      .set({
+        status: "converted",
+        resolvedAt: args.now,
+        resolutionKind: "import_reviewed",
+        convertedAt: args.now,
+        targetReason: "User split merged story fragments into separate pending Story Targets.",
+        updatedAt: args.now,
+      })
+      .where(and(eq(enrichmentTasks.workspaceId, args.workspaceId), eq(enrichmentTasks.id, args.task.id)))
+      .returning();
+    if (!updated) return { status: "not_found" as const };
+    const targetMap = await getTaskTargetMap(tx, [updated.id]);
+    const proposalMap = await getTaskProposalMap(tx, [updated.id]);
+    const revisionMap = await getTaskProposalRevisionMap(tx, [updated.id]);
+    return {
+      status: "saved" as const,
+      createdCount: createdIds.length,
+      createdIds,
+      skippedFragments,
+      task: toEnrichmentTaskPayload(
+        updated,
+        targetMap.get(updated.id),
+        proposalMap.get(updated.id),
+        revisionMap.get(updated.id),
+      ),
+    };
+  });
+}
+
+async function resolveImportedTaskSourceDocumentId(
+  db: Pick<DbHandle, "select">,
+  args: {
+    task: typeof enrichmentTasks.$inferSelect;
+    workspaceId: string;
+  },
+) {
+  const resumeSourceDocumentId = await resolveTaskSourceDocumentId(db, {
+    resumeSourceVersionId: args.task.resumeSourceVersionId,
+    workspaceId: args.workspaceId,
+  });
+  if (resumeSourceDocumentId) return resumeSourceDocumentId;
+  const [run] = await db
+    .select({ sourceDocumentId: profileEvidenceExtractionRuns.sourceDocumentId })
+    .from(profileEvidenceExtractionRuns)
+    .where(
+      and(
+        eq(profileEvidenceExtractionRuns.workspaceId, args.workspaceId),
+        eq(profileEvidenceExtractionRuns.sourceTitle, args.task.sourceLabel),
+      ),
+    )
+    .orderBy(desc(profileEvidenceExtractionRuns.createdAt))
+    .limit(1);
+  return run?.sourceDocumentId ?? null;
 }
 
 async function resolveTaskSourceDocumentId(
@@ -3237,6 +3400,23 @@ function canCreateStoryTargetFromTask(task: typeof enrichmentTasks.$inferSelect)
 function normalizeStoryTargetTitle(title: string) {
   const normalized = title.trim().replace(/\s+/g, " ");
   return normalized.length > 240 ? normalized.slice(0, 240).trim() : normalized;
+}
+
+function normalizeMergedStoryFragments(fragments: string[]) {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const fragment of fragments) {
+    const title = normalizeStoryTargetTitle(fragment.replace(/\.$/, ""));
+    const key = normalizeStoryTitleKey(title);
+    if (!title || seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(title);
+  }
+  return normalized.slice(0, 12);
+}
+
+function normalizeStoryTitleKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function normalizeOptionalStoryField(value: string | null | undefined) {

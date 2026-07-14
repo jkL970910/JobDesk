@@ -84,6 +84,11 @@ const requestSchema = z.discriminatedUnion("action", [
     ]),
   }),
   z.object({
+    action: z.literal("split_merged_story_fragments"),
+    fragments: z.array(z.string().trim().min(2).max(240)).min(1).max(12),
+    workExperienceId: z.string().uuid(),
+  }),
+  z.object({
     action: z.literal("accept_proposal"),
     proposalId: z.string().uuid(),
   }),
@@ -134,6 +139,7 @@ export async function PATCH(
   const result = await updateEnrichmentTask({
     taskId: params.data.taskId,
     ...body.data,
+    mergedStoryFragments: body.data.action === "split_merged_story_fragments" ? body.data.fragments : undefined,
     useAiExtraction: body.data.action === "convert",
   });
   if (result.status === "not_found") {
@@ -149,7 +155,11 @@ export async function PATCH(
     );
   }
 
-  if (body.data.action === "convert" || body.data.action === "accept_proposal") {
+  if (
+    body.data.action === "convert" ||
+    body.data.action === "accept_proposal" ||
+    body.data.action === "split_merged_story_fragments"
+  ) {
     schedulePersonalEmbeddingsSync("enrichment_task_commit");
   }
   return NextResponse.json({ data: result });
