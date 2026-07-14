@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildEvidenceLibraryIaCounts,
+  buildWorkQueueWorkflowSteps,
   canMarkStoryTargetReady,
   collectQueuedStoryTargetWorkExperienceIds,
   filterCanonicalLibraryAssets,
+  getRecommendedWorkQueueStep,
+  resolveActiveWorkQueueView,
   getEvidenceClaimWorkQueueDestination,
   getStoryTargetReviewFocus,
   getWorkExperienceReviewFocus,
@@ -141,6 +144,34 @@ describe("Evidence Library IA semantics", () => {
         }),
       ),
     ).toBe("claims");
+  });
+
+  it("orders Work Queue review steps by the recommended resume-prep workflow", () => {
+    const steps = buildWorkQueueWorkflowSteps({
+      approveEvidence: 4,
+      buildStoryTargets: 3,
+      cleanup: 5,
+      importReview: 0,
+      linkEvidence: 2,
+      reviewWorkExperience: 1,
+      strengthenEvidence: 6,
+    });
+
+    expect(steps.map((step) => step.view)).toEqual([
+      "imported",
+      "roles",
+      "stories",
+      "unlinked",
+      "enrichment",
+      "claims",
+      "cleanup",
+    ]);
+    expect(getRecommendedWorkQueueStep(steps)).toMatchObject({
+      view: "roles",
+      count: 1,
+    });
+    expect(resolveActiveWorkQueueView("imported", steps)).toBe("roles");
+    expect(resolveActiveWorkQueueView("stories", steps)).toBe("stories");
   });
 
   it("returns polluted Work Experiences to review even after approval", () => {

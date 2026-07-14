@@ -24,19 +24,24 @@ import {
 } from "../lib/guided-material";
 import {
   buildEvidenceLibraryIaCounts,
+  buildWorkQueueWorkflowSteps,
   canMarkStoryTargetReady,
   collectQueuedStoryTargetWorkExperienceIds,
   filterCanonicalLibraryAssets,
   getEvidenceClaimWorkQueueDestination,
+  getRecommendedWorkQueueStep,
   getStoryTargetReviewFocus,
   getWorkExperienceReviewFocus,
   getStoryTargetReadinessState,
   isCanonicalLibraryAsset,
   isResumeReadyEvidenceClaim,
+  resolveActiveWorkQueueView,
   shouldApproveEvidenceClaim,
   shouldBuildStoryTarget,
   shouldLinkEvidenceClaim,
   shouldReviewWorkExperienceAsset,
+  type EvidenceWorkQueueView,
+  type EvidenceWorkQueueWorkflowStep,
 } from "../lib/evidence-library-ia";
 import { buildProfileFactPatchFromText } from "../schemas/profile-facts";
 import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
@@ -606,14 +611,6 @@ export type MaterialReviewTab =
   | "stories";
 type EvidenceLibraryMode = "library" | "work_queue";
 type EvidenceAssetView = "work_experiences" | "work_initiatives" | "evidence_claims" | "star_stories";
-type EvidenceWorkQueueView =
-  | "imported"
-  | "roles"
-  | "stories"
-  | "unlinked"
-  | "enrichment"
-  | "claims"
-  | "cleanup";
 type FocusedWorkQueueAsset = {
   kind: "work_experience" | "story_target" | "evidence_claim";
   id: string;
@@ -814,6 +811,7 @@ export function ProfileEvidenceWorkspace({
   const [libraryView, setLibraryView] = useState<EvidenceAssetView>("work_experiences");
   const [workQueueView, setWorkQueueView] =
     useState<EvidenceWorkQueueView>("imported");
+  const [workQueueViewWasChosen, setWorkQueueViewWasChosen] = useState(false);
   const [workQueueRoleFilter, setWorkQueueRoleFilter] = useState("all");
   const [libraryFilters, setLibraryFilters] = useState<EvidenceLibraryFilters>({
     query: "",
@@ -1991,6 +1989,23 @@ export function ProfileEvidenceWorkspace({
     strengthenEvidenceTasks: answerEnrichmentTasks,
     workExperiences,
   });
+  const workQueueWorkflowSteps = buildWorkQueueWorkflowSteps({
+    approveEvidence: evidenceFocus
+      ? roleFilteredFocusedEvidenceItems.length
+      : roleFilteredClaimReviewItems.length,
+    buildStoryTargets: filteredStoryTargetQueueCount,
+    cleanup: iaCounts.workQueue.cleanup,
+    importReview: roleFilteredImportedTasks.length,
+    linkEvidence: evidenceFocus
+      ? roleFilteredFocusedEvidenceItems.length
+      : roleFilteredUnlinkedEvidenceItems.length,
+    reviewWorkExperience: roleFilteredRoleReviewItems.length,
+    strengthenEvidence: roleFilteredAnswerTasks.length,
+  });
+  const recommendedWorkQueueStep = getRecommendedWorkQueueStep(workQueueWorkflowSteps);
+  const activeWorkQueueView = workQueueViewWasChosen
+    ? workQueueView
+    : resolveActiveWorkQueueView(workQueueView, workQueueWorkflowSteps);
   const libraryReadiness = summarizeLibraryReadiness({
     cleanupCount: storyDedupeCandidates.length + dedupeCandidates.length,
     evidenceItems,
@@ -2014,6 +2029,14 @@ export function ProfileEvidenceWorkspace({
   const selectedResumeSource =
     resumeSources.find((resume) => resume.id === selectedResumeSourceId) ?? null;
   const showMaterialTypePicker = isEditingMaterialType || !hasChosenMaterialType;
+  useEffect(() => {
+    if (libraryMode !== "work_queue") return;
+    if (workQueueViewWasChosen) return;
+    if (activeWorkQueueView !== workQueueView) {
+      setEvidenceFocus(null);
+      setWorkQueueView(activeWorkQueueView);
+    }
+  }, [activeWorkQueueView, libraryMode, workQueueView, workQueueViewWasChosen]);
 
   function buildGuidedPreview(fields: GuidedMaterialFields) {
     return buildGuidedMaterialMarkdown(fields, selectedStoryTarget
@@ -2091,12 +2114,14 @@ export function ProfileEvidenceWorkspace({
   function openWorkQueueView(view: EvidenceWorkQueueView) {
     setLibraryMode("work_queue");
     setWorkQueueView(view);
+    setWorkQueueViewWasChosen(true);
   }
 
   function focusWorkQueueAsset(asset: Exclude<FocusedWorkQueueAsset, null>) {
     setActiveSection("review");
     setLibraryMode("work_queue");
     setWorkQueueView(asset.view);
+    setWorkQueueViewWasChosen(true);
     setWorkQueueRoleFilter("all");
     setEvidenceFocus(null);
     setFocusedWorkQueueAsset(asset);
@@ -3259,6 +3284,7 @@ export function ProfileEvidenceWorkspace({
               onClick={() => {
                 setLibraryMode("work_queue");
                 setWorkQueueView("imported");
+                setWorkQueueViewWasChosen(false);
               }}
             >
               Work Queue
@@ -3364,69 +3390,24 @@ export function ProfileEvidenceWorkspace({
 
           {libraryMode === "work_queue" ? (
             <>
-          <div className="review-switcher review-switcher--queue" role="tablist" aria-label="Work Queue panels">
-            <button
-              data-active={workQueueView === "imported"}
-              type="button"
-              onClick={() => openWorkQueueView("imported")}
-            >
-              Import & Scope Review ({formatQueueCount(iaCounts.workQueue.importReview, roleFilteredImportedTasks.length, workQueueRoleFilter)})
-            </button>
-            <button
-              data-active={workQueueView === "roles"}
-              type="button"
-              onClick={() => openWorkQueueView("roles")}
-            >
-              Review Work Experience ({formatQueueCount(iaCounts.workQueue.reviewWorkExperience, roleFilteredRoleReviewItems.length, workQueueRoleFilter)})
-            </button>
-            <button
-              data-active={workQueueView === "stories"}
-              type="button"
-              onClick={() => openWorkQueueView("stories")}
-            >
-              Build Story Targets ({formatQueueCount(iaCounts.workQueue.buildStoryTargets, filteredStoryTargetQueueCount, workQueueRoleFilter)})
-            </button>
-            <button
-              data-active={workQueueView === "unlinked"}
-              type="button"
-              onClick={() => {
-                setEvidenceFocus(null);
-                openWorkQueueView("unlinked");
-              }}
-            >
-              {evidenceFocus ? "Focused Evidence" : "Link Evidence"} ({formatQueueCount(evidenceFocus ? focusedEvidenceItems.length : iaCounts.workQueue.linkEvidence, evidenceFocus ? roleFilteredFocusedEvidenceItems.length : roleFilteredUnlinkedEvidenceItems.length, workQueueRoleFilter)})
-            </button>
-            <button
-              data-active={workQueueView === "enrichment"}
-              type="button"
-              onClick={() => openWorkQueueView("enrichment")}
-            >
-              Strengthen Evidence ({formatQueueCount(iaCounts.workQueue.strengthenEvidence, roleFilteredAnswerTasks.length, workQueueRoleFilter)})
-            </button>
-            <button
-              data-active={workQueueView === "claims"}
-              type="button"
-              onClick={() => {
-                setEvidenceFocus(null);
-                openWorkQueueView("claims");
-              }}
-            >
-              Approve Evidence ({formatQueueCount(iaCounts.workQueue.approveEvidence, roleFilteredClaimReviewItems.length, workQueueRoleFilter)})
-            </button>
-            <button
-              data-active={workQueueView === "cleanup"}
-              type="button"
-              onClick={() => openWorkQueueView("cleanup")}
-            >
-              Cleanup ({iaCounts.workQueue.cleanup})
-            </button>
-          </div>
+          <WorkQueueWorkflowGuide
+            activeView={activeWorkQueueView}
+            onOpen={(view) => {
+              if (view === "claims" || view === "unlinked") setEvidenceFocus(null);
+              openWorkQueueView(view);
+            }}
+            recommendedStep={recommendedWorkQueueStep}
+            steps={workQueueWorkflowSteps}
+          />
           <WorkQueueRoleFilter
             options={workQueueRoleFilterOptions}
             value={workQueueRoleFilter}
-            onChange={setWorkQueueRoleFilter}
+            onChange={(value) => {
+              setWorkQueueRoleFilter(value);
+              setWorkQueueViewWasChosen(false);
+            }}
           />
-          {workQueueView === "enrichment" ? (
+          {activeWorkQueueView === "enrichment" ? (
             <EnrichmentTaskQueue
               evidenceItems={evidenceItems}
               focusedTaskId={initialFocusedTaskId}
@@ -3445,7 +3426,7 @@ export function ProfileEvidenceWorkspace({
               workExperiences={workExperiences}
             />
           ) : null}
-          {workQueueView === "imported" ? (
+          {activeWorkQueueView === "imported" ? (
             <EnrichmentTaskQueue
               evidenceItems={evidenceItems}
               focusedTaskId={initialFocusedTaskId}
@@ -3464,7 +3445,7 @@ export function ProfileEvidenceWorkspace({
               workExperiences={workExperiences}
             />
           ) : null}
-          {workQueueView === "roles" ? (
+          {activeWorkQueueView === "roles" ? (
             <RoleReviewQueue
               directEvidence={evidenceItems}
               focusWorkQueueAsset={bindFocusedWorkQueueAsset}
@@ -3474,7 +3455,7 @@ export function ProfileEvidenceWorkspace({
               roles={roleFilteredRoleReviewItems}
             />
           ) : null}
-          {workQueueView === "stories" ? (
+          {activeWorkQueueView === "stories" ? (
             <StarStoryQueue
               evidenceItems={canonicalEvidenceItems}
               focusWorkQueueAsset={bindFocusedWorkQueueAsset}
@@ -3487,7 +3468,7 @@ export function ProfileEvidenceWorkspace({
               workExperiences={workExperiences}
             />
           ) : null}
-          {workQueueView === "claims" ? (
+          {activeWorkQueueView === "claims" ? (
             <>
             {evidenceFocus ? (
               <section className="focused-claims-banner">
@@ -3526,7 +3507,7 @@ export function ProfileEvidenceWorkspace({
             />
             </>
           ) : null}
-          {workQueueView === "unlinked" ? (
+          {activeWorkQueueView === "unlinked" ? (
             <>
             {evidenceFocus ? (
               <section className="focused-claims-banner">
@@ -3565,7 +3546,7 @@ export function ProfileEvidenceWorkspace({
             />
             </>
           ) : null}
-          {workQueueView === "cleanup" ? (
+          {activeWorkQueueView === "cleanup" ? (
             <DedupePanel
               evidenceCandidates={dedupeCandidates}
               onEvidenceKeepSeparate={keepEvidenceCandidateSeparate}
@@ -8576,10 +8557,6 @@ function filterEvidenceLibraryItems(
   });
 }
 
-function formatQueueCount(total: number, filtered: number, roleFilter: string) {
-  return roleFilter === "all" ? String(total) : `${filtered}/${total}`;
-}
-
 function filterEvidenceItemsByRole(
   items: EvidenceCardItem[],
   roleFilter: string,
@@ -11245,6 +11222,70 @@ function WorkQueueRoleFilter({
         options={[{ label: "All work experiences", value: "all" }, ...options]}
         onChange={onChange}
       />
+    </section>
+  );
+}
+
+function WorkQueueWorkflowGuide({
+  activeView,
+  onOpen,
+  recommendedStep,
+  steps,
+}: {
+  activeView: EvidenceWorkQueueView;
+  onOpen: (view: EvidenceWorkQueueView) => void;
+  recommendedStep: EvidenceWorkQueueWorkflowStep | null;
+  steps: EvidenceWorkQueueWorkflowStep[];
+}) {
+  const hasRecommendedWork = Boolean(recommendedStep && recommendedStep.count > 0);
+  return (
+    <section className="work-queue-guide" aria-label="Recommended Work Queue order">
+      <article className="work-queue-guide__next" data-empty={!hasRecommendedWork}>
+        <div>
+          <span>Recommended next step</span>
+          <strong>
+            {hasRecommendedWork && recommendedStep
+              ? recommendedStep.label
+              : "No queued review work"}
+          </strong>
+          <p>
+            {hasRecommendedWork && recommendedStep
+              ? recommendedStep.why
+              : "The current filter has no open Work Queue actions. Switch filters or add more material when you are ready."}
+          </p>
+        </div>
+        {recommendedStep ? (
+          <button
+            className="primary-button"
+            disabled={!hasRecommendedWork}
+            type="button"
+            onClick={() => onOpen(recommendedStep.view)}
+          >
+            {hasRecommendedWork ? `Start ${recommendedStep.label}` : "Queue clear"}
+          </button>
+        ) : null}
+      </article>
+      <div className="work-queue-guide__steps" role="tablist" aria-label="Work Queue workflow steps">
+        {steps.map((step, index) => (
+          <button
+            aria-selected={activeView === step.view}
+            data-active={activeView === step.view}
+            data-empty={step.count === 0}
+            key={step.view}
+            role="tab"
+            type="button"
+            onClick={() => onOpen(step.view)}
+          >
+            <span>
+              Step {index + 1}
+              <b>{step.count}</b>
+            </span>
+            <strong>{step.label}</strong>
+            <p>{step.why}</p>
+            <small>Done when: {step.doneWhen}</small>
+          </button>
+        ))}
+      </div>
     </section>
   );
 }

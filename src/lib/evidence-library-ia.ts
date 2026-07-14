@@ -85,6 +85,104 @@ export type EvidenceLibraryIaCountsInput = {
   workExperiences: EvidenceLibraryIaWorkExperience[];
 };
 
+export type EvidenceWorkQueueView =
+  | "imported"
+  | "roles"
+  | "stories"
+  | "unlinked"
+  | "enrichment"
+  | "claims"
+  | "cleanup";
+
+export type EvidenceWorkQueueCounts = {
+  approveEvidence: number;
+  buildStoryTargets: number;
+  cleanup: number;
+  importReview: number;
+  linkEvidence: number;
+  reviewWorkExperience: number;
+  strengthenEvidence: number;
+};
+
+export type EvidenceWorkQueueWorkflowStep = {
+  count: number;
+  doneWhen: string;
+  label: string;
+  view: EvidenceWorkQueueView;
+  why: string;
+};
+
+export function buildWorkQueueWorkflowSteps(
+  counts: EvidenceWorkQueueCounts,
+): EvidenceWorkQueueWorkflowStep[] {
+  return [
+    {
+      count: counts.importReview,
+      doneWhen: "Imported fragments are saved to the right scope, parked for later, or dismissed.",
+      label: "Import & Scope Review",
+      view: "imported",
+      why: "Scope mistakes can send later evidence, links, and approvals down the wrong path.",
+    },
+    {
+      count: counts.reviewWorkExperience,
+      doneWhen: "Employer, role, dates, team, location, and summary are accurate enough to anchor stories.",
+      label: "Review Work Experience",
+      view: "roles",
+      why: "Work Experiences are the containers that Story Targets and Evidence Claims attach to.",
+    },
+    {
+      count: counts.buildStoryTargets,
+      doneWhen: "Reusable work stories have enough context, proof, and public-safe wording to support resumes or interviews.",
+      label: "Build Story Targets",
+      view: "stories",
+      why: "Story Targets turn scattered resume bullets into larger reusable work stories.",
+    },
+    {
+      count: counts.linkEvidence,
+      doneWhen: "Evidence Claims are attached to the correct Work Experience, Story Target, or kept as standalone facts.",
+      label: "Link Evidence",
+      view: "unlinked",
+      why: "Linked evidence gives generated resumes the right source-backed support.",
+    },
+    {
+      count: counts.strengthenEvidence,
+      doneWhen: "Open evidence questions have been answered, routed, or intentionally dismissed.",
+      label: "Strengthen Evidence",
+      view: "enrichment",
+      why: "These prompts fill missing metrics, ownership, results, and safe wording before approval.",
+    },
+    {
+      count: counts.approveEvidence,
+      doneWhen: "Claims are source-backed, public-safe when needed, and approved only for valid resume use.",
+      label: "Approve Evidence",
+      view: "claims",
+      why: "Approval is the final gate before evidence can support generated resumes.",
+    },
+    {
+      count: counts.cleanup,
+      doneWhen: "Duplicate or overlapping stories and claims are merged, kept separate, or resolved.",
+      label: "Cleanup",
+      view: "cleanup",
+      why: "Cleanup prevents duplicate stories and claims from confusing later generation.",
+    },
+  ];
+}
+
+export function getRecommendedWorkQueueStep(
+  steps: EvidenceWorkQueueWorkflowStep[],
+) {
+  return steps.find((step) => step.count > 0) ?? steps[0] ?? null;
+}
+
+export function resolveActiveWorkQueueView(
+  currentView: EvidenceWorkQueueView,
+  steps: EvidenceWorkQueueWorkflowStep[],
+) {
+  const current = steps.find((step) => step.view === currentView);
+  if (!current || current.count > 0) return currentView;
+  return getRecommendedWorkQueueStep(steps)?.view ?? currentView;
+}
+
 export function isOpenWorkQueueTask(task: EvidenceLibraryIaEnrichmentTask) {
   return task.status === "open" || task.status === "answered";
 }

@@ -1850,7 +1850,7 @@ function ReviewDimensionWorkbench({
             </span>
             <span>
               <strong>{evidenceTaskCount}</strong>
-              Evidence
+              Gaps
             </span>
             <span>
               <strong>{atsIssueCount}</strong>
