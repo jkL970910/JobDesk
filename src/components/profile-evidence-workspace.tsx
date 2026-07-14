@@ -4597,8 +4597,13 @@ function EvidenceClaimsLibraryView({
     <section className="section-block">
       <div className="section-block__top">
         <div>
-          <h3>Evidence Claims</h3>
-          <p>Source-backed facts for resumes, cover letters, and interviews. Approval happens in Work Queue.</p>
+          <h3>
+            Evidence Claims
+            <HelpHint
+              label="About Evidence Claims"
+              text="Source-backed facts for resumes, cover letters, and interviews. Approval happens in Work Queue."
+            />
+          </h3>
         </div>
         <span>{items.length} Evidence Claims</span>
       </div>
@@ -9868,8 +9873,13 @@ function StarStoryPanel({
     <section className="section-block interview-stories">
       <div className="section-block__top">
         <div>
-          <h3>Interview Stories</h3>
-          <p>Reusable STAR stories generated from approved stories and evidence.</p>
+          <h3>
+            Interview Stories
+            <HelpHint
+              label="About Interview Stories"
+              text="Reusable STAR stories generated from approved stories and evidence."
+            />
+          </h3>
           {focus ? (
             <p>
               Focus: {focus.title} · {focusedStories.length > 0 ? "matched story first" : "no generated STAR story yet"}
@@ -10940,11 +10950,13 @@ function WorkExperienceList({
     <section className="section-block">
       <div className="section-block__top">
         <div>
-          <h3>Work Experience</h3>
-          <p>
-            Work Experience containers for employer, title, team, dates, location, and high-level scope.
-            Detailed projects live in Work Initiatives.
-          </p>
+          <h3>
+            Work Experience
+            <HelpHint
+              label="About Work Experience"
+              text="Work Experience containers for employer, title, team, dates, location, and high-level scope. Detailed projects live in Work Initiatives."
+            />
+          </h3>
         </div>
         <span>{visibleWorkExperiences.length} work experiences</span>
       </div>
@@ -11649,10 +11661,13 @@ function WorkInitiativeList({
     <section className="section-block">
       <div className="section-block__top">
         <div>
-          <h3>Story Targets</h3>
-          <p>
-            Projects, achievements, and portfolio work that can become resume bullets or Interview Stories.
-          </p>
+          <h3>
+            Story Targets
+            <HelpHint
+              label="About Story Targets"
+              text="Projects, achievements, and portfolio work that can become resume bullets or Interview Stories."
+            />
+          </h3>
         </div>
         <span>
           {filteredInitiatives.length} Work Initiatives · {filteredPortfolioProjects.length} Portfolio Projects
@@ -12997,11 +13012,13 @@ function ProjectList({
     <section className="section-block">
       <div className="section-block__top">
         <div>
-          <h3>Project Library</h3>
-          <p>
-            Project cards are the main story containers. Resume uploads often
-            create thin project signals; enrich them with docs or guided answers.
-          </p>
+          <h3>
+            Project Library
+            <HelpHint
+              label="About Project Library"
+              text="Project cards are the main story containers. Resume uploads often create thin project signals; enrich them with docs or guided answers."
+            />
+          </h3>
         </div>
         <span>{projects.length} projects</span>
       </div>
