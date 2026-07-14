@@ -6,6 +6,14 @@ import {
 } from "../../../../../src/server/profile-evidence-extraction-run-repository";
 
 const requestSchema = z.object({
+  replacement: z.object({
+    originalRunId: z.string().uuid().nullable().optional(),
+    sourceDocumentId: z.string().uuid().nullable().optional(),
+    segmentId: z.string().trim().min(1).max(120),
+    segmentText: z.string().trim().min(40).max(50_000),
+    segmentTextHash: z.string().trim().min(1).max(128),
+    segmentTitle: z.string().trim().min(1).max(240),
+  }).optional(),
   sourceText: z.string().trim().min(80).max(50_000),
   sourceTitle: z.string().trim().min(1).max(240).optional(),
   sourceDocumentId: z.string().uuid().optional(),

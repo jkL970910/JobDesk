@@ -51,6 +51,40 @@ describe("profile evidence extraction worker orchestration", () => {
     expect(calls.embeddingReasons).toEqual(["profile_evidence_extract_run"]);
   });
 
+  it("passes section retry replacement metadata into persistence", async () => {
+    const replacement = {
+      originalRunId: "11111111-1111-4111-8111-111111111111",
+      sourceDocumentId: "22222222-2222-4222-8222-222222222222",
+      segmentId: "work_experience-1",
+      segmentText: "Amazon\nSoftware Engineer Jan 2022 - Present\nBuilt reliable platform workflows.",
+      segmentTextHash: "segment-hash-test",
+      segmentTitle: "Amazon · Software Engineer",
+    };
+    const { calls, dependencies } = buildWorkerFixture({
+      claimNextRun: async (workerId) => {
+        calls.claimedWorkerIds.push(workerId);
+        return {
+          status: "claimed" as const,
+          run: buildRunPayload({
+            result: {
+              replacement,
+              ...buildCompletedStepRunnerResult(),
+            },
+          }),
+        };
+      },
+    });
+
+    const result = await runProfileEvidenceExtractionWorkerOnce("worker-test", dependencies);
+
+    expect(result).toMatchObject({ status: "completed" });
+    expect(calls.persistedExtractions).toHaveLength(1);
+    expect(calls.persistedExtractions[0]).toMatchObject({ replacement });
+    expect(calls.completedRuns[0]).toMatchObject({
+      result: expect.objectContaining({ replacement }),
+    });
+  });
+
   it("does not write canonical library data when a persisted segment fails before final validation", async () => {
     const { calls, dependencies } = buildWorkerFixture({
       claimNextRun: async (workerId) => {

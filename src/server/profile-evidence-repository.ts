@@ -23,6 +23,8 @@ import type {
   JobDeskAiUsage,
 } from "../ai/types";
 import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
+import type { EnrichmentTaskReviewPayload } from "./enrichment-task-repository";
+import type { ProfileEvidenceExtractionReplacement } from "./profile-evidence-extraction-run-repository";
 import type { ProfileFactPatchRequest } from "../schemas/profile-facts";
 import { AllowedUsage } from "../schemas/shared";
 import type { FieldTier, SensitivityLevel } from "../schemas/shared";
@@ -107,6 +109,8 @@ export async function persistProfileEvidenceExtraction(args: {
   model: string;
   usage: JobDeskAiUsage;
   retryCount: number;
+  replacement?: ProfileEvidenceExtractionReplacement;
+  reviewPayloads?: Array<{ note: string; payload: EnrichmentTaskReviewPayload }>;
   skill: JobDeskAiSkillBinding;
 }): Promise<ProfileEvidencePersistenceResult> {
   if (!hasDatabaseUrl()) {
@@ -129,6 +133,13 @@ export async function persistProfileEvidenceExtraction(args: {
       sourceType: args.sourceType ?? "profile-evidence",
       workspaceId: workspace.id,
     });
+    if (args.replacement) {
+      await quarantineFallbackMaterialsForSectionRetry(tx, {
+        now,
+        replacement: args.replacement,
+        workspaceId: workspace.id,
+      });
+    }
     const enrichmentTarget = args.target
       ? await resolveEnrichmentStoryTarget(tx, {
           target: args.target,
@@ -534,6 +545,7 @@ export async function persistProfileEvidenceExtraction(args: {
           ...guardedPortfolioProjectDrafts.reviewCandidates,
           ...guardedEvidenceDrafts.reviewCandidates,
           ...storySeedResult.reviewCandidates,
+          ...(args.reviewPayloads ?? []),
         ],
         notes: [
           ...args.extraction.extraction_notes,
@@ -579,6 +591,164 @@ export async function persistProfileEvidenceExtraction(args: {
       workflowRunId: workflowRun.id,
     };
   });
+}
+
+async function quarantineFallbackMaterialsForSectionRetry(
+  db: Pick<ReturnType<typeof getDb>, "select" | "update">,
+  args: {
+    now: Date;
+    replacement: ProfileEvidenceExtractionReplacement;
+    workspaceId: string;
+  },
+) {
+  const originalSourceDocumentId = args.replacement.sourceDocumentId;
+  if (!originalSourceDocumentId) return;
+  const segmentText = normalizeRetrySectionText(args.replacement.segmentText);
+  if (!segmentText) return;
+  const reason = `Replaced by section retry for ${args.replacement.segmentTitle}.`;
+
+  const evidenceRows = await db
+    .select({
+      id: evidenceItems.id,
+      sourceQuote: evidenceItems.sourceQuote,
+      text: evidenceItems.text,
+    })
+    .from(evidenceItems)
+    .where(
+      and(
+        eq(evidenceItems.workspaceId, args.workspaceId),
+        eq(evidenceItems.sourceDocumentId, originalSourceDocumentId),
+        eq(evidenceItems.status, "pending"),
+      ),
+    );
+  const evidenceIds = evidenceRows
+    .filter((row) => retrySectionContains(segmentText, row.text) || retrySectionContains(segmentText, row.sourceQuote))
+    .map((row) => row.id);
+  if (evidenceIds.length > 0) {
+    await db
+      .update(evidenceItems)
+      .set({
+        quarantinedAt: args.now,
+        quarantineReason: reason,
+        status: "rejected",
+        updatedAt: args.now,
+      })
+      .where(
+        and(
+          eq(evidenceItems.workspaceId, args.workspaceId),
+          inArray(evidenceItems.id, evidenceIds),
+        ),
+      );
+  }
+
+  const initiativeRows = await db
+    .select({
+      actions: initiatives.actions,
+      context: initiatives.context,
+      externalSafeSummary: initiatives.externalSafeSummary,
+      externalSafeTitle: initiatives.externalSafeTitle,
+      id: initiatives.id,
+      internalTitle: initiatives.internalTitle,
+      problem: initiatives.problem,
+      results: initiatives.results,
+      role: initiatives.role,
+      technologies: initiatives.technologies,
+    })
+    .from(initiatives)
+    .where(
+      and(
+        eq(initiatives.workspaceId, args.workspaceId),
+        eq(initiatives.sourceDocumentId, originalSourceDocumentId),
+        eq(initiatives.status, "pending"),
+      ),
+    );
+  const initiativeIds = initiativeRows
+    .filter((row) => retrySectionContainsAny(segmentText, [
+      row.internalTitle,
+      row.externalSafeTitle,
+      row.context,
+      row.problem,
+      row.role,
+      row.externalSafeSummary,
+      ...row.actions,
+      ...row.results,
+      ...row.technologies,
+    ]))
+    .map((row) => row.id);
+  if (initiativeIds.length > 0) {
+    await db
+      .update(initiatives)
+      .set({ status: "rejected", updatedAt: args.now })
+      .where(
+        and(
+          eq(initiatives.workspaceId, args.workspaceId),
+          inArray(initiatives.id, initiativeIds),
+        ),
+      );
+  }
+
+  const projectRows = await db
+    .select({
+      actions: portfolioProjects.actions,
+      context: portfolioProjects.context,
+      externalSafeSummary: portfolioProjects.externalSafeSummary,
+      externalSafeTitle: portfolioProjects.externalSafeTitle,
+      id: portfolioProjects.id,
+      problem: portfolioProjects.problem,
+      results: portfolioProjects.results,
+      role: portfolioProjects.role,
+      technologies: portfolioProjects.technologies,
+      title: portfolioProjects.title,
+    })
+    .from(portfolioProjects)
+    .where(
+      and(
+        eq(portfolioProjects.workspaceId, args.workspaceId),
+        eq(portfolioProjects.sourceDocumentId, originalSourceDocumentId),
+        eq(portfolioProjects.status, "pending"),
+      ),
+    );
+  const projectIds = projectRows
+    .filter((row) => retrySectionContainsAny(segmentText, [
+      row.title,
+      row.externalSafeTitle,
+      row.context,
+      row.problem,
+      row.role,
+      row.externalSafeSummary,
+      ...row.actions,
+      ...row.results,
+      ...row.technologies,
+    ]))
+    .map((row) => row.id);
+  if (projectIds.length > 0) {
+    await db
+      .update(portfolioProjects)
+      .set({ status: "rejected", updatedAt: args.now })
+      .where(
+        and(
+          eq(portfolioProjects.workspaceId, args.workspaceId),
+          inArray(portfolioProjects.id, projectIds),
+        ),
+      );
+  }
+}
+
+function retrySectionContainsAny(
+  normalizedSegmentText: string,
+  values: Array<string | null | undefined>,
+) {
+  return values.some((value) => retrySectionContains(normalizedSegmentText, value));
+}
+
+function retrySectionContains(normalizedSegmentText: string, value: string | null | undefined) {
+  const normalizedValue = normalizeRetrySectionText(value ?? "");
+  if (normalizedValue.length < 16) return false;
+  return normalizedSegmentText.includes(normalizedValue);
+}
+
+function normalizeRetrySectionText(value: string) {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function withWorkflowMetadata<T extends { skillMetadata: Record<string, unknown> }>(

@@ -2,6 +2,7 @@ import { resolveJobDeskAiConfig } from "../ai/config";
 import { JobDeskAiError } from "../ai/errors";
 import {
   buildProfileEvidenceExtractionFromStepRunnerState,
+  buildSectionRetryPayloadsFromStepRunnerState,
   extractProfileEvidenceChunked,
   getProfileEvidenceStepRunnerProgress,
   initializeProfileEvidenceStepRunnerState,
@@ -18,6 +19,7 @@ import {
   getProfileEvidenceExtractionRunOwner,
   resolveProfileEvidenceExtractionRunSource,
   saveProfileEvidenceExtractionRunProgress,
+  type ProfileEvidenceExtractionReplacement,
   updateProfileEvidenceExtractionRunStatus,
 } from "./profile-evidence-extraction-run-repository";
 import {
@@ -132,6 +134,7 @@ async function runClaimedProfileEvidenceExtraction(args: {
 }) {
   const { claim, dependencies, workerId } = args;
   const source = await dependencies.resolveRunSource(claim.run.id);
+  const replacement = parseReplacementMetadata(claim.run.result?.replacement);
   if (!source?.sourceText.trim()) {
     await dependencies.failRun({
       runId: claim.run.id,
@@ -168,6 +171,7 @@ async function runClaimedProfileEvidenceExtraction(args: {
           status: "extracting_evidence",
           workerId,
           result: {
+            ...(replacement ? { replacement } : {}),
             ...serializeProfileEvidenceStepRunnerState(state),
             progress,
           },
@@ -179,6 +183,7 @@ async function runClaimedProfileEvidenceExtraction(args: {
         status: "validating",
         workerId,
         result: {
+          ...(replacement ? { replacement } : {}),
           ...serializeProfileEvidenceStepRunnerState(state),
           progress,
         },
@@ -202,6 +207,7 @@ async function runClaimedProfileEvidenceExtraction(args: {
         status: progress.hasPendingSegments ? "extracting_evidence" : "validating",
         workerId,
         result: {
+          ...(replacement ? { replacement } : {}),
           ...serializeProfileEvidenceStepRunnerState(processed.state),
           progress,
         },
@@ -210,6 +216,10 @@ async function runClaimedProfileEvidenceExtraction(args: {
     }
 
     const result = buildProfileEvidenceExtractionFromStepRunnerState(existingState);
+    const sectionRetryPayloads = buildSectionRetryPayloadsFromStepRunnerState(existingState, {
+      sourceDocumentId: claim.run.sourceDocumentId,
+      sourceLabel: claim.run.sourceTitle,
+    });
     await dependencies.updateRunStatus({
       runId: claim.run.id,
       status: "validating",
@@ -231,6 +241,8 @@ async function runClaimedProfileEvidenceExtraction(args: {
       model: config.model,
       usage: result.usage,
       retryCount: result.retryCount,
+      replacement: replacement ?? undefined,
+      reviewPayloads: sectionRetryPayloads,
       skill: result.skill,
     });
     if (persistence.status === "saved" && claim.run.resumeSourceVersionId) {
@@ -245,6 +257,7 @@ async function runClaimedProfileEvidenceExtraction(args: {
       workflowRunId: persistence.status === "saved" ? persistence.workflowRunId : undefined,
       result: {
         evidenceCount: persistence.status === "saved" ? persistence.evidenceCount : result.data.evidence_items.length,
+        ...(replacement ? { replacement } : {}),
         projectCount: persistence.status === "saved" ? persistence.projectCount : result.data.project_cards.length,
         storyCount:
           persistence.status === "saved"
@@ -280,6 +293,27 @@ async function runClaimedProfileEvidenceExtraction(args: {
     });
     return { status: "failed" as const, run: failed };
   }
+}
+
+function parseReplacementMetadata(value: unknown): ProfileEvidenceExtractionReplacement | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<ProfileEvidenceExtractionReplacement>;
+  if (
+    typeof candidate.segmentId !== "string" ||
+    typeof candidate.segmentText !== "string" ||
+    typeof candidate.segmentTextHash !== "string" ||
+    typeof candidate.segmentTitle !== "string"
+  ) {
+    return null;
+  }
+  return {
+    originalRunId: typeof candidate.originalRunId === "string" ? candidate.originalRunId : null,
+    sourceDocumentId: typeof candidate.sourceDocumentId === "string" ? candidate.sourceDocumentId : null,
+    segmentId: candidate.segmentId,
+    segmentText: candidate.segmentText,
+    segmentTextHash: candidate.segmentTextHash,
+    segmentTitle: candidate.segmentTitle,
+  };
 }
 
 function classifyWorkerFailure(error: unknown) {

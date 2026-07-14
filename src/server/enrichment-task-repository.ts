@@ -8,6 +8,7 @@ import { JobDeskAiError } from "../ai/errors";
 import { extractProfileEvidenceWithAi } from "../ai/profile-evidence-extraction";
 import { skillRegistry } from "../ai/skills-registry";
 import type { ProfileEvidenceExtraction } from "../schemas/profile-evidence-extraction";
+import type { ProfileEvidenceSectionRetryPayload } from "../ai/profile-evidence-chunked-extraction";
 import {
   type ClarifyAssignmentProposalPatch,
   type CreateEvidenceProposalPatch,
@@ -125,7 +126,9 @@ export type EnrichmentTaskTargetPayload = {
   rejected_at: string | null;
 };
 
-export type EnrichmentTaskReviewPayload = ScopeReviewCandidatePayload;
+export type EnrichmentTaskReviewPayload =
+  | ScopeReviewCandidatePayload
+  | ProfileEvidenceSectionRetryPayload;
 
 export type EnrichmentTaskQueueFilters = {
   limit?: number;
@@ -389,6 +392,7 @@ export function buildExtractionNoteEnrichmentTasks(args: {
       const payload = item.payload.sourceDocumentId || !args.sourceDocumentId
         ? item.payload
         : { ...item.payload, sourceDocumentId: args.sourceDocumentId };
+      const payloadClassification = classifyReviewPayloadAction(payload);
       return {
         taskType: "source_section_review" as const,
         sourceType: "extraction_note" as const,
@@ -396,15 +400,34 @@ export function buildExtractionNoteEnrichmentTasks(args: {
         prompt: item.note,
         targetScope: "source_material" as const,
         targetConfidence: payload.confidence,
-        targetReason: payload.guardrailReason,
+        targetReason: payloadClassification.reason,
         expectedOutcome: "review_imported_material" as const,
-        noteKind: "story_gap" as const,
-        expectedAction: "review_import" as const,
+        noteKind: payloadClassification.noteKind,
+        expectedAction: payloadClassification.expectedAction,
         targetField: null,
         reviewPayload: payload,
       };
     });
   return [...noteTasks, ...payloadTasks];
+}
+
+function classifyReviewPayloadAction(payload: EnrichmentTaskReviewPayload): {
+  expectedAction: EnrichmentTaskExpectedAction;
+  noteKind: EnrichmentTaskNoteKind;
+  reason: string;
+} {
+  if (payload.kind === "section_retry") {
+    return {
+      expectedAction: "rerun_extraction",
+      noteKind: "extraction_limit",
+      reason: "This note reports a timed-out section. Retry just this source section if the fallback draft is incomplete.",
+    };
+  }
+  return {
+    expectedAction: "review_import",
+    noteKind: "story_gap",
+    reason: payload.guardrailReason,
+  };
 }
 
 function findScopeReviewPayloadForNote(
@@ -449,12 +472,15 @@ function classifyExtractionNoteAction(note: string): {
     };
   }
 
-  if (/\b(returned at most|omitted additional|beyond the first|not included due to|capped at)\b/.test(normalized)) {
+  if (/\b(returned at most|omitted additional|beyond the first|not included due to|capped at|timed out|timeout)\b/.test(normalized)) {
+    const isTimeout = /\b(timed out|timeout)\b/.test(normalized);
     return {
       confidence: "high",
-      expectedAction: "review_import",
+      expectedAction: isTimeout ? "rerun_extraction" : "review_import",
       noteKind: "extraction_limit",
-      reason: "This note reports an extraction limit. Review the imported source instead of answering it as evidence.",
+      reason: isTimeout
+        ? "This note reports a timed-out extraction section. Retry just this source section if the fallback draft is incomplete."
+        : "This note reports an extraction limit. Review the imported source instead of answering it as evidence.",
       targetField: null,
     };
   }

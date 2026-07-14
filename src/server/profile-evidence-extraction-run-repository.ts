@@ -25,7 +25,17 @@ const staleProcessingFailureMs = 10 * 60_000;
 
 export type ExtractionRunPayload = ReturnType<typeof toRunPayload>;
 
+export type ProfileEvidenceExtractionReplacement = {
+  originalRunId?: string | null;
+  sourceDocumentId?: string | null;
+  segmentId: string;
+  segmentText: string;
+  segmentTextHash: string;
+  segmentTitle: string;
+};
+
 export async function createProfileEvidenceExtractionRun(args: {
+  replacement?: ProfileEvidenceExtractionReplacement;
   resumeSourceVersionId?: string;
   sourceDocumentId?: string;
   sourceText: string;
@@ -57,6 +67,7 @@ export async function createProfileEvidenceExtractionRun(args: {
       sourceTitle: args.sourceTitle?.trim() || "Untitled source",
       sourceTextSnapshot,
       sourceSnapshotHash,
+      resultJson: args.replacement ? { replacement: args.replacement } : {},
       status: "queued",
       createdAt: now,
       updatedAt: now,

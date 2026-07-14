@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { JobDeskAiError } from "../src/ai/errors";
 import {
+  buildSectionRetryPayloadsFromStepRunnerState,
   buildChunkedProfileEvidenceExtractionForTest,
   buildDeterministicProfileWorkHistoryForTest,
   buildDeterministicStoryEvidenceForTest,
@@ -443,6 +444,58 @@ describe("chunked profile evidence extraction", () => {
     });
     expect(cacheEvidence?.related_initiative_id).toContain("distributed cloud cache");
     expect(result.extraction_notes.join(" ")).toContain("partial conservative source-grounded drafts");
+  });
+
+  it("builds section retry payloads for fallback timeout segments", () => {
+    const profileResult = buildDeterministicProfileWorkHistoryForTest(
+      segmentProfileEvidenceSource("Jiekun Liu\n\nExperience\nAmazon\nSDE 2023 - Present\nBuilt validation infrastructure."),
+    );
+    const state = {
+      profileResult: {
+        extraction_notes: [],
+        profile: profileResult.profile,
+        work_experiences: [],
+      },
+      retryCount: 1,
+      segmentCount: 1,
+      segments: [
+        {
+          id: "work_experience-1",
+          kind: "work_experience" as const,
+          result: {
+            evidence_items: [],
+            extraction_notes: [
+              "AI evidence extraction timed out for NFC rollout; JobDesk created partial conservative source-grounded drafts for review.",
+            ],
+            initiatives: [],
+          },
+          resultMode: "fallback" as const,
+          status: "completed" as const,
+          text: "NFC Check-In Platform\nBuilt validation infrastructure for station operators.",
+          title: "NFC rollout",
+        },
+      ],
+      sourceId: "run-original",
+      usage: {},
+      version: "profile-evidence-step-runner-v1" as const,
+    };
+
+    const payloads = buildSectionRetryPayloadsFromStepRunnerState(state, {
+      sourceDocumentId: "source-original",
+      sourceLabel: "Jiekun Liu - Resume.docx",
+    });
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]).toMatchObject({
+      note: expect.stringContaining("timed out"),
+      payload: {
+        kind: "section_retry",
+        originalRunId: "run-original",
+        segmentId: "work_experience-1",
+        segmentTitle: "NFC rollout",
+        sourceDocumentId: "source-original",
+      },
+    });
   });
 
   it("falls back to conservative drafts when a chunk returns invalid contract output", async () => {

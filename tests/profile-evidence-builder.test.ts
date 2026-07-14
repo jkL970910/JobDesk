@@ -249,6 +249,42 @@ describe("Evidence Library Builder instructions", () => {
     });
   });
 
+  it("keeps section retry payloads on timed-out extraction notes", () => {
+    const note =
+      "AI evidence extraction timed out for NFC rollout; JobDesk created partial conservative source-grounded drafts for review.";
+    const [task] = buildExtractionNoteEnrichmentTasks({
+      sourceTitle: "Resume import",
+      notes: [note],
+      reviewPayloads: [
+        {
+          note,
+          payload: {
+            kind: "section_retry",
+            confidence: "high",
+            originalRunId: "run-original",
+            segmentId: "work_experience-1",
+            segmentKind: "work_experience",
+            segmentText: "NFC rollout source text",
+            segmentTextHash: "abc123",
+            segmentTitle: "NFC rollout",
+            sourceDocumentId: "00000000-0000-0000-0000-000000000001",
+            sourceLabel: "Resume import",
+            sourceSnippet: "NFC rollout source text",
+          },
+        },
+      ],
+    });
+
+    expect(task).toMatchObject({
+      expectedAction: "rerun_extraction",
+      noteKind: "extraction_limit",
+      reviewPayload: {
+        kind: "section_retry",
+        segmentId: "work_experience-1",
+      },
+    });
+  });
+
   it("does not route generic project description notes to role summary editing", () => {
     const [task] = buildExtractionNoteEnrichmentTasks({
       sourceTitle: "Resume import",

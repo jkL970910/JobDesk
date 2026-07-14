@@ -65,6 +65,7 @@ const StepRunnerSegment = z.object({
   id: z.string(),
   kind: z.enum(["work_experience", "projects"]),
   result: z.unknown().optional(),
+  resultMode: z.enum(["provider", "fallback"]).optional(),
   status: z.enum(["pending", "completed"]),
   text: z.string(),
   title: z.string(),
@@ -81,6 +82,20 @@ const ProfileEvidenceStepRunnerState = z.object({
 });
 
 export type ProfileEvidenceStepRunnerState = z.infer<typeof ProfileEvidenceStepRunnerState>;
+
+export type ProfileEvidenceSectionRetryPayload = {
+  kind: "section_retry";
+  confidence: "high";
+  originalRunId: string;
+  segmentId: string;
+  segmentKind: "work_experience" | "projects";
+  segmentText: string;
+  segmentTextHash: string;
+  segmentTitle: string;
+  sourceDocumentId?: string | null;
+  sourceLabel: string;
+  sourceSnippet: string;
+};
 
 export async function extractProfileEvidenceChunked(params: {
   sourceId: string;
@@ -248,6 +263,7 @@ export async function processNextProfileEvidenceStepRunnerSegment(params: {
         retryCount += error instanceof JobDeskAiError ? error.retryCount : 1;
         return {
           data: buildDeterministicStoryEvidence(segment, params.state.profileResult.work_experiences),
+          resultMode: "fallback" as const,
           retryCount: 0,
           usage: {},
         };
@@ -261,6 +277,7 @@ export async function processNextProfileEvidenceStepRunnerSegment(params: {
         retryCount += error instanceof JobDeskAiError ? error.retryCount : 1;
         return {
           data: buildDeterministicProjectEvidence(segment),
+          resultMode: "fallback" as const,
           retryCount: 0,
           usage: {},
         };
@@ -268,11 +285,13 @@ export async function processNextProfileEvidenceStepRunnerSegment(params: {
 
   mergeUsage(usage, result.usage);
   retryCount += result.retryCount;
+  const resultMode = "resultMode" in result ? result.resultMode : "provider";
   const segments = params.state.segments.map((item, index) =>
     index === pendingIndex
       ? {
           ...item,
           result: result.data,
+          resultMode,
           status: "completed" as const,
         }
       : item,
@@ -314,6 +333,38 @@ export function buildProfileEvidenceExtractionFromStepRunnerState(
     skill: skillRegistry.profileEvidenceExtractionResume,
     usage: state.usage,
   };
+}
+
+export function buildSectionRetryPayloadsFromStepRunnerState(
+  state: ProfileEvidenceStepRunnerState,
+  args: {
+    sourceDocumentId?: string | null;
+    sourceLabel: string;
+  },
+): Array<{ note: string; payload: ProfileEvidenceSectionRetryPayload }> {
+  return state.segments.flatMap((segment) => {
+    if (segment.status !== "completed" || segment.resultMode !== "fallback") return [];
+    const parsed = segment.kind === "work_experience"
+      ? StoryEvidenceExtraction.safeParse(segment.result)
+      : ProjectEvidenceExtraction.safeParse(segment.result);
+    if (!parsed.success) return [];
+    return parsed.data.extraction_notes.map((note) => ({
+      note,
+      payload: {
+        kind: "section_retry" as const,
+        confidence: "high" as const,
+        originalRunId: state.sourceId,
+        segmentId: segment.id,
+        segmentKind: segment.kind,
+        segmentText: segment.text,
+        segmentTextHash: hashSegmentText(segment.text),
+        segmentTitle: segment.title,
+        sourceDocumentId: args.sourceDocumentId ?? null,
+        sourceLabel: args.sourceLabel,
+        sourceSnippet: segment.text.replace(/\s+/g, " ").trim().slice(0, 420),
+      },
+    }));
+  });
 }
 
 export function segmentProfileEvidenceSource(sourceText: string): ProfileEvidenceSourceSegment[] {
@@ -397,6 +448,14 @@ function getProfileEvidenceStepRunnerCandidate(value: unknown) {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
   return record.profileEvidenceStepRunner ?? null;
+}
+
+function hashSegmentText(text: string) {
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
 }
 
 export function buildChunkedProfileEvidenceExtractionForTest(args: {
