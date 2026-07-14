@@ -4602,15 +4602,10 @@ function EvidenceClaimsLibraryView({
         </div>
         <span>{items.length} Evidence Claims</span>
       </div>
-      <section className="evidence-library-toolbar evidence-library-toolbar--local" aria-label="Evidence claim filters">
-        <label className="evidence-library-toolbar__search">
-          <span>Search Evidence Claims</span>
-          <input
-            value={filters.query}
-            onChange={(event) => update({ query: event.target.value })}
-            placeholder="Search claim text, source quote, Work Experience, or Story Target..."
-          />
-        </label>
+      <section
+        className="evidence-library-toolbar evidence-library-toolbar--local evidence-library-toolbar--claims"
+        aria-label="Evidence claim filters"
+      >
         <div className="evidence-library-toolbar__filters">
           <ThemeSelect
             label="Work Experience"
@@ -4635,6 +4630,14 @@ function EvidenceClaimsLibraryView({
             options={[{ label: "All sources", value: "all" }, ...filterOptions.sources]}
             onChange={(source) => update({ source })}
           />
+          <label className="evidence-library-toolbar__search">
+            <span>Search Evidence Claims</span>
+            <input
+              value={filters.query}
+              onChange={(event) => update({ query: event.target.value })}
+              placeholder="Search claim text, source quote, Work Experience, or Story Target..."
+            />
+          </label>
         </div>
       </section>
       <EvidenceList

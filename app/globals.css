@@ -7342,6 +7342,21 @@ select:focus {
   grid-template-columns: repeat(7, minmax(112px, 1fr));
 }
 
+.evidence-library-toolbar--claims .evidence-library-toolbar__filters {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.evidence-library-toolbar--claims .theme-select {
+  flex: 0 1 240px;
+}
+
+.evidence-library-toolbar--claims .evidence-library-toolbar__search {
+  flex: 0 1 clamp(260px, 30vw, 430px);
+  margin-left: auto;
+}
+
 .material-type-picker {
   background: rgba(255, 255, 255, 0.018);
   border: 1px solid rgba(255, 255, 255, 0.065);
